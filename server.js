@@ -81,11 +81,12 @@ const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/c
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { createNativeHistoryCatalog } = require("./server/native-history-catalog");
 const { createCodexPersistedObserver } = require("./server/codex-persisted-observer");
-const { createHarnessUpdateService, loadHarnessUpdateRegistry } = require("./server/harness-update-service");
+const { createHarnessUpdateService, loadHarnessUpdateRegistry, AGENT_SELF_UPDATE_OFF } = require("./server/harness-update-service");
 const { createModelVisibilityStore } = require("./server/model-visibility-store");
 const { createTurnRateStore } = require("./server/turn-rate-store");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { createCodexAutoUpgrade, createHarnessAutoUpgrade } = require("./server/codex-auto-upgrade");
+const { createAgentReleaseGate } = require("./server/agent-release-gate");
 const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
@@ -117,7 +118,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.38";
+const APP_VERSION = "3.8.39";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -125,6 +126,12 @@ function expandHome(value) {
 }
 // server 與 pi 子程序必須使用同一個 HOME，否則 PI_HOME 設定後會讀錯 sessions。
 const APP_HOME = path.resolve(expandHome(process.env.PI_HOME || os.homedir()));
+// The agents Stepsemble starts do not update themselves: it installs only
+// releases it has checked (server/agent-release-gate.js). Each is the agent's
+// own switch, and one already set is left as it is. Grok Build is started
+// with --no-auto-update (server/grok-acp-adapter.js); Claude Code's desktop
+// helper sets its switch for the conversations it starts.
+for (const [name, value] of AGENT_SELF_UPDATE_OFF) if (process.env[name] === undefined) process.env[name] = value;
 // Older automatic updaters replace application files but retain the existing
 // launchd command. Apply installed defaults here as well, so those Macs gain
 // the same native connectors on their first ordinary update. Development and
@@ -2456,6 +2463,14 @@ const agentTasks = createAgentTaskService({
 // mutation so an update cannot silently interrupt a session/account.
 let harnessUpdateService;
 let harnessUpdateRegistry = null;
+// Every other agent is installed only in a release its own check says this
+// Stepsemble supports; the check runs on this Host, in the background, once
+// per release (server/agent-release-gate.js).
+const agentReleaseGate = createAgentReleaseGate({ root: __dirname, appVersion: APP_VERSION, home: APP_HOME, env: process.env,
+  log: (event, detail) => console.log(`[stepsemble] agent release ${event}: ${detail}`),
+  // A release that has just been checked is installed soon after, not at the
+  // next hourly check.
+  onSettled: ({ id }) => harnessAutoUpgrades?.get(id)?.schedule(30 * 1000) });
 try {
   // Codex is updated only to a release this Stepsemble supports; the verdict
   // for each release is kept beside the update state.
@@ -2466,7 +2481,7 @@ try {
     stateFile: HARNESS_UPDATE_STATE_FILE,
     env: { ...process.env, HOME: APP_HOME, USERPROFILE: APP_HOME },
     home: APP_HOME,
-    releaseChecks: { codex: version => codexReleases.check(version) },
+    releaseChecks: { ...agentReleaseGate.releaseChecks(), codex: version => codexReleases.check(version) },
     // After Codex is updated, idle Codex app-servers are started again from
     // the executable now installed, which is checked before use.
     afterUpdate: ({ id }) => id === "codex" ? codexNative.recycleIdle?.({ recheck: true }) : null,
@@ -2514,19 +2529,25 @@ const codexAutoUpgrade = harnessUpdateService ? createCodexAutoUpgrade({
       : `[stepsemble] automatic Codex upgrade: ${event} (${detail || ""})`),
 }) : null;
 // The other agents Stepsemble can upgrade get the same switch: an hourly check
-// installs their newest release while no agent is working, as the Upgrade
-// button does. Hermes is left to be upgraded by hand.
+// installs their newest stable release once this Stepsemble supports it and no
+// agent is working. Hermes is left to be upgraded by hand.
 const AUTO_UPGRADE_EXCLUDED = new Set(["codex", "hermes"]);
 const harnessAutoUpgrades = new Map(codexAutoUpgrade ? [["codex", codexAutoUpgrade]] : []);
 if (harnessUpdateService) {
   for (const entry of harnessUpdateRegistry?.harnesses || []) {
     if (AUTO_UPGRADE_EXCLUDED.has(entry.id) || entry.update?.kind === "manual") continue;
     harnessAutoUpgrades.set(entry.id, createHarnessAutoUpgrade({
-      service: harnessUpdateService, id: entry.id, requireSupported: false,
+      service: harnessUpdateService, id: entry.id,
       settingsFile: path.join(path.dirname(HARNESS_UPDATE_STATE_FILE), `${entry.id}-auto-upgrade.json`),
       stopped: () => !!shutdownState,
+      notify: ({ version, current }) => {
+        if (!readPushSubscriptions().length) return;
+        void deliverPushNotification(null, `${entry.label} ${version} is waiting for Stepsemble`,
+          `${MACHINE_NAME} has waited two days for a Stepsemble that supports it; ${entry.label} stays at ${current || "its current version"} until then.`);
+      },
       log: (event, detail) => console.log(event === "updated" ? `[stepsemble] ${entry.label} upgraded automatically to ${detail}`
-        : `[stepsemble] automatic ${entry.label} upgrade: ${event} (${detail || ""})`),
+        : event === "waiting" ? `[stepsemble] ${entry.label} ${detail} waits for a Stepsemble that supports it`
+          : `[stepsemble] automatic ${entry.label} upgrade: ${event} (${detail || ""})`),
     }));
   }
 }

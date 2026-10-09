@@ -1,7 +1,7 @@
-/* stepsemble v3.8.38 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.39 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.38";
+const CLIENT_APP_VERSION = "3.8.39";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15247,6 +15247,7 @@ function renderHarnessUpdates(data) {
     const support = harnessReleaseSupport(item);
     const release = { harness: item.label || item.id, version: updateVersionText(item.compatibility?.version || item.latestVersion || "") };
     if (support === "unsupported") notes.push(updateText("{harness} {version} changes something Stepsemble uses, so the upgrade waits until Stepsemble supports it.", release));
+    else if (support === "unknown" && item.compatibility?.reason === "checking") notes.push(updateText("Stepsemble is checking whether it supports {harness} {version}. This takes a few minutes.", release));
     else if (support === "unknown") notes.push(updateText("Stepsemble could not check whether it supports {harness} {version}. Check again later.", release));
     else if (support === "supported") notes.push(updateText("Checked: Stepsemble supports {harness} {version}.", release));
     if (kind === "manual" && item.note) notes.push(item.note);

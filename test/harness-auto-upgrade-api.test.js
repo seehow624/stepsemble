@@ -31,8 +31,8 @@ test("every upgradable agent but Hermes has an automatic-upgrade switch on the H
   const ids = Object.keys(status.autoUpgrade).sort();
   assert.deepEqual(ids, ["antigravity", "claude-code", "cline", "codex", "grok-build", "kilo", "omp", "opencode", "pi"]);
   for (const id of ids) assert.equal(status.autoUpgrade[id].enabled, false, id + " is off until turned on");
-  assert.equal(status.autoUpgrade.codex.checksSupport, true);
-  assert.equal(status.autoUpgrade["claude-code"].checksSupport, false);
+  // Each one waits for a release this Stepsemble supports.
+  for (const id of ids) assert.equal(status.autoUpgrade[id].checksSupport, true, id);
 
   // Turned on and off again for one agent; the setting is kept on the Host.
   let response = await request("/api/harness-updates/auto", { id: "claude-code", enabled: true });

@@ -28,6 +28,10 @@ turn with `stopReason: "cancelled"` and the conversation goes on; a command
 that writes a file asks for permission first and runs once allowed; a closed
 conversation loads again with its history (`session/load`) and goes on.
 
+Grok 1.0.46 and later first ask the model for a conversation title, without
+tools, before the turn itself; the permission check reads the request that
+offers the tools, not the first one.
+
 It prints one JSON object: `action: "none"` when the release passed, `"adapt"`
 with the failed check when it did not (exit code 2), `"wait"` when it could not
 be checked.

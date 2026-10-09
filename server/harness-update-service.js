@@ -22,6 +22,16 @@ const SENSITIVE_ENV = new Set([
   "ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
   "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY",
 ]);
+// Each agent's own switch that keeps it from updating itself when Stepsemble
+// starts it (server.js sets them): Claude Code, Google Antigravity, OpenCode.
+// An upgrade Stepsemble runs is the one update meant to happen, so they are
+// left out of its environment.
+const AGENT_SELF_UPDATE_OFF = Object.freeze([["DISABLE_AUTOUPDATER", "1"], ["AGY_CLI_DISABLE_AUTO_UPDATE", "true"], ["OPENCODE_DISABLE_AUTOUPDATE", "1"]]);
+function updateEnvironment(source) {
+  const env = cleanEnvironment(source);
+  for (const [name] of AGENT_SELF_UPDATE_OFF) delete env[name];
+  return env;
+}
 
 function cleanOutput(value) {
   return String(value || "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
@@ -83,6 +93,10 @@ function validateRegistry(registry) {
       }
       if (strategy.verify !== undefined && typeof strategy.verify !== "boolean") {
         throw new Error(`Invalid update verification setting for ${entry.id}`);
+      }
+      // An npm channel other than latest, such as Claude Code's stable.
+      if (strategy.distTag !== undefined && (typeof strategy.distTag !== "string" || !/^[a-z][a-z0-9-]{0,31}$/.test(strategy.distTag))) {
+        throw new Error(`Invalid npm channel for ${entry.id}`);
       }
     }
     if (entry.package !== undefined && (typeof entry.package !== "string" || !/^@?[a-zA-Z0-9._/-]+$/.test(entry.package))) {
@@ -512,7 +526,7 @@ function createHarnessUpdateService({
 
   // The version published to npm, read without touching the installation and
   // compared with the version the installed executable reported.
-  async function observeRegistryVersion(observed, packageName) {
+  async function observeRegistryVersion(observed, packageName, distTag = null) {
     const npm = resolve("npm", env);
     if (!npm || !packageName) {
       observed.status = "unknown";
@@ -520,7 +534,7 @@ function createHarnessUpdateService({
       observed.error = "npm_unavailable";
       return observed;
     }
-    const checked = await runner(npm, ["view", packageName, "version"], {
+    const checked = await runner(npm, ["view", packageName, distTag ? "dist-tags." + distTag : "version"], {
       shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024,
     });
     const latest = checked.code === 0 ? parseVersion(checked.stdout) : null;
@@ -631,7 +645,7 @@ function createHarnessUpdateService({
       // compared against the version the installed executable reported; it is
       // never treated as evidence that npm owns this executable, so the
       // configured update strategy is unaffected.
-      return observeRegistryVersion(observed, check.package);
+      return observeRegistryVersion(observed, check.package, check.distTag || null);
     }
     if (check.kind === "npm-outdated") {
       const npm = resolve("npm", env);
@@ -801,6 +815,13 @@ function createHarnessUpdateService({
 
   async function updateCommand(definition, executable, { target = null } = {}) {
     const strategy = definition.update || {};
+    // "{version}" in an updater's arguments is the release that was checked,
+    // so the updater installs that one and no other.
+    const argsFor = list => {
+      const args = Array.isArray(list) ? list : [];
+      if (args.includes("{version}") && !target) throw errorStatus("release_unknown", `The ${definition.label} release to install is not known; check again`, 422);
+      return args.map(arg => arg === "{version}" ? target : arg);
+    };
     if (strategy.kind === SOURCE_AWARE_STRATEGY) {
       const source = await detectSource(definition, executable, strategy);
       if (source.kind === "homebrew" && source.manager && source.brewPackage) {
@@ -817,15 +838,15 @@ function createHarnessUpdateService({
       }
       if (source.kind === "official-standalone") {
         // Through a wrapper, the saved launcher is the installation itself.
-        return { executable: source.executable || executable, args: Array.isArray(strategy.args) && strategy.args.length ? strategy.args : ["update"], source };
+        return { executable: source.executable || executable, args: Array.isArray(strategy.args) && strategy.args.length ? argsFor(strategy.args) : ["update"], source };
       }
       throw errorStatus("source_unknown", `${definition.label} installation source is unknown`, 422);
     }
-    if (strategy.kind === "command") return { executable, args: Array.isArray(strategy.args) ? strategy.args : [] };
+    if (strategy.kind === "command") return { executable, args: argsFor(strategy.args) };
     if (strategy.kind === "npm-global") {
       const npm = resolve("npm", env);
       if (!npm || !definition.package) return null;
-      return { executable: npm, args: ["install", "--global", `${definition.package}@latest`] };
+      return { executable: npm, args: ["install", "--global", `${definition.package}@${target || "latest"}`] };
     }
     if (strategy.kind === "brew-or-command") {
       const brew = resolve("brew", env);
@@ -835,7 +856,7 @@ function createHarnessUpdateService({
         });
         if (listed.code === 0 && String(listed.stdout || "").trim()) return { executable: brew, args: ["upgrade", strategy.package] };
       }
-      return { executable, args: Array.isArray(strategy.args) ? strategy.args : [] };
+      return { executable, args: argsFor(strategy.args) };
     }
     return null;
   }
@@ -898,7 +919,7 @@ function createHarnessUpdateService({
     const beforeVersion = verify ? await readHarnessVersion(executable) : null;
     const startedAt = now(clock);
     const result = await runner(command.executable, command.args, {
-      shell: false, cwd: home, env: cleanEnvironment(env), timeout: UPDATE_TIMEOUT_MS, maxBuffer: 512 * 1024,
+      shell: false, cwd: home, env: updateEnvironment(env), timeout: UPDATE_TIMEOUT_MS, maxBuffer: 512 * 1024,
     });
     const afterVersion = verify && result.code === 0 ? await readHarnessVersion(executable) : null;
     // Strategies without mandatory verification still get a best-effort
@@ -1012,4 +1033,4 @@ function loadHarnessUpdateRegistry(file) {
   return validateRegistry(readJson(file));
 }
 
-module.exports = { createHarnessUpdateService, loadHarnessUpdateRegistry, validateRegistry, cleanEnvironment, parseVersion, isNewer };
+module.exports = { createHarnessUpdateService, loadHarnessUpdateRegistry, validateRegistry, cleanEnvironment, parseVersion, isNewer, AGENT_SELF_UPDATE_OFF };

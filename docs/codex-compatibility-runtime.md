@@ -293,8 +293,8 @@ switch is turned on again. Codex's own updater may install a release first;
 the runtime check then decides, as for any installed Codex.
 
 The other agents Stepsemble can upgrade, except Hermes, have the same switch;
-they take the newest release, as the Upgrade button does
-(`docs/harness-updates.md`).
+each is installed only in a stable release its own release check passes
+(`docs/agent-release-checks.md`, `docs/harness-updates.md`).
 
 ## Reviewing a new Codex release
 

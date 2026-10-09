@@ -411,28 +411,30 @@ test("Hermes reads its version and gets the time its update check needs", async 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("Oh My Pi's own update check tells a newer release from an up to date one", async () => {
+test("Oh My Pi's release is read from its npm package, and omp update installs it", async () => {
   assert.equal(parseVersion("omp/18.6.1"), "18.6.1");
   assert.equal(parseVersion("error: /tmp/18.6.1"), null);
   const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
   const omp = registry.harnesses.find(item => item.id === "omp");
-  assert.deepEqual([omp.executableEnv, omp.check.args, omp.update.args], ["STEPSEMBLE_OMP_BIN", ["update", "--check"], ["update"]]);
-  for (const [stdout, status] of [
-    ["Current version: 18.6.1\n✔ Already up to date", "up-to-date"],
-    ["Current version: 18.6.1\nNew version available: 18.7.0", "available"],
+  assert.deepEqual([omp.executableEnv, omp.check.kind, omp.check.package, omp.update.args], ["STEPSEMBLE_OMP_BIN", "registry-version", "@oh-my-pi/pi-coding-agent", ["update"]]);
+  for (const [published, status] of [
+    ["18.6.1\n", "up-to-date"],
+    ["18.7.0\n", "available"],
   ]) {
     const { root, file } = tempState();
+    const calls = [];
     const service = createHarnessUpdateService({
       registry: { ...registry, harnesses: [omp] },
       stateFile: file, env: { PATH: "/fake", HOME: root },
-      resolve: name => name === "omp" ? "/fake/omp" : null,
-      runner: async (command, args) => args[0] === "--version"
+      resolve: name => name === "omp" ? "/fake/omp" : name === "npm" ? "/fake/npm" : null,
+      runner: async (command, args) => { calls.push([command, ...args]); return args[0] === "--version"
         ? { code: 0, stdout: "omp/18.6.1", stderr: "" }
-        : { code: 0, stdout, stderr: "" },
+        : { code: 0, stdout: published, stderr: "" }; },
       busy: () => false,
     });
     const row = (await service.check({ id: "omp" })).harnesses[0];
     assert.deepEqual([row.currentVersion, row.status], ["18.6.1", status]);
+    assert.deepEqual(calls, [["/fake/omp", "--version"], ["/fake/npm", "view", "@oh-my-pi/pi-coding-agent", "version"]], "the installation is not touched");
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -906,4 +908,58 @@ test("web-version reads the release a vendor's page names, and the updater runs 
   for (const check of [{ kind: "web-version", url: "http://updater.example/", pattern: "(1)" }, { kind: "web-version", url: "https://updater.example/", pattern: "(" }, { kind: "web-version", url: "https://updater.example/" }]) {
     assert.throws(() => createHarnessUpdateService({ registry: { registryVersion: 1, harnesses: [{ ...definition, check }] } }), /Invalid release page/);
   }
+});
+
+test("an agent is upgraded to exactly the stable release its check passed, with its own updater switch lifted", async () => {
+  const { root, file } = tempState();
+  const calls = [];
+  let installed = "2.1.283";
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const claude = registry.harnesses.find(item => item.id === "claude-code");
+  const pi = registry.harnesses.find(item => item.id === "pi");
+  const verdicts = [];
+  const service = createHarnessUpdateService({
+    registry: { ...registry, harnesses: [claude, pi] }, stateFile: file,
+    env: { PATH: "/fake", HOME: root, DISABLE_AUTOUPDATER: "1", AGY_CLI_DISABLE_AUTO_UPDATE: "true", OPENCODE_DISABLE_AUTOUPDATE: "1" },
+    resolve: name => ({ claude: "/fake/claude", npm: "/fake/npm", pi: "/fake/pi" })[name] || null,
+    releaseChecks: { "claude-code": version => { verdicts.push(version); return { state: "supported", version }; },
+      pi: version => ({ state: version === "1.2.0" ? "supported" : "unknown", version, reason: "checking" }) },
+    runner: async (command, args, options) => {
+      calls.push({ command, args, env: options.env });
+      if (command === "/fake/claude" && args[0] === "--version") return { code: 0, stdout: installed + " (Claude Code)", stderr: "" };
+      if (command === "/fake/claude" && args[0] === "install") { installed = args[1]; return { code: 0, stdout: "installed", stderr: "" }; }
+      if (command === "/fake/pi") return { code: 0, stdout: "1.1.0", stderr: "" };
+      // Claude Code's stable channel, not latest.
+      if (command === "/fake/npm" && args[0] === "view") return { code: 0, stdout: args[2] === "dist-tags.stable" ? "2.1.286\n" : "2.1.295\n", stderr: "" };
+      if (command === "/fake/npm" && args[0] === "outdated") return { code: 1, stdout: JSON.stringify({ "@earendil-works/pi-coding-agent": { current: "1.1.0", wanted: "1.2.0", latest: "1.2.0" } }), stderr: "" };
+      if (command === "/fake/npm" && args[0] === "install") return { code: 0, stdout: "", stderr: "" };
+      return { code: 1, stdout: "", stderr: "unexpected" };
+    },
+    busy: () => false,
+  });
+  const row = (await service.check({ id: "claude-code" })).harnesses[0];
+  assert.deepEqual([row.latestVersion, row.compatibility.state], ["2.1.286", "supported"]);
+  const result = await service.update({ id: "claude-code", confirm: true });
+  const install = calls.find(call => call.args[0] === "install");
+  assert.deepEqual(install.args, ["install", "2.1.286"]);
+  assert.equal(result.updated.versionAfter, "2.1.286");
+  for (const name of ["DISABLE_AUTOUPDATER", "AGY_CLI_DISABLE_AUTO_UPDATE", "OPENCODE_DISABLE_AUTOUPDATE"]) assert.equal(install.env[name], undefined, name);
+  // Pi through npm, pinned to the release that was checked.
+  await service.update({ id: "pi", confirm: true });
+  assert.deepEqual(calls.find(call => call.command === "/fake/npm" && call.args[0] === "install").args, ["install", "--global", "@earendil-works/pi-coding-agent@1.2.0"]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("an upgrade waits while the release is still being checked", async () => {
+  const { root, file } = tempState();
+  const service = createHarnessUpdateService({
+    registry: { registryVersion: 1, harnesses: [{ id: "vendor", label: "Vendor", commands: ["vendor"], check: { kind: "registry-version", package: "vendor" }, update: { kind: "command", args: ["install", "{version}"] } }] },
+    stateFile: file, env: { PATH: "/fake", HOME: root },
+    resolve: name => ({ vendor: "/fake/vendor", npm: "/fake/npm" })[name] || null,
+    releaseChecks: { vendor: version => ({ state: "unknown", version, reason: "checking" }) },
+    runner: async (command, args) => args[0] === "--version" ? { code: 0, stdout: "vendor 1.0.0", stderr: "" } : { code: 0, stdout: "1.1.0\n", stderr: "" },
+    busy: () => false,
+  });
+  await assert.rejects(service.update({ id: "vendor", confirm: true }), error => error.code === "release_unchecked" && error.compatibility.reason === "checking");
+  fs.rmSync(root, { recursive: true, force: true });
 });

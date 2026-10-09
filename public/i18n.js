@@ -1864,6 +1864,22 @@
   };
   TRANSLATIONS.en[HARNESS_AUTO_NEWEST] = HARNESS_AUTO_NEWEST;
   for (const [id, text] of Object.entries(HARNESS_AUTO_NEWEST_TRANSLATIONS)) if (TRANSLATIONS[id]) TRANSLATIONS[id][HARNESS_AUTO_NEWEST] = text;
+  // A release whose check is running on this device.
+  const HARNESS_CHECKING = "Stepsemble is checking whether it supports {harness} {version}. This takes a few minutes.";
+  const HARNESS_CHECKING_TRANSLATIONS = {
+    "zh-Hant": "Stepsemble 正在確認是否支援 {harness} {version}，需要幾分鐘。",
+    "zh-Hans": "Stepsemble 正在确认是否支持 {harness} {version}，需要几分钟。",
+    "ja": "Stepsemble が {harness} {version} に対応しているか確認しています。数分かかります。",
+    "ko": "Stepsemble이 {harness} {version}을(를) 지원하는지 확인하고 있습니다. 몇 분 걸립니다.",
+    "tr": "Stepsemble, {harness} {version} sürümünü destekleyip desteklemediğini kontrol ediyor. Birkaç dakika sürer.",
+    "fr": "Stepsemble vérifie s’il prend en charge {harness} {version}. Cela prend quelques minutes.",
+    "de": "Stepsemble prüft, ob es {harness} {version} unterstützt. Das dauert ein paar Minuten.",
+    "es": "Stepsemble está comprobando si admite {harness} {version}. Tarda unos minutos.",
+    "pt-BR": "O Stepsemble está verificando se é compatível com {harness} {version}. Leva alguns minutos.",
+    "it": "Stepsemble sta verificando se supporta {harness} {version}. Richiede qualche minuto.",
+  };
+  TRANSLATIONS.en[HARNESS_CHECKING] = HARNESS_CHECKING;
+  for (const [id, text] of Object.entries(HARNESS_CHECKING_TRANSLATIONS)) if (TRANSLATIONS[id]) TRANSLATIONS[id][HARNESS_CHECKING] = text;
 
   // Settings sections, check-only Stepsemble updates and coding-agent rows.
   // Keyed by the English source like the other chrome tables.

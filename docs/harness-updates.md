@@ -20,9 +20,10 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 | Harness | 檢查來源 | 升級方式 | 備註 |
 | --- | --- | --- | --- |
 | Codex CLI | 依已安裝來源檢查 Homebrew／npm；官方 standalone 只讀版本 | 保留來源：Homebrew `brew upgrade codex`、npm `npm install --global @openai/codex@latest`、官方 standalone `codex update` | OpenAI 官方安裝器的更新命令是同一個 standalone installer；Codex CLI 目前沒有穩定的 `update --check`，所以 standalone 狀態顯示 unknown。升級後會重新讀取 `codex --version`；未知來源不會執行更新 |
-| Claude Code | `npm view @anthropic-ai/claude-code version`（只讀發佈版本） | `claude update` | 官方 updater 沒有 dry-run；升級後重新讀取版本，若仍落後會繼續顯示可更新 |
-| OpenCode | Homebrew `brew outdated --json=v2 opencode`（讀 `current_version`、接受 tap 全名如 `anomalyco/tap/opencode`、有新版時 exit 1 仍是正常回答）；非 Homebrew 安裝時比對 npm `opencode-ai` 的發佈版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
-| Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@latest` | 只更新明確的 Pi package |
+| Claude Code | `npm view @anthropic-ai/claude-code dist-tags.stable`（Anthropic 的穩定版通道，只讀發佈版本） | `claude install <版本>`，裝的正是檢查過的那一版 | 不用 `latest`／`next`；`claude update` 會照 Claude 自己的通道設定裝最新版，所以不用。升級後重新讀取版本 |
+| OpenCode | Homebrew `brew outdated --json=v2 opencode`（讀 `current_version`、接受 tap 全名如 `anomalyco/tap/opencode`、有新版時 exit 1 仍是正常回答）；非 Homebrew 安裝時比對 npm `opencode-ai` 的發佈版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade <版本>` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
+| Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@<版本>` | 只更新明確的 Pi package |
+| Oh My Pi | `npm view @oh-my-pi/pi-coding-agent version`（只讀發佈版本） | `omp update` | 照 omp 原本的安裝方式（Bun 或 standalone）更新；裝到的版本和檢查過的不同時，會再確認支援 |
 | Hermes Agent | `hermes update --check`（會 git fetch，時間上限 55 秒） | `hermes update --yes --backup` | Hermes 自己的備份旗標會保留 rollback 資料；版本從「Hermes Agent v0.21.5」這種多字名稱讀出 |
 | Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@latest` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
 | Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
@@ -42,15 +43,20 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 
 ## 自動升級
 
-更新頁上每個可升級的 agent 都有「自動升級」開關，各台主機分開設定，預設關閉。打開後，主機大約每小時檢查一次有沒有新版；有新版而且沒有 agent 在工作時，就用和 Upgrade 按鈕相同的方式升級，有 agent 在工作就 10 分鐘後再試。同一個版本裝失敗三次就不再試，直到開關重新打開。主機啟動後，Codex 在 2 分鐘時先檢查，其他 agent 從第 3 分鐘起每隔一分鐘依序檢查，避免同時開始。
+更新頁上每個可升級的 agent 都有「自動升級」開關，各台主機分開設定，預設關閉。打開後，主機大約每小時檢查一次有沒有新的**穩定版**；有新版、這個 Stepsemble 支援它，而且沒有 agent 在工作時，就用和 Upgrade 按鈕相同的方式升級；有 agent 在工作就 10 分鐘後再試。同一個版本裝失敗三次就不再試，直到開關重新打開。主機啟動後，Codex 在 2 分鐘時先檢查，其他 agent 從第 3 分鐘起每隔一分鐘依序檢查，避免同時開始。
 
-- **Codex**：只升級到 Stepsemble 支援的版本（見 `docs/codex-compatibility-runtime.md` 的「Automatic Codex upgrades」），設定存在 `~/.config/stepsemble/codex-auto-upgrade.json`。
-- **Claude Code、OpenCode、Pi、Oh My Pi、Cline、Kilo、Grok Build、Antigravity**：沒有「是否支援」的檢查，直接升級到最新版，和按 Upgrade 一樣；設定存在 `~/.config/stepsemble/<id>-auto-upgrade.json`。
+「支援」怎麼決定：
+
+- **Codex**：比對 Codex 公開的 app-server 契約（見 `docs/codex-compatibility-runtime.md` 的「Automatic Codex upgrades」）。
+- **Claude Code、Grok Build、Pi、Antigravity、OpenCode、Cline、Kilo、Oh My Pi**：每個 agent 的 release check（`docs/agent-release-checks.md`）在這台主機上、在暫存資料夾裡實際跑一次那個新版，結果存在 `~/.config/stepsemble/<名稱>-release-checks.json`（`server/agent-release-gate.js`）。通過才算支援；沒通過就等，等到每天早上的檢查修好 Stepsemble、發布新版、兩台更新之後，新的 Stepsemble 會再檢查一次，通過了才升級。檢查在背景一次跑一個，跑完 30 秒內就會升級。
+- **只裝穩定版**：版本號後面帶任何東西（`-beta`、`-rc`、`-nightly`、`-dev`）的一律不裝；各 agent 讀的也都是它的穩定通道（Claude Code 的 `stable`、npm 的 `latest`、xAI 的 stable、Antigravity 推送到 100% 的版本）。可以指定版本的 updater 會裝剛好檢查過的那一版。
 - **Hermes** 刻意不提供自動升級，仍需手動按 Upgrade。
+
+Stepsemble 啟動 agent 時會關掉它們自己的自動更新，免得它們自己換成還沒檢查過的版本：Claude Code `DISABLE_AUTOUPDATER=1`（Mac 上由 Claude 桌面助手設定）、Antigravity `AGY_CLI_DISABLE_AUTO_UPDATE=true`（`=1` 不算數，2026-10-10 實測）、OpenCode `OPENCODE_DISABLE_AUTOUPDATE=1`、Grok Build `--no-auto-update`。Stepsemble 自己跑升級時會拿掉這些變數。在終端機直接開這些 agent 不受影響，它們照自己的設定更新；Cline、Kilo、Oh My Pi 沒有已知的關閉方式。
 
 Gemini CLI 不在清單裡：2026-06-18 起它不再接受個人 Google 帳號，Google 把這些使用者轉到 Antigravity CLI（`agy`），所以 Stepsemble 只支援 Antigravity。
 
-`GET /api/harness-updates/status` 的 `autoUpgrade` 會列出每個開關的狀態（`enabled`、最近一次結果 `last`、`checksSupport` 表示是否先檢查 Stepsemble 支援）。
+`GET /api/harness-updates/status` 的 `autoUpgrade` 會列出每個開關的狀態（`enabled`、最近一次結果 `last`、`checksSupport` 表示是否先檢查 Stepsemble 支援），檢查中的版本 `compatibility.reason` 是 `checking`。
 
 ## 背景相容性監測
 

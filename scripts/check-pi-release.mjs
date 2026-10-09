@@ -15,12 +15,12 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { APP_VERSION, recordFileFor } from "./agent-release-lib.mjs";
 
 const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = "@earendil-works/pi-coding-agent";
-const recordFile = process.env.STEPSEMBLE_PI_RELEASE_CHECKS
-  || path.join(os.homedir(), ".config", "stepsemble", "pi-release-checks.json");
+const recordFile = process.env.STEPSEMBLE_PI_RELEASE_CHECKS || recordFileFor("pi");
 const args = process.argv.slice(2);
 const force = args.includes("--force");
 const requested = args.find(arg => !arg.startsWith("--")) || null;
@@ -76,7 +76,7 @@ try {
   try { result = JSON.parse(out); } catch { result = { result: "failed", error: String(error.message || error).slice(0, 400) }; }
 }
 const passed = result.result === "passed";
-const entryRecord = { result: passed ? "passed" : "failed", checkedAt: new Date().toISOString(), artifact: spec, integrity,
+const entryRecord = { result: passed ? "passed" : "failed", checkedAt: new Date().toISOString(), artifact: spec, integrity, stepsemble: APP_VERSION,
   checks: result.checks || {}, ...(result.error ? { error: String(result.error).slice(0, 600) } : {}) };
 writeRecord(version, entryRecord);
 finish(passed ? 0 : 2, { action: passed ? "none" : "adapt", state: passed ? "passed" : "failed", version, installed, ...entryRecord, ...(result.debug ? { debug: result.debug } : {}) });

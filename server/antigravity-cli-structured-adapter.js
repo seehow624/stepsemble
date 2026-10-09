@@ -43,19 +43,29 @@ function safeText(value, limit = 64 * 1024) {
 
 function normalizeAntigravityEvent(value) {
   const event = bounded(value);
-  if (!plain(event) || typeof event.type !== "string" || !(TYPES.has(event.type) || EVENT_TYPE.test(event.type))) return null;
-  const conversationId = event.conversation_id === undefined
-    ? null : safeId(event.conversation_id);
-  if (event.conversation_id !== undefined && !conversationId) return null;
+  if (!plain(event)) return null;
+  // agy names an event's kind in "event" and puts its fields, with the
+  // conversation's id, under a key of that name: {"event":"result",
+  // "result":{"conversation_id":…,"status":…}} (antigravity.google/docs/cli/headless).
+  // An event written with "type" and top-level fields is read the same way.
+  const kind = typeof event.type === "string" ? event.type : typeof event.event === "string" ? event.event : null;
+  if (!kind || !(TYPES.has(kind) || EVENT_TYPE.test(kind))) return null;
+  const payload = plain(event[kind]) ? event[kind] : null;
+  const rawConversation = event.conversation_id ?? payload?.conversation_id;
+  // A run that failed before it began (signed out) names no conversation.
+  const conversationId = rawConversation === undefined || rawConversation === null || rawConversation === ""
+    ? null : safeId(rawConversation);
+  if (rawConversation !== undefined && rawConversation !== null && rawConversation !== "" && !conversationId) return null;
   const eventIdValue = event.event_id ?? event.eventId ?? event.id;
   const eventId = eventIdValue === undefined || eventIdValue === null ? null : safeId(eventIdValue);
   if (eventIdValue !== undefined && eventIdValue !== null && !eventId) return null;
   // A status this Host does not know reads as a plain result.
-  const status = event.type === "result" && event.status !== undefined ? String(event.status).toUpperCase() : null;
+  const statusValue = event.status ?? payload?.status;
+  const status = kind === "result" && statusValue !== undefined ? String(statusValue).toUpperCase() : null;
   const resultStatus = status && RESULT_STATUSES.has(status) ? status : null;
   return {
     ...event,
-    type: event.type,
+    type: kind,
     conversationId,
     eventId,
     resultStatus,

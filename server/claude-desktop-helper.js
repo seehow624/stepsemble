@@ -15,6 +15,9 @@ const { buildClaudeStructuredArgs, claudeSupportsBypass, existingGatewaySettings
 const BYPASS_VERSION = 1;
 // Branching a conversation (structured/prepare with fork).
 const FORK_VERSION = 1;
+// Claude starts with its own updater off (DISABLE_AUTOUPDATER): Stepsemble
+// installs only Claude Code releases it has checked.
+const PINNED_VERSION = 1;
 const { claudeSessionEnvOverrides } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
@@ -71,7 +74,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   const structuredLaunches = new Set();
   let structuredLaunching = 0;
   let maintenance = null;
-  const taskEnv = { ...env, HOME: home };
+  const taskEnv = { ...env, HOME: home, DISABLE_AUTOUPDATER: "1" };
   const auth = authFactory({ home, env: taskEnv, resolveExecutable: () => claudeCommand,
     hasActiveTasks: () => recoveryRequired || launching || activeTasks || structuredChildren.size > 0 || structuredLaunching > 0 || terminalAuthBusy() });
   // The conversation terminal's Claude commands (/login, /logout, /status).
@@ -258,7 +261,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     // Stepsemble's Claude gateway switch (claude-gateway.json) applies to the
     // sessions launched from this desktop helper too, mirroring the direct
     // spawn path in server.js.
-    const taskEnv = { ...env, HOME: home, ...claudeSessionEnvOverrides(home) };
+    const taskEnv = { ...env, HOME: home, DISABLE_AUTOUPDATER: "1", ...claudeSessionEnvOverrides(home) };
     let command, args;
     try {
       command = await fs.realpath(claudeCommand);
@@ -349,12 +352,12 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
           : op === "auth/start" || op === "auth/cancel" ? ["id"] : [])) throw failure("invalid_request");
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION,
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION,
       activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Checks the newest Claude Code release against what Stepsemble relies on,
+// Checks the newest stable Claude Code release against what Stepsemble relies on,
 // once per release. Downloads the official npm artifact for this platform,
 // runs scripts/check-native-claude-release.mjs against it (a local fake
 // model; no account or paid request) and keeps the verdict in
@@ -16,11 +16,11 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { APP_VERSION, recordFileFor } from "./agent-release-lib.mjs";
 
 const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const recordFile = process.env.STEPSEMBLE_CLAUDE_RELEASE_CHECKS
-  || path.join(os.homedir(), ".config", "stepsemble", "claude-release-checks.json");
+const recordFile = process.env.STEPSEMBLE_CLAUDE_RELEASE_CHECKS || recordFileFor("claude");
 const PLATFORMS = { "darwin-arm64": "darwin-arm64", "darwin-x64": "darwin-x64", "linux-x64": "linux-x64", "linux-arm64": "linux-arm64" };
 const args = process.argv.slice(2);
 const force = args.includes("--force");
@@ -46,7 +46,9 @@ function writeRecord(version, entry) {
 
 let version = requested;
 try {
-  if (!version) version = JSON.parse((await run("npm", ["view", "@anthropic-ai/claude-code", "dist-tags", "--json"], { timeout: 60000 })).stdout).latest;
+  // Claude Code's stable channel, which Anthropic tags stable; latest and
+  // next come first and are left out.
+  if (!version) version = JSON.parse((await run("npm", ["view", "@anthropic-ai/claude-code", "dist-tags", "--json"], { timeout: 60000 })).stdout).stable;
 } catch (error) { finish(1, { action: "wait", state: "npm_unavailable", error: String(error.message || error).slice(0, 200) }); }
 if (!/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(version))) finish(1, { action: "wait", state: "version_unrecognized", version });
 let installed = null;
@@ -77,7 +79,7 @@ try {
   try { result = JSON.parse(out); } catch { result = { result: "failed", error: String(error.message || error).slice(0, 400) }; }
 }
 const passed = result.result === "passed";
-const entry = { result: passed ? "passed" : "failed", checkedAt: new Date().toISOString(), artifact: spec, archiveSha256,
+const entry = { result: passed ? "passed" : "failed", checkedAt: new Date().toISOString(), artifact: spec, archiveSha256, stepsemble: APP_VERSION,
   checks: result.checks || {}, ...(result.error ? { error: String(result.error).slice(0, 600) } : {}) };
 writeRecord(version, entry);
 finish(passed ? 0 : 2, { action: passed ? "none" : "adapt", state: passed ? "passed" : "failed", version, installed, ...entry, ...(result.debug ? { debug: result.debug } : {}) });

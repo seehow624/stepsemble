@@ -147,8 +147,11 @@ try {
   await check("permission", async () => {
     const asked = permissionsSeen.length;
     const { rows } = await turn(adapter, id, "TOOL-WRITE", { timeout: 90000 });
-    assert(rows[0]?.toolNames?.length, "Grok offered no tools");
-    assert(permissionsSeen.length > asked, "the command ran without asking; tools " + rows[0].toolNames.join(","));
+    // Grok 1.0.46 and later first ask the model for a title, without tools;
+    // the turn's own request is the one that offers them.
+    const offered = rows.find(row => row.toolNames?.length);
+    assert(offered, "Grok offered no tools");
+    assert(permissionsSeen.length > asked, "the command ran without asking; tools " + offered.toolNames.join(","));
     assert(rows.some(row => row.toolResult), "the command's result never reached the model");
     const written = await fs.readFile(path.join(project, "tool-ok.txt"), "utf8").catch(() => "");
     assert.equal(written.trim(), "tool-ok", "the allowed command did not run: " + rows.map(row => row.toolOutput).filter(Boolean).join(" ").slice(0, 300));

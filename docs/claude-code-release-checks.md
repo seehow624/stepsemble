@@ -9,8 +9,11 @@ find where a branch ends. Claude Code 2.1.281 broke one of these: it reported
 the progress of a long command with an event Stepsemble did not know, and the
 conversation was stopped.
 
-`npm run -s check:claude-release [version]` checks the newest release (or the one
-named) once:
+`npm run -s check:claude-release [version]` checks the newest release on Claude
+Code's stable channel, the one npm tags `stable` (or the one named), once.
+Stepsemble installs only that channel: an upgrade runs `claude install <version>`
+for the release that passed, and the Claude it starts has its own updater off
+(`DISABLE_AUTOUPDATER=1`). The check:
 
 - it downloads the official npm artifact for this platform
   (`@anthropic-ai/claude-code-<platform>@<version>`);

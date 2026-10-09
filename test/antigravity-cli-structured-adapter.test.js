@@ -68,3 +68,27 @@ test("Antigravity approval observations remain bounded and cannot become an ACK"
   assert.equal(session.pendingPermissions()[0].requestId, "approval-1");
   assert.equal(session.acknowledgePermission("approval-1", "allow").code, "antigravity_permission_requires_native_ui");
 });
+
+test("Antigravity's own stream, as its docs show it, is read: the kind in event, the conversation in the payload", () => {
+  // antigravity.google/docs/cli/headless, Streaming JSON.
+  const events = [];
+  const parser = createAntigravityStructuredParser({ onEvent: event => events.push(event) });
+  const id = "c3b66b04-872b-4fbe-a3a4-058a026ef20a";
+  for (const line of [
+    { event: "init", conversation_id: id, init: { cwd: "/home/user/project", tools: ["run_command"], permission_mode: "request-review" } },
+    { event: "step_update", step_update: { conversation_id: id, step_index: 0, state: "DONE", step_type: "user_input" } },
+    { event: "step_update", step_update: { conversation_id: id, step_index: 3, state: "DONE", step_type: "agent_response", text_delta: "Git rebase rewrites history." } },
+    { event: "result", result: { conversation_id: id, status: "SUCCESS", response: "Git rebase rewrites history.", num_turns: 1 } },
+  ]) parser.push(JSON.stringify(line) + "\n");
+  const status = parser.status();
+  assert.deepEqual(events.map(event => event.type), ["init", "step_update", "step_update", "result"]);
+  assert.equal(status.conversationId, id);
+  assert.equal(status.result.resultStatus, "SUCCESS");
+  assert.equal(status.skippedEvents, 0);
+  assert.match(parser.text(), /Git rebase rewrites history/);
+  // Signed out, agy ends at once with a result naming no conversation.
+  const signedOut = normalizeAntigravityEvent({ event: "result", result: { conversation_id: "", status: "ERROR", error: "authentication failed or timed out" } });
+  assert.deepEqual([signedOut.type, signedOut.resultStatus, signedOut.conversationId], ["result", "ERROR", null]);
+  // A conversation id that is not one is still refused.
+  assert.equal(normalizeAntigravityEvent({ event: "result", result: { conversation_id: "../../x", status: "SUCCESS" } }), null);
+});

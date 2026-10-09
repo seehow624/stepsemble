@@ -16,11 +16,11 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { APP_VERSION, recordFileFor } from "./agent-release-lib.mjs";
 
 const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const recordFile = process.env.STEPSEMBLE_GROK_RELEASE_CHECKS
-  || path.join(os.homedir(), ".config", "stepsemble", "grok-release-checks.json");
+const recordFile = process.env.STEPSEMBLE_GROK_RELEASE_CHECKS || recordFileFor("grok");
 // The download hosts and platform names of xAI's installer (https://x.ai/cli/install.sh).
 const BASES = ["https://x.ai/cli", "https://storage.googleapis.com/grok-build-public-artifacts/cli"];
 const PLATFORMS = { "darwin-arm64": "macos-aarch64", "darwin-x64": "macos-x86_64", "linux-x64": "linux-x86_64", "linux-arm64": "linux-aarch64" };
@@ -96,7 +96,7 @@ try {
   try { result = JSON.parse(out); } catch { result = { result: "failed", error: String(error.message || error).slice(0, 400) }; }
 }
 const passed = result.result === "passed";
-const entry = { result: passed ? "passed" : "failed", checkedAt: new Date().toISOString(), artifact, archiveSha256,
+const entry = { result: passed ? "passed" : "failed", checkedAt: new Date().toISOString(), artifact, archiveSha256, stepsemble: APP_VERSION,
   checks: result.checks || {}, ...(result.error ? { error: String(result.error).slice(0, 600) } : {}) };
 writeRecord(version, entry);
 finish(passed ? 0 : 2, { action: passed ? "none" : "adapt", state: passed ? "passed" : "failed", version, installed, ...entry, ...(result.debug ? { debug: result.debug } : {}) });
