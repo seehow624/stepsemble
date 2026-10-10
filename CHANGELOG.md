@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.44
+
+- Fix Codex message sending when restoring a long conversation after a Host restart. The resume response includes reconstructed history and now uses the same bounded 8 MiB budget as other native history responses, instead of being rejected at 1 MiB.
+- Add regressions that restore a 3 MB conversation and continue its next turn, reject resume responses above 8 MiB, and retain the ordinary 1 MiB limit for unrelated responses.
+
 ## 3.8.43
 
 - Reload the macOS Host's LaunchAgent around signed App replacement, including updates started by an older updater. Preserve the Mac's signing identity and recover the previous App if replacement or reload fails.

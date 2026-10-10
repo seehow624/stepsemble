@@ -521,6 +521,65 @@ test("Codex history responses use their bounded 8 MiB budget instead of the ordi
   assert.equal(transport.state().failure, null);
 });
 
+test("Codex resume restores a long conversation within the history frame budget", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("long-resume") });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.162.1" } });
+  await initializing; await writes.next();
+
+  const resumed = transport.resumeThread({ threadId: "thread-long-resume" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/resume");
+  const historyText = "A".repeat(3_000_000);
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: {
+    id: "thread-long-resume", status: { type: "idle", activeFlags: [] },
+    turns: [{ id: "turn-history", status: "completed", items: [{ id: "item-history", type: "commandExecution", aggregatedOutput: historyText }] }],
+  } } });
+  const result = await resumed;
+  assert.equal(result.kind, "resumed");
+  assert.equal(result.response.thread.turns[0].items[0].aggregatedOutput, historyText);
+  assert.equal(transport.state().state, "thread_started");
+  assert.equal(transport.state().threadId, "thread-long-resume");
+  assert.equal(transport.state().failure, null);
+
+  const starting = transport.startTurn([{ type: "text", text: "continue" }]);
+  request = await writes.next();
+  assert.equal(request.method, "turn/start");
+  assert.equal(request.params.threadId, "thread-long-resume");
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { turn: { id: "turn-next", status: "inProgress", items: [] } } });
+  assert.equal((await starting).kind, "started");
+});
+
+test("Codex resume keeps the 8 MiB history cap and ordinary responses keep the 1 MiB cap", async t => {
+  for (const method of ["thread/resume", "account/rateLimits/read"]) {
+    const child = new FakeNativeProcess();
+    const writes = readFrames(child);
+    const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("capped-resume") });
+    t.after(() => transport.close());
+    const initializing = transport.initialize();
+    let request = await writes.next();
+    frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.162.1" } });
+    await initializing; await writes.next();
+
+    const resumed = method === "thread/resume";
+    const pending = resumed ? transport.resumeThread({ threadId: "thread-capped-resume" }) : transport.rateLimits();
+    const rejected = assert.rejects(pending, error => error.code === "native_frame_invalid");
+    request = await writes.next();
+    assert.equal(request.method, method);
+    const padding = "A".repeat(resumed ? 8 * 1024 * 1024 : 1_100_000);
+    const result = resumed ? { thread: { id: "thread-capped-resume", status: { type: "idle", activeFlags: [] }, turns: [], padding } } : { padding };
+    frame(child, { jsonrpc: "2.0", id: request.id, result });
+    await rejected;
+    assert.equal(transport.state().failure, "native_frame_invalid");
+    assert.equal(transport.state().threadId, null);
+    assert.equal(child.killed, true);
+  }
+});
+
 test("Codex native approval validator rejects a command array instead of coercing it", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

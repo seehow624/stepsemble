@@ -51,7 +51,7 @@ const LARGE_TURN_NOTIFICATIONS = Object.freeze(new Set([
   "turn/started", "turn/completed", "item/started", "item/completed",
 ]));
 const LARGE_HISTORY_RESPONSES = Object.freeze(new Set([
-  "thread/read", "thread/list", "thread/turns/list", "thread/items/list",
+  "thread/resume", "thread/read", "thread/list", "thread/turns/list", "thread/items/list",
 ]));
 
 const reject = code => ({ kind: "reject", code });
@@ -888,7 +888,8 @@ function createCodexAppServerTransport({
       const method = pending.get(key(value.id))?.method;
       if (method === "turn/start") return true;
       // Long, legitimate histories commonly exceed the ordinary 1 MiB frame.
-      // Only known read methods get the separate 8 MiB budget; model,
+      // Resume also returns reconstructed history. These known methods get
+      // the separate 8 MiB budget; model,
       // initialize and every unknown response remain on the strict cap.
       return bytes <= MAX_HISTORY_RESPONSE_BYTES && LARGE_HISTORY_RESPONSES.has(method);
     }
