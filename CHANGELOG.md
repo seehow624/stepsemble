@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.8.46
+
+Unreleased.
+
+- Add a dark Usage overview for desktop and phones, with today/week/month/30-day periods, daily token charts, model/project/agent/session breakdowns and per-Host or combined views.
+- Read registered Codex, Claude Code and Pi usage in a bounded worker. Exclude inherited Codex fork history, deduplicate repeated responses, and keep cache tokens separate from uncached input and output.
+- Show estimated USD costs and pricing coverage separately from subscription quotas. Unknown prices, incomplete histories and offline Hosts are explicit; refreshing usage does not submit model work.
+- Preserve focus and scroll position on automatic refresh. Add authenticated Host, multi-Host, offline, stale-response, desktop and touch browser checks using isolated synthetic data.
+
 ## 3.8.45
 
 - Drag project and session names directly to reorder the sidebar, with no separate drag handle. Session dragging into workspace panes remains available.

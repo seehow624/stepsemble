@@ -17,7 +17,8 @@ test("browser and synthetic Host environments contain only runtime essentials an
   const home = path.resolve("synthetic-test-home"), env = cleanEnvironment(home);
   assert.equal(env.HOME, home); assert.equal(env.USERPROFILE, home);
   assert.equal(env.PLAYWRIGHT_BROWSERS_PATH, path.join(home, "browsers"));
-  const allowed = new Set(["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PLAYWRIGHT_BROWSERS_PATH"]);
+  assert.equal(env.STEPSEMBLE_USAGE_PRICING_NETWORK, "0", "hermetic browser Hosts never fetch reference prices");
+  const allowed = new Set(["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PLAYWRIGHT_BROWSERS_PATH", "STEPSEMBLE_USAGE_PRICING_NETWORK"]);
   assert.ok(Object.keys(env).every(key => allowed.has(key)));
 });
 test("rolling matrix names exactly two immutable shipped release commits", () => {

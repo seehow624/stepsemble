@@ -20,6 +20,8 @@
     // user's saved preferences so the shell never looks like another product.
     const root = document.documentElement;
     root.lang = prefs.locale;
+    $("workspace-analytics-label").textContent = window.StepsembleUsageUI.label("usage");
+    $("workspace-analytics").setAttribute("aria-label", window.StepsembleUsageUI.label("sidebar"));
     root.dataset.theme = prefs.resolvedTheme;
     root.dataset.designTheme = prefs.designTheme;
     root.style.fontSize = `${prefs.fontScale}%`;
@@ -207,6 +209,7 @@
   function active(p) { return p.tabs.find(r => L.identity(r) === p.active); }
   function closeActiveTab() {
     if (settingsLayer) { closeSettings(); return; }
+    if (usageUI.isOpen()) { usageUI.close(); return; }
     if (document.querySelector(".wf-panel[open]")) { workflowUI.close(); return; }
     if ($("workspace-dialog").open) { closeDialog(); return; }
     const pane = L.leaves(tree).find(row => row.id === focused) || L.leaves(tree)[0];
@@ -305,6 +308,7 @@
     const rects = [], add = (left, top, right, bottom) => { if (right - left >= 2 && bottom - top >= 2) rects.push([left, top, right - left, bottom - top].map(Math.round)); };
     const box = element => element.getBoundingClientRect();
     if (settingsLayer) { add(0, 0, innerWidth, parseFloat(getComputedStyle(settingsLayer).paddingTop) || 0); return rects; }
+    if (usageUI.isOpen()) return rects;
     const sidebar = $("workspace-sidebar"), name = sidebar.querySelector(".workspace-identity");
     if (sidebar.getClientRects().length && name) add(box(sidebar).left, 0, box(name).right, box(name.parentElement).bottom);
     if ($("workspace-stage").getClientRects().length) {
@@ -801,6 +805,7 @@
     try { const data = await api(fresh ? "/api/workspace/usage?fresh=1" : "/api/workspace/usage", undefined, target); if (target !== host) return;
       usage = data; usageHost = target;
       renderUsage(data);
+      void refreshAnalyticsSummary();
     } catch { if (target === host) { usage = null; usageHost = null; renderUsage({ providers: [] }); } }
   }
   async function refreshLimitsNow(control) {
@@ -1186,6 +1191,21 @@
     openConversation(key, title, target) { open({host:target,key,title}); void refresh(); },
     onChanged() { void refresh(); for (const item of frames.values()) item.frame.contentWindow?.postMessage({type:"workspace-workflows-changed"},location.origin); },
   });
+  const usageUI = window.StepsembleUsageUI.create({ api,
+    context: () => ({ selected: host, hosts: machines.map(machine => ({ id: machine.id, name: machine.name || machine.id })) }),
+    openConversation(key, title, target) { open({ host: target, key, title }); },
+    onVisibility() { reportDragRegions(); notificationPresence(); },
+  });
+  $("workspace-analytics").onclick = () => void usageUI.open(host).catch(error => toast(error.message));
+  let analyticsEpoch = 0;
+  async function refreshAnalyticsSummary() {
+    const target = host, epoch = ++analyticsEpoch;
+    try {
+      const query = new URLSearchParams(window.StepsembleUsageUI.range("today"));
+      const report = await api("/api/workspace/analytics?" + query, undefined, target);
+      if (target === host && epoch === analyticsEpoch) usageUI.summary(report, $("workspace-analytics-summary"));
+    } catch { if (target === host && epoch === analyticsEpoch) $("workspace-analytics-summary").textContent = ""; }
+  }
   $("workspace-goals").textContent = "◎ " + window.StepsembleWorkflows.label("goals");
   $("workspace-schedules").textContent = "◷ " + window.StepsembleWorkflows.label("schedules");
   $("workspace-goals").onclick = () => workflowUI.open("goals").catch(error => toast(error.message));
@@ -1252,7 +1272,7 @@
     window.StepsembleWorkspaceReorder.cancel(); sidebarEditEpoch++; sidebarBusy = false;
     host = value; $("workspace-host").value = host;
     try { localStorage.setItem("stepsemble.selected.v1", host); } catch {}
-    snapshot = { projects: [], entries: [] }; usage = null; renderUsage(null); renderSidebar(); void refresh(); void refreshUsage();
+    snapshot = { projects: [], entries: [] }; usage = null; $("workspace-analytics-summary").textContent = ""; renderUsage(null); renderSidebar(); void refresh(); void refreshUsage();
   }
   $("workspace-host").onchange = () => selectHost($("workspace-host").value);
   $("workspace-sidebar-close").onclick = () => { document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
@@ -1318,7 +1338,7 @@
     } finally { booting = false; }
   }
   function visibleSessions() {
-    if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".wf-panel[open]")) return [];
+    if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".wf-panel[open], .usage-panel[open]")) return [];
     return [...frames.values()].filter(item => !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
   }
   function notificationPresence(worker = null, requestId = null) {

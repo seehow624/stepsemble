@@ -118,7 +118,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.45";
+const APP_VERSION = "3.8.46";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -318,6 +318,19 @@ const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
   readSignIn: readSignInForUsage,
   readConfig: () => readQuotaConfig(CONFIG_DIR),
   readCodexBar: () => codexBarReader.read(),
+});
+const usageAnalytics = require("./server/usage-analytics").createUsageAnalytics({
+  home: APP_HOME,
+  roots: { claude: settingFromEnv("CLAUDE_PROJECTS_ROOT") || undefined, codex: settingFromEnv("CODEX_HISTORY_ROOT") || undefined },
+  entries: () => workspaceRegistry.list().entries.map(row => {
+    if (row.record.agentId !== "pi" || row.record.file) return row;
+    const live = rpcSessions.get(row.record.sid);
+    const file = piRelativeSessionFile(live?.meta?.file || live?.state?.sessionFile);
+    return file ? { ...row, record: { ...row.record, file } } : row;
+  }),
+  pricing: require("./server/usage-pricing").createUsagePricing({
+    cacheFile: path.join(CONFIG_DIR, "usage-prices.json"), enabled: settingFromEnv("USAGE_PRICING_NETWORK") !== "0",
+  }),
 });
 
 // Settings → Quota sources: each source, whether it is on and what it reads,
@@ -6486,6 +6499,13 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/workspace/usage" && req.method === "GET") {
         sendJSON(res, 200, await workspaceUsage.read({ fresh: url.searchParams.get("fresh") === "1" })); return;
       }
+      if (p === "/api/workspace/analytics" && req.method === "GET") {
+        try {
+          const query = require("./server/usage-analytics").parseQuery(url.searchParams);
+          sendJSON(res, 200, await usageAnalytics.read(query, { fresh: url.searchParams.get("fresh") === "1" }));
+        } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.statusCode === 400 ? "usage_query_invalid" : "usage_unavailable" }); }
+        return;
+      }
       if (p === "/api/workspace" && req.method === "GET") {
         const snapshot = workspaceRegistry.list();
         const live = new Map(listAgentTasks().map(task => [task.id || task.taskId, task]));
@@ -8104,6 +8124,7 @@ function shutdown(signal) {
     finally { antigravityStructuredSessions.delete(id); }
   }));
   const historyCleanup = Promise.all([
+    usageAnalytics.shutdown(),
     historyHost.shutdown(),
     nativeHistoryCatalog.shutdown(),
     codexPersistedObserver.shutdown(),
@@ -8116,9 +8137,10 @@ function shutdown(signal) {
     claudeStructuredCleanup,
     antigravityStructuredCleanup,
     openCodeManaged.close(),
-  ]).then(([historyResult, nativeHistoryResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
+  ]).then(([usageResult, historyResult, nativeHistoryResult, persistedResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
     ...(historyResult || {}),
-    cleanupConfirmed: historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
+    cleanupConfirmed: usageResult?.cleanupConfirmed === true && historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
+      && persistedResult?.cleanupConfirmed !== false
       && codexResult?.cleanupConfirmed !== false
       && grokResult?.cleanupConfirmed !== false
       && clineResult?.cleanupConfirmed !== false

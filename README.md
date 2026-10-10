@@ -40,6 +40,12 @@ Codex CLI, Claude Code, OpenCode, Pi Agent, Oh My Pi, and Hermes Agent. Checks a
 allow-listed and upgrades require explicit confirmation; active sessions are
 never interrupted. See [docs/harness-updates.md](docs/harness-updates.md).
 
+The Workspace's **Usage** view breaks down recorded tokens and estimated USD
+cost by day, model, project, agent and session. It supports registered Codex,
+Claude Code and Pi sessions and can combine reachable Hosts from a desktop or
+phone. Subscription allowances remain separate from estimated costs; missing
+records and prices are identified explicitly. See [docs/usage-analytics.md](docs/usage-analytics.md).
+
 ## Install on macOS
 
 Run this on every computer that should host Stepsemble:

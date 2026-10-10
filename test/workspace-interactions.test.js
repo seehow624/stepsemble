@@ -7,7 +7,8 @@ test("Close Tab closes the focused session, retains other panes, and keeps the l
   const b = { ...a, key: "00000000-0000-4000-8000-000000000002", title: "B" };
   let left = L.pane(); left = L.insert(left, left.id, a);
   const right = L.pane();
-  const context = vm.createContext({ L, settingsLayer: null, workflowUI: { close() { assert.fail("No workflow open"); } },
+  let usageOpen = true, usageClosed = 0;
+  const context = vm.createContext({ L, settingsLayer: null, usageUI: { isOpen: () => usageOpen, close() { usageOpen = false; usageClosed++; } }, workflowUI: { close() { assert.fail("No workflow open"); } },
     document: { querySelector: () => null }, $: () => ({ open: false }), mobile: () => false,
     closeSettings() {}, closeDialog() {}, showMobileList() {} });
   context.tree = L.insert({ type: "split", id: "split", axis: "row", ratio: .5, first: left, second: right }, right.id, b);
@@ -16,6 +17,8 @@ test("Close Tab closes the focused session, retains other panes, and keeps the l
   context.commit = next => { context.tree = next; return true; };
   const from = source.indexOf("  function closeActiveTab()"), to = source.indexOf('  window.addEventListener("stepsemble-close-tab"', from);
   vm.runInContext(source.slice(from, to), context); context.closeActiveTab();
+  assert.equal(usageClosed, 1); assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 2, "closing Usage preserves both session tabs");
+  context.closeActiveTab();
   assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 1);
   assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs)[0].title, "A");
   context.focused = left.id; context.closeActiveTab();

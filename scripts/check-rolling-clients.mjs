@@ -13,7 +13,7 @@ export function cleanEnvironment(home) {
   for (const key of ["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"])
     if (process.env[key]) env[key] = process.env[key];
   return { ...env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config"),
-    XDG_CACHE_HOME: path.join(home, ".cache"), PLAYWRIGHT_BROWSERS_PATH: path.join(home, "browsers") };
+    XDG_CACHE_HOME: path.join(home, ".cache"), PLAYWRIGHT_BROWSERS_PATH: path.join(home, "browsers"), STEPSEMBLE_USAGE_PRICING_NETWORK: "0" };
 }
 export function validateBrowserLock(manifest, lock) {
   const expected = JSON.stringify({ playwright: "1.63.0" });
