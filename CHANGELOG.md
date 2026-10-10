@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.40
+
+- Start a Goal in the current conversation with `/goal <objective>`. The slash menu includes Goal, and its time and output-token limits appear above the input before sending. Optional name and turn limits are under More.
+- Replace the composer’s Goal button and detached banner with inline progress: objective, elapsed time, current activity, and pause, resume, or stop controls. Preserve the dark interface and fit desktop and mobile screens; translate the new controls into every supported language.
+- Keep drafts on failure, deduplicate repeated sends and uncertain retries, and recover a Goal whose creation response was lost. Older polls and replies cannot overwrite a newly acknowledged Goal or a different view.
+- Fix OpenCode conversations failing to open because model-name rendering referred to an undefined connection.
+
 ## 3.8.39
 
 - Every agent Stepsemble upgrades is now installed only in a stable release this Stepsemble supports. Before, only Codex waited for that; Claude Code, OpenCode, Pi, Oh My Pi, Cline, Kilo, Grok Build and Google Antigravity took whatever their channel offered. Each now has a release check that runs the new release in a scratch folder through Stepsemble's own adapter, with no account and no paid request, and the Host reads its verdict before an upgrade, by hand or automatically (`server/agent-release-gate.js`). A release that passed is installed; one that failed waits until a Stepsemble that supports it is released; one not yet checked is checked on that Host in the background, one at a time, and installed about 30 seconds after it passes. Hermes is still upgraded only by hand.

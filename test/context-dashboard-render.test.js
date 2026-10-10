@@ -474,3 +474,16 @@ test("OpenCode context helper uses the latest assistant turn, never a cumulative
   assert.equal(stats.contextUsage.percent, 45);
   assert.notEqual(stats.contextUsage.percent, 100);
 });
+
+test("opening an OpenCode model uses the current connection when resolving its display name", () => {
+  const start = appSource.indexOf("function applyOpenCodeModel(model) {");
+  const end = appSource.indexOf("\n// The provider catalog", start);
+  const rpc = { nativeOpenCode: true, openCodeModel: null };
+  let namedConnection, rendered = 0;
+  const sandbox = { rpc, openCodeContext: require("../public/modules/opencode-context.js"), positiveFinite: contextUtils.positiveFinite,
+    modelTitle(model, connection) { namedConnection = connection; return model.modelID; },
+    updateComposerSummary() {}, renderContextDashboard() { rendered++; } };
+  vm.runInNewContext(appSource.slice(start, end), sandbox);
+  sandbox.applyOpenCodeModel({ providerID: "fixture", modelID: "test-model", contextWindow: 100000 });
+  assert.equal(namedConnection, rpc); assert.equal(rendered, 1); assert.equal(rpc.openCodeModel.modelID, "test-model");
+});

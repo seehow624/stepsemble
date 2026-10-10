@@ -42,9 +42,16 @@ test("authenticated Host Goals complete across Pi, Claude and ACP without a brow
   const config={title:"Offline Goal",objective:"TWO_TURNS verify the implementation",cwd:home,limits:{minutes:1,turns:3}};
   assert.equal((await request("/api/workflows",{...config,agentId:"pi"},"https://foreign.invalid")).status,403);
   const until=async(id,status)=>{for(let i=0;i<100;i++){const row=(await json("/api/workflows")).runs.find(r=>r.id===id);if(status.includes(row.status))return row;await sleep(100);}throw new Error("Workflow timeout: "+JSON.stringify(await json("/api/workflows"))+output);};
+  let piEntry;
   for(const agentId of ["pi","claude-code","omp","hermes","kilo","cline","grok-build","opencode"]){
-    const created=await json("/api/workflows",{...config,agentId});const done=await until(created.id,["completed","failed","limited"]);assert.equal(done.status,"completed",agentId+JSON.stringify(done));assert.equal(done.turns,2,agentId);assert(done.entry);assert(!done.result.includes("STEPSEMBLE_GOAL"));
+    const created=await json("/api/workflows",{...config,agentId});const done=await until(created.id,["completed","failed","limited"]);assert.equal(done.status,"completed",agentId+JSON.stringify(done));assert.equal(done.turns,2,agentId);assert(done.entry);if(agentId==="pi")piEntry=done.entry;assert(!done.result.includes("STEPSEMBLE_GOAL"));
   }
+  // /goal sends only its existing entry; the Host resolves agent and folder.
+  const inline=require("../public/modules/goal-composer.js").createRequest({entry:piEntry,text:"/goal Verify the current conversation",limits:{minutes:1,turns:3,outputTokens:1000},requestId:require("node:crypto").randomUUID()});
+  const inlineRun=await json("/api/workflows",inline);
+  assert.equal(inlineRun.entry,piEntry);assert.equal(inlineRun.agentId,"pi");assert.equal(inlineRun.cwd,home);
+  const inlineDone=await until(inlineRun.id,["completed","failed"]);assert.equal(inlineDone.status,"completed");
+  assert.equal((await json("/api/workflows",inline)).id,inlineRun.id,"retry must not create another Goal");
   const slow=await json("/api/workflows",{...config,agentId:"pi",objective:"SLOW task"});const busy=await until(slow.id,["running"]);
   const record=(await json("/api/workspace/entry?key="+busy.entry)).record;assert.equal((await request("/api/send",{sid:record.sid,message:"interleaving"})).status,409);
   await json("/api/workflows",{id:slow.id,action:"pause"});const paused=await until(slow.id,["paused"]);assert.equal(paused.status,"paused");

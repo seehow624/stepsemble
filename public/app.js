@@ -1,7 +1,7 @@
-/* stepsemble v3.8.39 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.40 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.39";
+const CLIENT_APP_VERSION = "3.8.40";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -10848,6 +10848,7 @@ function setStreaming(on) {
 // ---- 送出 / 中止 ----
 el.btnSend.addEventListener("click", sendCurrent);
 el.btnModel.addEventListener("click", openModelSheet);
+let conversationGoal = null;
 const composerIme = window.stepsembleComposerIme?.createGuard();
 el.input.addEventListener("compositionstart", () => composerIme?.compositionStart());
 el.input.addEventListener("compositionend", () => composerIme?.compositionEnd());
@@ -11102,6 +11103,12 @@ function sendOnceConnected() {
 }
 async function sendCurrent() {
   let text = el.input.value.trim();
+  if (/^\/goal(?:\s|$)/i.test(text)) {
+    if (!rpc || rpc.nativeLoading && !rpc.connectionLost) { sendOnceConnected(); return; }
+    if (conversationGoal) await conversationGoal.submit(el.input.value, { hasAttachments: pendingImages.length > 0 });
+    else toast(tKey("goalComposer.unsupported"), true);
+    return;
+  }
   // /login, /logout and /status run the agent's own commands in the
   // conversation terminal, even when the conversation cannot take input.
   const terminalCommand = agentTerminalApi?.parseCommand(text);
@@ -11969,7 +11976,7 @@ function applyOpenCodeModel(model) {
     contextStats = null;
     contextStatsState = "awaiting";
   }
-  updateComposerSummary(modelTitle({ ...normalized, id: normalized.modelID }, connection) || `${normalized.providerID}/${normalized.modelID}`, undefined);
+  updateComposerSummary(modelTitle({ ...normalized, id: normalized.modelID }, rpc) || `${normalized.providerID}/${normalized.modelID}`, undefined);
   renderContextDashboard();
   return normalized;
 }
@@ -12828,7 +12835,8 @@ function updateSlashMenu() {
   // commands its RPC reports.
   const terminalItems = agentTerminalSlashItems(conversationAgentId());
   const nativeItems = rpc && !rpc.generic ? availableCommands.filter(c => !AGENT_TERMINAL_ACTIONS.includes(String(c.name).toLowerCase())) : [];
-  const commands = [...terminalItems, ...nativeItems];
+  const goalItem = conversationGoal?.commandItem();
+  const commands = [...(goalItem ? [goalItem] : []), ...terminalItems, ...nativeItems.filter(c => String(c.name).toLowerCase() !== "goal")];
   if (!m || !rpc || !commands.length) { el.slashMenu.classList.add("hidden"); slashState = null; return; }
   const q = m[1].toLowerCase();
   const items = commands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 8);
@@ -18599,4 +18607,16 @@ if (WORKSPACE_PANE) {
   });
 }
 
-window.StepsembleWorkflows?.mountConversation({ api, post });
+conversationGoal = window.StepsembleWorkflows?.mountConversation({ api, post,
+  getConnection: () => rpc, getAgentId: () => conversationAgentId(),
+  getContext: () => apiBase + ":" + viewGeneration,
+  onStarted(text) {
+    if (el.input.value === text) {
+      el.input.value = ""; el.input.style.height = "auto";
+      el.slashMenu.classList.add("hidden"); slashState = null;
+      removeDraftForKey(activeDraftKey);
+      el.input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  },
+  onChanged() { if (parent !== window) parent.postMessage({ type: "workspace-workflows-changed" }, location.origin); },
+});

@@ -1078,6 +1078,10 @@
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
+    if (event.data?.type === "workspace-workflows-changed") {
+      void refresh();
+      for (const peer of frames.values()) peer.frame.contentWindow?.postMessage({ type: "workspace-workflows-changed" }, location.origin);
+    }
     if (event.data?.type === "workspace-goal" || event.data?.type === "workspace-goals") {
       void workflowUI.open("goals", item.ref.host, event.data.type === "workspace-goal" ? item.ref.key : null, String(event.data.objective || "").slice(0,16000)).catch(error => toast(error.message));
     }

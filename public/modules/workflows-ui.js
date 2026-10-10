@@ -152,28 +152,6 @@
     }
     return {open,close};
   }
-  function mountConversation({ api, post }) {
-    const key = new URLSearchParams(location.search).get("entry"); if(!key)return;
-    const toolbar=document.querySelector(".composer-toolbar"), messages=document.getElementById("messages"); if(!toolbar||!messages)return;
-    const create=button("◎ Goal",()=>root.parent.postMessage({type:"workspace-goal",objective:document.getElementById("input")?.value||""},location.origin),"ghost wf-goal-button");
-    create.setAttribute("data-i18n-ignore","");toolbar.insertBefore(create,document.getElementById("btn-abort")||toolbar.lastElementChild);
-    const banner=el("section","","wf-banner");banner.hidden=true;banner.setAttribute("data-i18n-ignore","");banner.setAttribute("aria-label","Goal");messages.before(banner);
-    let latest=null, received=0, loading=false, disconnected=false;
-    const render=()=>{
-      if(!latest){banner.hidden=true;return;}banner.hidden=false;const r=latest;
-      const copy=el("div","","wf-banner-copy");copy.append(el("strong",`◎ ${r.title}`),el("small",`${t(r.status)} · ${t("elapsed")} ${duration(r.elapsedMs+(!disconnected&&["starting","running","waiting"].includes(r.status)?Date.now()-received:0))}`),el("span",disconnected?t("refreshError"):active(r)?`${t("live")} · ${t(r.activity)}`:r.error||r.result.slice(0,180),"wf-banner-activity"));
-      const actions=el("div","","wf-actions");const act=async name=>{try{await post("/api/workflows",{id:r.id,action:name});await refresh();}catch(e){copy.append(el("small",e.message));}};
-      if(active(r)&&r.status!=="stopping")actions.append(button(t("pause"),()=>act("pause")));
-      if(resumable(r))actions.append(button(t("resume"),()=>act("resume")));
-      if((active(r)||resumable(r))&&(r.status!=="stopping"||r.error))actions.append(button(t("stop"),()=>act("stop")));
-      actions.append(button(t("goals"),()=>root.parent.postMessage({type:"workspace-goals"},location.origin),"ghost"));
-      const focused=banner.contains(document.activeElement)?document.activeElement.textContent:null;
-      banner.replaceChildren(copy,actions);create.disabled=active(r);
-      if(focused)[...actions.children].find(b=>b.textContent===focused)?.focus();
-    };
-    async function refresh(){if(loading||document.hidden)return;loading=true;try{const data=await api("/api/workflows?entry="+encodeURIComponent(key));latest=[...(data.runs||[])].reverse().find(r=>r.entry===key)||null;received=Date.now();disconnected=false;render();}catch{disconnected=true;render();}finally{loading=false;}}
-    root.addEventListener("message",event=>{if(event.origin===location.origin&&event.source===root.parent&&event.data?.type==="workspace-workflows-changed")void refresh();});
-    const timer=setInterval(()=>{void refresh();},1500);root.addEventListener("pagehide",()=>clearInterval(timer),{once:true});void refresh();
-  }
+  function mountConversation(options) { return root.StepsembleGoalComposer?.mount(options) || null; }
   root.StepsembleWorkflows={create,mountConversation,label:t};
 })(window);

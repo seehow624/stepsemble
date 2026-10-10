@@ -10,9 +10,52 @@
 .wf-objective {font-size:.9rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0;}.wf-project {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.wf-meta {flex-wrap:wrap;font-size:.8rem;color:var(--pine-soft);margin:14px 0;font-variant-numeric:tabular-nums;}.wf-activity {font-size:.85rem;}.wf-actions {flex-wrap:wrap;margin-top:14px;gap:7px;}.wf-actions .btn {font-size:.8rem;min-height:34px;padding:6px 12px;}.wf-note {font-size:.8rem;color:var(--pine-soft);line-height:1.6;margin-top:24px;}.wf-empty {padding:50px 30px;color:var(--pine-soft);line-height:1.7;text-align:center;}.wf-error,.wf-run-error {color:#d2876f;font-size:.87rem;line-height:1.5;overflow-wrap:anywhere;}
 .wf-card details {margin-top:16px;}.wf-card summary {cursor:pointer;color:var(--pine-soft);font-size:.85rem;}.wf-result {font:inherit;font-size:.88rem;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;}.wf-card details>.wf-card {margin-top:12px;}
 .wf-form {display:grid;gap:18px;}.wf-field {display:flex;flex-direction:column;gap:8px;font-size:.83rem;min-width:0;}.wf-field input,.wf-field select,.wf-field textarea {box-sizing:border-box;width:100%;background:var(--milk);color:var(--ink);font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:9px;min-height:42px;}.wf-field textarea {resize:vertical;line-height:1.6;}.wf-grid {display:grid;grid-template-columns:1fr 1fr;gap:16px;}.wf-limits {grid-template-columns:repeat(3,1fr);}.wf-form h3 {font-size:.93rem;margin:12px 0 0;}.wf-form>.btn {justify-self:end;min-width:140px;}.wf-form .wf-note {margin:0;}.wf-days {border:1px solid var(--line);border-radius:10px;display:flex;gap:15px;padding:12px;}.wf-days legend {font-size:.83rem;}.wf-days label {display:flex;gap:5px;align-items:center;}.wf-panel [hidden] {display:none!important;}
-.wf-banner {margin:8px 16px 0;padding:12px 15px;border:1px solid var(--line);border-radius:12px;background:var(--milk);display:flex;gap:14px;align-items:center;flex-shrink:0;}.wf-banner[hidden]{display:none;}.wf-banner-copy {display:flex;flex-direction:column;gap:5px;min-width:0;flex:1;}.wf-banner-copy strong {font-size:.88rem;}.wf-banner-copy small {font-size:.76rem;color:var(--pine-soft);font-variant-numeric:tabular-nums;}.wf-banner-copy span {font-size:.8rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}.wf-banner .wf-actions {margin:0;}.wf-goal-button {font-size:.8rem;padding:6px 9px;white-space:nowrap;}
-@media(max-width:640px){.wf-panel{width:100vw;max-width:100vw;max-height:100dvh;height:100dvh;margin:0;border-radius:0;padding:20px 16px;padding-top:max(20px,env(safe-area-inset-top));}.wf-grid,.wf-limits{grid-template-columns:1fr;}.wf-card{padding:16px;}.wf-tabs{gap:4px;}.wf-tabs .btn{padding:8px 12px;}.wf-banner{margin:6px 8px 0;align-items:flex-start;flex-direction:column;gap:7px;}.wf-banner-copy{width:100%;}.wf-banner .wf-actions{align-self:flex-end;}.wf-days{gap:9px;flex-wrap:wrap;}.wf-card-head{align-items:flex-start;}}
+@media(max-width:640px){.wf-panel{width:100vw;max-width:100vw;max-height:100dvh;height:100dvh;margin:0;border-radius:0;padding:20px 16px;padding-top:max(20px,env(safe-area-inset-top));}.wf-grid,.wf-limits{grid-template-columns:1fr;}.wf-card{padding:16px;}.wf-tabs{gap:4px;}.wf-tabs .btn{padding:8px 12px;}.wf-days{gap:9px;flex-wrap:wrap;}.wf-card-head{align-items:flex-start;}}
 .wf-panel .wf-header { position:static; background:transparent; border:0; padding:0; flex-shrink:0; height:auto; }
 .wf-panel .wf-field select { max-width:none; padding-right:32px; }
 .wf-panel .wf-header>.btn {min-width:60px;min-height:40px;}
 .wf-panel:focus {outline:none;}
+
+/* Goal belongs to the composer: draft limits become progress after submission. */
+.goal-composer {box-sizing:border-box;width:100%;padding:6px 5px 12px;border-bottom:1px solid var(--line);color:var(--ink);min-width:0;}
+.goal-composer[hidden],.goal-composer [hidden] {display:none!important;}
+.goal-head {display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-height:36px;}
+.goal-label {font-size:.82rem;font-weight:600;letter-spacing:-.015em;white-space:nowrap;}
+.goal-state {font-size:.73rem;color:var(--pine-soft);}
+.goal-clock {margin-left:auto;color:var(--pine-soft);font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.goal-composer[data-state=running] .goal-state,.goal-composer[data-state=completed] .goal-state {color:var(--accent);}
+.goal-composer[data-state=waiting] .goal-state,.goal-composer[data-state=blocked] .goal-state {color:#bc8f4c;}
+.goal-objective {margin:5px 0 9px;font-size:.85rem;line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.goal-dismiss.btn {margin-left:auto;padding:0;width:36px;height:36px;font-size:1.25rem;color:var(--pine-soft);}
+.goal-draft-controls {display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;}
+.goal-field {display:flex;flex-direction:column;gap:5px;font-size:.72rem;color:var(--pine-soft);min-width:0;}
+.goal-field input {box-sizing:border-box;min-width:0;width:90px;min-height:36px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--milk);color:var(--ink);font:inherit;font-size:.8rem;font-variant-numeric:tabular-nums;}
+.goal-field input[name=tokens] {width:134px;}
+.goal-more {margin-left:auto;max-width:100%;}
+.goal-more>summary,.goal-run-details>summary {cursor:pointer;font-size:.75rem;color:var(--pine-soft);min-height:36px;display:flex;align-items:center;gap:6px;list-style:none;}
+.goal-more>summary::after,.goal-run-details>summary::after {content:'⌄';font-size:.9rem;}
+.goal-more[open]>summary::after,.goal-run-details[open]>summary::after {transform:rotate(180deg);}
+.goal-more[open] {flex-basis:100%;margin-left:0;}
+.goal-more[open]>summary {justify-content:flex-end;}
+.goal-advanced {display:grid;grid-template-columns:90px minmax(0,1fr);gap:14px;}
+.goal-advanced input[type=text] {width:100%;}
+.goal-actions {display:flex;gap:4px;margin-left:6px;}
+.goal-actions .btn {min-height:36px;padding:5px 9px;border-radius:8px;font-size:.75rem;white-space:nowrap;}
+.goal-activity,.goal-metrics {margin:5px 0 0;font-size:.76rem;line-height:1.45;color:var(--pine-soft);overflow-wrap:anywhere;}
+.goal-run-details {margin-top:2px;}
+.goal-run-details>summary {min-height:30px;}
+.goal-result {font:inherit;font-size:.8rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin:8px 0 0;}
+.goal-error {margin:8px 0 0;font-size:.8rem;line-height:1.5;color:#d2876f;overflow-wrap:anywhere;}
+.goal-composer :is(button,input,summary):focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+.goal-composer button:disabled,.goal-composer input:disabled {opacity:.55;}
+@media(max-width:640px) {
+  .goal-composer {padding:4px 2px 9px;}
+  .goal-head {gap:6px;}
+  .goal-clock {font-size:.72rem;}
+  .goal-actions {margin-left:auto;}
+  .goal-actions .btn,.goal-dismiss.btn,.goal-more>summary {min-height:44px;}
+  .goal-field input {min-height:40px;font-size:16px;}
+  .goal-draft-controls {gap:8px 10px;}
+  .goal-field input[name=tokens] {width:120px;}
+  .goal-more>summary {padding:0 5px;}
+}

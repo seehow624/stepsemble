@@ -73,6 +73,8 @@ const state = {
   codexApproval: null,
   openCodeCatalogReads: 0,
   openCodeReconciles: 0,
+  goals: [],
+  goalRequests: [],
 };
 
 const codexContext = () => ({
@@ -377,6 +379,27 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
         return entry ? json(res, 200, entry) : json(res, 404, { error: "workspace_entry_not_found" });
       }
       if (pathname === "/api/workspace/usage" && req.method === "GET") return json(res, 200, { providers: [] });
+      // Inline /goal UI fixture; never launches an agent or a model request.
+      if (pathname === "/api/workflows") {
+        const snapshot = run => ({ ...run, elapsedMs: run.elapsedMs + (run.status === "running" ? Date.now() - run.updatedAt : 0) });
+        if (req.method === "GET") return json(res, 200, { schedules: [], runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry")).map(snapshot) });
+        const body = await parseJsonBody(req);
+        state.goalRequests.push(body);
+        if (body.action) {
+          const run = state.goals.find(row => row.id === body.id);
+          if (!run) return json(res, 404, { error: "preview_goal_not_found" });
+          Object.assign(run, snapshot(run), { status: { pause: "paused", resume: "running", stop: "stopped" }[body.action], updatedAt: Date.now() });
+          return json(res, 200, snapshot(run));
+        }
+        const prior = state.goals.find(row => row.requestId === body.requestId);
+        if (prior) return json(res, 200, snapshot(prior));
+        if (state.goals.some(row => row.entry === body.entry && row.status === "running")) return json(res, 409, { error: "preview_goal_active" });
+        const entry = workspaceEntries().find(row => row.key === body.entry);
+        if (!entry) return json(res, 404, { error: "preview_entry_not_found" });
+        const run = { ...body, id: "fixture-goal-" + (state.goals.length + 1), agentId: entry.record.agentId, cwd: entry.record.cwd, status: "running", elapsedMs: 0, updatedAt: Date.now(), activity: "Reviewing the requested implementation", turns: 1, outputTokens: 1200 };
+        state.goals.push(run);
+        return json(res, 200, snapshot(run));
+      }
       if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: "3.0.43" });
       if (pathname === "/api/rpcs" && req.method === "GET") return json(res, 200, { rpcs: [] });
       if (pathname === "/api/project-changes" && req.method === "GET") return json(res, 200, { cwd: requestUrl.searchParams.get("cwd") || "", files: [], additions: 0, deletions: 0, changed: 0 });

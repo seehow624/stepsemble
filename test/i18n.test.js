@@ -514,3 +514,20 @@ test("a file a reply names on the Host has its messages in every supported local
     assert.match(i18n.t(keys[1], values), /\/Users\/me\/Projects/);
   }
 });
+
+
+test("inline Goal controls, validation and every run state are translated in all locales", () => {
+  const i18n = loadLocaleLayer();
+  const source = fs.readFileSync(path.join(root, "public/modules/goal-composer.js"), "utf8");
+  const keys = [...new Set([...source.matchAll(/\bt\("([a-zA-Z]+)"/g)].map(match => match[1]))];
+  keys.push(...["queued", "starting", "running", "waiting", "stopping", "paused", "blocked", "interrupted", "limited", "completed", "failed", "stopped", "thinking", "approval"].map(state => "state." + state));
+  for (const { id } of i18n.locales) {
+    i18n.setLocale(id);
+    for (const key of keys) {
+      const full = "goalComposer." + key;
+      const translated = i18n.tKey(full, { time: "01:23", tokens: "1,000", turns: 2 });
+      assert.notEqual(translated, full, id + " " + full);
+      assert.doesNotMatch(translated, /\{(?:time|tokens|turns)\}/, id + " " + full);
+    }
+  }
+});
