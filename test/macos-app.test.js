@@ -82,7 +82,7 @@ test("the LaunchAgent is pointed only at an app signed on this Mac", { skip: !on
 
 // Runs the updater's own macOS app steps with launchd, health, the app helper
 // and agent work stood in for.
-function runUpdaterApp(call, { mode = "node", check = 1, install = 0, waitHealth = "ok", healthy = true, active = false, failedVersion = "" } = {}) {
+function runUpdaterApp(call, { mode = "node", check = 1, install = 0, reloaded = false, waitHealth = "ok", healthy = true, active = false, failedVersion = "" } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-updater-app-"));
   for (const sub of ["install/deploy", "install/macos/Stepsemble.app", "config", "work"]) fs.mkdirSync(path.join(dir, sub), { recursive: true });
   fs.writeFileSync(path.join(dir, "server.plist"), `mode=${mode}\n`);
@@ -94,7 +94,7 @@ function runUpdaterApp(call, { mode = "node", check = 1, install = 0, waitHealth
     'case "$1" in',
     '  launch-mode) sed -n "s/^mode=//p" "$2" ;;',
     '  check) exit "$STUB_CHECK" ;;',
-    '  install) exit "$STUB_INSTALL" ;;',
+    '  install|restore) if [[ "$STUB_INSTALL" == 0 && "$STUB_RELOADED" == 1 && "$(cat "$T/server.plist")" == mode=app ]]; then : > "$STEPSEMBLE_APP_RELOAD_RECEIPT"; fi; exit "$STUB_INSTALL" ;;',
     '  use-app) print -r -- "mode=app" > "$2" ;;',
     '  use-node) print -r -- "mode=node" > "$2" ;;',
     'esac',
@@ -127,7 +127,7 @@ function runUpdaterApp(call, { mode = "node", check = 1, install = 0, waitHealth
   ].join("\n");
   const result = spawnSync("/bin/zsh", ["-f", "-c", script], { encoding: "utf8", timeout: 20000, env: {
     PATH: process.env.PATH, T: dir, NODE_BIN: process.execPath,
-    STUB_CHECK: String(check), STUB_INSTALL: String(install), STUB_WAIT_HEALTH: waitHealth, STUB_ACTIVE: active ? "1" : "0",
+    STUB_CHECK: String(check), STUB_INSTALL: String(install), STUB_RELOADED: reloaded ? "1" : "0", STUB_WAIT_HEALTH: waitHealth, STUB_ACTIVE: active ? "1" : "0",
   } });
   const read = name => { try { return fs.readFileSync(path.join(dir, name), "utf8"); } catch { return ""; } };
   const calls = read("calls").trim().split("\n").filter(Boolean).map(call => call.split(" ")[0]);
@@ -183,13 +183,15 @@ test("the move waits for agent work; the SSH launcher keeps the Host and gets th
 test("an app-started Host gets each release's app, and a missing app is replaced at once", { skip: !onMac && "macOS only" }, () => {
   const update = runUpdaterApp("prepare_macos_app v3.8.27 move; restart_service", { mode: "app" });
   assert.ok(update.calls.includes("helper:install"));
-  assert.ok(update.calls.includes("launchctl:kickstart"), "an unchanged LaunchAgent only restarts");
-  assert.ok(!update.calls.includes("launchctl:bootout"));
+  assert.ok(update.calls.includes("launchctl:bootout") && update.calls.includes("launchctl:bootstrap"), "a replaced app needs a freshly loaded LaunchAgent even if its arguments are unchanged");
+  assert.ok(!update.calls.includes("launchctl:kickstart"));
+  const alreadyReloaded = runUpdaterApp("prepare_macos_app v3.8.27 move; restart_service", { mode: "app", reloaded: true });
+  assert.ok(!alreadyReloaded.calls.some(call => call.startsWith("launchctl:")), "a helper that already reloaded the Host is not restarted a second time");
   const current = runUpdaterApp("settle_macos_app v3.8.27", { mode: "app", check: 0 });
   assert.deepEqual(current.calls, ["helper:launch-mode", "helper:check"], "a current app is left alone");
   // The Host is down because its app is gone: there is no work to wait for.
   const down = runUpdaterApp("settle_macos_app v3.8.27", { mode: "app", healthy: false, active: true });
-  assert.ok(down.calls.includes("helper:install") && down.calls.includes("launchctl:kickstart"));
+  assert.ok(down.calls.includes("helper:install") && down.calls.includes("launchctl:bootstrap"));
   // Signing fails and no usable app is left: the Host goes back to Node.js.
   const broken = runUpdaterApp("prepare_macos_app v3.8.27 move; restart_service", { mode: "app", install: 1 });
   assert.equal(broken.plist, "mode=node");
@@ -207,4 +209,9 @@ test("a Host left unloaded by an interrupted reload is loaded again", { skip: !o
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(fs.readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n"), ["print", "bootstrap"]);
   assert.equal(fs.existsSync(path.join(dir, "marker")), false);
+  fs.writeFileSync(path.join(dir, "marker"), "");
+  fs.writeFileSync(path.join(dir, "launchctl"), '#!/bin/zsh\n[[ "$1" != print && "$1" != bootstrap ]]\n', { mode: 0o755 });
+  const unavailable = spawnSync("/bin/zsh", ["-f", "-c", script], { encoding: "utf8", env: { PATH: process.env.PATH, T: dir } });
+  assert.equal(unavailable.status, 0, unavailable.stderr);
+  assert.equal(fs.existsSync(path.join(dir, "marker")), true, "a failed recovery keeps its marker so the next run can retry");
 });

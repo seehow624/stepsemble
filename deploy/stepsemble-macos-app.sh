@@ -27,6 +27,12 @@ readonly SIGNING_DIR="$SUPPORT_DIR/signing"
 readonly PREVIOUS_APP="$SUPPORT_DIR/previous/Stepsemble.app"
 readonly APP_EXECUTABLE="$APP_PATH/Contents/MacOS/Stepsemble"
 readonly LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+readonly HOST_LABEL="${STEPSEMBLE_SERVICE_LABEL:-com.stepsemble.server}"
+readonly HOST_PLIST="${STEPSEMBLE_SERVER_PLIST:-$HOME/Library/LaunchAgents/$HOST_LABEL.plist}"
+readonly HOST_RELOAD_MARKER="${STEPSEMBLE_SERVER_RELOAD_MARKER:-${STEPSEMBLE_UPDATE_CONFIG_DIR:-$HOME/.config/stepsemble}/server-reload.pending}"
+readonly HOST_DOMAIN="gui/$(id -u)"
+readonly LAUNCHCTL_BIN="${LAUNCHCTL_BIN:-/bin/launchctl}"
+readonly RELOAD_RECEIPT="${STEPSEMBLE_APP_RELOAD_RECEIPT:-}"
 
 die() { print -u2 -r -- "stepsemble-macos-app: $*"; exit 1; }
 
@@ -34,6 +40,8 @@ die() { print -u2 -r -- "stepsemble-macos-app: $*"; exit 1; }
 [[ "$HOME" == /* && "$HOME" != "/" ]] || die "HOME is not a safe user directory"
 [[ "$APP_PATH" == /*/Stepsemble.app && "$APP_PATH" != *$'\n'* ]] || die "unexpected app path: $APP_PATH"
 [[ "$SUPPORT_DIR" == /*/Stepsemble && "$SUPPORT_DIR" != *$'\n'* ]] || die "unexpected support path: $SUPPORT_DIR"
+[[ "$HOST_LABEL" =~ '^[A-Za-z0-9._-]+$' && "$HOST_PLIST" == /* && "$HOST_RELOAD_MARKER" == /* ]] || die "unexpected Host service path"
+[[ "$HOST_PLIST$HOST_RELOAD_MARKER$RELOAD_RECEIPT" != *$'\n'* && ( -z "$RELOAD_RECEIPT" || "$RELOAD_RECEIPT" == /* ) ]] || die "unexpected Host reload path"
 
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
 
@@ -110,8 +118,80 @@ finish_signing() {
   [[ -z "$SIGN_WORK" ]] || /bin/rm -rf -- "$SIGN_WORK"
   SIGN_WORK=""
 }
-trap 'finish_signing' EXIT
+HOST_RELOAD_NEEDED=0
+HOST_WAS_RELOADED=0
+APP_OLD_MOVED=0
+APP_NEW_MOVED=0
+RESTORE_DISPLACED=""
+
+# Keep this in the release's helper: an older updater also calls the new
+# helper. launchd must forget the running app before its signed executable is
+# replaced, even when ProgramArguments did not change. Only an already-loaded
+# Host that launches this exact app is touched; Node.js and SSH stay alone.
+pause_app_host() {
+  local snapshot host_pid attempt
+  [[ "$(plist_value "$HOST_PLIST" Label)" == "$HOST_LABEL" \
+    && "$(plist_value "$HOST_PLIST" ProgramArguments:0)" == "$APP_EXECUTABLE" \
+    && "$(plist_value "$HOST_PLIST" ProgramArguments:1)" == "--serve" ]] || return 0
+  snapshot="$("$LAUNCHCTL_BIN" print "$HOST_DOMAIN/$HOST_LABEL" 2>/dev/null)" || return 0
+  host_pid="$(print -r -- "$snapshot" | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p')"
+  mkdir -p "${HOST_RELOAD_MARKER:h}"
+  : > "$HOST_RELOAD_MARKER"
+  HOST_RELOAD_NEEDED=1
+  "$LAUNCHCTL_BIN" bootout "$HOST_DOMAIN/$HOST_LABEL" >/dev/null 2>&1 || true
+  for attempt in {1..300}; do
+    if ! "$LAUNCHCTL_BIN" print "$HOST_DOMAIN/$HOST_LABEL" >/dev/null 2>&1 \
+      && { [[ -z "$host_pid" ]] || ! kill -0 "$host_pid" 2>/dev/null; }; then
+      return 0
+    fi
+    /bin/sleep 0.1
+  done
+  die "the Host did not stop; its app has not been replaced"
+}
+
+resume_app_host() {
+  local attempt
+  (( HOST_RELOAD_NEEDED )) || return 0
+  for attempt in {1..10}; do
+    "$LAUNCHCTL_BIN" print "$HOST_DOMAIN/$HOST_LABEL" >/dev/null 2>&1 \
+      || "$LAUNCHCTL_BIN" bootstrap "$HOST_DOMAIN" "$HOST_PLIST" >/dev/null 2>&1 || true
+    if "$LAUNCHCTL_BIN" print "$HOST_DOMAIN/$HOST_LABEL" >/dev/null 2>&1; then
+      # Commit before clearing the recovery flag: a signal immediately after
+      # bootstrap must not replace an executable the new Host is now using.
+      APP_OLD_MOVED=0 APP_NEW_MOVED=0
+      HOST_RELOAD_NEEDED=0
+      HOST_WAS_RELOADED=1
+      /bin/rm -f -- "$HOST_RELOAD_MARKER"
+      return 0
+    fi
+    /bin/sleep 0.2
+  done
+  return 1
+}
+
+finish_helper() {
+  local result=$?
+  finish_signing
+  # A failed or interrupted install puts the old app back before resuming.
+  if (( APP_OLD_MOVED || APP_NEW_MOVED )); then
+    (( ! APP_NEW_MOVED )) || /bin/rm -rf -- "$APP_PATH"
+    if (( APP_OLD_MOVED )) && [[ -d "$PREVIOUS_APP" ]]; then mv "$PREVIOUS_APP" "$APP_PATH"; fi
+    [[ ! -d "$APP_PATH" ]] || "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$RESTORE_DISPLACED" ]]; then
+    if [[ -d "$RESTORE_DISPLACED" && ! -e "$APP_PATH" ]]; then mv "$RESTORE_DISPLACED" "$APP_PATH"; fi
+    [[ ! -d "$APP_PATH" ]] || "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
+  fi
+  resume_app_host || print -u2 -- "stepsemble-macos-app: Host reload is pending; the updater will retry"
+  return "$result"
+}
+trap 'finish_helper' EXIT
 trap 'exit 130' INT TERM
+
+record_host_reload() {
+  (( HOST_WAS_RELOADED )) && [[ -n "$RELOAD_RECEIPT" ]] || return 0
+  : > "$RELOAD_RECEIPT" || print -u2 -- "stepsemble-macos-app: could not record the Host reload"
+}
 
 # codesign takes identities only from a keychain in the user's search list. A
 # throwaway keychain holds this Mac's certificate for the moment of signing;
@@ -188,32 +268,48 @@ install_app() {
     /bin/rm -rf -- "$stage_root"
     die "the signed app does not start"
   fi
+  pause_app_host
   /bin/rm -rf -- "$PREVIOUS_APP"
   if [[ -e "$APP_PATH" ]]; then
+    APP_OLD_MOVED=1
     mv "$APP_PATH" "$PREVIOUS_APP"
     "$LSREGISTER" -u "$PREVIOUS_APP" >/dev/null 2>&1 || true
   fi
+  APP_NEW_MOVED=1
   if ! mv "$stage" "$APP_PATH"; then
-    [[ ! -e "$PREVIOUS_APP" ]] || mv "$PREVIOUS_APP" "$APP_PATH"
     /bin/rm -rf -- "$stage_root"
     die "could not install Stepsemble.app"
   fi
   /bin/rm -rf -- "$stage_root"
   "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
+  resume_app_host || die "could not reload the Host with the new app"
+  record_host_reload
+  APP_OLD_MOVED=0 APP_NEW_MOVED=0
   print -r -- "$APP_PATH"
 }
 
 # The app that install replaced comes back; after a first install, the app is
 # removed.
 restore_app() {
+  pause_app_host
   if [[ -d "$PREVIOUS_APP" ]]; then
-    /bin/rm -rf -- "$APP_PATH"
-    mv "$PREVIOUS_APP" "$APP_PATH"
+    local displaced="$SUPPORT_DIR/restore-current/Stepsemble.app"
+    RESTORE_DISPLACED="$displaced"
+    /bin/rm -rf -- "${displaced:h}"
+    mkdir -p "${displaced:h}"
+    [[ ! -e "$APP_PATH" ]] || mv "$APP_PATH" "$displaced"
+    if ! mv "$PREVIOUS_APP" "$APP_PATH"; then
+      [[ ! -e "$displaced" ]] || mv "$displaced" "$APP_PATH"
+      die "could not restore Stepsemble.app"
+    fi
+    /bin/rm -rf -- "${displaced:h}"
     "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
   else
     [[ ! -e "$APP_PATH" ]] || "$LSREGISTER" -u "$APP_PATH" >/dev/null 2>&1 || true
     /bin/rm -rf -- "$APP_PATH"
   fi
+  resume_app_host || die "could not reload the Host with the restored app"
+  record_host_reload
 }
 
 # app: the LaunchAgent starts the Host through Stepsemble.app. node: it starts

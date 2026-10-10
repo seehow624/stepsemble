@@ -1,7 +1,7 @@
-/* stepsemble v3.8.42 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.43 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.42";
+const CLIENT_APP_VERSION = "3.8.43";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15665,7 +15665,8 @@ function renderNotificationsSummary() {
   const text = state === "on" ? tKey("notifications.summaryOn")
     : state === "enable" ? tKey("notifications.summaryOff")
       : state === "unsupported" ? updateText("Not available")
-        : state === "denied" ? window.StepsembleNotifications.t("blocked", settings.locale) : null;
+        : state === "denied" ? window.StepsembleNotifications.t("blocked", settings.locale)
+          : ["busy", "error", "restart"].includes(state) ? window.StepsembleNotifications.t(state === "busy" ? "checking" : state === "error" ? "retry" : "reopen", settings.locale) : null;
   if (text !== null) setSettingsSummary(el.settingsSummaryNotifications, text);
 }
 
@@ -17490,10 +17491,12 @@ function pushKeyMatches(subscription, publicKey) {
 }
 function setPushToggleState(state) {
   if (!el.pushToggle) return;
-  const key = state === "on" ? "on" : state === "unsupported" ? "unavailable" : state === "denied" ? (notices.native() ? "settings" : "blocked") : state === "error" ? "error" : "enable";
-  el.pushToggle.textContent = state === "busy" ? "…" : noticeText(key);
+  const key = state === "on" ? "on" : state === "unsupported" ? "unavailable" : state === "denied" ? (notices.native() ? "settings" : "blocked") : state === "error" ? "retry" : state === "restart" ? "reopen" : "enable";
+  el.pushToggle.textContent = state === "busy" ? noticeText("checking") : noticeText(key);
   el.pushToggle.dataset.pushState = state;
-  el.pushToggle.disabled = state === "busy" || state === "unsupported" || state === "denied" && !notices.native();
+  el.pushToggle.disabled = ["busy", "unsupported", "restart"].includes(state) || state === "denied" && !notices.native();
+  const statusNote = $("push-status-note"), statusKey = state === "restart" ? "restartNote" : state === "error" ? "error" : notices.needsRestart(CLIENT_APP_VERSION) ? "restartNote" : null;
+  if (statusNote) { statusNote.textContent = statusKey ? noticeText(statusKey) : ""; statusNote.classList.toggle("hidden", !statusKey); }
   el.pushUnsupportedNote?.classList.toggle("hidden", state !== "unsupported");
   $("push-test-row")?.classList.toggle("hidden", state !== "on");
   if ($("push-test")) { $("push-test").textContent = noticeText("sendTest"); $("push-test").disabled = state !== "on"; }
@@ -17506,6 +17509,7 @@ async function refreshPushToggleState() {
   const current = () => epoch === pushRequest && host === selectedId && base === apiBase;
   try {
     if (notices.native()) {
+      if (!notices.supportsNativeNotifications()) { if (current()) setPushToggleState("restart"); return; }
       const status = await notices.request("status", host, settings.locale);
       if (current()) setPushToggleState(status.permission === "denied" ? "denied" : status.enabled && status.permission === "granted" ? "on" : "enable");
       return;

@@ -375,12 +375,14 @@ app_helper=""
 app_plist_backup=""
 app_changed=0
 app_plist_changed=0
+app_reload_receipt=""
 
 macos_app_ready() {
   [[ "$(/usr/bin/uname -s)" == "Darwin" && "$SERVICE_LABEL" == "com.stepsemble.server" && -f "$SERVER_PLIST" ]] || return 1
   [[ -f "$INSTALL_DIR/deploy/stepsemble-macos-app.sh" && -d "$INSTALL_DIR/macos/Stepsemble.app" ]] || return 1
   # A rollback replaces the release, so undoing needs a copy of the helper.
   app_helper="$work_dir/stepsemble-macos-app.sh"
+  app_reload_receipt="$work_dir/app-host-reloaded"
   /bin/cp "$INSTALL_DIR/deploy/stepsemble-macos-app.sh" "$app_helper"
 }
 
@@ -402,6 +404,7 @@ prepare_macos_app() {
   app_changed=0
   app_plist_changed=0
   macos_app_ready || return 0
+  /bin/rm -f -- "$app_reload_receipt"
   mode="$(app_launch_mode)"
   case "$mode" in
     app) /bin/zsh "$app_helper" check "$version" && return 0 ;;
@@ -410,7 +413,7 @@ prepare_macos_app() {
   esac
   app_plist_backup="$work_dir/server.plist"
   /bin/cp -p "$SERVER_PLIST" "$app_plist_backup"
-  if ! /bin/zsh "$app_helper" install "$INSTALL_DIR/macos/Stepsemble.app" >/dev/null; then
+  if ! STEPSEMBLE_APP_RELOAD_RECEIPT="$app_reload_receipt" /bin/zsh "$app_helper" install "$INSTALL_DIR/macos/Stepsemble.app" >/dev/null; then
     log "could not sign Stepsemble.app for this Mac; the Host keeps its current launcher"
     # A Host whose app is gone could not start again at all.
     if [[ "$mode" == "app" ]] && ! /bin/zsh "$app_helper" check && /bin/zsh "$app_helper" use-node "$SERVER_PLIST"; then
@@ -431,18 +434,23 @@ prepare_macos_app() {
 }
 
 undo_macos_app() {
+  [[ -z "$app_reload_receipt" ]] || /bin/rm -f -- "$app_reload_receipt"
   if (( app_plist_changed )) && [[ -f "$app_plist_backup" ]]; then
     /bin/cp -p "$app_plist_backup" "$SERVER_PLIST"
   fi
   if (( app_changed )); then
-    /bin/zsh "$app_helper" restore >/dev/null 2>&1 || log "could not put the previous Stepsemble.app back"
+    STEPSEMBLE_APP_RELOAD_RECEIPT="$app_reload_receipt" /bin/zsh "$app_helper" restore >/dev/null 2>&1 || log "could not put the previous Stepsemble.app back"
   fi
 }
 
 # launchd reads a changed LaunchAgent only when it loads the job again.
 restart_service() {
   local domain="gui/$(id -u)" attempt
-  if (( ! app_plist_changed )); then
+  if [[ -n "$app_reload_receipt" && -f "$app_reload_receipt" ]]; then
+    /bin/rm -f -- "$app_reload_receipt"
+    return 0
+  fi
+  if (( ! app_plist_changed )) && { (( ! app_changed )) || [[ "$(app_launch_mode)" != "app" ]]; }; then
     "$LAUNCHCTL_BIN" kickstart -k "$domain/$SERVICE_LABEL" >/dev/null 2>&1 || log "release installed; launchd restart was not available"
     return 0
   fi
@@ -467,7 +475,10 @@ restart_service() {
 reload_interrupted_service() {
   [[ -f "$SERVER_RELOAD_MARKER" ]] || return 0
   if [[ -f "$SERVER_PLIST" ]] && ! "$LAUNCHCTL_BIN" print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1; then
-    "$LAUNCHCTL_BIN" bootstrap "gui/$(id -u)" "$SERVER_PLIST" >/dev/null 2>&1 || log "launchd did not load the Host"
+    if ! "$LAUNCHCTL_BIN" bootstrap "gui/$(id -u)" "$SERVER_PLIST" >/dev/null 2>&1; then
+      log "launchd did not load the Host; reload remains pending"
+      return 0
+    fi
   fi
   /bin/rm -f -- "$SERVER_RELOAD_MARKER"
 }

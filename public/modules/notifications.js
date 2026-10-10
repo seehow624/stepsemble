@@ -5,7 +5,7 @@
   else root.StepsembleNotifications = api;
 })(typeof globalThis === "object" ? globalThis : this, function () {
   "use strict";
-  const keys = ["completed", "failed", "stopped", "approval", "test", "title", "note", "when", "enable", "on", "off", "blocked", "settings", "sendTest", "sent", "unavailable", "error", "blockedGoal"];
+  const keys = ["completed", "failed", "stopped", "approval", "test", "title", "note", "when", "enable", "on", "off", "blocked", "settings", "sendTest", "sent", "unavailable", "error", "blockedGoal", "checking", "retry", "reopen", "restartNote"];
   const copy = {
     en: ["Work completed", "Work failed", "Work stopped", "Approval needed", "Notifications are ready", "Notifications", "Completions, errors and requests for approval", "Applies to this device and the selected Host. Alerts stay quiet while you are viewing the session. Click an alert to return to it.", "Enable", "Notifications on", "Notifications off", "Notifications blocked", "Open notification settings", "Send test notification", "Test notification sent", "Not available", "Could not update notifications. Try again.", "Work needs your attention"],
     "zh-Hant": ["工作已完成", "工作失敗", "工作已停止", "需要你的核准", "通知已準備就緒", "通知", "工作完成、錯誤及需要核准時提醒", "套用於這台裝置與目前選擇的 Host。正在查看該 Session 時不打擾；點擊通知即可回到工作。", "啟用", "通知已開啟", "通知已關閉", "通知被封鎖", "打開通知設定", "發送測試通知", "測試通知已發送", "無法使用", "無法更新通知，請再試一次。", "工作需要你的處理"],
@@ -19,8 +19,90 @@
     "pt-BR": ["Trabalho concluído", "O trabalho falhou", "Trabalho interrompido", "Aprovação necessária", "As notificações estão prontas", "Notificações", "Conclusões, erros e pedidos de aprovação", "Para este dispositivo e o Host selecionado. Sem alertas enquanto vê a sessão. Clique num alerta para voltar ao trabalho.", "Ativar", "Notificações ativadas", "Notificações desativadas", "Notificações bloqueadas", "Abrir definições de notificações", "Enviar notificação de teste", "Notificação de teste enviada", "Indisponível", "Não foi possível alterar as notificações. Tente novamente.", "O trabalho precisa da sua atenção"],
     it: ["Lavoro completato", "Lavoro non riuscito", "Lavoro interrotto", "Approvazione richiesta", "Le notifiche sono pronte", "Notifiche", "Completamenti, errori e richieste di approvazione", "Per questo dispositivo e l’Host selezionato. Nessun avviso mentre guardi la sessione. Fai clic su un avviso per tornare al lavoro.", "Attiva", "Notifiche attive", "Notifiche disattivate", "Notifiche bloccate", "Apri impostazioni notifiche", "Invia notifica di prova", "Notifica di prova inviata", "Non disponibile", "Impossibile modificare le notifiche. Riprova.", "Il lavoro richiede la tua attenzione"],
   };
+  const updateCopy = {
+    "en": [
+      "Checking…",
+      "Retry",
+      "Reopen Stepsemble",
+      "The App is still running an older version. Save your input, quit Stepsemble with ⌘Q, then open it again to finish the update. The Host keeps running."
+    ],
+    "zh-Hant": [
+      "查詢中…",
+      "重試",
+      "重新開啟 Stepsemble",
+      "App 仍在執行舊版本。請先儲存輸入內容，按 ⌘Q 結束 Stepsemble，再重新開啟以完成更新。背景 Host 會繼續運作。"
+    ],
+    "zh-Hans": [
+      "查询中…",
+      "重试",
+      "重新打开 Stepsemble",
+      "App 仍在运行旧版本。请先保存输入内容，按 ⌘Q 退出 Stepsemble，再重新打开以完成更新。后台 Host 会继续运行。"
+    ],
+    "ja": [
+      "確認中…",
+      "再試行",
+      "Stepsemble を開き直す",
+      "古いバージョンのアプリが実行中です。入力を保存し、⌘Q で Stepsemble を終了してから開き直すと更新が完了します。ホストは動作を続けます。"
+    ],
+    "ko": [
+      "확인 중…",
+      "다시 시도",
+      "Stepsemble 다시 열기",
+      "앱이 이전 버전으로 실행 중입니다. 입력을 저장하고 ⌘Q로 Stepsemble을 종료한 후 다시 열어 업데이트를 완료하세요. 호스트는 계속 실행됩니다."
+    ],
+    "tr": [
+      "Kontrol ediliyor…",
+      "Tekrar dene",
+      "Stepsemble’ı yeniden aç",
+      "Uygulamanın eski sürümü çalışıyor. Girdinizi kaydedin, ⌘Q ile Stepsemble’dan çıkın ve güncellemeyi tamamlamak için yeniden açın. Host çalışmaya devam eder."
+    ],
+    "fr": [
+      "Vérification…",
+      "Réessayer",
+      "Rouvrir Stepsemble",
+      "L’app utilise encore une ancienne version. Enregistrez votre saisie, quittez Stepsemble avec ⌘Q puis rouvrez-le pour terminer la mise à jour. L’hôte reste actif."
+    ],
+    "de": [
+      "Wird geprüft…",
+      "Erneut versuchen",
+      "Stepsemble neu öffnen",
+      "Die App verwendet noch eine ältere Version. Speichern Sie Ihre Eingabe, beenden Sie Stepsemble mit ⌘Q und öffnen Sie es erneut, um das Update abzuschließen. Der Host läuft weiter."
+    ],
+    "es": [
+      "Comprobando…",
+      "Reintentar",
+      "Volver a abrir Stepsemble",
+      "La app sigue ejecutando una versión anterior. Guarda lo que has escrito, sal de Stepsemble con ⌘Q y vuelve a abrirlo para completar la actualización. El Host seguirá funcionando."
+    ],
+    "pt-BR": [
+      "Verificando…",
+      "Tentar novamente",
+      "Reabrir Stepsemble",
+      "O app ainda está executando uma versão anterior. Salve sua entrada, saia do Stepsemble com ⌘Q e abra-o novamente para concluir a atualização. O Host continua funcionando."
+    ],
+    "it": [
+      "Verifica…",
+      "Riprova",
+      "Riapri Stepsemble",
+      "L’app sta ancora usando una versione precedente. Salva ciò che hai scritto, chiudi Stepsemble con ⌘Q e riaprilo per completare l’aggiornamento. L’Host resta attivo."
+    ]
+  };
+  for (const locale of Object.keys(copy)) copy[locale].push(...updateCopy[locale]);
   const t = (key, locale = "en") => (copy[locale === "pt" ? "pt-BR" : locale] || copy.en)[keys.indexOf(key)] || key;
   const native = () => !!globalThis.window?.webkit?.messageHandlers?.stepsemble;
+  const nativeVersion = () => globalThis.navigator?.userAgent?.match(/\bStepsemble\/(\d+\.\d+\.\d+)(?=[\s;)]|$)/)?.[1] || null;
+  function needsRestart(expected) {
+    if (!native()) return false;
+    const running = nativeVersion(), version = /^\d+\.\d+\.\d+$/.test(expected) ? expected : null;
+    if (!running) return true;
+    if (!version) return false;
+    const a = running.split(".").map(Number), b = version.split(".").map(Number);
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+    return false;
+  }
+  // The bridge was added in 3.8.42. A newer page can still use a compatible
+  // older App while explaining that reopening finishes the App update.
+  const supportsNativeNotifications = () => native() && !needsRestart("3.8.42");
   let sequence = 0;
   const pending = new Map();
   if (globalThis.window?.addEventListener) window.addEventListener("message", event => {
@@ -33,7 +115,7 @@
     return new Promise((resolve, reject) => {
       if (!native()) { reject(new Error(t("unavailable", locale))); return; }
       const requestId = "notice-" + (++sequence) + "-" + Date.now();
-      const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(t("error", locale))); }, 30000);
+      const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(t("error", locale))); }, action === "enable" ? 120000 : 8000);
       pending.set(requestId, { resolve, timer });
       try { window.webkit.messageHandlers.stepsemble.postMessage({ type: "notifications", action, host, locale, requestId }); }
       catch (error) { pending.delete(requestId); clearTimeout(timer); reject(error); }
@@ -46,5 +128,5 @@
   function href(notice) {
     return target(notice) ? "/workspace.html?host=" + encodeURIComponent(notice.host) + "&entry=" + encodeURIComponent(notice.key) : "/workspace.html";
   }
-  return { t, copy, keys, native, request, target, href };
+  return { t, copy, keys, native, nativeVersion, needsRestart, supportsNativeNotifications, request, target, href };
 });

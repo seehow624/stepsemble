@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.43
+
+- Reload the macOS Host's LaunchAgent around signed App replacement, including updates started by an older updater. Preserve the Mac's signing identity and recover the previous App if replacement or reload fails.
+- Explain when the desktop App needs reopening after an update, show a clear notification permission lookup and retry state, and time out missing native replies instead of leaving the control busy.
+- Retain pending Host recovery after a failed launchd reload and avoid a second restart when the App installer already reloaded the Host.
+
 ## 3.8.42
 
 - macOS Cmd+W closes the focused session tab and keeps the workspace open after its last tab. Cmd+Shift+W closes the window.

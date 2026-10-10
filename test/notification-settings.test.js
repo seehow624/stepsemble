@@ -6,9 +6,9 @@ const pushKey = Buffer.from([4, 1, 2, 3]).toString("base64url");
 const subscription = (endpoint, key = pushKey) => ({ endpoint, options: { applicationServerKey: Uint8Array.from(Buffer.from(key, "base64url")).buffer }, toJSON() { return { endpoint: this.endpoint, keys: {} }; } });
 function fixture(native = false) {
   const calls = [], nativeCalls = [], registrations = [], messages = [];
-  const button = { dataset: {}, disabled: false }, el = { pushToggle: button, pushUnsupportedNote: { classList: { toggle() {} } } };
-  const context = vm.createContext({ el, $: () => null, settings: { locale: "en" },
-    window: { PushManager: true, Notification: true, StepsembleNotifications: { ...copy, native: () => native, request(action, host) { return new Promise((resolve, reject) => nativeCalls.push({ action, host, resolve, reject })); } } },
+  const button = { dataset: {}, disabled: false }, note = { classList: { toggle() {} } }, el = { pushToggle: button, pushUnsupportedNote: { classList: { toggle() {} } } };
+  const context = vm.createContext({ el, $: id => id === "push-status-note" ? note : null, CLIENT_APP_VERSION: "3.8.43", settings: { locale: "en" },
+    window: { PushManager: true, Notification: true, StepsembleNotifications: { ...copy, native: () => native, needsRestart: () => false, supportsNativeNotifications: () => native, request(action, host) { return new Promise((resolve, reject) => nativeCalls.push({ action, host, resolve, reject })); } } },
     Notification: { permission: "granted" }, location: { origin: "http://localhost" }, URL,
     navigator: { serviceWorker: { getRegistrations: async () => registrations, getRegistration: async () => null, register: async (url, opts) => { calls.push({ url, opts }); return { active: { state: "activated" } }; } } },
     protocolConnections: { ensure: async () => {} }, hostClient: { request: async (base, route, opts) => { calls.push({ base, route, body: opts?.body && JSON.parse(opts.body) }); return route === "/api/push/config" ? { publicKey: pushKey } : { endpoints: [] }; } },
@@ -18,8 +18,28 @@ function fixture(native = false) {
   vm.runInContext(`let selectedId = 'mini', apiBase = ''; ${source.slice(a, b)}
     function selectHost(id) { selectedId = id; apiBase = '/r/' + id; }
   `, context);
-  return { context, button, calls, nativeCalls, registrations, messages };
+  return { context, button, note, calls, nativeCalls, registrations, messages };
 }
+test("an older desktop App immediately explains reopening instead of sending an unsupported request", async () => {
+  const f = fixture(true);
+  f.context.window.StepsembleNotifications.supportsNativeNotifications = () => false;
+  await f.context.refreshPushToggleState();
+  assert.equal(f.button.dataset.pushState, "restart"); assert.equal(f.button.disabled, true);
+  assert.match(f.note.textContent, /⌘Q/); assert.equal(f.nativeCalls.length, 0);
+});
+test("a compatible older App can use notifications while showing the update's reopen instruction", async () => {
+  const f = fixture(true);
+  f.context.window.StepsembleNotifications.needsRestart = expected => { assert.equal(expected, "3.8.43"); return true; };
+  const pending = f.context.refreshPushToggleState();
+  f.nativeCalls[0].resolve({ enabled: false, permission: "default" }); await pending;
+  assert.equal(f.button.dataset.pushState, "enable"); assert.equal(f.button.disabled, false); assert.match(f.note.textContent, /⌘Q/);
+});
+test("a native bridge failure ends checking with a short retry button and an explanation", async () => {
+  const f = fixture(true), pending = f.context.refreshPushToggleState();
+  assert.equal(f.button.textContent, "Checking…");
+  f.nativeCalls[0].reject(new Error("timeout")); await pending;
+  assert.equal(f.button.textContent, "Retry"); assert.equal(f.button.disabled, false); assert.match(f.note.textContent, /Try again/);
+});
 test("a delayed native status never overwrites another Host's notification settings", async () => {
   const f = fixture(true), old = f.context.refreshPushToggleState();
   assert.equal(f.button.disabled, true);
