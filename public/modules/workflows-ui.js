@@ -1,157 +1,487 @@
-/* Shared Goal and schedule surfaces. All execution and clocks belong to the Host. */
-(function (root) {
+/* Host-owned Goals and schedules. The interface only observes and requests. */
+(function (root, factory) {
+  const api = factory(root);
+  if (typeof module === "object" && module.exports) module.exports = api;
+  if (root) root.StepsembleWorkflows = api;
+})(typeof window !== "undefined" ? window : null, function (root) {
   "use strict";
-  const en = { goals:"Goals", schedules:"Schedules", newGoal:"New Goal", newSchedule:"New schedule", close:"Close", back:"Back", title:"Name", objective:"Goal and completion criteria", project:"Project", agent:"Agent", mode:"Run mode", goal:"Work toward a Goal", task:"Run one task", limits:"Limits", minutes:"Time limit (minutes)", turns:"Maximum turns", tokens:"Output token budget", save:"Save", start:"Start Goal", pause:"Pause", resume:"Resume", stop:"Stop", run:"Run now", edit:"Edit", remove:"Delete", conversation:"Open conversation", result:"Latest result", next:"Next run", previous:"Last run", history:"Run history", schedule:"Repeat", once:"Once", daily:"Every day", weekly:"Every week", interval:"At an interval", every:"Interval (minutes)", time:"Time", timeZone:"Time zone", date:"Date and time", days:"Weekdays", hostNote:"Runs on this Host. Keep the computer awake and Stepsemble running. Closing this page does not stop a task.", modelNote:"New conversations use this agent’s saved model and normal permission settings. Approvals remain in the conversation.", emptyGoals:"Give an agent a goal. Follow its work here, even after you close the conversation.", emptySchedules:"Choose when an agent should work. Each run gets its own conversation and result.", elapsed:"Worked for", turn:"turns", live:"Current activity", waiting:"Waiting for you", queued:"Queued", starting:"Starting", running:"Working", stopping:"Stopping", paused:"Paused", blocked:"Needs your input", interrupted:"Interrupted", limited:"Limit reached", completed:"Completed", failed:"Failed", stopped:"Stopped", thinking:"Thinking", approval:"Waiting for approval", inactive:"Paused", ended:"Finished", unavailable:"Tasks are unavailable on this Host", noAgents:"No supported agents installed", refreshError:"Connection interrupted. Showing the last update.", removeConfirm:"Delete this schedule? Existing runs are kept.", newHint:"Describe what should be done and how the agent should verify it.", late:"Started after its scheduled time", retry:"Try again", returnChat:"Return to conversation", sun:"Sun", mon:"Mon", tue:"Tue", wed:"Wed", thu:"Thu", fri:"Fri", sat:"Sat" };
-  const zh = { goals:"目標", schedules:"排程", newGoal:"新增 Goal", newSchedule:"新增排程", close:"關閉", back:"返回", title:"名稱", objective:"目標與完成條件", project:"專案", agent:"Agent", mode:"執行方式", goal:"持續推進目標", task:"執行一次任務", limits:"執行上限", minutes:"時間上限（分鐘）", turns:"最多接續回合", tokens:"輸出 Token 預算", save:"儲存", start:"開始 Goal", pause:"暫停", resume:"繼續", stop:"停止", run:"立即執行", edit:"編輯", remove:"刪除", conversation:"開啟對話", result:"最新結果", next:"下次執行", previous:"上次執行", history:"執行紀錄", schedule:"重複方式", once:"單次", daily:"每天", weekly:"每週", interval:"固定間隔", every:"間隔（分鐘）", time:"時間", timeZone:"時區", date:"日期與時間", days:"星期", hostNote:"任務在這台 Host 上執行。電腦需保持喚醒，並運行 Stepsemble；關閉此頁不會停止任務。", modelNote:"新對話沿用該 Agent 的模型與一般權限設定。需要批准的操作會在對話中等待你處理。", emptyGoals:"給 Agent 一個目標。即使關閉對話，也能在這裡查看它的工作。", emptySchedules:"安排 Agent 開始工作的時間。每次執行都有獨立對話與結果。", elapsed:"已工作", turn:"回合", live:"目前活動", waiting:"等待你處理", queued:"排隊中", starting:"啟動中", running:"工作中", stopping:"正在停止", paused:"已暫停", blocked:"需要你的回覆", interrupted:"執行中斷", limited:"已達上限", completed:"已完成", failed:"執行失敗", stopped:"已停止", thinking:"思考中", approval:"等待批准", inactive:"已暫停", ended:"已結束", unavailable:"這台 Host 暫時無法使用目標與排程", noAgents:"尚未安裝支援的 Agent", refreshError:"連線中斷，目前顯示上次更新。", removeConfirm:"刪除此排程？既有執行紀錄會保留。", newHint:"描述要完成的工作，以及如何確認完成。", late:"已補跑錯過的排程", retry:"重試", returnChat:"返回對話", sun:"日", mon:"一", tue:"二", wed:"三", thu:"四", fri:"五", sat:"六" };
-  const t = key => (/^zh/.test(document.documentElement.lang) ? zh[key] : en[key]) || key;
-  const el = (tag, content = "", cls = "") => { const e = document.createElement(tag); e.className = cls; e.textContent = content; return e; };
-  function button(label, action, cls = "") { const b = el("button", label, `btn ${cls}`); b.type = "button"; b.onclick = action; return b; }
-  const active = row => ["starting","running","waiting","stopping","queued"].includes(row.status);
-  const resumable = row => ["paused","blocked","interrupted"].includes(row.status);
-  function duration(ms) { const s = Math.floor(Math.max(0, ms) / 1000); return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}h ` : ""}${Math.floor(s / 60) % 60}m ${s % 60}s`; }
-  const stamp = (n, timeZone) => n ? new Date(n).toLocaleString(document.documentElement.lang, timeZone ? {timeZone} : undefined) : "—";
+  const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build"];
+  const ACTIVE = ["queued", "starting", "running", "waiting", "stopping"];
+  const RESUMABLE = ["paused", "blocked", "interrupted"];
+  const ATTENTION = ["waiting", "blocked", "interrupted", "failed", "limited"];
+  const CLOCKED = ["starting", "running", "waiting"];
+  const en = {
+    goals: "Goals", schedules: "Schedules", newGoal: "New Goal", newSchedule: "New schedule", close: "Close", back: "Back",
+    title: "Name", objective: "Objective", objectivePrompt: "What should the agent accomplish?", project: "Project", agent: "Agent", mode: "Run mode",
+    goal: "Work toward a Goal", task: "Run one task", limits: "Execution limits", save: "Save schedule", start: "Start Goal",
+    run: "Run now", edit: "Edit schedule", remove: "Delete schedule", conversation: "Open conversation", result: "Latest result",
+    next: "Next run", history: "Run history", schedule: "When to run", once: "Once", daily: "Every day",
+    weekly: "Every week", interval: "At an interval", every: "Interval (min)", time: "Time", timeZone: "Time zone", date: "Date and time", days: "Days of the week",
+    hostNote: "Runs on this Host. Keep the computer awake and Stepsemble running.",
+    modelNote: "Uses the agent’s saved model. Approvals stay in the conversation.",
+    emptyGoals: "A clear goal. A place to follow its progress.", emptySchedules: "Make room for work that runs itself.",
+    emptyGoalsHint: "Start here, or type /goal in any supported conversation.", emptySchedulesHint: "Choose a task and a time. Each run opens its own conversation.",
+    elapsed: "Time worked", workingFor: "Working for", live: "Current activity", unavailable: "Goals and schedules are unavailable on this Host.",
+    noAgents: "No supported agents installed.", noProjects: "Add a project before creating a task.", refreshError: "Connection interrupted. Showing the last update.",
+    removeConfirm: "Delete this schedule? Existing runs are kept.", newHint: "Describe the work and how to verify it is complete…",
+    late: "Started after its scheduled time", retry: "Try again", sun: "Sun", mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat",
+    all: "All", active: "In progress", attention: "Needs attention", finished: "Finished", enabled: "Scheduled", filter: "Find a task…",
+    noMatches: "No matching tasks", noMatchesHint: "Try another search or filter.", scheduled: "Scheduled run", ready: "Ready to run",
+    outputTokens: "Output tokens", turnsUsed: "Turns used", timeBudget: "Time budget", ofLimit: "of {limit}",
+    everyMinutes: "Every {minutes} min", weekAt: "{days} · {time}", dailyAt: "Every day · {time}",
+    scheduleHint: "Set it once. Follow every run here.", goalHint: "Give the agent an outcome and follow its work.",
+    taskHint: "One task per run", goalModeHint: "Continues until complete or a limit is reached", nameHint: "Optional — use the first line of the objective",
+    limitsHint: "A run stops when any limit is reached.", chooseDays: "Choose at least one weekday.", futureDate: "Choose a future date and time.",
+    invalidZone: "Enter a valid time zone, such as Asia/Taipei.", loading: "Connecting to the Host…", selectTask: "Select a task to see its progress.",
+    objectiveRequired: "Describe an objective before starting.",
+    resultEmpty: "The result will appear here when the agent finishes a turn.", historyEmpty: "No runs yet. The first result will appear here.",
+    nextNone: "No upcoming run", editTime: "Choose a new time to run this schedule again.", requestPending: "Saving…",
+  };
+  const aliases = { pause: "pause", resume: "resume", stop: "stop", minutes: "minutes", turns: "turns", tokens: "tokens", limitsError: "limitsError", thinking: "state.thinking", approval: "state.waiting" };
+  const locale = () => root?.document.documentElement.lang || "en";
+  function t(key, vars = {}) {
+    if (root?.StepsembleWorkflowI18n) return root.StepsembleWorkflowI18n.t(key, vars, locale());
+    const alias = aliases[key] || (ACTIVE.includes(key) || RESUMABLE.includes(key) || ["limited", "completed", "failed", "stopped"].includes(key) ? "state." + key : null);
+    const full = alias ? "goalComposer." + alias : "workflows." + key;
+    const translated = root?.stepsembleI18n?.tKey(full, vars);
+    if (translated && translated !== full) return translated;
+    return (en[key] || key).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
+  }
+  const active = row => ACTIVE.includes(row.status);
+  const resumable = row => RESUMABLE.includes(row.status);
+  const attention = row => ATTENTION.includes(row.status);
+  const baseName = value => String(value || "").split(/[\\/]/).filter(Boolean).pop() || value || "—";
+  function duration(ms) {
+    const s = Math.floor(Math.max(0, Number(ms) || 0) / 1000);
+    return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ""}${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }
+  function elapsed(row, receivedAt, now = Date.now()) {
+    return Math.max(0, Number(row.elapsedMs) || 0) + (CLOCKED.includes(row.status) ? Math.max(0, now - receivedAt) : 0);
+  }
+  function stamp(value, timeZone, options = {}) {
+    if (!value) return "—";
+    try { return new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", ...(timeZone ? { timeZone } : {}), ...options }).format(new Date(value)); }
+    catch { return "—"; }
+  }
+  function scheduleState(row) {
+    return row.enabled ? "enabled" : row.schedule.kind === "once" && !row.nextAt && row.lastRunId ? "finished" : "paused";
+  }
+  function scheduleLabel(spec) {
+    if (spec.kind === "once") return stamp(spec.at);
+    if (spec.kind === "interval") return t("everyMinutes", { minutes: spec.minutes });
+    if (spec.kind === "daily") return t("dailyAt", { time: spec.time });
+    const names = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+    const days = [1,2,3,4,5,6,0].filter(day => spec.days?.includes(day)).map(day => t(names[day])).join(" · ");
+    return t("weekAt", { days, time: spec.time });
+  }
+  function relative(value, now = Date.now()) {
+    const minutes = Math.ceil((Number(value) - now) / 60000);
+    if (minutes <= 0) return t("ready");
+    const [amount, unit] = minutes >= 1440 ? [Math.round(minutes / 1440), "day"] : minutes >= 60 ? [Math.round(minutes / 60), "hour"] : [minutes, "minute"];
+    return new Intl.RelativeTimeFormat(locale(), { numeric: "always" }).format(amount, unit);
+  }
+  function requestId() {
+    if (root.crypto.randomUUID) return root.crypto.randomUUID();
+    const bytes = root.crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2,"0")).join("");
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+  function validate(input, now = Date.now()) {
+    if (typeof input.objective === "string" && !input.objective.trim()) return "workflows.objectiveRequired";
+    const limits = input.limits;
+    if (!limits || ![[limits.minutes,1,1440],[limits.turns,1,100],[limits.outputTokens,100,10000000]].every(([n,min,max]) => Number.isSafeInteger(n) && n >= min && n <= max)) return "goalComposer.limitsError";
+    if (input.schedule?.kind === "once" && !(Date.parse(input.schedule.at) > now)) return "workflows.futureDate";
+    if (input.schedule?.kind === "weekly" && !input.schedule.days.length) return "workflows.chooseDays";
+    if (["daily", "weekly"].includes(input.schedule?.kind)) {
+      try { new Intl.DateTimeFormat("en", { timeZone: input.schedule.timeZone }).format(now); } catch { return "workflows.invalidZone"; }
+    }
+    return null;
+  }
   function create({ api, context, openConversation, onChanged = () => {} }) {
-    let modal = null, timer = null, epoch = 0, view = "goals", data = null, contextValue = null, receivedAt = 0, editing = false;
-    function close() { epoch++; clearTimeout(timer); modal?.close(); modal?.remove(); root.dispatchEvent(new Event("stepsemble-workflow-panel")); modal = null; editing = false; }
+    const doc = root.document;
+    const el = (tag, text = "", cls = "") => { const node = doc.createElement(tag); node.className = cls; node.textContent = text; return node; };
+    function button(label, fn, cls = "", key = "") {
+      const node = el("button", label, "btn " + cls); node.type = "button"; node.onclick = fn;
+      if (key) node.dataset.focus = key;
+      return node;
+    }
+    const icon = text => { const node = el("span", text, "wf-icon"); node.setAttribute("aria-hidden", "true"); return node; };
+    let modal = null, timer = null, clock = null, epoch = 0, revision = 0, contextValue = null, data = null;
+    let view = "goals", filter = "all", query = "", selected = null, historyId = null, editing = false, pending = false;
+    let connected = false, frozenAt = 0, errorText = "", loaded = false, shell = null, listSignature = "", detailSignature = "";
+    const received = new Map();
     const call = (body, target = contextValue.target) => api("/api/workflows", body, target);
-    function error(message) { const e = modal?.querySelector(".wf-error"); if (!e) return; e.textContent = message; e.hidden = !message; }
+    const goals = () => (data?.runs || []).filter(row => row.mode !== "task");
+    const rows = () => view === "goals" ? goals() : data?.schedules || [];
+    const current = () => rows().find(row => row.id === selected);
+    const agentName = id => root.StepsembleAgentIdentity?.lookup(id).label || ({ pi:"Pi Agent", codex:"Codex", "claude-code":"Claude Code", omp:"Oh My Pi", opencode:"OpenCode", cline:"Cline", kilo:"Kilo Code", hermes:"Hermes Agent", "grok-build":"Grok Build" })[id] || id;
+    const liveTime = row => elapsed(row, received.get(row.id) || Date.now(), connected ? Date.now() : frozenAt);
+    function close() {
+      epoch++; revision++; root.clearTimeout(timer); root.clearInterval(clock);
+      modal?.close(); modal?.remove(); modal = null; shell = null; editing = false; pending = false;
+      root.dispatchEvent(new root.Event("stepsemble-workflow-panel"));
+    }
+    function error(message = "") {
+      errorText = message;
+      if (!shell?.error) return;
+      shell.error.textContent = message; shell.error.hidden = !message;
+    }
+    function rememberFocus(container) {
+      const key = container.contains(doc.activeElement) ? doc.activeElement?.dataset.focus : null;
+      return () => { if (key) [...container.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === key)?.focus({ preventScroll: true }); };
+    }
+    function showConversation(row) {
+      const target = contextValue.target; close(); openConversation(row.entry, row.title, target);
+    }
+    function merge(row) {
+      const collection = row.schedule ? data.schedules : data.runs;
+      const index = collection.findIndex(item => item.id === row.id);
+      if (index < 0) collection.push(row); else collection[index] = row;
+      if (!row.schedule) received.set(row.id, Date.now());
+    }
     async function action(row, name) {
+      if (pending || !loaded || data.available === false) return;
       if (name === "delete" && !root.confirm(t("removeConfirm"))) return;
-      const controls = [...modal.querySelectorAll("button")]; controls.forEach(b => b.disabled = true);
-      try { await call({ id: row.id, action: name }); onChanged(); await refresh(); }
-      catch (e) { error(e.message); }
-      finally { controls.forEach(b => b.disabled = false); }
+      const focused = doc.activeElement?.dataset.focus === row.id + ":" + name;
+      const token = epoch, target = contextValue.target; pending = true; revision++; error(""); updateButtons();
+      try {
+        const changed = await call({ id: row.id, action: name }, target);
+        if (token !== epoch || !modal) return;
+        revision++;
+        if (name === "delete") data.schedules = data.schedules.filter(item => item.id !== row.id);
+        else if (changed?.id) merge(changed);
+        onChanged(); render(true); await refresh();
+      } catch (e) { if (token === epoch) error(e.message || t("refreshError")); }
+      finally { if (token === epoch && modal) {
+        pending = false; updateButtons();
+        if (focused && doc.activeElement === doc.body) {
+          const successor = name === "pause" ? "resume" : name === "resume" ? "pause" : "conversation";
+          const controls = [...modal.querySelectorAll("[data-focus]")];
+          const next = [successor,name,"conversation"].map(key => controls.find(node => node.dataset.focus === row.id + ":" + key && !node.disabled)).find(Boolean);
+          if (next) next.focus({ preventScroll:true });
+          else if (current()?.id === row.id) (root.matchMedia?.("(max-width:700px)").matches ? shell.detail.querySelector(".wf-mobile-back") : [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + row.id))?.focus({ preventScroll:true });
+        }
+      } }
     }
-    function nav() {
-      const header = el("header", "", "wf-header");
-      const copy = el("div"); copy.append(el("small", contextValue.hostName), el("h1", t(view)));
-      header.append(copy, button(t("close"), close, "ghost"));
-      const tabs = el("nav", "", "wf-tabs"); tabs.setAttribute("aria-label", "Goals and schedules");
-      for (const key of ["goals","schedules"]) { const b = button(t(key), () => { editing = false; view = key; render(); }); b.setAttribute("aria-current", String(view === key)); tabs.append(b); }
-      tabs.append(button(t(view === "goals" ? "newGoal" : "newSchedule"), () => form(), "primary wf-add"));
-      return [header, tabs];
+    function updateButtons() {
+      if (!modal) return;
+      for (const node of modal.querySelectorAll("[data-mutation]")) node.disabled = pending || data?.available === false || !loaded || node.dataset.running === "true";
     }
-    function runCard(row) {
-      const card = el("article", "", "wf-card"); card.dataset.state = row.status; card.dataset.runId = row.id;
-      const head = el("div", "", "wf-card-head"); head.append(el("strong", row.title), el("span", t(row.status), "wf-status"));
-      const ms = row.elapsedMs + (["starting","running","waiting"].includes(row.status) ? Date.now() - receivedAt : 0);
-      const time = el("span", `${t("elapsed")} ${duration(ms)}`, "wf-clock"); time.dataset.run = row.id;
-      card.append(head, el("p", row.objective, "wf-objective"), el("small", `${row.agentId} · ${row.cwd}`, "wf-project"));
-      const meta = el("div", "", "wf-meta"); meta.append(time, el("span", `${row.turns} ${t("turn")} · ${row.outputTokens.toLocaleString()} tokens`)); card.append(meta);
-      if (active(row)) card.append(el("p", `${t("live")} · ${t(row.activity)}`, "wf-activity"));
-      if (row.error) card.append(el("p", row.error, "wf-run-error"));
-      if (row.scheduledAt && row.startedAt - row.scheduledAt > 60000) card.append(el("small", t("late")));
-      if (row.result) { const details = el("details"); details.append(el("summary", t("result")), el("pre", row.result, "wf-result")); card.append(details); }
-      const actions = el("div", "", "wf-actions");
-      if (row.entry) actions.append(button(t("conversation"), () => { const target = contextValue.target; close(); openConversation(row.entry, row.title, target); }));
-      if (active(row) && row.status !== "stopping") actions.append(button(t("pause"), () => action(row, "pause")));
-      if (resumable(row)) actions.append(button(t("resume"), () => action(row, "resume")));
-      if ((active(row) || resumable(row)) && (row.status !== "stopping" || row.error)) actions.append(button(t("stop"), () => action(row, "stop"), "ghost"));
-      card.append(actions); return card;
+    function mutateButton(row, name, label = name, cls = "") {
+      const node = button(t(label), () => action(row, name), cls, row.id + ":" + name); node.dataset.mutation = ""; return node;
     }
-    function scheduleCard(row) {
-      const card = el("article", "", "wf-card"), head = el("div", "", "wf-card-head");
-      head.append(el("strong", row.title), el("span", row.enabled ? t(row.schedule.kind) : t("paused"), "wf-status"));
-      card.dataset.runId = row.id;
-      card.append(head, el("p", row.objective, "wf-objective"), el("small", `${row.agentId} · ${row.cwd}`, "wf-project"));
-      card.append(el("p", `${t("next")} · ${row.enabled ? stamp(row.nextAt, row.schedule.timeZone) : "—"}${row.schedule.timeZone ? ` · ${row.schedule.timeZone}` : ""}`, "wf-meta"));
-      const history = data.runs.filter(r => r.scheduleId === row.id).reverse();
-      if (history[0]) card.append(el("small", `${t("previous")} · ${stamp(history[0].startedAt || history[0].createdAt, row.schedule.timeZone)} · ${t(history[0].status)}`));
-      const controls = el("div", "", "wf-actions");
-      controls.append(button(t("run"), () => action(row, "run")), button(t("edit"), () => form(row)), button(t(row.enabled ? "pause" : "resume"), () => action(row, row.enabled ? "pause" : "resume")), button(t("remove"), () => action(row, "delete"), "ghost"));
-      card.append(controls);
-      if (history.length) { const details = el("details"); details.append(el("summary", `${t("history")} · ${history.length}`)); for (const run of history) details.append(runCard(run)); card.append(details); }
-      return card;
+    function controls(row) {
+      const box = el("div", "", "wf-actions");
+      if (row.entry) box.append(button(t("conversation") + " ↗", () => showConversation(row), "wf-open-chat", row.id + ":conversation"));
+      if (active(row) && row.status !== "stopping") box.append(mutateButton(row,"pause"));
+      if (resumable(row)) box.append(mutateButton(row,"resume", "resume", "primary"));
+      if ((active(row) || resumable(row)) && (row.status !== "stopping" || row.error)) box.append(mutateButton(row,"stop", "stop", "ghost"));
+      return box;
     }
-    function render() {
-      if (!modal || editing) return;
-      const scroll = modal.scrollTop, focusId = document.activeElement?.dataset?.focus;
-      const expanded = new Set([...modal.querySelectorAll("details[open]")].map(d => d.dataset.key));
-      const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
-      const list = el("div", "", "wf-list");
-      const rows = view === "goals" ? [...(data?.runs || [])].reverse() : data?.schedules || [];
-      if (!rows.length) list.append(el("p", t(view === "goals" ? "emptyGoals" : "emptySchedules"), "wf-empty"));
-      else for (const row of rows) list.append(view === "goals" ? runCard(row) : scheduleCard(row));
-      modal.replaceChildren(...nav(), errorBox, list, el("p", t("hostNote"), "wf-note"));
-      for (const card of modal.querySelectorAll(".wf-card")) {
-        [...card.querySelectorAll(":scope > .wf-actions button")].forEach((b,i) => b.dataset.focus = `${card.dataset.runId}:${i}`);
-        [...card.querySelectorAll(":scope > details")].forEach((d,i) => { d.dataset.key = `${card.dataset.runId}:${i}`; d.open = expanded.has(d.dataset.key); });
+    function badge(state) { const node = el("span", t(state), "wf-status"); node.dataset.state = state; return node; }
+    function agentProject(row) {
+      const box = el("div", "", "wf-context");
+      const mark = root.StepsembleAgentIdentity?.create(doc, row.agentId, true) || icon("◎");
+      box.append(mark, el("span", agentName(row.agentId)), el("span", "·"), el("span", baseName(row.cwd), "wf-project-name"));
+      box.title = row.cwd; return box;
+    }
+    function buildShell() {
+      modal.dataset.screen = "list"; modal.setAttribute("aria-label", t(view));
+      const header = el("header", "", "wf-header"), identity = el("div", "", "wf-brand");
+      const logo = el("span", "", "workspace-logo"); logo.setAttribute("aria-hidden", "true");
+      identity.append(logo, el("strong", "Stepsemble"));
+      const host = el("span", contextValue.hostName, "wf-host");
+      const tabs = el("nav", "", "wf-tabs"); tabs.setAttribute("aria-label", t("goals") + " · " + t("schedules"));
+      for (const key of ["goals", "schedules"]) {
+        const tab = button(t(key), () => {
+          view = key; filter = "all"; query = ""; selected = null; historyId = null;
+          shell.search.value = ""; modal.dataset.screen = "list"; render(true); poll();
+        }, "ghost", "tab:" + key);
+        tab.dataset.view = key; tabs.append(tab);
       }
-      modal.scrollTop = scroll;
-      if (focusId) modal.querySelector(`[data-focus="${CSS.escape(focusId)}"]`)?.focus();
+      const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";
+      const dismiss = button("×", close, "ghost wf-close", "close"); dismiss.setAttribute("aria-label", t("close"));
+      header.append(identity, host, tabs, add, dismiss);
+      const heading = el("div", "", "wf-heading"), headingCopy = el("div"), title = el("h1"), subtitle = el("p"); headingCopy.append(title, subtitle);
+      const stats = el("div", "", "wf-stats"); heading.append(headingCopy, stats);
+      const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
+      const body = el("div", "", "wf-body"), rail = el("section", "", "wf-rail"), search = el("input", "", "wf-search");
+      search.type = "search"; search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
+      search.oninput = () => { query = search.value; selected = null; render(); };
+      const filters = el("nav", "", "wf-filters"), list = el("ul", "", "wf-list");
+      rail.append(search, filters, list); const detail = el("section", "", "wf-detail"); detail.setAttribute("aria-label", t("selectTask"));
+      body.append(rail, detail);
+      const note = el("footer", t("hostNote"), "wf-note wf-footer");
+      modal.replaceChildren(header, heading, errorBox, body, note);
+      shell = { header, tabs, add, title, subtitle, stats, error: errorBox, search, filters, list, detail };
+      listSignature = ""; detailSignature = ""; error(errorText); render(true);
+    }
+    function matches(row) {
+      const text = [row.title, row.objective, row.cwd, agentName(row.agentId)].join(" ").toLocaleLowerCase(locale());
+      const found = !query || text.includes(query.toLocaleLowerCase(locale()));
+      if (!found || filter === "all") return found;
+      return view === "goals" ? filter === "active" ? active(row) : filter === "paused" ? row.status === "paused" : filter === "attention" ? attention(row) : !active(row) && !resumable(row) : scheduleState(row) === filter;
+    }
+    function sortedRows() {
+      return [...rows()].filter(matches).sort((a,b) => view === "goals"
+        ? Number(active(b)) - Number(active(a)) || Number(attention(b)) - Number(attention(a)) || (b.createdAt || 0) - (a.createdAt || 0)
+        : Number(b.enabled) - Number(a.enabled) || (a.nextAt || Infinity) - (b.nextAt || Infinity) || (b.createdAt || 0) - (a.createdAt || 0));
+    }
+    function summary() {
+      const values = view === "goals"
+        ? [["active",goals().filter(active).length],["attention",goals().filter(attention).length],["completed",goals().filter(row => row.status === "completed").length]]
+        : [["enabled",rows().filter(row => row.enabled).length],["paused",rows().filter(row => scheduleState(row) === "paused").length],["finished",rows().filter(row => scheduleState(row) === "finished").length]];
+      // Stable nodes keep clocks and keyboard focus independent of polling.
+      if (!shell.stats.children.length) for (let i=0; i<3; i++) { const node=el("div", "", "wf-stat"); node.append(el("strong"),el("span")); shell.stats.append(node); }
+      values.forEach(([key,value],i) => { const node=shell.stats.children[i]; node.children[0].textContent=String(value); node.children[1].textContent=t(key); });
+    }
+    function empty(title, hint, mark = "◎", createAction = false) {
+      const node = el("div", "", "wf-empty"); node.append(icon(mark), el("h2", title));
+      if (hint) node.append(el("p", hint));
+      if (createAction) { const add = button(t(view === "goals" ? "newGoal" : "newSchedule"), () => form(), "primary"); add.dataset.mutation = ""; node.append(add); }
+      return node;
+    }
+    function render(force = false) {
+      if (!modal || editing || !shell?.list) return;
+      shell.title.textContent = t(view); shell.subtitle.textContent = t(view === "goals" ? "goalHint" : "scheduleHint");
+      shell.add.textContent = "+ " + t(view === "goals" ? "newGoal" : "newSchedule");
+      shell.search.placeholder = t("filter"); shell.search.setAttribute("aria-label", t("filter"));
+      modal.querySelector(".wf-footer").textContent = t("hostNote");
+      modal.setAttribute("aria-label", t(view));
+      for (const tab of shell.tabs.children) { const chosen = tab.dataset.view === view; tab.textContent = t(tab.dataset.view); tab.setAttribute("aria-current", chosen ? "page" : "false"); }
+      summary();
+      const filterKeys = view === "goals" ? ["all","active","paused","attention","finished"] : ["all","enabled","paused","finished"];
+      if (force) {
+        const restore = rememberFocus(shell.filters); shell.filters.replaceChildren();
+        for (const key of filterKeys) shell.filters.append(button(t(key), () => { filter = key; selected = null; render(); }, "ghost", "filter:" + key));
+        restore();
+      }
+      for (const node of shell.filters.children) { node.textContent = t(node.dataset.focus.slice(7)); node.setAttribute("aria-pressed", String(node.dataset.focus === "filter:" + filter)); }
+      const visible = sortedRows();
+      if (!visible.some(row => row.id === selected)) { selected = visible[0]?.id || null; historyId = null; }
+      const signature = JSON.stringify([locale(), view, query, filter, selected, loaded, visible.map(row => [row.id,row.title,row.status,row.agentId,row.cwd,row.enabled,row.schedule,row.nextAt])]);
+      if (force || signature !== listSignature) {
+        listSignature = signature; const scroll = shell.list.scrollTop, restore = rememberFocus(shell.list);
+        shell.list.replaceChildren();
+        if (!visible.length) {
+          const item = el("li"); item.append(empty(t(!loaded ? "loading" : rows().length ? "noMatches" : view === "goals" ? "emptyGoals" : "emptySchedules"), loaded ? t(rows().length ? "noMatchesHint" : view === "goals" ? "emptyGoalsHint" : "emptySchedulesHint") : "", view === "goals" ? "◎" : "◷", loaded && !rows().length)); shell.list.append(item);
+        }
+        for (const row of visible) {
+          const li = el("li"), item = button("", () => {
+            selected = row.id; historyId = null; modal.dataset.screen = "detail"; render();
+            if (root.matchMedia?.("(max-width:700px)").matches) shell.detail.querySelector(".wf-mobile-back")?.focus();
+          }, "wf-item", "row:" + row.id);
+          item.setAttribute("aria-current", String(row.id === selected)); item.dataset.state = row.status || scheduleState(row);
+          const top = el("span", "", "wf-item-top"); top.append(el("strong", row.title), badge(row.status || scheduleState(row)));
+          const context = el("span", agentName(row.agentId) + " · " + baseName(row.cwd), "wf-item-context");
+          const meta = el("span", "", "wf-item-meta");
+          if (view === "goals") { const time = el("span"); time.dataset.clock = row.id; meta.append(time); if (row.scheduleId) meta.append(el("span", t("scheduled"))); }
+          else { meta.append(el("span", scheduleLabel(row.schedule))); if (row.enabled && row.nextAt) meta.append(el("span", stamp(row.nextAt, row.schedule.timeZone))); }
+          item.append(top, context, meta); li.append(item); shell.list.append(li);
+        }
+        shell.list.scrollTop = scroll; restore();
+      }
+      const row = current();
+      shell.detail.setAttribute("aria-label", row?.title || t("selectTask"));
+      const related = view === "schedules" ? (data.runs || []).filter(run => run.scheduleId === row?.id) : [];
+      const stable = value => JSON.stringify(value, (key,v) => ["elapsedMs","updatedAt","serverNow"].includes(key) ? undefined : v);
+      const detailKey = stable([locale(), view, row, related, historyId, loaded]);
+      if (force || detailKey !== detailSignature) {
+        detailSignature = detailKey; const scroll = shell.detail.scrollTop, restore = rememberFocus(shell.detail);
+        const expanded = new Set([...shell.detail.querySelectorAll("details[open]")].map(node => node.dataset.key));
+        shell.detail.replaceChildren();
+        if (row) {
+          const back = button("‹ " + t("back"), () => { modal.dataset.screen = "list"; [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + selected)?.focus(); }, "ghost wf-mobile-back", "detail-back");
+          shell.detail.append(back, view === "goals" ? goalDetail(row) : scheduleDetail(row, related));
+        } else shell.detail.append(empty(t(loaded ? "selectTask" : "loading"), "", view === "goals" ? "◎" : "◷"));
+        for (const node of shell.detail.querySelectorAll("details")) node.open = expanded.has(node.dataset.key);
+        shell.detail.scrollTop = scroll; restore();
+      }
+      updateClock(); updateButtons();
+    }
+    function section(title, child, cls = "") { const node = el("section", "", "wf-section " + cls); node.append(el("h3", title), child); return node; }
+    function runProgress(row) {
+      const box = el("div", "", "wf-progress"); box.append(badge(row.status));
+      const caption = el("span", t(CLOCKED.includes(row.status) ? "workingFor" : "elapsed"), "wf-caption");
+      const time = el("strong", "", "wf-timer"); time.dataset.clock = row.id; box.append(caption,time);
+      if (active(row) || resumable(row)) {
+        const activity = el("div", "", "wf-activity"); activity.append(el("span", t("live"), "wf-caption"),el("p", t(row.activity || row.status))); box.append(activity);
+      }
+      const metrics = el("div", "", "wf-metrics");
+      for (const [label,value,limit] of [["turnsUsed",row.turns,row.limits?.turns],["outputTokens",row.outputTokens,row.limits?.outputTokens]]) {
+        const metric=el("div"); metric.append(el("span",t(label),"wf-caption"),el("strong",(Number(value)||0).toLocaleString(locale())),el("small",t("ofLimit",{limit:(Number(limit)||0).toLocaleString(locale())}))); metrics.append(metric);
+      }
+      box.append(metrics);
+      if (row.limits?.minutes) {
+        const budget=el("div","","wf-budget"),copy=el("span",t("timeBudget")),remaining=el("span","","wf-caption"); remaining.dataset.budget=row.id;
+        const track=el("div","","wf-meter"),fill=el("span"); fill.dataset.meter=row.id; track.append(fill); budget.append(copy,remaining,track); box.append(budget);
+      }
+      if (row.error) { const message=el("p",row.error,"wf-run-error"); message.setAttribute("role","status"); box.append(message); }
+      if (row.scheduledAt && row.startedAt-row.scheduledAt>60000) box.append(el("small",t("late"),"wf-caption"));
+      box.append(controls(row)); return box;
+    }
+    function result(row) { return section(t("result"), row.result ? el("pre",row.result,"wf-result") : el("p",t("resultEmpty"),"wf-muted")); }
+    function goalDetail(row) {
+      const node=el("article","","wf-inspector"); node.dataset.runId=row.id;
+      node.append(agentProject(row),el("h2",row.title),runProgress(row),section(t("objective"),el("p",row.objective,"wf-objective")),result(row));
+      const project=el("details","","wf-project-details"); project.dataset.key="project:"+row.id; project.append(el("summary",t("project")),el("code",row.cwd)); node.append(project);
+      return node;
+    }
+    function scheduleDetail(row, history) {
+      history = [...history].sort((a,b) => (b.createdAt || 0)-(a.createdAt || 0));
+      const node=el("article","","wf-inspector"); node.dataset.scheduleId=row.id;
+      node.append(agentProject(row),el("h2",row.title));
+      const plan=el("div","","wf-plan"); plan.append(badge(scheduleState(row)),el("span",t("next"),"wf-caption"));
+      plan.append(el("strong",row.enabled && row.nextAt ? stamp(row.nextAt,row.schedule.timeZone) : t("nextNone"),"wf-next-time"));
+      const countdown=el("span","","wf-countdown"); if(row.enabled && row.nextAt)countdown.dataset.next=String(row.nextAt); plan.append(countdown);
+      plan.append(el("p",scheduleLabel(row.schedule),"wf-recurrence"));
+      if (row.schedule.timeZone) plan.append(el("small",row.schedule.timeZone,"wf-caption"));
+      if (row.schedule.kind === "weekly") {
+        const days=el("div","","wf-week"); [1,2,3,4,5,6,0].forEach(day=>{const chip=el("span",t(["sun","mon","tue","wed","thu","fri","sat"][day]));chip.dataset.selected=String(row.schedule.days.includes(day));days.append(chip);}); plan.append(days);
+      }
+      if (scheduleState(row)==="finished") plan.append(el("p",t("editTime"),"wf-muted"));
+      const actions=el("div","","wf-actions"); const executing=history.find(active);
+      const run=mutateButton(row,"run","run","primary"); run.dataset.running=String(!!executing); actions.append(run);
+      const edit=button(t("edit"),()=>form(row),"",row.id+":edit");edit.dataset.mutation="";actions.append(edit);
+      if (scheduleState(row)!=="finished") actions.append(mutateButton(row,row.enabled?"pause":"resume"));
+      plan.append(actions);node.append(plan,section(t("objective"),el("p",row.objective,"wf-objective")));
+      const historyBox=el("div","","wf-history");
+      if (!history.some(item=>item.id===historyId)) historyId=history[0]?.id||null;
+      if (!history.length) historyBox.append(el("p",t("historyEmpty"),"wf-muted"));
+      for (const item of history) {
+        const entry=button("",()=>{historyId=item.id;render();},"wf-history-row", "history:"+item.id);entry.setAttribute("aria-current",String(historyId===item.id));
+        const time=el("span",duration(liveTime(item)),"wf-caption");time.dataset.clock=item.id;
+        entry.append(badge(item.status),el("span",stamp(item.startedAt||item.createdAt,row.schedule.timeZone)),time);historyBox.append(entry);
+      }
+      node.append(section(t("history"),historyBox));
+      const runRow=history.find(item=>item.id===historyId); if(runRow)node.append(runProgress(runRow),result(runRow));
+      const meta=el("details","","wf-project-details");meta.dataset.key="settings:"+row.id;
+      meta.append(el("summary",t("limits")),el("p",t(row.mode==="goal"?"goal":"task")),el("p",`${t("minutes")}: ${row.limits.minutes} · ${t("turns")}: ${row.limits.turns} · ${t("tokens")}: ${row.limits.outputTokens.toLocaleString(locale())}`),el("code",row.cwd));node.append(meta);
+      node.append(mutateButton(row,"delete","remove","ghost wf-delete"));return node;
+    }
+    function updateClock() {
+      if (!modal || editing) return;
+      const runMap=new Map((data?.runs||[]).map(row=>[row.id,row]));
+      for(const node of modal.querySelectorAll("[data-clock]")){const row=runMap.get(node.dataset.clock);if(row)node.textContent=duration(liveTime(row));}
+      for(const node of modal.querySelectorAll("[data-budget]")){const row=runMap.get(node.dataset.budget);if(row)node.textContent=`${duration(liveTime(row))} / ${duration(row.limits.minutes*60000)}`;}
+      for(const node of modal.querySelectorAll("[data-meter]")){const row=runMap.get(node.dataset.meter);if(row)node.style.width=Math.min(100,liveTime(row)/(row.limits.minutes*600)) + "%";}
+      for(const node of modal.querySelectorAll("[data-next]"))node.textContent=relative(Number(node.dataset.next));
     }
     async function refresh() {
-      const token = epoch;
-      try { const next = await call(); if (token !== epoch || !modal) return; data = next; receivedAt = Date.now(); if (!next.available) error(t("unavailable")); else render(); }
-      catch (e) { if (token === epoch) error(e.message || t("refreshError")); }
+      const token=epoch, version=revision, target=contextValue.target;
+      try {
+        const next=await call(undefined,target);if(token!==epoch||version!==revision||!modal||editing)return;
+        data={...next,runs:next.runs||[],schedules:next.schedules||[]};loaded=true;connected=next.available!==false;
+        const now=Date.now();frozenAt=now;for(const row of data.runs)received.set(row.id,now);
+        error(next.available===false?t("unavailable"):"");render();
+      }catch(e){if(token===epoch&&version===revision&&modal){if(connected)frozenAt=Date.now();connected=false;error(e.message||t("refreshError"));updateClock();}}
     }
-    function field(form, label, type, value, options = null) {
-      const box = el("label", "", "wf-field"); box.append(el("span", t(label)));
-      const input = el(type === "textarea" ? "textarea" : options ? "select" : "input");
-      if (options) for (const [val, name] of options) { const o = el("option", name); o.value = val; input.append(o); }
-      else if (type !== "textarea") input.type = type;
-      input.value = value ?? ""; input.required = true; input.name = label;
-      if (type === "textarea") { input.rows = 5; input.maxLength = 16000; input.placeholder = t("newHint"); }
-      box.append(input); form.append(box); return input;
+    function poll() {root.clearTimeout(timer);if(!modal||editing)return;timer=root.setTimeout(async()=>{await refresh();poll();},4000);}
+    function field(parent,key,type,value,options) {
+      const box=el("label","","wf-field"),input=el(options?"select":type==="textarea"?"textarea":"input");box.append(el("span",t(key)));
+      if(options)for(const [val,label]of options){const option=el("option",label);option.value=val;input.append(option);}
+      else if(type!=="textarea")input.type=type;
+      input.name=key;input.value=value??"";input.required=true;box.append(input);parent.append(box);return input;
     }
-    async function form(row = null, entry = null, objective = "") {
-      editing = true; clearTimeout(timer); const token = ++epoch;
-      const scheduling = view === "schedules", header = el("header", "", "wf-header");
-      header.append(el("h2", t(row ? "edit" : scheduling ? "newSchedule" : "newGoal")), button(t("back"), () => { editing = false; render(); poll(); }));
-      const f = el("form", "", "wf-form"), errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "alert"); errorBox.hidden = true;
-      const title = field(f,"title","text", row?.title || ""); title.maxLength = 120;
-      const prompt = field(f,"objective","textarea", row?.objective || objective);
-      const pair = el("div", "", "wf-grid"); f.append(pair);
-      const projects = [...new Set([...(contextValue.projects || []), row?.cwd, entry?.record.cwd].filter(Boolean))];
-      const cwd = field(pair,"project","text", row?.cwd || entry?.record.cwd || projects[0], projects.map(p => [p,p]));
-      const agent = field(pair,"agent","text", row?.agentId || entry?.record.agentId, [["", "…"]]);
-      if (entry) { cwd.disabled = true; agent.disabled = true; }
-      const mode = scheduling ? field(f,"mode","text",row?.mode || "task", [["task",t("task")],["goal",t("goal")]]) : null;
-      let repeat, at, time, zone, interval, dayInputs;
-      if (scheduling) {
-        repeat = field(f,"schedule","text",row?.schedule.kind || "daily", ["once","daily","weekly","interval"].map(k => [k,t(k)]));
-        const localDate = n => { const d = new Date(n); return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16); };
-        at = field(f,"date","datetime-local",localDate(row?.schedule.at || Date.now()+3600000));
-        time = field(f,"time","time",row?.schedule.time || "09:00");
-        zone = field(f,"timeZone","text",row?.schedule.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone);
-        interval = field(f,"every","number",row?.schedule.minutes || 60); interval.min = 15; interval.max = 10080;
-        const days = el("fieldset", "", "wf-days"); days.append(el("legend",t("days"))); dayInputs = [];
-        ["sun","mon","tue","wed","thu","fri","sat"].forEach((key,i) => { const label = el("label"), input = el("input"); input.type="checkbox"; input.value=String(i); input.checked=(row?.schedule.days || [1,2,3,4,5]).includes(i); label.append(input,el("span",t(key))); days.append(label); dayInputs.push(input); }); f.append(days);
-        const sync = () => { for (const [control, visible] of [[at,repeat.value==="once"],[time,["daily","weekly"].includes(repeat.value)],[zone,["daily","weekly"].includes(repeat.value)],[interval,repeat.value==="interval"]]) { control.parentElement.hidden=!visible; control.disabled=!visible; } days.hidden=repeat.value!=="weekly"; };
-        repeat.onchange=sync; sync();
+    async function form(row=null, entry=null, objective="") {
+      if(pending)return;
+      editing=true;revision++;root.clearTimeout(timer);const token=++epoch, target=contextValue.target;
+      modal.dataset.screen="editor";const scheduling=view==="schedules";
+      modal.setAttribute("aria-label",t(row?"edit":scheduling?"newSchedule":"newGoal"));
+      const header=el("header","","wf-header wf-editor-header"),copy=el("div");copy.append(el("small",contextValue.hostName,"wf-caption"),el("h1",t(row?"edit":scheduling?"newSchedule":"newGoal")));
+      const back=button("‹ "+t("back"),()=>{if(token!==epoch)return;epoch++;editing=false;pending=false;buildShell();void refresh();poll();shell.add.focus();},"ghost","editor-back");
+      const dismiss=button("×",close,"ghost wf-close");dismiss.setAttribute("aria-label",t("close"));header.append(back,copy,dismiss);
+      const f=el("form","","wf-form"),layout=el("div","","wf-editor-layout"),main=el("section","","wf-editor-main"),settings=el("aside","","wf-editor-settings");layout.append(main,settings);f.append(layout);
+      // Open invalid advanced fields before native validation tries to focus them.
+      f.noValidate=true;
+      const title=field(main,"title","text",row?.title||"");title.required=false;title.maxLength=120;title.placeholder=t("nameHint");
+      const prompt=field(main,"objectivePrompt","textarea",row?.objective||objective);prompt.rows=7;prompt.maxLength=16000;prompt.placeholder=t("newHint");
+      const pair=el("div","","wf-grid");main.append(pair);
+      const projects=[...new Set([...(contextValue.projects||[]),row?.cwd,entry?.record.cwd].filter(Boolean))];
+      const cwd=field(pair,"project","text",row?.cwd||entry?.record.cwd||projects[0],projects.map(path=>[path,baseName(path)]));
+      const projectPath=el("small",cwd.value,"wf-path");main.append(projectPath);cwd.onchange=()=>{projectPath.textContent=cwd.value;};
+      const agent=field(pair,"agent","text",row?.agentId||entry?.record.agentId,[["",t("loading")]]);
+      if(entry){cwd.disabled=true;agent.disabled=true;}
+      const note=el("p",t("modelNote"),"wf-muted");main.append(note);
+      let mode,repeat,at,time,zone,interval,dayInputs=[],days,preview;
+      if(scheduling){
+        settings.append(el("h2",t("schedule")));
+        const repeatTabs=el("div","","wf-repeat");repeat=el("input");repeat.type="hidden";repeat.value=row?.schedule.kind||"daily";
+        for(const kind of ["once","daily","weekly","interval"]){const b=button(t(kind),()=>{repeat.value=kind;sync();f.dispatchEvent(new root.Event("input"));},"", "repeat:"+kind);b.dataset.repeat=kind;repeatTabs.append(b);}settings.append(repeat,repeatTabs);
+        const fields=el("div","","wf-schedule-fields");settings.append(fields);
+        const localDate=value=>{const d=new Date(value);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
+        at=field(fields,"date","datetime-local",localDate(row?.schedule.at||Date.now()+3600000));
+        const localZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const onceZone=el("small",localZone,"wf-caption");at.parentElement.append(onceZone);
+        time=field(fields,"time","time",row?.schedule.time||"09:00");
+        zone=field(fields,"timeZone","text",row?.schedule.timeZone||localZone);
+        interval=field(fields,"every","number",row?.schedule.minutes||60);interval.min=15;interval.max=10080;interval.step=1;
+        days=el("fieldset","","wf-days");days.append(el("legend",t("days")));const dayGroup=el("div");days.append(dayGroup);
+        [1,2,3,4,5,6,0].forEach(day=>{const label=el("label"),input=el("input");input.type="checkbox";input.value=String(day);input.checked=(row?.schedule.kind==="weekly"?row.schedule.days:[1,2,3,4,5]).includes(day);input.name="weekday";label.append(input,el("span",t(["sun","mon","tue","wed","thu","fri","sat"][day])));dayGroup.append(label);dayInputs.push(input);});fields.append(days);
+        preview=el("p","","wf-schedule-preview");preview.setAttribute("aria-live","polite");settings.append(preview);
+        function sync(){
+          for(const b of repeatTabs.children)b.setAttribute("aria-pressed",String(b.dataset.repeat===repeat.value));
+          for(const[control,visible]of[[at,repeat.value==="once"],[time,["daily","weekly"].includes(repeat.value)],[zone,["daily","weekly"].includes(repeat.value)],[interval,repeat.value==="interval"]]){control.parentElement.hidden=!visible;control.disabled=!visible;}
+          days.hidden=repeat.value!=="weekly";for(const input of dayInputs)input.disabled=days.hidden;
+          preview.textContent=scheduleLabel({kind:repeat.value,at:at.value,time:time.value,timeZone:zone.value,minutes:interval.value,days:dayInputs.filter(input=>input.checked).map(input=>Number(input.value))});
+        }
+        f.addEventListener("input",sync);sync();
+        mode=field(settings,"mode","text",row?.mode||"task",[["task",t("task")],["goal",t("goal")]]);
+        const modeHint=el("p","","wf-muted");settings.append(modeHint);mode.onchange=()=>{modeHint.textContent=t(mode.value==="goal"?"goalModeHint":"taskHint");};mode.onchange();
+      }else settings.append(el("h2",t("limits")),el("p",t("goalHint"),"wf-muted"));
+      const limitBox=el("div","","wf-limit-box");settings.append(limitBox);
+      const minutes=field(limitBox,"minutes","number",row?.limits.minutes||60);minutes.min=1;minutes.max=1440;minutes.step=1;
+      const advanced=el("details","","wf-advanced");advanced.append(el("summary",t("limits")));const advancedFields=el("div","","wf-grid");advanced.append(advancedFields);limitBox.append(advanced);
+      const turns=field(advancedFields,"turns","number",row?.limits.turns||20);turns.min=1;turns.max=100;turns.step=1;
+      const tokens=field(advancedFields,"tokens","number",row?.limits.outputTokens||100000);tokens.min=100;tokens.max=10000000;tokens.step=1;
+      advanced.append(el("p",t("limitsHint"),"wf-muted"));
+      const footer=el("div","","wf-editor-footer"),errorBox=el("p","","wf-error");errorBox.setAttribute("role","alert");errorBox.hidden=true;
+      const submit=el("button",t(scheduling?"save":"start"),"btn primary");submit.type="submit";submit.disabled=true;
+      const retry=button(t("retry"),()=>void loadAgents(),"ghost");retry.hidden=true;
+      footer.append(errorBox,el("p",t("hostNote"),"wf-muted"),retry,submit);f.append(footer);modal.replaceChildren(header,f);shell={error:errorBox};error("");(row?back:prompt).focus();
+      let id=requestId(), catalogReady=false, sending=false;f.addEventListener("input",()=>{if(!sending)id=requestId();});
+      function ready(){submit.disabled=sending||!catalogReady||!agent.value||!cwd.value||data?.available===false;}
+      agent.addEventListener("change",ready);cwd.addEventListener("change",ready);
+      async function loadAgents(){
+        retry.hidden=true;
+        try{
+          const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!modal)return;
+          agent.replaceChildren();for(const item of catalog.connectors||[])if(item.installed&&AGENTS.includes(item.id)){const option=el("option",item.label||agentName(item.id));option.value=item.id;agent.append(option);}
+          agent.value=row?.agentId||entry?.record.agentId||agent.options[0]?.value||"";catalogReady=true;
+          error(!agent.value?t("noAgents"):!cwd.value?t("noProjects"):"");ready();
+        }catch(e){if(token===epoch){error(e.message);retry.hidden=false;}}
       }
-      const limits = el("div", "", "wf-grid wf-limits"); f.append(el("h3",t("limits")),limits);
-      const minutes=field(limits,"minutes","number",row?.limits.minutes || 60); minutes.min=1; minutes.max=1440;
-      const turns=field(limits,"turns","number",row?.limits.turns || 20); turns.min=1; turns.max=100;
-      const tokens=field(limits,"tokens","number",row?.limits.outputTokens || 100000); tokens.min=100; tokens.max=10000000;
-      let requestId = crypto.randomUUID();
-      f.addEventListener("input", () => { requestId = crypto.randomUUID(); });
-      const submit=el("button",t(scheduling?"save":"start"),"btn primary"); submit.type="submit"; submit.disabled=true;
-      f.append(el("p",t("modelNote"),"wf-note"),errorBox,submit); modal.replaceChildren(header,f); title.focus();
-      f.onsubmit=async event => {
-        event.preventDefault(); submit.disabled=true; error("");
-        const input={ requestId, kind:scheduling?"schedule":"goal", title:title.value, objective:prompt.value, cwd:cwd.value, agentId:agent.value, mode:mode?.value || "goal", limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value)}, ...(entry?{entry:entry.key}:{}) };
-        if (scheduling) input.schedule={kind:repeat.value, at:repeat.value==="once"&&at.value?new Date(at.value).toISOString():null,time:time.value,timeZone:zone.value,minutes:Number(interval.value),days:dayInputs.filter(i=>i.checked).map(i=>Number(i.value))};
-        if(row) Object.assign(input,{id:row.id,action:"edit",enabled:row.enabled});
-        try { const created=await call(input); if(token!==epoch)return; onChanged(); editing=false; view=scheduling?"schedules":"goals"; await refresh(); poll(); if(!scheduling && entry) { const target=contextValue.target; close(); openConversation(created.entry||entry.key,created.title,target); } }
-        catch(e){ error(e.message); submit.disabled=false; }
+      f.onsubmit=async event=>{
+        event.preventDefault();if(sending||!catalogReady||!agent.value||!cwd.value)return;
+        if(!turns.checkValidity()||!tokens.checkValidity())advanced.open=true;
+        if(!f.reportValidity())return;
+        const input={requestId:id,kind:scheduling?"schedule":"goal",title:title.value.trim()||prompt.value.trim().split("\n")[0].slice(0,120),objective:prompt.value.trim(),cwd:cwd.value,agentId:agent.value,mode:mode?.value||"goal",limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value)},...(entry?{entry:entry.key}:{})};
+        if(scheduling){const date=new Date(at.value);input.schedule={kind:repeat.value,at:repeat.value==="once"&&Number.isFinite(date.getTime())?date.toISOString():null,time:time.value,timeZone:zone.value.trim(),minutes:Number(interval.value),days:dayInputs.filter(day=>day.checked).map(day=>Number(day.value))};}
+        if(row)Object.assign(input,{id:row.id,action:"edit",enabled:row.enabled});
+        const invalid=validate(input);if(invalid){error(t(invalid.slice(invalid.indexOf(".")+1)));return;}
+        sending=true;pending=true;submit.textContent=t("requestPending");ready();error("");
+        const fields=[...f.querySelectorAll("input,select,textarea,button")],disabled=fields.map(field=>field.disabled);fields.forEach(field=>field.disabled=true);
+        try{
+          const created=await call(input,target);if(token!==epoch||!modal)return;
+          revision++;onChanged();if(created?.id)merge(created);loaded=true;connected=true;selected=created.id;filter="all";query="";editing=false;pending=false;
+          buildShell();modal.dataset.screen="detail";await refresh();if(token!==epoch||!modal)return;poll();
+          if(!scheduling&&entry)showConversation({entry:created.entry||entry.key,title:created.title});
+          else shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();
+        }catch(e){if(token===epoch){error(e.message);sending=false;pending=false;fields.forEach((field,i)=>field.disabled=disabled[i]);submit.textContent=t(scheduling?"save":"start");ready();}}
       };
-      try { const catalog=await api("/api/agents",undefined,contextValue.target); if(token!==epoch)return;
-        agent.replaceChildren(); for(const a of catalog.connectors||[]) if(a.installed && ["pi","codex","claude-code","omp","opencode","cline","kilo","hermes","grok-build"].includes(a.id)) {const o=el("option",a.label||a.id);o.value=a.id;agent.append(o);}
-        agent.value=row?.agentId||entry?.record.agentId||agent.options[0]?.value||""; submit.disabled=!agent.value||!cwd.value; if(!agent.value)error(t("noAgents"));
-      }catch(e){error(e.message);}
+      await loadAgents();
     }
-    function poll() { clearTimeout(timer); if (!modal || editing) return; timer=setTimeout(async()=>{await refresh();poll();},4000); }
-    async function open(which="goals", target=null, entryKey=null, objective="") {
-      close(); const token=++epoch; const resolved=await context(target); if(token!==epoch)return; contextValue=resolved; view=which;
-      modal=el("dialog","","wf-panel"); modal.setAttribute("aria-label",t(which));modal.setAttribute("data-i18n-ignore","");document.body.append(modal);modal.showModal();root.dispatchEvent(new Event("stepsemble-workflow-panel"));modal.addEventListener("cancel",e=>{e.preventDefault();close();});
-      data={runs:[],schedules:[]};receivedAt=Date.now();render();
-      await refresh(); if(token!==epoch||!modal)return;
-      if(entryKey) { const entry=contextValue.entries.find(e=>e.key===entryKey); if(entry) {await form(null,entry,objective);return;} }
-      modal.querySelector("button")?.focus(); poll();
+    async function open(which="goals",target=null,entryKey=null,objective="") {
+      close();const token=++epoch;const resolved=await context(target);if(token!==epoch)return;
+      contextValue=resolved;view=which==="schedules"?"schedules":"goals";filter="all";query="";selected=null;historyId=null;loaded=false;connected=false;errorText="";received.clear();
+      data={runs:[],schedules:[]};modal=el("dialog","","wf-panel");modal.setAttribute("data-i18n-ignore","");doc.body.append(modal);modal.showModal();buildShell();
+      root.dispatchEvent(new root.Event("stepsemble-workflow-panel"));modal.addEventListener("cancel",event=>{event.preventDefault();close();});
+      clock=root.setInterval(updateClock,1000);await refresh();if(token!==epoch||!modal)return;
+      if(entryKey){const entry=contextValue.entries?.find(item=>item.key===entryKey);if(entry){await form(null,entry,objective);return;}}
+      shell.add.focus();poll();
     }
     return {open,close};
   }
   function mountConversation(options) { return root.StepsembleGoalComposer?.mount(options) || null; }
-  root.StepsembleWorkflows={create,mountConversation,label:t};
-})(window);
+  return { create, mountConversation, label:t, duration, elapsed, scheduleState, scheduleLabel, validate };
+});

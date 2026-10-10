@@ -1,8 +1,21 @@
 # Goals and schedules
 
 Goals and Schedules belong to the selected Workspace Host. Open either from the
-sidebar. Within a conversation, the Goal button starts work in that conversation.
+sidebar. Within a conversation, type `/goal` followed by the objective to start
+work in that conversation; its limits and progress appear above the composer.
 The desktop app and browser use the same controls.
+
+The task center uses a searchable list with an adjacent inspector on desktop.
+On a phone, select a task to open its details and use Back to return to the list.
+Goals have separate filters for active work, paused work, attention and finished
+runs. Scheduled one-turn tasks appear under their schedule's history. Goal-mode
+scheduled runs also appear in Goals.
+
+The inspector shows the Host's elapsed time and current activity, usage against
+execution limits, results and controls. The time-budget meter represents elapsed
+time against the time limit, not a percentage of objective completion. Clocks
+freeze on a lost connection until the Host responds again. Polling preserves
+selection, expanded details and keyboard focus.
 
 ## Goals
 
@@ -41,6 +54,13 @@ A schedule runs either one ordinary task or a continuing Goal. It supports:
 - Every 15 minutes or more, as an interval.
 
 Each occurrence creates a new conversation with its own result and elapsed time.
+The inspector shows the next occurrence in the schedule's time zone, a relative
+countdown and selectable run history. The editor previews recurrence as its
+settings change, keeps Save and validation messages visible, and reveals turn
+and token limits under Execution limits. Names are optional and default to the
+objective's first line. Editing a paused schedule keeps it paused. A finished
+one-time schedule is labelled Finished and can be edited to choose a new time.
+
 Run now does not move the next regular occurrence. Pausing a schedule stops future
 triggers; use the current run's Pause or Stop control to interrupt work already
 started. Deleting a schedule preserves existing run history.
@@ -65,9 +85,12 @@ feature uses the Host's existing authentication and origin checks.
 
 ## Verification
 
-`node --test test/workflows.test.js test/workflows-http.test.js` covers state,
+`node --test test/workflows.test.js test/workflows-http.test.js test/workflows-ui.test.js` covers state,
 limits, failures, cancellation, restart, scheduling, authentication and synthetic
-native peers. The optional POSIX smoke check runs real installed CLIs in an
+native peers, plus controller races, focus, draft preservation, schedule editing
+and every supported locale. `node scripts/workflows-preview.mjs` serves an
+interactive synthetic task center for desktop and mobile review without launching
+an agent or using provider credentials. The optional POSIX smoke check runs real installed CLIs in an
 isolated temporary home against local model API fixtures:
 
 ```sh

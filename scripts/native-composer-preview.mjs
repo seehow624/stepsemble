@@ -8,6 +8,9 @@ import http from "node:http";
 import readline from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { once } from "node:events";
+import { createRequire } from "node:module";
+
+const { definition, scheduleSpec, nextOccurrence } = createRequire(import.meta.url)("../server/workflows.js");
 
 const publicRoot = path.resolve(fileURLToPath(new URL("../public/", import.meta.url)));
 const TOKEN = "native-composer-preview";
@@ -74,6 +77,7 @@ const state = {
   openCodeCatalogReads: 0,
   openCodeReconciles: 0,
   goals: [],
+  schedules: [],
   goalRequests: [],
 };
 
@@ -346,17 +350,22 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0 } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
+  if (workflows) {
+    state.goals = workflows.runs || [];
+    state.schedules = workflows.schedules || [];
+  }
+  const hostName = workflows ? "Design preview" : "Native composer preview";
   const server = http.createServer((req, res) => {
     void (async () => {
       const requestUrl = new URL(req.url || "/", origin || "http://127.0.0.1");
       const pathname = requestUrl.pathname;
       if (origin && req.headers.host !== new URL(origin).host) return json(res, 403, { error: "preview_origin_rejected" });
       if (pathname === "/api/machine" && req.method === "GET") {
-        return json(res, 200, { authed: authorized(req), platform: process.platform, home: "/tmp/stepsemble-native-composer", machine: { id: MACHINE_ID, name: "Native composer preview", host: "127.0.0.1", self: true, local: true, managed: true, authMode: "local" } });
+        return json(res, 200, { authed: authorized(req), platform: process.platform, home: "/tmp/stepsemble-native-composer", machine: { id: MACHINE_ID, name: hostName, host: "127.0.0.1", self: true, local: true, managed: true, authMode: "local" } });
       }
       if (pathname === "/api/login" && req.method === "POST") {
         let body;
@@ -369,35 +378,60 @@ export async function createNativeComposerPreview({ port = 0 } = {}) {
       if (pathname === "/api/protocol/handshake" && req.method === "POST") {
         return json(res, 200, { protocolVersion: 1, schemaVersion: "1.0.0", hostVersion: "native-composer-preview", mode: "legacy-compatible", capabilities: ["legacy.http", "pi.native-rpc", "agent.terminal-v1"], disabledCapabilities: [], limits: { handshakeBytes: 16384 } });
       }
-      if (pathname === "/api/machines" && req.method === "GET") return json(res, 200, { current: MACHINE_ID, self: MACHINE_ID, machines: [{ id: MACHINE_ID, name: "Native composer preview", host: "127.0.0.1", self: true, local: true, managed: true, authMode: "local" }] });
+      if (pathname === "/api/machines" && req.method === "GET") return json(res, 200, { current: MACHINE_ID, self: MACHINE_ID, machines: [{ id: MACHINE_ID, name: hostName, host: "127.0.0.1", self: true, local: true, managed: true, authMode: "local" }] });
       if (pathname === "/api/sessions" && req.method === "GET") return json(res, 200, { sessions: [], temporarySessionCount: 0 });
-      if (pathname === "/api/agents" && req.method === "GET") return json(res, 200, { connectors });
+      if (pathname === "/api/agents" && req.method === "GET") return json(res, 200, { connectors: workflows ? [...connectors,{id:"pi",label:"Pi Agent",installed:true,kind:"native"}] : connectors });
       if (pathname === "/api/agent-tasks" && req.method === "GET") return json(res, 200, { tasks: tasks.map(task => ({ ...task })) });
-      if (pathname === "/api/workspace" && req.method === "GET") return json(res, 200, { entries: workspaceEntries(), projects: [...new Set(tasks.map(task => task.cwd))] });
+      if (pathname === "/api/workspace" && req.method === "GET") return json(res, 200, { entries: workspaceEntries(), projects: [...new Set([...tasks, ...state.goals, ...state.schedules].map(task => task.cwd))] });
       if (pathname === "/api/workspace/entry" && req.method === "GET") {
         const entry = workspaceEntries().find(row => row.key === requestUrl.searchParams.get("key"));
         return entry ? json(res, 200, entry) : json(res, 404, { error: "workspace_entry_not_found" });
       }
       if (pathname === "/api/workspace/usage" && req.method === "GET") return json(res, 200, { providers: [] });
-      // Inline /goal UI fixture; never launches an agent or a model request.
+      // Workflow UI fixture; never launches an agent or a model request.
       if (pathname === "/api/workflows") {
         const snapshot = run => ({ ...run, elapsedMs: run.elapsedMs + (run.status === "running" ? Date.now() - run.updatedAt : 0) });
-        if (req.method === "GET") return json(res, 200, { schedules: [], runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry")).map(snapshot) });
+        if (req.method === "GET") return json(res, 200, { available: true, serverNow: Date.now(), schedules: requestUrl.searchParams.has("entry") ? [] : state.schedules, runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry")).map(snapshot) });
         const body = await parseJsonBody(req);
         state.goalRequests.push(body);
+        const makeRun = (input, entry) => {
+          const run = { ...input, id: "fixture-goal-" + (state.goals.length + 1), entry: input.entry || entry?.key, agentId: entry?.record.agentId || input.agentId, cwd: entry?.record.cwd || input.cwd,
+            createdAt: Date.now(), startedAt: Date.now(), status: "running", elapsedMs: 0, updatedAt: Date.now(), activity: "Reviewing the requested implementation", turns: 1, outputTokens: 1200 };
+          state.goals.push(run); return run;
+        };
+        const schedule = state.schedules.find(row => row.id === body.id);
+        if (body.action && schedule) {
+          if (body.action === "run") {
+            if (state.goals.some(row => row.scheduleId === schedule.id && ["running", "queued", "waiting", "stopping", "starting"].includes(row.status))) return json(res, 409, { error: "This schedule is already running" });
+            const run = makeRun({ ...schedule, schedule: undefined, scheduleId: schedule.id, requestId: null });
+            schedule.lastRunId = run.id; return json(res, 200, snapshot(run));
+          }
+          if (body.action === "pause") schedule.enabled = false;
+          if (body.action === "resume") { schedule.nextAt = nextOccurrence(schedule.schedule, Date.now()); schedule.enabled = true; }
+          if (body.action === "edit") {
+            const config = definition(body), spec = scheduleSpec(body.schedule, Date.now());
+            Object.assign(schedule, config, { schedule: spec, nextAt: nextOccurrence(spec, Date.now()), enabled: body.enabled !== false });
+          }
+          if (body.action === "delete") state.schedules = state.schedules.filter(row => row.id !== schedule.id);
+          return json(res, 200, schedule);
+        }
         if (body.action) {
           const run = state.goals.find(row => row.id === body.id);
           if (!run) return json(res, 404, { error: "preview_goal_not_found" });
           Object.assign(run, snapshot(run), { status: { pause: "paused", resume: "running", stop: "stopped" }[body.action], updatedAt: Date.now() });
           return json(res, 200, snapshot(run));
         }
-        const prior = state.goals.find(row => row.requestId === body.requestId);
-        if (prior) return json(res, 200, snapshot(prior));
-        if (state.goals.some(row => row.entry === body.entry && row.status === "running")) return json(res, 409, { error: "preview_goal_active" });
+        const prior = [...state.goals, ...state.schedules].find(row => body.requestId && row.requestId === body.requestId);
+        if (prior) return json(res, 200, prior.schedule ? prior : snapshot(prior));
+        if (body.kind === "schedule") {
+          const config = definition(body), spec = scheduleSpec(body.schedule, Date.now());
+          const row = { ...config, id: "fixture-schedule-" + (state.schedules.length + 1), requestId: body.requestId, schedule: spec, enabled: true, createdAt: Date.now(), nextAt: nextOccurrence(spec, Date.now()), lastRunId: null };
+          state.schedules.push(row); return json(res, 200, row);
+        }
+        if (body.entry && state.goals.some(row => row.entry === body.entry && row.status === "running")) return json(res, 409, { error: "preview_goal_active" });
         const entry = workspaceEntries().find(row => row.key === body.entry);
-        if (!entry) return json(res, 404, { error: "preview_entry_not_found" });
-        const run = { ...body, id: "fixture-goal-" + (state.goals.length + 1), agentId: entry.record.agentId, cwd: entry.record.cwd, status: "running", elapsedMs: 0, updatedAt: Date.now(), activity: "Reviewing the requested implementation", turns: 1, outputTokens: 1200 };
-        state.goals.push(run);
+        if (body.entry && !entry) return json(res, 404, { error: "preview_entry_not_found" });
+        const run = makeRun(body, entry);
         return json(res, 200, snapshot(run));
       }
       if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: "3.0.43" });

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.41
+
+- Redesign Goals and Schedules as a searchable task center with a list and progress inspector on desktop, and focused task details on phones. Preserve Stepsemble's dark theme and branding.
+- Make elapsed work, current activity, execution budgets, next scheduled occurrence and run history easy to inspect. Keep `/goal` progress above the conversation composer.
+- Simplify task creation and schedule editing with a recurrence preview, weekday controls, optional names, progressive execution limits, and always-visible Save and validation messages.
+- Preserve drafts, selection and keyboard focus across updates; prevent duplicate submissions and stale replies after switching Hosts. Localize workflow controls and validation in all 11 languages.
+- Verify desktop and mobile controls with synthetic browser fixtures, controller regressions and the complete cross-platform release gates.
+
 ## 3.8.40
 
 - Start a Goal in the current conversation with `/goal <objective>`. The slash menu includes Goal, and its time and output-token limits appear above the input before sending. Optional name and turn limits are under More.

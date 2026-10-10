@@ -26,6 +26,10 @@
     root.style.setProperty("--workspace-sidebar-width", `${prefs.sidebarWidth}px`);
     document.body.classList.toggle("compact", prefs.compact);
     document.title = `Stepsemble · ${t("workspace")}`;
+    if (window.StepsembleWorkflows) {
+      $("workspace-goals").textContent = "◎ " + window.StepsembleWorkflows.label("goals");
+      $("workspace-schedules").textContent = "◷ " + window.StepsembleWorkflows.label("schedules");
+    }
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
     renderHostState();
