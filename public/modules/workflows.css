@@ -1,7 +1,7 @@
 /* Shared task center: a stable list and inspector, with a focused editor. */
 .wf-nav {display:flex;gap:6px;padding:0 5px;}
 .wf-nav .btn {flex:1;text-align:left;font-size:.85rem;border-radius:10px;}
-.wf-panel {--wf-green:#288152;--wf-amber:#95631d;--wf-red:#b9503e;box-sizing:border-box;width:min(1120px,calc(100vw - 48px));height:min(840px,calc(100dvh - 64px));max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:22px;background:var(--paper);color:var(--ink);overflow:hidden;box-shadow:0 32px 120px #0005;font-family:inherit;}
+.wf-panel {--wf-green:#288152;--wf-amber:#95631d;--wf-red:#b9503e;box-sizing:border-box;width:min(1120px,calc(100vw - 48px));height:min(840px,calc(100vh - 64px));height:min(840px,calc(100dvh - 64px));max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:22px;background:var(--paper);color:var(--ink);overflow:hidden;box-shadow:0 32px 120px #0005;font-family:inherit;}
 .wf-panel[open] {display:flex;flex-direction:column;}
 .wf-panel::backdrop {background:#0009;backdrop-filter:blur(4px);}
 .wf-panel [hidden] {display:none!important;}
@@ -146,7 +146,7 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 @media(prefers-color-scheme:dark){html:not([data-theme=light]) .wf-panel{--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:#e69a85;}}
 @media(max-width:950px){.wf-host{display:none;}.wf-heading{padding:24px;}.wf-stats{gap:18px;}.wf-detail{padding:24px;}.wf-item-top{flex-wrap:wrap;gap:5px;}.wf-item-top strong{flex-basis:100%;}.wf-editor-main,.wf-editor-settings{padding:24px;}.wf-metrics>div{grid-template-columns:1fr;}.wf-body{grid-template-columns:minmax(250px,.9fr) minmax(0,1.3fr);}}
 @media(max-width:700px){
-  .wf-panel{width:100%;height:100dvh;margin:0;border-radius:0;border:0;max-height:100dvh;}
+  .wf-panel{width:100%;height:100vh;height:100dvh;margin:0;border-radius:0;border:0;max-height:100vh;max-height:100dvh;}
   .wf-panel .wf-header{flex-wrap:wrap;gap:10px;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));min-height:0;}
   .wf-brand{flex:1 1 calc(100% - 64px);order:0;}.wf-panel .wf-close{order:1;}.wf-tabs{order:2;flex:1;margin:0;}.wf-tabs .btn{flex:1;min-height:38px;}.wf-add{order:3;}
   .wf-heading{align-items:flex-start;flex-direction:column;gap:20px;padding:24px 20px 20px;}.wf-heading h1{font-size:1.7rem;}

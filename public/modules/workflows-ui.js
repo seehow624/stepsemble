@@ -75,6 +75,7 @@
     return t("weekAt", { days, time: spec.time });
   }
   function relative(value, now = Date.now()) {
+    if (typeof Intl.RelativeTimeFormat !== "function") return stamp(value);
     const minutes = Math.ceil((Number(value) - now) / 60000);
     if (minutes <= 0) return t("ready");
     const [amount, unit] = minutes >= 1440 ? [Math.round(minutes / 1440), "day"] : minutes >= 60 ? [Math.round(minutes / 60), "hour"] : [minutes, "minute"];

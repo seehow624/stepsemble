@@ -215,3 +215,11 @@ test("keyboard focus follows Pause to Resume and back without returning to the p
   const h=await harness();h.byKey("goal-1:pause").focus();await h.byKey("goal-1:pause").click();assert.equal(h.doc.activeElement,h.byKey("goal-1:resume"));
   await h.byKey("goal-1:resume").click();assert.equal(h.doc.activeElement,h.byKey("goal-1:pause"));h.close();
 });
+
+test("workflow locale interpolation works in older WebKit without Object.hasOwn",()=>{
+  const legacyObject=Object.create(Object);Object.defineProperty(legacyObject,"hasOwn",{value:undefined});
+  const context={window:{},module:{exports:{}},Object:legacyObject};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../public/modules/workflows-i18n.js"),"utf8"),context);
+  assert.equal(context.module.exports.t("ofLimit",{limit:100},"en"),"of 100");
+  assert.equal(context.module.exports.t("dailyAt",{time:"09:00"},"zh-Hant"),"每天 · 09:00");
+});

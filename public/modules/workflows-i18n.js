@@ -124,7 +124,7 @@
   const tables=Object.fromEntries(locales.map((locale,index)=>[locale,Object.fromEntries(Object.entries(copy).map(([key,values])=>[key,values[index]]))]));
   function t(key,vars={},locale="en"){
     const source=tables[locale]?.[key]??tables.en[key]??key;
-    return source.replace(/\{(\w+)\}/g,(match,name)=>Object.hasOwn(vars,name)?String(vars[name]):match);
+    return source.replace(/\{(\w+)\}/g,(match,name)=>Object.prototype.hasOwnProperty.call(vars,name)?String(vars[name]):match);
   }
   return Object.freeze({locales:Object.freeze(locales),tables,t});
 });
