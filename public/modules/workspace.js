@@ -448,7 +448,7 @@
       const add = button("", () => newSession(cwd), t("newSession"), "btn workspace-project-add");
       add.append(icon("M12 5v14M5 12h14")); header.append(toggle, add);
       if (cwd) {
-        header.prepend(reorderHandle(section, "project", cwd, "", pinned));
+        reorderRow(toggle, section, "project", cwd, "", pinned);
         const actions = button("⋯", () => openPaneMenu(actions, [...orderActions("project", cwd, "", pinned), [t("removeProject"), async () => {
           const target = host; actions.disabled = true;
           try {
@@ -467,10 +467,10 @@
         const row = node("div", "", "workspace-session-row");
         const pinned = presentation.pinnedSessions.includes(entry.key);
         const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
-        b.dataset.open = String(openKeys.has(L.identity(ref))); b.draggable = true;
+        b.dataset.open = String(openKeys.has(L.identity(ref)));
         b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
         if (pinned) b.append(pinMark());
-        b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
+        reorderRow(b, row, "session", entry.key, cwd, pinned, e => dragStart(e, ref, false));
         const actions = button("⋯", () => openPaneMenu(actions, [
           ...orderActions("session", entry.key, cwd, pinned),
           [t("rename"), () => renameSession(ref)],
@@ -484,7 +484,7 @@
         actions.disabled = sidebarBusy;
         actions.setAttribute("aria-haspopup", "menu");
         b.oncontextmenu = e => { e.preventDefault(); actions.click(); };
-        row.append(reorderHandle(row, "session", entry.key, cwd, pinned), b, actions); contents.append(row);
+        row.append(b, actions); contents.append(row);
       }
       if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
@@ -511,14 +511,11 @@
       ...(at > 0 ? [[t("moveUp"), () => orderStep(kind, id, cwd, pinned, -1)]] : []),
       ...(at < peers.length - 1 ? [[t("moveDown"), () => orderStep(kind, id, cwd, pinned, 1)]] : [])];
   }
-  function reorderHandle(source, kind, id, group, pinned) {
-    const handle = button("", () => {}, t(kind === "project" ? "reorderProject" : "reorderSession"), "btn workspace-reorder-handle");
-    handle.append(icon("M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01")); handle.disabled = sidebarBusy;
-    window.StepsembleWorkspaceReorder.attach(handle, source, { kind, id, group, pinned,
+  function reorderRow(surface, source, kind, id, group, pinned, nativeStart) {
+    window.StepsembleWorkspaceReorder.attach(surface, source, { kind, id, group, pinned, nativeStart, enabled: () => !sidebarBusy,
       move: before => void arrangeSidebar({ kind, id, before }), keyboard: direction => orderStep(kind, id, group, pinned, direction),
-      started: () => { sidebarDragging = true; closePaneMenu(); }, ended: () => { sidebarDragging = false; },
+      started: () => { sidebarDragging = true; closePaneMenu(); }, ended: native => { sidebarDragging = false; if (native) dragEnd(); },
     });
-    return handle;
   }
   async function arrangeSidebar(input) {
     if (sidebarBusy) return;
@@ -540,7 +537,7 @@
       if (target === host && epoch === sidebarEditEpoch) {
         sidebarBusy = false; renderSidebar();
         const row = [...$("workspace-projects").querySelectorAll("[data-reorder-kind]")].find(node => node.dataset.reorderKind === input.kind && node.dataset.reorderId === input.id);
-        row?.querySelector(".workspace-reorder-handle")?.focus({ preventScroll: true });
+        row?.querySelector("[data-reorder-surface]")?.focus({ preventScroll: true });
         void refresh();
       }
     }

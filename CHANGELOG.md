@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.45
+
+- Drag project and session names directly to reorder the sidebar, with no separate drag handle. Session dragging into workspace panes remains available.
+- On touch screens, hold a name to start reordering; normal taps and scrolling keep their usual behavior. A fresh tap immediately after dragging works normally.
+- Keep sidebar order after reload and support Alt+Up/Down on a focused name. Add browser coverage for mouse dragging, touch dragging, scrolling, menus, persistence, and pane drops.
+
 ## 3.8.44
 
 - Fix Codex message sending when restoring a long conversation after a Host restart. The resume response includes reconstructed history and now uses the same bounded 8 MiB budget as other native history responses, instead of being rejected at 1 MiB.
