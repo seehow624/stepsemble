@@ -11,7 +11,7 @@
   const ATTENTION = ["waiting", "blocked", "interrupted", "failed", "limited"];
   const CLOCKED = ["starting", "running", "waiting"];
   const en = {
-    goals: "Goals", schedules: "Schedules", newGoal: "New Goal", newSchedule: "New schedule", close: "Close", back: "Back",
+    goals: "Goals", schedules: "Schedules", new: "New", newGoal: "New Goal", newSchedule: "New schedule", close: "Close", back: "Back",
     title: "Name", objective: "Objective", objectivePrompt: "What should the agent accomplish?", project: "Project", agent: "Agent", mode: "Run mode",
     goal: "Work toward a Goal", task: "Run one task", limits: "Execution limits", save: "Save schedule", start: "Start Goal",
     run: "Run now", edit: "Edit schedule", remove: "Delete schedule", conversation: "Open conversation", result: "Latest result",
@@ -245,7 +245,8 @@
     function render(force = false) {
       if (!modal || editing || !shell?.list) return;
       shell.title.textContent = t(view); shell.subtitle.textContent = t(view === "goals" ? "goalHint" : "scheduleHint");
-      shell.add.textContent = "+ " + t(view === "goals" ? "newGoal" : "newSchedule");
+      shell.add.textContent = "+ " + t("new");
+      shell.add.setAttribute("aria-label", t(view === "goals" ? "newGoal" : "newSchedule"));
       shell.search.placeholder = t("filter"); shell.search.setAttribute("aria-label", t("filter"));
       modal.querySelector(".wf-footer").textContent = t("hostNote");
       modal.setAttribute("aria-label", t(view));

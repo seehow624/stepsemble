@@ -2,7 +2,7 @@
   "name": "stepsemble",
   "private": true,
   "license": "Apache-2.0",
-  "version": "3.8.41",
+  "version": "3.8.42",
   "description": "A calm, cross-platform workspace for local coding agents",
   "type": "commonjs",
   "engines": {
@@ -51,7 +51,7 @@
     "test:native:codex:history": "node scripts/check-native-codex-history.mjs",
     "version:check": "node scripts/version.mjs check",
     "version:set": "node scripts/version.mjs set",
-    "check:workspace": "node --check server/macos-app.js && node --check server/browse-roots.js && node --check server/workspace-registry.js && node --check server/workspace-names.js && node --check server/workspace-usage.js && node --check public/modules/workspace-layout.js && node --check public/modules/workspace.js && node --check scripts/workspace-preview.mjs && node --check public/modules/workspace-i18n.js",
+    "check:workspace": "node --check server/macos-app.js && node --check server/browse-roots.js && node --check server/workspace-registry.js && node --check server/notifications.js && node --check server/web-push.js && node --check public/modules/notifications.js && node --check public/modules/workspace-order.js && node --check public/modules/workspace-reorder.js && node --check server/workspace-names.js && node --check server/workspace-usage.js && node --check public/modules/workspace-layout.js && node --check public/modules/workspace.js && node --check scripts/workspace-preview.mjs && node --check public/modules/workspace-i18n.js",
     "preview:workspace": "node scripts/workspace-preview.mjs",
     "check:workflows": "node --check server/workflows.js && node --check server/workflow-events.js && node --check public/modules/workflows-i18n.js && node --check public/modules/workflows-ui.js && node --check public/modules/goal-composer.js && node --check public/modules/workflow-text.js && node --check scripts/check-workflows-native.mjs && node --check scripts/workflows-preview.mjs",
     "test:native:workflows": "node scripts/check-workflows-native.mjs"

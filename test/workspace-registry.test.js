@@ -2,6 +2,32 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { createWorkspaceRegistry } = require("../server/workspace-registry");
 function fixture(t) { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "workspace-registry-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true })); return path.join(dir, "workspaces.json"); }
+const order = require("../public/modules/workspace-order");
+test("pins and custom order persist while native identities and memberships stay intact", t => {
+  const file = fixture(t), registry = createWorkspaceRegistry(file);
+  const a = registry.remember({ id: "codex:a", agentId: "codex", nativeThreadId: "native-a", cwd: "/A" });
+  const b = registry.remember({ id: "claude-code:b", agentId: "claude-code", cwd: "/A" });
+  const c = registry.remember({ id: "pi:c", agentId: "pi", sid: "c", cwd: "/B" });
+  registry.project("/C");
+  const members = registry.list().entries;
+  registry.arrange({ kind: "project", id: "/C", pinned: true });
+  registry.arrange({ kind: "project", id: "/B", before: "/A" });
+  registry.arrange({ kind: "session", id: b.key, before: a.key });
+  assert.deepEqual(order.projects(registry.list()), ["/C", "/B", "/A"]);
+  assert.deepEqual(order.entries(registry.list(), "/A").map(row => row.key), [b.key, a.key]);
+  registry.arrange({ kind: "session", id: a.key, pinned: true });
+  assert.throws(() => registry.arrange({ kind: "session", id: b.key, before: a.key }), /target_invalid/);
+  assert.throws(() => registry.arrange({ kind: "session", id: b.key, before: c.key }), /target_invalid/);
+  assert.throws(() => registry.arrange({ kind: "session", id: "absent", before: null }), /missing/);
+  assert.deepEqual(createWorkspaceRegistry(file).list(), registry.list());
+  assert.deepEqual(registry.list().entries, members);
+  registry.arrange({ kind: "session", id: a.key, pinned: false });
+  registry.arrange({ kind: "session", id: a.key, before: null });
+  assert.deepEqual(order.entries(registry.list(), "/A").map(row => row.key), [b.key, a.key]);
+  registry.remove(a.key); registry.removeProject("/C");
+  assert.ok(!registry.list().presentation.sessionOrder.includes(a.key));
+  assert.deepEqual(registry.list().presentation.pinnedProjects, []);
+});
 test("workspace membership persists without importing provider histories", t => {
   const file = fixture(t), registry = createWorkspaceRegistry(file);
   assert.deepEqual(registry.list().entries, []);

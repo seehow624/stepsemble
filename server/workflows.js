@@ -65,7 +65,7 @@ function outcome(run, result) {
   if (value.endsWith(`[[STEPSEMBLE_GOAL:${run.nonce}:blocked]]`)) return "blocked";
   return null;
 }
-function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onError = () => {} }) {
+function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onError = () => {}, onFinished = () => {} }) {
   let state = { version: 1, schedules: [], runs: [] }, healthy = true, closed = false, ticking = false;
   const inflight = new Map();
   try {
@@ -101,6 +101,7 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
   function finish(run, status, error = null) {
     run.elapsedMs = elapsed(run); run.resumedAt = null; run.status = status; run.activity = status;
     run.error = error; run.updatedAt = now(); run.endedAt = now(); save();
+    try { onFinished(summary(run)); } catch (error) { onError(error); }
   }
   // An uncertain send is never replayed on Host restart.
   if (healthy) {

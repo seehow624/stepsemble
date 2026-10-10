@@ -535,7 +535,8 @@ test("Claude treats the turn Stop ended as ended, not as an error", async t => {
   const child = childFixture();
   const writes = [];
   observeControlWire(child, message => writes.push(message));
-  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child });
+  const rates = [];
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, onRateEvent: event => rates.push(event) });
   t.after(() => session.close());
   const sent = await session.interrupt();
   assert.equal(sent.kind, "sent");
@@ -554,6 +555,8 @@ test("Claude treats the turn Stop ended as ended, not as an error", async t => {
   child.stdout.write(JSON.stringify({ type: "result", session_id: "session-1", subtype: "error_during_execution", is_error: true,
     terminal_reason: "aborted_tools", modelUsage: {}, result: "" }) + "\n");
   assert.equal(session.status().turnError, null);
+  assert.ok(rates.some(event => event.type === "rate.turn.ended" && event.result?.stopReason === "cancelled"));
+  assert.equal(rates.filter(event => event.type === "result" && event.interrupted === true).length, 2);
 });
 
 test("Claude reports when each turn started and ended, apart from when its process started", async t => {

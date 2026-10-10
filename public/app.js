@@ -1,7 +1,7 @@
-/* stepsemble v3.8.41 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.42 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.41";
+const CLIENT_APP_VERSION = "3.8.42";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -1085,10 +1085,12 @@ async function fetchAuthoritativeMachineCatalog() {
 }
 
 function applyMachineCatalog(data) {
+  const requestedHost = (WORKSPACE_PANE || SETTINGS_WINDOW) ? PAGE_QUERY.get("host") : null;
+  if (!selectedId && requestedHost && !data.machines.some(machine => machine.id === requestedHost)) throw machineCatalogError("workspace_host_missing", 404);
   const previousSelectedId = selectedId;
   const previousSelfId = selfId;
   const state = resolveMachineCatalogState(data, {
-    selectedId,
+    selectedId: selectedId || ((WORKSPACE_PANE || SETTINGS_WINDOW) ? PAGE_QUERY.get("host") : null),
     savedSelectedId: loadSelected(),
   });
   machines = state.machines;
@@ -1113,6 +1115,7 @@ function applyMachineCatalog(data) {
   applyApiBase();
   renderMachineSwitch();
   renderMachineList();
+  void refreshPushToggleState();
   if (!el.viewSettings.classList.contains("hidden")) {
     renderSettings();
     void refreshUpdateCenter(true);
@@ -1152,9 +1155,9 @@ let enterAppRequest = null;
 let workspaceAfterGuide = false;
 function workspaceDestination() {
   const destination = new URL("/workspace.html", location.origin);
-  for (const key of ["window", "ack", "source"]) {
+  for (const key of ["window", "ack", "source", "host", "entry"]) {
     const value = PAGE_QUERY.get(key);
-    if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main") destination.searchParams.set(key, value);
+    if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main" || key === "host" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) destination.searchParams.set(key, value);
   }
   return destination.href;
 }
@@ -1171,13 +1174,14 @@ function returnToWorkspace() {
 // form while its computer is briefly unreachable. It says so and opens the
 // conversation by itself once the computer answers.
 let paneRetryTimer = 0, paneRetryAttempt = 0;
-function waitForPaneHost() {
+function waitForPaneHost(error) {
   el.login.classList.add("hidden");
   el.app.classList.remove("hidden");
   el.viewList.classList.add("hidden");
+  el.viewSettings.classList.add("hidden");
   el.viewChat.classList.remove("hidden");
   showChatEmpty();
-  el.chatEmpty.textContent = tKey("workspace.hostWaiting");
+  el.chatEmpty.textContent = tKey(error?.message === "workspace_host_missing" ? "workspace.hostMissing" : "workspace.hostWaiting");
   clearTimeout(paneRetryTimer);
   paneRetryTimer = setTimeout(retryPaneHost, Math.min(10000, 1000 * 2 ** paneRetryAttempt++));
 }
@@ -1244,7 +1248,8 @@ async function enterApp() {
       // Signed in, but the device list failed. The Workspace loads its own
       // list and keeps retrying, so a sign-in from there returns to it.
       if (returnToWorkspace()) return true;
-      if (WORKSPACE_PANE) { waitForPaneHost(); return false; }
+      // An explicit Settings Host must never fall back to local Host APIs.
+      if (WORKSPACE_PANE || SETTINGS_WINDOW) { waitForPaneHost(error); return false; }
       // The Settings window still opens; its device list shows what failed.
       el.login.classList.add("hidden");
       el.app.classList.remove("hidden");
@@ -1363,6 +1368,7 @@ function switchMachine(id, silent) {
     el.viewModelSettings.classList.add("hidden");
   }
   selectedId = id;
+  if (SETTINGS_OVER_WORKSPACE) parent.postMessage({ type: "workspace-settings-host", host: id }, location.origin);
   resetIncomingGrants();
   saveSelected(id);
   // Do not let a previous host's home remain authoritative while the new
@@ -1393,6 +1399,7 @@ function switchMachine(id, silent) {
   void generation;
   void loadAgentCatalog();
   void refreshMachineStatuses();
+  void refreshPushToggleState();
   loadVersion();
   if (!silent) toast(`已切換到 ${machineName(id)}`);
   void wasChatOpen;
@@ -1835,7 +1842,7 @@ function showSettingsCategory(category) {
   settingsCategory = SETTINGS_CATEGORIES.includes(category) ? category : null;
   if (settingsCategory) lastSettingsCategory = settingsCategory;
   applySettingsCategory();
-  const scroll = el.viewSettings?.querySelector(".settings-scroll");
+  const scroll = el.viewSettings?.querySelector(settingsSplitLayout() ? ".settings-content" : ".settings-scroll");
   if (scroll) scroll.scrollTop = 0;
   if (activeSettingsCategory() === "updates") maybeAutoCheckHarnesses();
 }
@@ -15650,11 +15657,15 @@ function renderSettingsNavigation() {
 
 // The Notifications row in the section list shows whether this device gets alerts.
 function renderNotificationsSummary() {
+  const copy = window.StepsembleNotifications;
+  if (copy) for (const [id, key] of [["notifications-title", "title"], ["notifications-note", "note"], ["notifications-when", "when"]]) {
+    const target = $(id); if (target) target.textContent = copy.t(key, settings.locale);
+  }
   const state = el.pushToggle?.dataset.pushState;
   const text = state === "on" ? tKey("notifications.summaryOn")
     : state === "enable" ? tKey("notifications.summaryOff")
       : state === "unsupported" ? updateText("Not available")
-        : state === "denied" ? updateText("Blocked in browser settings") : null;
+        : state === "denied" ? window.StepsembleNotifications.t("blocked", settings.locale) : null;
   if (text !== null) setSettingsSummary(el.settingsSummaryNotifications, text);
 }
 
@@ -17446,82 +17457,112 @@ function urlBase64ToUint8Array(value) {
 }
 
 async function currentPushSubscription(registration) {
-  try { return await registration.pushManager.getSubscription(); } catch { return null; }
+  try { return await registration?.pushManager.getSubscription(); } catch { return null; }
 }
-
+const notices = window.StepsembleNotifications;
+let pushRequest = 0, pushBusy = false;
+let pushEndpoints = [], pushTestEndpoint = null;
+const noticeText = key => notices.t(key, settings.locale);
+async function pushApi(base, path, body) {
+  await protocolConnections.ensure(base);
+  return hostClient.request(base, path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+async function pushRegistration(host, create = false) {
+  const scope = new URL("/push/" + encodeURIComponent(host) + "/", location.origin).href;
+  const registration = (await navigator.serviceWorker.getRegistrations()).find(row => row.scope === scope);
+  const result = registration || (create ? await navigator.serviceWorker.register("/sw.js?pushHost=" + encodeURIComponent(host), { scope, updateViaCache: "none" }) : null);
+  if (!create || result.active?.state === "activated") return result;
+  // register() can resolve before install/activate. subscribe() needs an
+  // active worker, including a new Host's scoped notification worker.
+  return new Promise((resolve, reject) => {
+    const worker = result.installing || result.waiting || result.active;
+    const finish = error => { clearTimeout(timer); worker?.removeEventListener("statechange", changed); error ? reject(error) : resolve(result); };
+    const changed = () => { if (worker?.state === "activated") finish(); else if (!worker || worker.state === "redundant") finish(new Error(noticeText("error"))); };
+    const timer = setTimeout(() => finish(new Error(noticeText("error"))), 15000);
+    worker?.addEventListener("statechange", changed); changed();
+  });
+}
+function pushKeyMatches(subscription, publicKey) {
+  try {
+    const actual = new Uint8Array(subscription.options.applicationServerKey), expected = urlBase64ToUint8Array(publicKey);
+    return actual.length > 0 && actual.length === expected.length && actual.every((value, index) => value === expected[index]);
+  } catch { return false; }
+}
 function setPushToggleState(state) {
   if (!el.pushToggle) return;
-  const labels = {
-    unsupported: window.stepsembleI18n?.t("Not available") || "Not available",
-    enable: window.stepsembleI18n?.t("Enable") || "Enable",
-    on: window.stepsembleI18n?.t("Notifications on") || "Notifications on",
-    denied: window.stepsembleI18n?.t("Blocked in browser settings") || "Blocked in browser settings",
-    busy: "…",
-  };
-  el.pushToggle.textContent = labels[state] || labels.enable;
+  const key = state === "on" ? "on" : state === "unsupported" ? "unavailable" : state === "denied" ? (notices.native() ? "settings" : "blocked") : state === "error" ? "error" : "enable";
+  el.pushToggle.textContent = state === "busy" ? "…" : noticeText(key);
   el.pushToggle.dataset.pushState = state;
-  el.pushToggle.disabled = state === "unsupported" || state === "denied";
+  el.pushToggle.disabled = state === "busy" || state === "unsupported" || state === "denied" && !notices.native();
   el.pushUnsupportedNote?.classList.toggle("hidden", state !== "unsupported");
+  $("push-test-row")?.classList.toggle("hidden", state !== "on");
+  if ($("push-test")) { $("push-test").textContent = noticeText("sendTest"); $("push-test").disabled = state !== "on"; }
   renderNotificationsSummary();
 }
-
 async function refreshPushToggleState() {
-  if (!el.pushToggle) return;
-  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-    setPushToggleState("unsupported");
-    return;
-  }
-  if (typeof Notification !== "undefined" && Notification.permission === "denied") {
-    setPushToggleState("denied");
-    return;
-  }
-  const registration = await navigator.serviceWorker.getRegistration();
-  const subscription = registration ? await currentPushSubscription(registration) : null;
-  if (subscription) setPushToggleState("on");
-  else setPushToggleState("enable");
-}
-
-async function disablePushNotifications() {
+  if (!el.pushToggle || !selectedId) return;
+  const epoch = ++pushRequest, host = selectedId, base = apiBase;
+  pushBusy = false; pushEndpoints = []; pushTestEndpoint = null; setPushToggleState("busy");
+  const current = () => epoch === pushRequest && host === selectedId && base === apiBase;
   try {
-    const registration = await navigator.serviceWorker.getRegistration();
-    const subscription = registration ? await currentPushSubscription(registration) : null;
-    if (subscription) {
-      await post("/api/push/unsubscribe", { endpoint: subscription.endpoint });
-      await subscription.unsubscribe();
+    if (notices.native()) {
+      const status = await notices.request("status", host, settings.locale);
+      if (current()) setPushToggleState(status.permission === "denied" ? "denied" : status.enabled && status.permission === "granted" ? "on" : "enable");
+      return;
     }
-    toast(window.stepsembleI18n?.t("Notifications off") || "Notifications off");
-  } catch {}
-  void refreshPushToggleState();
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) { if (current()) setPushToggleState("unsupported"); return; }
+    if (Notification.permission === "denied") { if (current()) setPushToggleState("denied"); return; }
+    const registrations = [await pushRegistration(host), await navigator.serviceWorker.getRegistration("/")];
+    const subscriptions = (await Promise.all(registrations.map(currentPushSubscription))).filter(Boolean);
+    await protocolConnections.ensure(base);
+    const [status, config] = await Promise.all([pushApi(base, "/api/push/status", { endpoints: subscriptions.map(row => row.endpoint) }), hostClient.request(base, "/api/push/config")]);
+    if (current()) {
+      pushEndpoints = (status.endpoints || []).filter(endpoint => subscriptions.some(row => row.endpoint === endpoint));
+      pushTestEndpoint = subscriptions.find(row => pushEndpoints.includes(row.endpoint) && pushKeyMatches(row, config.publicKey))?.endpoint || null;
+      setPushToggleState(pushTestEndpoint && Notification.permission === "granted" ? "on" : "enable");
+    }
+  } catch (error) { if (current()) setPushToggleState(error.status === 404 ? "unsupported" : "error"); }
 }
-
-async function enablePushNotifications() {
+async function changePushNotifications(action) {
+  if (pushBusy || !selectedId) return;
+  const epoch = ++pushRequest, host = selectedId, base = apiBase, endpoints = [...pushEndpoints], testEndpoint = pushTestEndpoint;
+  pushBusy = true; setPushToggleState("busy");
+  const current = () => epoch === pushRequest && host === selectedId && base === apiBase;
   try {
-    if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") { void refreshPushToggleState(); return; }
+    if (notices.native()) { await notices.request(action, host, settings.locale); }
+    else if (action === "disable") {
+      // A legacy origin-wide subscription can still serve another Host.
+      for (const endpoint of endpoints) await pushApi(base, "/api/push/unsubscribe", { endpoint });
+    } else if (action === "test") {
+      if (!testEndpoint) throw new Error(noticeText("error"));
+      await pushApi(base, "/api/push/test", { endpoint: testEndpoint });
+    } else if (action === "enable") {
+      if (Notification.permission !== "granted" && await Notification.requestPermission() !== "granted") return;
+      if (!current()) return;
+      const registration = await pushRegistration(host, true);
+      // Each Host has its own VAPID key and therefore its own subscription.
+      await protocolConnections.ensure(base);
+      const config = await hostClient.request(base, "/api/push/config");
+      let subscription = await currentPushSubscription(registration);
+      // Rotate only this Host's worker. A legacy root subscription may
+      // still be used by another computer and must remain untouched.
+      if (subscription && !pushKeyMatches(subscription, config.publicKey)) { await subscription.unsubscribe(); subscription = null; }
+      subscription ||= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(config.publicKey) });
+      await pushApi(base, "/api/push/subscribe", { ...subscription.toJSON(), locale: settings.locale });
+      for (const endpoint of endpoints.filter(value => value !== subscription.endpoint)) await pushApi(base, "/api/push/unsubscribe", { endpoint });
     }
-    const registration = serviceWorkerRegistration || await navigator.serviceWorker.ready;
-    const existing = await currentPushSubscription(registration);
-    if (existing) { await post("/api/push/subscribe", existing.toJSON()); setPushToggleState("on"); return; }
-    const config = await api("/api/push/config");
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(config.publicKey),
-    });
-    await post("/api/push/subscribe", subscription.toJSON());
-    setPushToggleState("on");
-    toast(window.stepsembleI18n?.t("Notifications on") || "Notifications on");
-  } catch (error) {
-    toast(error.message || "Could not enable notifications", true);
-    void refreshPushToggleState();
-  }
+    if (current() && action === "test") toast(noticeText("sent"));
+  } catch (error) { if (current()) toast(error.message || noticeText("error"), true); }
+  finally { if (current()) { pushBusy = false; void refreshPushToggleState(); } }
 }
-
 el.pushToggle?.addEventListener("click", () => {
-  const state = el.pushToggle.dataset.pushState || "enable";
-  if (state === "on") void disablePushNotifications();
-  else if (state === "enable") void enablePushNotifications();
+  const state = el.pushToggle.dataset.pushState;
+  if (state === "on") void changePushNotifications("disable");
+  else if (state === "enable") void changePushNotifications("enable");
+  else if (state === "denied" && notices.native()) void changePushNotifications("settings");
+  else if (state === "error") void refreshPushToggleState();
 });
+$("push-test")?.addEventListener("click", () => { if (el.pushToggle.dataset.pushState === "on") void changePushNotifications("test"); });
 void refreshPushToggleState();
 el.modelFilter?.addEventListener("input", () => renderModelVisibility());
 el.providerAdd?.addEventListener("click", () => currentModelSettingsAgent() === "opencode" ? openOpenCodeProviderDialog() : openProviderDialog());
@@ -17575,6 +17616,7 @@ el.setLocale?.addEventListener("change", () => {
   if (rpc?.streaming) setActivityLabel(rpc.activityLabel || "thinking");
   refreshActivityReceipts();
   renderNotificationsSummary();
+  void refreshPushToggleState();
   if (!el.onboarding?.classList.contains("hidden")) renderOnboarding();
   if (!el.viewModelSettings.classList.contains("hidden")) renderModelVisibility();
   if (agentTerminal) renderAgentTerminal();

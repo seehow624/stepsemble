@@ -79,6 +79,13 @@ async function harness({runs=[run()],schedules=[],mobile=false,crypto}={}) {
   h.close=()=>{h.controller.close();assert.equal(timers.size,0);};
   await h.controller.open();return h;
 }
+test("Goals and Schedules share one stable New button with a contextual accessible name", async () => {
+  const h = await harness(); const add = h.byKey("new");
+  assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New Goal");
+  await h.byKey("tab:schedules").click();
+  assert.equal(h.byKey("new"), add); assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New schedule");
+  h.close();
+});
 
 test("the Host clock advances only active work; paused, queued and terminal clocks are fixed",()=>{
   assert.equal(ui.duration(754000),"12:34");assert.equal(ui.duration(3602000),"1:00:02");

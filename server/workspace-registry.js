@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const sidebarOrder = require("../public/modules/workspace-order");
 
 // Membership is an explicit product record, never inferred from a directory,
 // provider inventory, or a process we happen to observe. No credentials or
@@ -34,10 +35,12 @@ function createWorkspaceRegistry(filename) {
       if (!/^[a-f0-9-]{36}$/.test(row.key) || !["created", "added"].includes(row.origin)) throw new Error("workspace_registry_invalid");
       return { key: row.key, origin: row.origin, addedAt: row.addedAt, record: clean(row.record) };
     }), projects: saved.projects.filter(p => typeof p === "string" && path.isAbsolute(p)) };
+    if (saved.presentation) state.presentation = sidebarOrder.normalize(saved.presentation, state);
   } catch (error) { if (error.code !== "ENOENT") healthy = false; }
   function write(next) {
     if (!healthy) throw new Error("workspace_registry_unavailable");
     if (next.entries.length > 10000) throw new Error("workspace_registry_full");
+    if (next.presentation) next = { ...next, presentation: sidebarOrder.normalize(next.presentation, next) };
     fs.mkdirSync(path.dirname(filename), { recursive: true, mode: 0o700 });
     const temp = `${filename}.${crypto.randomUUID()}.tmp`;
     try {
@@ -66,6 +69,7 @@ function createWorkspaceRegistry(filename) {
     return structuredClone(entry);
   }
   return { list, remember,
+    arrange(input) { const presentation = sidebarOrder.arrange(list(), input); write({ ...state, presentation }); return structuredClone(presentation); },
     get: key => list().entries.find(row => row.key === key),
     update(key, patch) {
       const prior = state.entries.find(row => row.key === key);

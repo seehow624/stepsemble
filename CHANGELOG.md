@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.8.42
+
+- macOS Cmd+W closes the focused session tab and keeps the workspace open after its last tab. Cmd+Shift+W closes the window.
+- Pin projects and sessions to the top, arrange them with mouse or touch grips, or use menu/keyboard controls. Ordering is saved per Host without changing native session identities.
+- Goals and Schedules share a stable New button. Settings keeps its navigation and title in place when switching About and Updates.
+- Synchronize the workspace and Settings Host selection in both directions, and prevent unavailable requested Hosts from falling back to local settings.
+- Add macOS notifications and improve web notifications for work completion, failures, stops, approvals and final Goal outcomes. Silence alerts while viewing that session, open the original Host/session from an alert, and provide a test notification action.
+- Isolate web notification subscriptions by Host, repair encrypted Web Push delivery, wait for service worker activation and handle notification-key rotation without disabling other computers. Preserve simultaneous notifications and skip old completion history after restart.
+
 ## 3.8.41
 
 - Redesign Goals and Schedules as a searchable task center with a list and progress inspector on desktop, and focused task details on phones. Preserve Stepsemble's dark theme and branding.

@@ -17,6 +17,16 @@ function fixture(t, agentId, extra = {}) {
   return { host, store, record, at: value => { at = value; }, read: () => host.read("entry"),
     reopen: () => createHostOutputRates({ store: createTurnRateStore({ file }), entries }).read("entry") };
 }
+test("OpenCode alerts distinguish confirmed stop from completion and preserve uncertain aborts", async () => {
+  const events = [], host = createHostOutputRates({ entries: () => [], store: { recordHost() {} }, onEvent: (agent, id, event) => events.push(event) });
+  const run = host.start("opencode", "session");
+  await host.abortOpenCode({ abort: async () => ({ aborted: false }) }, "session", {});
+  assert.equal(run.meter.endedAt, null); assert.equal(events.length, 0);
+  await host.abortOpenCode({ abort: async () => ({ aborted: true }) }, "session", {});
+  assert.notEqual(run.meter.endedAt, null); assert.equal(events[0].result.stopReason, "cancelled");
+  assert.equal(host.openCode("session", { messages: [], status: { type: "idle" } }, run.runId), false);
+  assert.equal(events.length, 1);
+});
 
 test("Pi keeps a whole run with no browser, subtracting overlapping tools and user input only once", t => {
   const f = fixture(t, "pi");

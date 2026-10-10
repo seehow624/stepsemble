@@ -587,6 +587,17 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
    Like a pane, the frame starts below the status bar. */
 .workspace-settings-layer { position: fixed; inset: 0; z-index: 90; display: flex; padding-top: env(safe-area-inset-top); background: var(--paper); }
 .workspace-settings-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--paper); }
+/* Ordering has its own grip; dragging a session into a pane keeps its meaning. */
+.workspace-reorder-handle { display: grid; place-items: center; width: 22px; min-width: 22px; min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--pine-soft); opacity: .35; cursor: grab; touch-action: none; }
+.workspace-reorder-handle svg { width: 14px; height: 20px; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; fill: none; }
+.workspace-project > header:hover .workspace-reorder-handle, .workspace-session-row:hover .workspace-reorder-handle, .workspace-reorder-handle:focus-visible { opacity: 1; }
+.workspace-reorder-handle:active { cursor: grabbing; }
+.workspace-reorder-source { opacity: .4; }
+.workspace-reorder-ghost { position: fixed; z-index: 150; display: flex; align-items: center; gap: 5px; padding: 4px 8px; border: .5px solid var(--line); border-radius: 12px; background: var(--milk); box-shadow: 0 8px 28px #0005; pointer-events: none; overflow: hidden; }
+.workspace-reorder-ghost .workspace-project-toggle, .workspace-reorder-ghost .workspace-session { flex: 1; }
+.workspace-reorder-marker { position: fixed; z-index: 151; height: 3px; margin-top: -1px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.workspace-pin { width: 12px; height: 12px; flex: 0 0 12px; fill: currentColor; stroke: none; opacity: .65; }
+@media (pointer: coarse), (max-width: 760px) { .workspace-reorder-handle { width: 44px; min-width: 44px; min-height: 44px; opacity: .7; } }
 .workspace-maximized #workspace-tree > .workspace-split { display: none; }
 .workspace-mobile-nav { display: none; }
 body.sidebar-hidden #workspace-sidebar { display: none; }

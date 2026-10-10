@@ -1,25 +1,28 @@
-const CACHE_NAME = "stepsemble-shell-v3.8.41";
+const CACHE_NAME = "stepsemble-shell-v3.8.42";
 const SHELL = [
   "/",
   "/index.html",
   "/workspace.html",
-  "/modules/workspace.js?v=3.8.41",
-  "/modules/workspace-i18n.js?v=3.8.41",
-  "/modules/workspace-layout.js?v=3.8.41",
-  "/modules/workspace.css?v=3.8.41",
-  "/modules/goal-composer.js?v=3.8.41",
-  "/modules/workflows-i18n.js?v=3.8.41",
-  "/modules/workflows-ui.js?v=3.8.41",
-  "/modules/workflow-text.js?v=3.8.41",
-  "/modules/workflows.css?v=3.8.41",
-  "/modules/workspace-embedded.css?v=3.8.41",
-  "/style.css?v=3.8.41",
-  "/i18n.js?v=3.8.41",
-  "/modules/app-foundation.js?v=3.8.41",
-  "/modules/agent-identity.js?v=3.8.41",
-  "/modules/agent-identity.css?v=3.8.41",
-  "/modules/conversation-catalog.css?v=3.8.41",
-  "/modules/conversation-catalog.js?v=3.8.41",
+  "/modules/workspace.js?v=3.8.42",
+  "/modules/workspace-i18n.js?v=3.8.42",
+  "/modules/workspace-layout.js?v=3.8.42",
+  "/modules/notifications.js?v=3.8.42",
+  "/modules/workspace-order.js?v=3.8.42",
+  "/modules/workspace-reorder.js?v=3.8.42",
+  "/modules/workspace.css?v=3.8.42",
+  "/modules/goal-composer.js?v=3.8.42",
+  "/modules/workflows-i18n.js?v=3.8.42",
+  "/modules/workflows-ui.js?v=3.8.42",
+  "/modules/workflow-text.js?v=3.8.42",
+  "/modules/workflows.css?v=3.8.42",
+  "/modules/workspace-embedded.css?v=3.8.42",
+  "/style.css?v=3.8.42",
+  "/i18n.js?v=3.8.42",
+  "/modules/app-foundation.js?v=3.8.42",
+  "/modules/agent-identity.js?v=3.8.42",
+  "/modules/agent-identity.css?v=3.8.42",
+  "/modules/conversation-catalog.css?v=3.8.42",
+  "/modules/conversation-catalog.js?v=3.8.42",
   "/agent-logos/v1/pi.svg",
   "/agent-logos/v1/claude.svg",
   "/agent-logos/v1/codex.svg",
@@ -33,29 +36,29 @@ const SHELL = [
   "/agent-logos/v1/openai.svg",
   "/agent-logos/v1/minimax.png",
   "/agent-logos/v1/agent.svg",
-  "/modules/session-utils.js?v=3.8.41",
-  "/modules/pi-session.js?v=3.8.41",
-  "/modules/context-usage.js?v=3.8.41",
-  "/modules/output-rate.js?v=3.8.41",
-  "/modules/opencode-context.js?v=3.8.41",
-  "/modules/model-presentation.js?v=3.8.41",
-  "/modules/agent-terminal.js?v=3.8.41",
-  "/modules/claude-structured-rendering.js?v=3.8.41",
-  "/modules/agent-transcript-presentation.js?v=3.8.41",
-  "/modules/codex-approvals.js?v=3.8.41",
-  "/modules/protocol-contracts.js?v=3.8.41",
-  "/modules/client-sdk.js?v=3.8.41",
-  "/modules/native-dialogs.js?v=3.8.41",
-  "/modules/composer-ime.js?v=3.8.41",
-  "/app.js?v=3.8.41",
-  "/manifest.webmanifest?v=3.8.41",
+  "/modules/session-utils.js?v=3.8.42",
+  "/modules/pi-session.js?v=3.8.42",
+  "/modules/context-usage.js?v=3.8.42",
+  "/modules/output-rate.js?v=3.8.42",
+  "/modules/opencode-context.js?v=3.8.42",
+  "/modules/model-presentation.js?v=3.8.42",
+  "/modules/agent-terminal.js?v=3.8.42",
+  "/modules/claude-structured-rendering.js?v=3.8.42",
+  "/modules/agent-transcript-presentation.js?v=3.8.42",
+  "/modules/codex-approvals.js?v=3.8.42",
+  "/modules/protocol-contracts.js?v=3.8.42",
+  "/modules/client-sdk.js?v=3.8.42",
+  "/modules/native-dialogs.js?v=3.8.42",
+  "/modules/composer-ime.js?v=3.8.42",
+  "/app.js?v=3.8.42",
+  "/manifest.webmanifest?v=3.8.42",
   "/stepsemble-glyph.png",
   "/icon-512.png",
-  "/icon-16.png?v=3.8.41",
-  "/icon-32.png?v=3.8.41",
-  "/icon-180.png?v=3.8.41",
-  "/icon-512.png?v=3.8.41",
-  "/icon-maskable-512.png?v=3.8.41",
+  "/icon-16.png?v=3.8.42",
+  "/icon-32.png?v=3.8.42",
+  "/icon-180.png?v=3.8.42",
+  "/icon-512.png?v=3.8.42",
+  "/icon-maskable-512.png?v=3.8.42",
   "/vendor/marked.min.js",
   "/vendor/purify.min.js",
   "/vendor/mermaid.min.js",
@@ -110,36 +113,62 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Run-finished push (sent by the host only when no browser is attached to the
-// session). Clicking the notification focuses an open client; the app scrolls
-// to the session from the message payload.
-self.addEventListener("push", (event) => {
-  let data = {};
-  try { data = event.data ? event.data.json() : {}; } catch {}
-  const title = typeof data.title === "string" && data.title ? data.title : "Stepsemble";
-  const body = typeof data.body === "string" ? data.body : "";
-  event.waitUntil(self.registration.showNotification(title, {
-    body,
-    icon: "/icon-180.png",
-    badge: "/stepsemble-glyph.png",
-    tag: "stepsemble-run",
-    data: { file: data.file || null, taskId: data.taskId || null },
-  }));
+// Ask the foreground Workspace which sessions are actually visible. A
+// service worker can be restarted between pushes, so a stale cache is not enough.
+const notificationPresence = new Map(), presenceRequests = new Map();
+self.addEventListener("message", event => {
+  if (event.data?.type !== "STEPSEMBLE_NOTIFICATION_PRESENCE" || !event.source?.id) return;
+  const data = event.data;
+  const sessions = (Array.isArray(data.sessions) ? data.sessions : []).slice(0, 8).filter(row => typeof row.host === "string" && typeof row.key === "string");
+  notificationPresence.set(event.source.id, { visible: data.visible === true, sessions });
+  presenceRequests.get(data.requestId)?.();
 });
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const file = event.notification.data?.file || null;
-  const taskId = event.notification.data?.taskId || null;
+async function viewingNotice(notice) {
+  if (!notice || notice.kind === "test") return false;
+  const clients = (await self.clients.matchAll({ type: "window", includeUncontrolled: true })).filter(client => client.frameType !== "nested" && client.visibilityState === "visible");
+  await Promise.all(clients.map(client => new Promise(resolve => {
+    const requestId = "presence-" + client.id + "-" + Math.random();
+    const done = () => { clearTimeout(timer); presenceRequests.delete(requestId); resolve(); };
+    const timer = setTimeout(done, 250); presenceRequests.set(requestId, done);
+    notificationPresence.delete(client.id);
+    client.postMessage({ type: "STEPSEMBLE_NOTIFICATION_PRESENCE_REQUEST", requestId });
+  })));
+  // Prune closed clients; only freshly acknowledged visible sessions qualify.
+  for (const id of notificationPresence.keys()) if (!clients.some(client => client.id === id)) notificationPresence.delete(id);
+  return clients.some(client => {
+    const state = notificationPresence.get(client.id);
+    return state?.visible && state.sessions.some(row => row.host === notice.host && row.key === notice.key);
+  });
+}
+self.addEventListener("push", event => {
+  let data = {}; try { data = event.data ? event.data.json() : {}; } catch {}
   event.waitUntil((async () => {
-    const windowClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    const topLevel = windowClients.filter(client => client.frameType !== "nested");
-    for (const client of topLevel) {
-      if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", product: "stepsemble", taskId });
+    const notice = data.notice;
+    if (await viewingNotice(notice)) return;
+    const identity = notice?.host && notice?.key ? notice.host + ":" + notice.key : data.taskId || data.file || data.ts || "run";
+    await self.registration.showNotification(typeof data.title === "string" && data.title ? data.title : "Stepsemble", {
+      body: typeof data.body === "string" ? data.body : "",
+      icon: "/icon-180.png", badge: "/stepsemble-glyph.png", tag: "stepsemble:" + identity,
+      data: { notice: notice || null, file: data.file || null, taskId: data.taskId || null },
+    });
+  })());
+});
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const { notice, file, taskId } = event.notification.data || {};
+  const valid = notice && /^[a-zA-Z0-9_-]{1,128}$/.test(notice.host) && /^[a-f0-9-]{36}$/i.test(notice.key);
+  const href = valid ? "/workspace.html?host=" + encodeURIComponent(notice.host) + "&entry=" + encodeURIComponent(notice.key) : "/workspace.html";
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of clients.filter(row => row.frameType !== "nested")) {
+      const url = new URL(client.url);
+      if (url.origin !== self.location.origin || !["/", "/workspace.html"].includes(url.pathname)) continue;
+      if (valid) client.postMessage({ type: "STEPSEMBLE_OPEN_NOTIFICATION", notice });
+      else if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", product: "stepsemble", taskId });
       else if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", product: "stepsemble", file });
       return client.focus();
     }
-    return self.clients.openWindow("/");
+    return self.clients.openWindow(href);
   })());
 });
 

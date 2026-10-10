@@ -7,6 +7,7 @@
   "use strict";
   const locales=["en","zh-Hans","zh-Hant","ja","ko","tr","fr","de","es","pt-BR","it"];
   const copy={
+    "new": ["New", "新增", "新增", "新規", "새로 만들기", "Yeni", "Nouveau", "Neu", "Nuevo", "Novo", "Nuovo"],
     "limitsError": ["Use whole numbers: 1–1,440 minutes, 1–100 turns, 100–10,000,000 tokens.","请输入整数：1–1,440 分钟、1–100 回合、100–10,000,000 Token。","請輸入整數：1–1,440 分鐘、1–100 回合、100–10,000,000 Token。","整数を入力してください：1〜1,440 分、1〜100 ターン、100〜10,000,000 トークン。","정수를 입력하세요: 1–1,440분, 1–100턴, 100–10,000,000토큰.","Tam sayı kullanın: 1–1.440 dakika, 1–100 tur, 100–10.000.000 token.","Utilisez des entiers : 1 à 1 440 minutes, 1 à 100 tours, 100 à 10 000 000 tokens.","Verwende ganze Zahlen: 1–1.440 Minuten, 1–100 Runden, 100–10.000.000 Tokens.","Usa números enteros: 1–1.440 minutos, 1–100 turnos, 100–10.000.000 tokens.","Use números inteiros: 1–1.440 minutos, 1–100 turnos, 100–10.000.000 tokens.","Usa numeri interi: 1–1.440 minuti, 1–100 turni, 100–10.000.000 token."],
     "objectiveRequired": ["Describe an objective before starting.","请先描述要完成的目标。","請先描述要完成的目標。","開始する前に目標を記述してください。","시작하기 전에 목표를 설명하세요.","Başlamadan önce bir hedef açıklayın.","Décrivez un objectif avant de commencer.","Beschreibe vor dem Start ein Ziel.","Describe un objetivo antes de empezar.","Descreva um objetivo antes de começar.","Descrivi un obiettivo prima di iniziare."],
     "goals": ["Goals", "目标", "目標", "目標", "목표", "Hedefler", "Objectifs", "Ziele", "Objetivos", "Objetivos", "Obiettivi"],

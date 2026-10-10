@@ -118,7 +118,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.41";
+const APP_VERSION = "3.8.42";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -186,9 +186,13 @@ const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
 // device that uses this Host.
 const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
 const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
-const workflowEvents = require("./server/workflow-events").createWorkflowEvents();
+const hostNotifications = require("./server/notifications").createNotifications({ entries: () => workspaceRegistry.list().entries,
+  host: () => selfMachineId(), quietCompletion: key => { try { return key && workflows.locked(key); } catch { return false; } },
+  publish: event => deliverPushNotification(null, "Stepsemble", event.title, event) });
+const workflowEvents = require("./server/workflow-events").createWorkflowEvents({ onEvent: (agent, id, event) => hostNotifications.observe(agent, id, event) });
 const hostRates = require("./server/host-output-rates").createHostOutputRates({ store: turnRates,
   entries: () => workspaceRegistry.list().entries,
+  onEvent: (agent, id, event) => workflowEvents.emit(agent, id, event),
   onError: () => console.warn("[stepsemble] Could not save the Host's run speed") });
 const CONFIGURED_UPDATE_REPOSITORY = settingFromEnv("UPDATE_REPO") || "seehow624/stepsemble";
 const DEFAULT_UPDATE_REPOSITORY = CONFIGURED_UPDATE_REPOSITORY === "seehow624/pi-harbor"
@@ -1847,40 +1851,12 @@ function vapidAuthorization(endpoint) {
   const header = b64url(JSON.stringify({ typ: "JWT", alg: "ES256" }));
   const payload = b64url(JSON.stringify({ aud: origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: PUSH_SUBJECT }));
   const input = `${header}.${payload}`;
-  const signature = crypto.sign(null, Buffer.from(input), { key: pushPrivateKeyObject(), dsaEncoding: "ieee-p1363" });
+  const signature = crypto.sign("sha256", Buffer.from(input), { key: pushPrivateKeyObject(), dsaEncoding: "ieee-p1363" });
   return `vapid t=${input}.${b64url(signature)}, k=${b64url(pushServerPublicKeyBytes())}`;
 }
 
-function hkdfSha256(salt, ikm, info, length) {
-  return crypto.hkdfSync("sha256", ikm, salt, info, length);
-}
-
-function encryptPushPayload(subscription, plaintext) {
-  const clientPublicKey = b64urlDecode(subscription.keys.p256dh);
-  const authSecret = b64urlDecode(subscription.keys.auth);
-  if (clientPublicKey.length !== 65 || clientPublicKey[0] !== 0x04 || authSecret.length < 16) {
-    throw new Error("invalid subscription keys");
-  }
-  const serverPublicKeyBytes = pushServerPublicKeyBytes();
-  const { privateKey: ephemeralPrivate } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-  const clientKeyObject = crypto.createPublicKey({ key: { kty: "EC", crv: "P-256", x: b64url(clientPublicKey.subarray(1, 33)), y: b64urlDecode(clientPublicKey.subarray(65)), ext: true }, format: "jwk" });
-  const sharedSecret = Buffer.from(crypto.diffieHellman({ privateKey: ephemeralPrivate, publicKey: clientKeyObject }));
-  const ephemeralPublicBytes = pushEphemeralPublicBytes(ephemeralPrivate);
-  const ikm = Buffer.from(hkdfSha256(authSecret, sharedSecret, Buffer.concat([Buffer.from("WebPush: info\u0000", "utf8"), clientPublicKey, serverPublicKeyBytes]), 32));
-  const salt = crypto.randomBytes(16);
-  const cek = Buffer.from(hkdfSha256(salt, ikm, Buffer.from("Content-Encoding: aes128gcm\u0000", "utf8"), 16));
-  const nonce = Buffer.from(hkdfSha256(salt, ikm, Buffer.from("Content-Encoding: nonce\u0000", "utf8"), 12));
-  const record = Buffer.concat([Buffer.from(plaintext, "utf8"), Buffer.from([0x02])]);
-  const cipher = crypto.createCipheriv("aes-128-gcm", cek, nonce);
-  const ciphertext = Buffer.concat([cipher.update(record), cipher.final(), cipher.getAuthTag()]);
-  const header = Buffer.concat([salt, Buffer.from([0x00, 0x00, 0x10, 0x00]), Buffer.from([65]), ephemeralPublicBytes]);
-  return Buffer.concat([header, ciphertext]);
-}
-
-function pushEphemeralPublicBytes(ephemeralPrivate) {
-  const jwk = ephemeralPrivate.export({ format: "jwk" });
-  return Buffer.concat([Buffer.from([0x04]), b64urlDecode(jwk.x), b64urlDecode(jwk.y)]);
-}
+const { encryptPushPayload, createPushQueue } = require("./server/web-push");
+const notificationCopy = require("./public/modules/notifications");
 
 function readPushSubscriptions() {
   try {
@@ -1900,6 +1876,7 @@ function savePushSubscription(subscription) {
       p256dh: String(subscription?.keys?.p256dh || "").slice(0, 256),
       auth: String(subscription?.keys?.auth || "").slice(0, 128),
     },
+    locale: notificationCopy.copy[subscription?.locale] ? subscription.locale : "en",
     savedAt: new Date().toISOString(),
   };
   if (!/^https:\/\//.test(clean.endpoint) || !clean.keys.p256dh || !clean.keys.auth) {
@@ -1918,46 +1895,34 @@ function removePushSubscription(endpoint) {
   return { removed: true, count: remaining.length };
 }
 
-const pushDeliveryInFlight = new Set();
-
-async function deliverPushNotification(session, title, body) {
-  const subscriptions = readPushSubscriptions();
-  if (!subscriptions.length) return;
-  const payload = JSON.stringify({
-    title,
-    body,
-    file: session?.meta?.file || session?.file || null,
-    sessionId: session?.state?.sessionId || session?.id || session?.taskId || null,
-    taskId: session?.taskId || session?.id || null,
-    ts: Date.now(),
+const queuePush = createPushQueue(async (subscription, payload) => {
+  if (!readPushSubscriptions().some(row => row.endpoint === subscription.endpoint)) return;
+  const response = await fetch(subscription.endpoint, {
+    method: "POST", signal: AbortSignal.timeout(10000), redirect: "error",
+    headers: { Authorization: vapidAuthorization(subscription.endpoint), "Content-Type": "application/octet-stream", "Content-Encoding": "aes128gcm", TTL: "3600", Urgency: "normal" },
+    body: encryptPushPayload(subscription, payload),
   });
-  for (const subscription of subscriptions) {
-    if (pushDeliveryInFlight.has(subscription.endpoint)) continue;
-    pushDeliveryInFlight.add(subscription.endpoint);
-    void (async () => {
-      try {
-        const response = await fetch(subscription.endpoint, {
-          method: "POST",
-          headers: {
-            Authorization: vapidAuthorization(subscription.endpoint),
-            "Content-Type": "application/octet-stream",
-            TTL: "86400",
-            Urgency: "normal",
-          },
-          body: encryptPushPayload(subscription, payload),
-        });
-        if (response.status === 404 || response.status === 410) {
-          writePushSubscriptions(readPushSubscriptions().filter((item) => item.endpoint !== subscription.endpoint));
-        }
-      } catch {}
-      finally { pushDeliveryInFlight.delete(subscription.endpoint); }
-    })();
+  if (response.status === 404 || response.status === 410) removePushSubscription(subscription.endpoint);
+});
+
+async function deliverPushNotification(session, title, body, notice = null, endpoint = null) {
+  for (const subscription of readPushSubscriptions()) {
+    if (endpoint && endpoint !== subscription.endpoint) continue;
+    const payload = JSON.stringify({
+      title: notice ? notificationCopy.t(notice.kind, subscription.locale) : title,
+      body: notice ? notice.title : body,
+      file: session?.meta?.file || session?.file || null,
+      taskId: session?.taskId || session?.id || null,
+      ts: Date.now(), ...(notice ? { notice } : {}),
+    });
+    queuePush(subscription, payload);
   }
 }
 
 // Push is only useful when nobody is watching the session in a browser.
-function maybeNotifyRunSettled(session, summaryText) {
+function maybeNotifyRunSettled(session, summaryText, sid) {
   try {
+    if (workspaceRegistry.list().entries.some(row => row.record.agentId === "pi" && (row.record.sid === sid || row.record.file && row.record.file === session?.meta?.file))) return;
     if (!session || session.clients.size > 0 || !readPushSubscriptions().length) return;
     const name = session.meta?.file ? String(session.meta.file).split("/").pop().replace(/\.jsonl$/, "") : "Pi run";
     deliverPushNotification(session, "Pi run finished", summaryText || name);
@@ -2029,6 +1994,7 @@ function maybeNotifyAgentTaskSettled(task, context = {}) {
   // still deferred until every agent is idle so protocol upgrades are atomic.
   schedulePendingUpdateApplyAfterRpcIdle();
   try {
+    if (workspaceRegistry.list().entries.some(row => row.record.agentId === task?.agentId && [row.record.id, row.record.taskId].includes(task?.id))) { hostNotifications.settled(task); return; }
     if (!task || context.hasClients || !readPushSubscriptions().length) return;
     const status = String(task.status || "completed");
     const label = String(task.name || task.agentId || "Agent task").slice(0, 120);
@@ -3586,7 +3552,7 @@ function trackStreaming(sid, event) {
     schedulePendingUpdateApplyAfterRpcIdle();
     // PWA push: only when every browser walked away from the session, so an
     // open page never doubles up with the in-app toasts.
-    maybeNotifyRunSettled(s, typeof event.summary === "string" ? event.summary : "");
+    maybeNotifyRunSettled(s, typeof event.summary === "string" ? event.summary : "", sid);
   } else if (event.type === "rpc_exit") {
     s.state.isStreaming = false;
     s.currentRunStartSeq = null;
@@ -5231,6 +5197,7 @@ async function workflowBusy(record) {
 }
 const workflows = require("./server/workflows").createWorkflows({
   file: path.join(CONFIG_DIR, "workflows.json"),
+  onFinished: run => hostNotifications.finished(run),
   onError: error => console.warn("[stepsemble] Background tasks:", error.message),
   bridge: {
     reserve(active) { nativeWorkRequests += active ? 1 : -1; },
@@ -5313,7 +5280,7 @@ const workflows = require("./server/workflows").createWorkflows({
       if (agent === "pi") { if (!rpcWrite(id, { type: "abort" })) throw new Error("Pi is unavailable"); }
       else if (agent === "claude-code") result = await resolveClaudeStructuredSession(id)?.session.interrupt();
       else if (agent === "codex") result = await codexNative.interruptTurn(id);
-      else if (agent === "opencode") result = await openCodeNative.abort(id, { directory: r.cwd });
+      else if (agent === "opencode") result = await hostRates.abortOpenCode(openCodeNative, id, { directory: r.cwd });
       else result = await (agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent))?.cancel(id);
       if (result?.kind === "reject") throw new Error(result.code);
       // Keep the conversation reserved until the native session is idle.
@@ -6065,7 +6032,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/opencode/abort" && req.method === "POST") {
         try {
           const body = await readJSON(req, 64 * 1024);
-          sendJSON(res, 200, await openCodeNative.abort(body?.sessionId, { directory: openCodeDirectory(body?.cwd || body?.directory || null) }));
+          sendJSON(res, 200, await hostRates.abortOpenCode(openCodeNative, body?.sessionId, { directory: openCodeDirectory(body?.cwd || body?.directory || null) }));
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "opencode_abort_failed" }); }
         return;
       }
@@ -6553,6 +6520,9 @@ const server = http.createServer(async (req, res) => {
         }
         sendJSON(res, 200, snapshot); return;
       }
+      if (p === "/api/notifications" && req.method === "GET") {
+        sendJSON(res, 200, hostNotifications.read(url.searchParams.get("after"))); return;
+      }
       if (p === "/api/workspace/entry" && req.method === "GET") {
         const entry = workspaceRegistry.get(url.searchParams.get("key"));
         if (!entry) { sendJSON(res, 404, { error: "workspace_entry_not_found" }); return; }
@@ -6599,6 +6569,15 @@ const server = http.createServer(async (req, res) => {
         const cwd = projectDirectory(body.cwd);
         if (!cwd) { sendJSON(res, 403, { error: "Project folder is unavailable" }); return; }
         workspaceRegistry.project(cwd); sendJSON(res, 200, { cwd }); return;
+      }
+      if (p === "/api/workspace/arrange" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        try { sendJSON(res, 200, { presentation: workspaceRegistry.arrange(body) }); }
+        catch (error) {
+          if (!String(error.message).startsWith("workspace_order_")) throw error;
+          sendJSON(res, error.message === "workspace_order_missing" ? 404 : 400, { error: error.message });
+        }
+        return;
       }
       if (p === "/api/workspace/project/remove" && req.method === "POST") {
         const body = await readJSON(req, 8192);
@@ -6765,6 +6744,19 @@ const server = http.createServer(async (req, res) => {
         try { sendJSON(res, 200, { publicKey: b64url(pushServerPublicKeyBytes()) }); }
         catch (e) { sendJSON(res, 500, { error: e.message }); }
         return;
+      }
+
+      if (p === "/api/push/status" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        const endpoints = Array.isArray(body?.endpoints) ? body.endpoints.slice(0, 4) : [];
+        sendJSON(res, 200, { endpoints: readPushSubscriptions().filter(row => endpoints.includes(row.endpoint)).map(row => row.endpoint) });
+        return;
+      }
+      if (p === "/api/push/test" && req.method === "POST") {
+        const body = await readJSON(req, 4096);
+        if (!readPushSubscriptions().some(row => row.endpoint === body?.endpoint)) { sendJSON(res, 404, { error: "push_subscription_missing" }); return; }
+        void deliverPushNotification(null, "Stepsemble", "Stepsemble", { kind: "test", host: selfMachineId(), key: "test", title: "Stepsemble" }, body.endpoint);
+        sendJSON(res, 202, { queued: true }); return;
       }
 
       if (p === "/api/push/subscribe" && req.method === "POST") {
@@ -7721,7 +7713,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const taskId = String(body?.taskId || "");
           if (taskId.startsWith("opencode:")) {
-          const message = await openCodeNative.sendMessage(taskId.slice("opencode:".length), body?.message, { images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) });
+            const message = await hostRates.sendOpenCode(openCodeNative, taskId.slice("opencode:".length), body?.message, { images: body?.images, directory: openCodeDirectory(body?.cwd || body?.directory || null) });
             sendJSON(res, 200, { sent: true, taskId, message });
           } else if (taskId.startsWith("grok-build:") && grokAcp) {
             const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message, { images: body?.images });
@@ -7776,7 +7768,7 @@ const server = http.createServer(async (req, res) => {
           const sid = taskId.slice(3);
           ok = !!sid && rpcWrite(sid, { type: "abort" });
         } else if (taskId.startsWith("opencode:")) {
-          try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; }
+          try { ok = (await hostRates.abortOpenCode(openCodeNative, taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; }
           catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
@@ -7799,7 +7791,7 @@ const server = http.createServer(async (req, res) => {
         const taskId = String(body?.taskId || "");
         let ok = false;
         if (taskId.startsWith("opencode:")) {
-          try { ok = (await openCodeNative.abort(taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
+          try { ok = (await hostRates.abortOpenCode(openCodeNative, taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
         } else if (/^(cline|kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {

@@ -9,6 +9,7 @@ function worker() {
       skipWaiting: async () => {}, clients: { claim: async () => {}, matchAll: async () => [] } },
     Request: class { constructor(url, options) { this.url = url; Object.assign(this, options); } },
     URL,
+    setTimeout, clearTimeout,
     fetch: async () => ({ ok: true }),
     caches: {
       open: async () => ({ put: async (url) => cached.push(url) }),
@@ -17,8 +18,30 @@ function worker() {
     },
   });
   vm.runInContext(fs.readFileSync(require.resolve("../public/sw.js"), "utf8"), sandbox);
-  return { handlers, deleted, cached };
+  return { handlers, deleted, cached, sandbox };
 }
+test("push notices stay quiet only for the matching visible Host and Session", async () => {
+  const f = worker(), shown = [];
+  f.sandbox.self.registration = { showNotification: async (title, options) => shown.push({ title, ...options }) };
+  const key = "00000000-0000-4000-8000-000000000001";
+  const client = { id: "workspace", frameType: "top-level", visibilityState: "visible", postMessage(data) {
+    f.handlers.message({ source: client, data: { type: "STEPSEMBLE_NOTIFICATION_PRESENCE", requestId: data.requestId, visible: true, sessions: [{ host: "mini", key }] } });
+  } };
+  f.sandbox.self.clients.matchAll = async () => [client];
+  const push = async host => { let done; f.handlers.push({ data: { json: () => ({ title: "Done", body: "Task", notice: { host, key, kind: "completed" } }) }, waitUntil(promise) { done = promise; } }); await done; };
+  await push("mini"); assert.equal(shown.length, 0);
+  await push("mbp"); assert.equal(shown.length, 1); assert.equal(shown[0].tag, "stepsemble:mbp:" + key);
+  client.visibilityState = "hidden"; await push("mini"); assert.equal(shown.length, 2);
+});
+test("notification click opens its Host and Session even when no Workspace is open", async () => {
+  const f = worker(), opened = [], messages = [];
+  f.sandbox.self.clients.openWindow = async href => opened.push(href);
+  const key = "00000000-0000-4000-8000-000000000001", notice = { host: "mbp", key, kind: "completed" };
+  const click = async () => { let done; f.handlers.notificationclick({ notification: { data: { notice }, close() {} }, waitUntil(promise) { done = promise; } }); await done; };
+  await click(); assert.equal(opened[0], "/workspace.html?host=mbp&entry=" + key);
+  f.sandbox.self.clients.matchAll = async () => [{ url: "http://localhost/workspace.html", frameType: "top-level", postMessage: data => messages.push(data), focus() {} }];
+  await click(); assert.equal(messages[0].type, "STEPSEMBLE_OPEN_NOTIFICATION"); assert.equal(messages[0].notice.host, "mbp"); assert.equal(opened.length, 1);
+});
 test("a shell upgrade deletes only known legacy app shells, preserving other origin data", async () => {
   const f = worker(); let done;
   f.handlers.activate({ waitUntil(promise) { done = promise; } }); await done;

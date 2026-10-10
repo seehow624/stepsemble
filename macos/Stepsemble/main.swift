@@ -18,6 +18,7 @@ let fullDiskAccessSettings = URL(string: "x-apple.systempreferences:com.apple.pr
 enum Text {
     static let tables: [String: [String: String]] = [
         "en": [
+            "closeTab": "Close Tab",
             "quit": "Quit Stepsemble",
             "running": "Stepsemble {version} is running on this Mac.",
             "notRunning": "Stepsemble is not running on this Mac right now.",
@@ -67,6 +68,7 @@ enum Text {
             "cancel": "Cancel",
         ],
         "zh-Hant": [
+            "closeTab": "關閉分頁",
             "quit": "結束 Stepsemble",
             "running": "Stepsemble {version} 正在這台 Mac 上運行。",
             "notRunning": "Stepsemble 目前沒有在這台 Mac 上運行。",
@@ -116,6 +118,7 @@ enum Text {
             "cancel": "取消",
         ],
         "zh-Hans": [
+            "closeTab": "关闭标签页",
             "quit": "退出 Stepsemble",
             "running": "Stepsemble {version} 正在这台 Mac 上运行。",
             "notRunning": "Stepsemble 目前没有在这台 Mac 上运行。",
@@ -165,6 +168,7 @@ enum Text {
             "cancel": "取消",
         ],
         "ja": [
+            "closeTab": "タブを閉じる",
             "quit": "Stepsemble を終了",
             "running": "Stepsemble {version} はこの Mac で動作しています。",
             "notRunning": "Stepsemble は現在この Mac で動作していません。",
@@ -214,6 +218,7 @@ enum Text {
             "cancel": "キャンセル",
         ],
         "ko": [
+            "closeTab": "탭 닫기",
             "quit": "Stepsemble 종료",
             "running": "Stepsemble {version}이(가) 이 Mac에서 실행 중입니다.",
             "notRunning": "Stepsemble이 지금 이 Mac에서 실행되고 있지 않습니다.",
@@ -263,6 +268,7 @@ enum Text {
             "cancel": "취소",
         ],
         "tr": [
+            "closeTab": "Sekmeyi Kapat",
             "quit": "Stepsemble'dan çık",
             "running": "Stepsemble {version} bu Mac'te çalışıyor.",
             "notRunning": "Stepsemble şu anda bu Mac'te çalışmıyor.",
@@ -312,6 +318,7 @@ enum Text {
             "cancel": "Vazgeç",
         ],
         "fr": [
+            "closeTab": "Fermer l’onglet",
             "quit": "Quitter Stepsemble",
             "running": "Stepsemble {version} fonctionne sur ce Mac.",
             "notRunning": "Stepsemble ne fonctionne pas sur ce Mac pour le moment.",
@@ -361,6 +368,7 @@ enum Text {
             "cancel": "Annuler",
         ],
         "de": [
+            "closeTab": "Tab schließen",
             "quit": "Stepsemble beenden",
             "running": "Stepsemble {version} läuft auf diesem Mac.",
             "notRunning": "Stepsemble läuft gerade nicht auf diesem Mac.",
@@ -410,6 +418,7 @@ enum Text {
             "cancel": "Abbrechen",
         ],
         "es": [
+            "closeTab": "Cerrar pestaña",
             "quit": "Salir de Stepsemble",
             "running": "Stepsemble {version} se está ejecutando en este Mac.",
             "notRunning": "Stepsemble no se está ejecutando en este Mac ahora.",
@@ -459,6 +468,7 @@ enum Text {
             "cancel": "Cancelar",
         ],
         "pt-BR": [
+            "closeTab": "Fechar aba",
             "quit": "Encerrar o Stepsemble",
             "running": "O Stepsemble {version} está em execução neste Mac.",
             "notRunning": "O Stepsemble não está em execução neste Mac agora.",
@@ -508,6 +518,7 @@ enum Text {
             "cancel": "Cancelar",
         ],
         "it": [
+            "closeTab": "Chiudi scheda",
             "quit": "Esci da Stepsemble",
             "running": "Stepsemble {version} è in esecuzione su questo Mac.",
             "notRunning": "Stepsemble non è in esecuzione su questo Mac al momento.",
@@ -1022,6 +1033,8 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     let webView: WKWebView
     /// Opened by a page (window.open); WebKit loads it.
     let isPopup: Bool
+    var visibleSessions: Set<String> = []
+    private var pendingNotice: [String: String]?
     private weak var controller: AppController?
     private var port: Int?
     private var path: String
@@ -1182,6 +1195,13 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         guard let port = port else { return false }
         return url.scheme == "http" && (url.host == "127.0.0.1" || url.host == "localhost") && url.port == port
     }
+    func trusts(_ frame: WKFrameInfo) -> Bool { frame.request.url.map(isHost) == true }
+    func openNotice(_ notice: [String: String]) {
+        if webView.isLoading { pendingNotice = notice; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
+        guard let data = try? JSONSerialization.data(withJSONObject: notice), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('stepsemble-open-notification',{detail:\(json)}))", completionHandler: nil)
+        window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
 
     private func openOutside(_ url: URL) {
         if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") { NSWorkspace.shared.open(url) }
@@ -1192,6 +1212,12 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     @objc func reloadPage(_ sender: Any?) {
         guard let port = port, webView.url.map(isHost) == true else { connect(); return }
         signIn(port: port, into: webView.configuration.websiteDataStore.httpCookieStore) { self.webView.reload() }
+    }
+
+    func closeSessionTab(_ sender: Any?) {
+        if isPopup { window.performClose(sender); return }
+        guard let url = webView.url, isHost(url), url.path == "/workspace.html" || url.path == "/" else { return }
+        webView.evaluateJavaScript("window.dispatchEvent(new Event('stepsemble-close-tab'))", completionHandler: nil)
     }
 
     private static let zoomSteps: [CGFloat] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
@@ -1272,6 +1298,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         sendChrome()
+        if let notice = pendingNotice { pendingNotice = nil; openNotice(notice) }
         // The waiting page moves the window from its top, as a title bar would.
         if chromeless, webView.url?.scheme == "about" {
             let height = (chromeGeometry()["titlebar-height"] as? CGFloat) ?? 0
@@ -1388,6 +1415,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     private let processPool = WKProcessPool()
     private lazy var relay = MessageRelay(self)
     private lazy var access = AccessPanel(showWorkspace: { [weak self] in self?.showWorkspace() })
+    private lazy var notifications = NativeNotifications(open: { [weak self] notice in self?.openNotice(notice) }, visible: { [weak self] host, key in
+        NSApp.isActive && self?.windows.contains(where: { $0.window.isVisible && $0.window.occlusionState.contains(.visible) && $0.visibleSessions.contains("\(host):\(key)") }) == true
+    })
     /// Folder access matters only when this app starts the Host.
     private let startsHost = LaunchAgent.read().startsThroughApp
 
@@ -1405,6 +1435,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         newWindow(path: "/workspace.html")
         NSApp.activate(ignoringOtherApps: true)
         launched = true
+        notifications.start()
         // The first time, the app asks for the places macOS protects.
         let shownKey = "folderAccessShown"
         if startsHost && (askForAccess || !UserDefaults.standard.bool(forKey: shownKey)) {
@@ -1469,6 +1500,23 @@ final class AppController: NSObject, NSApplicationDelegate {
     func received(_ message: WKScriptMessage) {
         guard let workspace = windows.first(where: { $0.webView === message.webView }) else { return }
         if message.body as? String == "retry" { workspace.connect(); return }
+        if workspace.trusts(message.frameInfo), let body = message.body as? [String: Any] {
+            if message.frameInfo.isMainFrame && body["type"] as? String == "notification-presence" {
+                workspace.visibleSessions = Set((body["sessions"] as? [[String: String]] ?? []).prefix(8).compactMap { row in
+                    guard let host = row["host"], let key = row["key"], UUID(uuidString: key) != nil else { return nil }
+                    return "\(host):\(key)"
+                })
+            }
+            if body["type"] as? String == "notifications", let request = body["requestId"] as? String, !request.isEmpty, request.count <= 128,
+               let host = body["host"] as? String, host.range(of: "^[a-zA-Z0-9_-]{1,128}$", options: .regularExpression) != nil, let action = body["action"] as? String,
+               ["status", "enable", "disable", "settings", "test"].contains(action) {
+                notifications.request(action, host: host, locale: body["locale"] as? String ?? "en") { result in
+                    let reply: [String: Any] = ["type": "stepsemble-native-notifications", "requestId": request, "result": result]
+                    guard let data = try? JSONSerialization.data(withJSONObject: reply), let json = String(data: data, encoding: .utf8) else { return }
+                    workspace.webView.evaluateJavaScript("window.postMessage(\(json),location.origin);document.querySelectorAll('iframe').forEach(f=>f.contentWindow.postMessage(\(json),location.origin))", completionHandler: nil)
+                }
+            }
+        }
         if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "drag-regions" {
             workspace.setDragRegions(body["rects"] as? [[Double]] ?? [])
         }
@@ -1480,6 +1528,19 @@ final class AppController: NSObject, NSApplicationDelegate {
     @objc func newWorkspaceWindow(_ sender: Any?) {
         // Its own layout, as the Workspace's own "new window" opens.
         newWindow(path: "/workspace.html?window=\(UUID().uuidString.lowercased())")
+    }
+
+    @objc func closeSessionTab(_ sender: Any?) {
+        if let workspace = windows.first(where: { $0.window === NSApp.keyWindow }) { workspace.closeSessionTab(sender) }
+        else { NSApp.keyWindow?.performClose(sender) }
+    }
+    private func openNotice(_ notice: [String: String]) {
+        guard notice["key"] != "test", let host = notice["host"], let key = notice["key"], UUID(uuidString: key) != nil else { showWorkspace(); return }
+        if let workspace = windows.first(where: { !$0.isPopup && $0.webView.url?.path == "/workspace.html" }) { workspace.openNotice(notice) }
+        else {
+            var url = URLComponents(); url.path = "/workspace.html"; url.queryItems = [URLQueryItem(name: "host", value: host), URLQueryItem(name: "entry", value: key)]
+            newWindow(path: url.string ?? "/workspace.html"); NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     @objc func showFolderAccess(_ sender: Any?) {
@@ -1513,7 +1574,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         main.addItem(menu("Stepsemble", appItems))
         main.addItem(menu(Text.t("file"), [
             item(Text.t("newWindow"), #selector(newWorkspaceWindow(_:)), "n", target: self),
-            item(Text.t("closeWindow"), #selector(NSWindow.performClose(_:)), "w"),
+            item(Text.t("closeTab"), #selector(closeSessionTab(_:)), "w", target: self),
+            item(Text.t("closeWindow"), #selector(NSWindow.performClose(_:)), "w", [.command, .shift]),
         ]))
         main.addItem(menu(Text.t("edit"), [
             item(Text.t("undo"), Selector(("undo:")), "z"),

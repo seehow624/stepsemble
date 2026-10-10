@@ -1,6 +1,6 @@
 "use strict";
 // Observe only model replies and native lifecycle events, never tool output.
-function createWorkflowEvents() {
+function createWorkflowEvents({ onEvent = () => {} } = {}) {
   const pending = new Map();
   const key = (agent, id) => `${agent}:${id}`;
   const textOf = content => typeof content === "string" ? content : (content || []).filter(b => b.type === "text").map(b => b.text || "").join("\n");
@@ -14,6 +14,7 @@ function createWorkflowEvents() {
   }
   function emit(agent, id, event) {
     if (!id) return;
+    try { onEvent(agent, id, event); } catch {}
     const row = pending.get(key(agent, id)); if (!row) return;
     const append = value => { if (typeof value === "string") row.text = (row.text + value).slice(-32000); };
     const activity = (value, waiting = false) => row.activity({ text: value, waiting });

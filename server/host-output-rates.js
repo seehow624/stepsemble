@@ -12,7 +12,7 @@ function manages(record) {
     || record.nativeCodex && record.mutation === "native_api" || record.nativeOpenCode || record.nativeAcp || record.nativeGrokAcp);
 }
 
-function createHostOutputRates({ store, entries, now = Date.now, onError = () => {} }) {
+function createHostOutputRates({ store, entries, now = Date.now, onError = () => {}, onEvent = () => {} }) {
   const runs = new Map();
   const keyOf = (agent, id) => `${agent}:${id}`;
   function entryFor(agent, id) {
@@ -155,10 +155,15 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     if (!run || run.runId !== runId || run.meter.endedAt !== null) return false;
     let output = false, pendingReply = false;
     const busyIds = new Set((snapshot.permissions || []).map(row => `ui:${row.id}`));
+    const permissions = new Set((snapshot.permissions || []).map(row => row.id));
+    for (const requestId of permissions) { try { onEvent("opencode", id, { type: "rate.permission", requestId }); } catch {} }
+    for (const requestId of run.permissions || []) if (!permissions.has(requestId)) { try { onEvent("opencode", id, { type: "rate.permission", requestId, resolved: true }); } catch {} }
+    run.permissions = permissions;
     for (const message of snapshot.messages || []) {
       const info = message.info || message;
       if (info.role !== "assistant" || run.knownReplies?.has(info.id)) continue;
       output = true;
+      if (info.error) run.failed = true;
       if (!info.time?.completed) pendingReply = true;
       count(run, info.id, (Number(info.tokens?.output) || 0) + (Number(info.tokens?.reasoning) || 0));
       for (const [index, part] of (message.parts || []).entries()) {
@@ -169,7 +174,10 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     run.busy = busyIds; sample(run);
     const status = snapshot.status?.type || "idle";
     if (status !== "idle") run.sawBusy = true;
-    if (!run.sending && status === "idle" && !pendingReply && !busyIds.size && (output || run.sawBusy)) end("opencode", id, runId);
+    if (!run.sending && status === "idle" && !pendingReply && !busyIds.size && (output || run.sawBusy)) {
+      end("opencode", id, runId);
+      try { onEvent("opencode", id, { type: "rate.turn.ended", ...(run.failed ? {} : { result: { stopReason: "end_turn" } }) }); } catch {}
+    }
     return run.meter.endedAt === null;
   }
   async function sendOpenCode(adapter, id, message, options) {
@@ -180,6 +188,7 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     try { baseline = await adapter.messages(id, { directory: options.directory }); }
     catch { return adapter.sendMessage(id, message, options); }
     const run = start("opencode", id);
+    try { onEvent("opencode", id, { type: "rate.turn.started", runId: run.runId }); } catch {}
     run.knownReplies = new Set(baseline.messages.map(row => (row.info || row).id));
     run.sending = true;
     const poll = async () => {
@@ -200,6 +209,14 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
       throw error;
     } finally { run.sending = false; }
   }
+  async function abortOpenCode(adapter, id, options) {
+    const run = get("opencode", id), result = await adapter.abort(id, options);
+    if (result.aborted === true && run && get("opencode", id) === run && run.meter.endedAt === null) {
+      end("opencode", id, run.runId);
+      try { onEvent("opencode", id, { type: "rate.turn.ended", result: { stopReason: "cancelled" } }); } catch {}
+    }
+    return result;
+  }
   function read(entry) {
     const record = entries().find(row => row.key === entry)?.record;
     const run = [...runs.values()].find(row => row.entry === entry && row.meter.endedAt === null);
@@ -207,7 +224,7 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     return { ...store.read(entry), hostTracked: !!manages(record), active: run ? { startedAt: run.meter.startedAt, observedAt: at,
       liveRate: Rate.liveRate(run.meter, at), estimated: !run.meter.liveAverage || !(run.meter.reported > 0), liveAverage: run.meter.liveAverage } : null };
   }
-  return { start, end, get, pi, claude, acp, codex, openCode, sendOpenCode, read, manages };
+  return { start, end, get, pi, claude, acp, codex, openCode, sendOpenCode, abortOpenCode, read, manages };
 }
 
 module.exports = { createHostOutputRates, manages };

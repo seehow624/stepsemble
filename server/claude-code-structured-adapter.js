@@ -526,10 +526,10 @@ function createClaudeStructuredSession({
     }
     state = "running";
   };
-  const endTurn = (notify = true) => {
+  const endTurn = (notify = true, result = null) => {
     if (turnStartedAt !== null && turnEndedAt === null) turnEndedAt = Date.now();
     state = "waiting";
-    if (notify) rateEvent({ type: "rate.turn.ended" });
+    if (notify) rateEvent({ type: "rate.turn.ended", ...(result ? { result } : {}) });
   };
   let exitCode = null;
   let exitSignal = null;
@@ -888,6 +888,7 @@ function createClaudeStructuredSession({
   const parser = createClaudeStructuredParser({
     onEvent(event) {
       lastActivityAt = Date.now();
+      const interrupted = event.type === "result" && (interruptRequested || /^aborted/.test(String(event.terminal_reason || "")));
       // init and status events report the mode, including changes Claude
       // makes itself, such as leaving plan mode once a plan is approved.
       if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
@@ -931,7 +932,7 @@ function createClaudeStructuredSession({
         }
         if (responseId && pendingInterrupts.has(responseId)) {
           pendingInterrupts.delete(responseId);
-          if (response.subtype === "success") endTurn();
+          if (response.subtype === "success") endTurn(true, { stopReason: "cancelled" });
         }
         if (responseId && pendingPermissions.has(responseId) && response.subtype === "success") {
           const pending = pendingPermissions.get(responseId);
@@ -954,7 +955,7 @@ function createClaudeStructuredSession({
         }
       }
       try { onEvent?.(clone(event)); } catch {}
-      rateEvent(event);
+      rateEvent(interrupted ? { ...event, interrupted: true } : event);
     },
     onError(code) {
       processError ||= controlError(code, code);
