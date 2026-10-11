@@ -157,11 +157,15 @@ test("ditto archive round-trips the real code signature, resource seal and execu
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const app = path.join(dir, "source/Stepsemble.app"), restored = path.join(dir, "restored/Stepsemble.app");
   fs.mkdirSync(path.join(app, "Contents/MacOS"), { recursive: true }); fs.mkdirSync(path.join(app, "Contents/Resources"));
-  fs.copyFileSync("/usr/bin/true", path.join(app, "Contents/MacOS/Stepsemble"));
-  fs.chmodSync(path.join(app, "Contents/MacOS/Stepsemble"), 0o755);
   fs.writeFileSync(path.join(app, "Contents/Resources/fixture.txt"), "A sealed resource");
   fs.writeFileSync(path.join(app, "Contents/Info.plist"), '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.stepsemble.app</string><key>CFBundleExecutable</key><string>Stepsemble</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>1.0.0</string></dict></plist>');
-  const run = (command, args, env) => { const result = spawnSync(command, args, { env, encoding: "utf8", timeout: 10000 }); assert.equal(result.status, 0, result.stderr); return result; };
+  const run = (command, args, env) => { const result = spawnSync(command, args, { env, encoding: "utf8", timeout: 10000 }); assert.equal(result.status, 0, JSON.stringify({ command, signal: result.signal, error: result.error?.message, stderr: result.stderr })); return result; };
+  // Use an owned executable: copied Apple system binaries can retain launch
+  // constraints that reject them after ad hoc signing on Intel CI hosts.
+  const source = path.join(dir, "fixture.c");
+  fs.writeFileSync(source, "int main(void) { return 0; }\n");
+  run("/usr/bin/clang", [source, "-o", path.join(app, "Contents/MacOS/Stepsemble")]);
+  fs.chmodSync(path.join(app, "Contents/MacOS/Stepsemble"), 0o755);
   // Ad hoc signing verifies archive fidelity without reading credentials,
   // creating certificates, or changing the user's keychain search list.
   run("/usr/bin/codesign", ["--force", "--timestamp=none", "-s", "-", app]);

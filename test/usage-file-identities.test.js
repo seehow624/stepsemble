@@ -22,10 +22,12 @@ fs.open = async function(file, ...args) {
 };
 const budget = {deadline:Date.now()+10000,bytes:0,maxBytes:1e8};
 require(${JSON.stringify(reader)}).readUsageFile(source, budget, process.argv[2]).then(result => {
+  if (result.invalid) throw new Error('File identity fixture was rejected: ' + result.reason);
   console.log(JSON.stringify({bytes:budget.bytes,rows:result.rows.length,partial:result.partial}));
 }).catch(e=>{console.error(e);process.exitCode=1;});`;
 function fixture(t) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-file-id-"))); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // Match fs/promises.realpath, including Windows' expanded temporary paths.
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-file-id-"))); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, "pi.jsonl"), index = path.join(dir, "index");
   const message = id => JSON.stringify({ type: "message", id, timestamp: "2026-10-10T17:00:00Z", message: { role: "assistant", model: "test-model", usage: { input: 10, output: 20 } } }) + "\n";
   fs.writeFileSync(file, JSON.stringify({ type: "session", id: "pi-test" }) + "\n" + message("one"));
