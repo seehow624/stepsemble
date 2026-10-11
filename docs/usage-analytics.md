@@ -52,9 +52,15 @@ computer-wide statistics.
   remain distinct.
 - Claude Code deduplicates native response IDs and retains the fullest streamed
   count. Its input count excludes the separately reported cache categories.
-- Pi deduplicates native entry IDs and timestamps, including inherited fork
-  entries. Assistant calls and summary records with usage are included. An RPC
-  process ID is not the persisted session ID.
+- Pi reads native sessions and the foreground/background child transcripts and
+  raw child events saved in `subagent-artifacts`. Completed assistant responses
+  use their original timestamp and a content digest to deduplicate exports,
+  native copies and inherited fork calls; no content is retained in the index.
+  Older records and summaries retain native entry IDs as their identity fallback.
+  Parallel children keep their own history identity even when they share a run
+  ID. Assistant calls and summary records with usage are included. An RPC
+  process ID is not the persisted session ID. Artifact metadata totals and partial
+  streaming messages are not counted a second time.
 
 "Model calls" means observed usage records, not HTTP requests, tool calls or
 user turns. Providers may omit some records. Missing files, unsupported agents,
@@ -63,6 +69,15 @@ histories are unreadable, totals show **—**, rather than a complete zero. An
 offline Host is excluded from the combined sum and named in the notice. Failed
 refreshes retain a previous view only for the same selection, with an error
 status; switching selection never displays another Host's old totals.
+
+The histories-read count and history warnings cover **all saved dates**, before
+usage-period and model/project filters. They do not imply that an unreadable
+history belongs to the selected period or that its conversation cannot run.
+Expand **View history issues** for up to 100 file-level issues per Host, including
+the name, Host, path and reason: missing file, permission denied, unsupported
+format, mismatched identity, malformed records, truncation or reading limits.
+Deleted history still requires recovering its original file or a backup; the
+reader does not fabricate its usage or remove its Workspace registration.
 
 ## Costs and subscription allowances
 
@@ -126,6 +141,9 @@ stored boundary hashes distinguish unchanged files, normal appends and source
 replacements/truncation. Normal appends resume from the saved offset, including
 after worker idle shutdown; other changes rebuild the index. Malformed indexes
 are rebuilt, and failed index writes do not discard confirmed usage.
+Index version 3 rebuilds older identities to avoid combining old native-only
+Pi identities with new child-response identities. Truncation and record-error
+reasons survive cached reads and ordinary appends.
 
 Machine scans are bounded to 20,000 discovered entries, 150,000 unique usage
 records, 8 GiB per native file, 16 GiB per scan and 16 seconds, with a 25-second
@@ -135,6 +153,9 @@ Stable incomplete histories stay explicitly partial when indexed. Directory
 symlinks and non-regular files are refused. Native archive file symlinks are
 accepted only for owned regular targets whose native identity matches the
 UUID filename. Compressed JSONL archives currently mark coverage partial.
+Pi child artifact symlinks are refused because raw events have no native header
+with which to validate an external target. Structured child artifacts validate
+their version, run ID, agent name and child index against the artifact filename.
 Legacy workspace-only reads retain their 512 MiB/file and 1 GiB/scan limits.
 A final unfinished JSONL line is counted after it is finished.
 

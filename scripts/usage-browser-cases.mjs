@@ -98,6 +98,25 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await page.clock.fastForward(2001); await continued; await ready();
       assert.equal(indexReads, 2); assert.equal(await panel.locator(".usage-notice").count(), 0);
       await context.unroute(indexRoute);
+      stage = "history issue details and all-date coverage";
+      await context.route(indexRoute, async route => {
+        const response = await route.fetch(), json = await response.json();
+        json.coverage.scope = "history"; json.coverage.missing = 1;
+        json.issues = [{ agent: "pi", name: "Missing <history>", status: "missing", reason: "missing_file", path: "/Users/demo/.pi/agent/sessions/" + "long-project-name/".repeat(20) + "missing.jsonl" }];
+        await route.fulfill({ response, json });
+      });
+      await panel.locator(".usage-refresh").click(); await ready();
+      const issues = panel.locator(".usage-issues"); assert.equal(await issues.evaluate(el => el.open), false);
+      assert.ok((await panel.locator(".usage-metric[data-metric=calls] small").innerText()).includes(mobile ? "所有日期" : "all dates"));
+      await issues.locator("summary")[mobile ? "tap" : "click"]();
+      assert.equal(await issues.evaluate(el => el.open), true);
+      assert.ok((await issues.innerText()).includes(mobile ? "找不到歷史檔" : "History file not found"));
+      assert.ok((await issues.innerText()).includes("Missing <history>")); assert.equal(await issues.locator("history").count(), 0);
+      assert.ok((await issues.innerText()).includes("Mac Mini"));
+      await panel.locator(".usage-refresh").click(); await ready(); assert.equal(await issues.evaluate(el => el.open), true, "refresh preserves expanded issue details");
+      assert.equal(await panel.locator(".usage-body").evaluate(el => el.scrollWidth > el.clientWidth + 1), false, "long history paths wrap on phones");
+      if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, mobile ? "issues-mobile.png" : "issues-desktop.png") });
+      await context.unroute(indexRoute); await panel.locator(".usage-refresh").click(); await ready(); assert.equal(await issues.count(), 0);
       stage = "Host totals";
       await host.selectOption("mbp"); await ready(); assert.equal(await tokens(), mini * 2);
       await host.selectOption(""); await ready(); assert.equal(await tokens(), mini * 3); assert.equal(Number(await metric("calls").innerText()), miniCalls * 2);

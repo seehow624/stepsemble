@@ -39,13 +39,22 @@ function reportedCost(raw) {
   return parts.every(n => n !== null) ? parts.reduce((a, b) => a + b, 0) : null;
 }
 const digest = value => crypto.createHash("sha256").update(value).digest("hex");
+const artifactTypes = new Set(["message", "tool_start", "tool_end", "stdout", "stderr", "truncated"]);
+const piEvents = new Set(["agent_start", "agent_end", "turn_start", "turn_end", "message_start", "message_update", "message_end", "tool_execution_start", "tool_execution_update", "tool_execution_end"]);
+function contentIdentity(content) {
+  // Only the digest survives parsing. Sort object keys so reserialized exports
+  // and native histories still identify the same completed model response.
+  return digest(JSON.stringify(content, (key, value) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(k => [k, value[k]])) : value));
+}
 
-function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: saved, initialRows = [] } = {}) {
+function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: saved, initialRows = [], format = "native", artifact = "" } = {}) {
   const rows = new Map(initialRows.map(row => [row.identity, row])), snapshots = new Set(saved?.snapshots || []);
   let session = saved?.session || "", model = saved?.model || "", provider = saved?.provider || "", previous = saved?.previous || null, fork = saved?.fork || "", waitingFork = saved?.waitingFork || false, replay = saved?.replay || false, userFork = saved?.userFork || false;
   const started = new Set(saved?.started || []);
   const meta = { cwd: saved?.meta?.cwd || "", name: saved?.meta?.name || "" };
   let turn = saved?.turn || "", epoch = saved?.epoch || 0, skipped = saved?.skipped || 0, invalid = saved?.invalid || false, headerSeen = saved?.headerSeen || false;
+  let problem = saved?.problem || "", completed = saved?.completed || 0;
   function put(row, replace = false) {
     if (!row.at || !row.tokens) return;
     const old = rows.get(row.identity);
@@ -53,7 +62,7 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
     if (old && !replace) {
       // Claude streams can repeat a message id with a more complete usage.
       row.tokens = Object.fromEntries(Object.keys(row.tokens).map(k => [k, old.tokens[k] === null ? row.tokens[k] : row.tokens[k] === null ? old.tokens[k] : Math.max(old.tokens[k], row.tokens[k])]));
-      if (old.cost !== null && row.cost === null) row.cost = old.cost;
+      if (old.cost !== null && (row.cost === null || old.cost > row.cost)) row.cost = old.cost;
       row.at = Math.min(row.at, old.at);
     }
     rows.set(row.identity, row);
@@ -61,29 +70,52 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
   function consume(row) {
     if (!row || typeof row !== "object") return;
     if (agent === "pi") {
-      if (row.type === "session") {
-        session = text(row.id, 256); headerSeen = true;
-        meta.cwd = text(row.cwd, 4096); meta.name = text(row.name);
-        if (expectedId && session !== expectedId) invalid = true;
+      let message, summary = false;
+      if (format === "pi-transcript") {
+        if (row.version !== 1 || !artifactTypes.has(row.recordType) || !["foreground", "async"].includes(row.source) || typeof row.agent !== "string"
+          || row.childIndex !== undefined && (!Number.isSafeInteger(row.childIndex) || row.childIndex < 0)) { invalid = true; problem = "unsupported_format"; return; }
+        const key = `${row.runId}_${row.agent.replace(/[^a-zA-Z0-9_-]/g, "_")}${row.childIndex === undefined ? "" : "_" + row.childIndex}`;
+        if (row.runId !== expectedId || key !== artifact) { invalid = true; problem = "identity_mismatch"; return; }
+        session = `artifact:${artifact}`; headerSeen = true;
+        meta.cwd ||= text(row.cwd, 4096); meta.name ||= `Pi · ${text(row.agent)}`;
+        if (row.recordType === "truncated") { skipped++; problem ||= "truncated"; }
+        message = row.recordType === "message" && row.sourceEventType === "message_end" ? row.message : null;
+      } else if (format === "pi-events") {
+        if (!piEvents.has(row.type)) { invalid = true; problem = "unsupported_format"; return; }
+        session = `artifact:${artifact}`; headerSeen = true;
+        message = row.type === "message_end" ? row.message : null;
+      } else {
+        if (row.type === "session") {
+          session = text(row.id, 256); headerSeen = true;
+          meta.cwd = text(row.cwd, 4096); meta.name = text(row.name);
+          if (expectedId && session !== expectedId) { invalid = true; problem = "identity_mismatch"; }
+        }
+        if (row.type === "session_info" && typeof row.name === "string") meta.name = text(row.name);
+        if (row.type === "model_change") { model = text(row.modelId || row.model); provider = text(row.provider); }
+        summary = ["compaction", "branch_summary"].includes(row.type);
+        message = summary ? row : row.type === "message" ? row.message : null;
       }
-      if (row.type === "session_info" && typeof row.name === "string") meta.name = text(row.name);
-      if (row.type === "model_change") { model = text(row.modelId || row.model); provider = text(row.provider); }
-      const summary = ["compaction", "branch_summary"].includes(row.type);
-      const message = summary ? row : row.type === "message" ? row.message : null;
       if (!message || !summary && message.role !== "assistant" || !headerSeen) return;
       const usage = tokens(message.usage);
       if (!usage) { if (message.usage) skipped++; return; }
-      const at = time(row.timestamp) || time(message.timestamp);
-      const identity = text(row.id || message.id, 256);
+      const callAt = time(message.timestamp), at = callAt || time(row.timestamp);
+      const callModel = text(message.model) || model || "unknown", callProvider = text(message.provider) || provider;
+      const messageId = text(message.id, 256);
+      const content = Array.isArray(message.content) && message.content.length ? contentIdentity(message.content) : "";
+      const identity = !summary && messageId ? `response:${messageId}`
+        : !summary && callAt && content ? `response:${callAt}:${callProvider}:${callModel}:${content}`
+        : format !== "native" ? `artifact:${artifact}:${completed++}` : text(row.id, 256);
       if (!identity || !at) { skipped++; return; }
-      // Pi forks retain entry ids and timestamps. Count an inherited call once.
-      put({ identity: digest(`pi:${identity}:${at}`), at, model: text(message.model) || model || "unknown", provider: text(message.provider) || provider,
+      // Completed responses retain their own timestamp and content across a
+      // native file, raw child events and exported child transcripts. Native
+      // entry ids remain the fallback for older logs and summary records.
+      put({ identity: digest(`pi:${identity}:${at}`), at, model: callModel, provider: callProvider,
         tokens: usage, cost: reportedCost(message.usage.cost), costSource: "agent" });
     } else if (agent === "claude-code") {
       if (row.sessionId) {
         if (!session) session = text(row.sessionId, 256);
         headerSeen = true;
-        if (expectedId && text(row.sessionId, 256) !== expectedId) invalid = true;
+        if (expectedId && text(row.sessionId, 256) !== expectedId) { invalid = true; problem = "identity_mismatch"; }
       }
       if (row.cwd && !meta.cwd) meta.cwd = text(row.cwd, 4096);
       if (row.type === "custom-title") meta.name = text(row.customTitle);
@@ -102,9 +134,9 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
           session = id; fork = text(payload.forked_from_id || payload.forked_from?.thread_id || payload.forked_from || payload.source?.subagent?.thread_spawn?.parent_thread_id, 256);
           meta.cwd = text(payload.cwd, 4096); meta.name = text(payload.title || payload.name || payload.agent_nickname);
           waitingFork = !!fork; userFork = payload.thread_source === "user"; headerSeen = true;
-          if (expectedId && id !== expectedId) invalid = true;
+          if (expectedId && id !== expectedId) { invalid = true; problem = "identity_mismatch"; }
         } else if (id === session) { waitingFork = false; replay = false; }
-        else if (id) { if (fork) replay = true; else invalid = true; }
+        else if (id) { if (fork) replay = true; else { invalid = true; problem = "identity_mismatch"; } }
         provider = text(payload.model_provider) || provider || "openai";
       }
       const v7Time = id => /^[a-f0-9]{8}-[a-f0-9]{4}-7[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id) ? parseInt(id.slice(0, 13).replace("-", ""), 16) : null;
@@ -158,8 +190,8 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
       put({ identity: digest(`codex:${nativeKey}`), at, model: model || "unknown", provider: provider || "openai", tokens: usage, cost: null, costSource: null }, true);
     }
   }
-  return { consume, result() { return { rows: invalid ? [] : [...rows.values()], skipped, invalid: invalid || !headerSeen, session, meta: { ...meta } }; },
-    checkpoint() { return { session, model, provider, previous, fork, waitingFork, replay, userFork, started: [...started], snapshots: [...snapshots], meta: { ...meta }, turn, epoch, skipped, invalid, headerSeen }; } };
+  return { consume, result() { return { rows: invalid ? [] : [...rows.values()], skipped, invalid: invalid || !headerSeen, reason: problem || (!headerSeen ? "unsupported_format" : skipped ? "incomplete_records" : ""), session, meta: { ...meta } }; },
+    checkpoint() { return { session, model, provider, previous, fork, waitingFork, replay, userFork, started: [...started], snapshots: [...snapshots], meta: { ...meta }, turn, epoch, skipped, invalid, headerSeen, problem, completed }; } };
 }
 
 module.exports = { createUsageParser, tokens, reportedCost, number, time, text };

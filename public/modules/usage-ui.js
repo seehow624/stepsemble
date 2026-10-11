@@ -9,6 +9,9 @@
   Object.assign(strings.en, { more: "Show {count} more", overview: "Limits & usage", limitsTab: "Limits", overviewHint: "Your remaining allowance and the work behind it.", loadingLimits: "Reading limits…", retryLimits: "Could not read limits. Try again.", cachedLimits: "Previous reading", resetsIn: "Resets in {time}", awaitingReset: "Waiting for a new reading", sources: "Manage sources", limitsNote: "Remaining allowance comes from your signed-in services. Token usage and estimated costs are available in Usage." });
   Object.assign(strings["zh-Hant"], { more: "再顯示 {count} 筆", overview: "額度與用量", limitsTab: "額度", overviewHint: "查看剩餘額度，了解每一份工作的用量。", loadingLimits: "正在讀取額度…", retryLimits: "暫時無法讀取額度，請重試。", cachedLimits: "先前讀取的額度", resetsIn: "{time} 後重置", awaitingReset: "等待更新額度", sources: "管理額度來源", limitsNote: "剩餘額度來自已登入的服務；Token 用量與估算費用可在「用量」查看。" });
   Object.assign(strings.zh, { more: "再显示 {count} 条", overview: "额度与用量", limitsTab: "额度", overviewHint: "查看剩余额度，了解每一份工作的用量。", loadingLimits: "正在读取额度…", retryLimits: "暂时无法读取额度，请重试。", cachedLimits: "先前读取的额度", resetsIn: "{time} 后重置", awaitingReset: "等待更新额度", sources: "管理额度来源", limitsNote: "剩余额度来自已登录的服务；Token 用量与估算费用可在“用量”查看。" });
+  Object.assign(strings.en, { historyCoverage: "{covered} histories read · all dates", historyMissing: "{count} histories could not be read", issueDetails: "View history issues ({count})", issueScope: "This check covers all saved history, independently of the selected dates and filters.", issueMore: "{count} more issues are not listed.", issue_missing_file: "History file not found", issue_permission_denied: "Permission denied", issue_unsupported_format: "Unsupported history format", issue_identity_mismatch: "History identity does not match", issue_incomplete_records: "Some usage records are incomplete", issue_malformed_records: "Some records contain invalid JSON", issue_record_too_large: "A record exceeds the reading limit", issue_truncated: "The child transcript was truncated", issue_file_limit: "The file exceeds the reading limit", issue_unsafe_file: "History is outside the allowed location or ownership", issue_source_changed: "The file changed while being read; refresh to retry", issue_read_failed: "History could not be read" });
+  Object.assign(strings["zh-Hant"], { historyCoverage: "已讀取 {covered} 份歷史紀錄 · 所有日期", historyMissing: "{count} 份歷史紀錄無法讀取", issueDetails: "查看歷史紀錄問題（{count}）", issueScope: "此檢查涵蓋整個歷史庫，不受所選日期與篩選條件限制。", issueMore: "另有 {count} 筆問題未列出。", issue_missing_file: "找不到歷史檔", issue_permission_denied: "沒有讀取權限", issue_unsupported_format: "尚未支援的歷史格式", issue_identity_mismatch: "歷史檔身分與預期不符", issue_incomplete_records: "部分用量紀錄不完整", issue_malformed_records: "部分紀錄的 JSON 格式損壞", issue_record_too_large: "單筆紀錄超過讀取上限", issue_truncated: "子 Agent 匯出紀錄已被截斷", issue_file_limit: "檔案超過讀取上限", issue_unsafe_file: "歷史檔位置或擁有者不符合讀取範圍", issue_source_changed: "讀取時檔案已變更，請重新整理", issue_read_failed: "無法讀取歷史檔" });
+  Object.assign(strings.zh, { historyCoverage: "已读取 {covered} 份历史记录 · 所有日期", historyMissing: "{count} 份历史记录无法读取", issueDetails: "查看历史记录问题（{count}）", issueScope: "此检查涵盖整个历史库，不受所选日期与筛选条件限制。", issueMore: "另有 {count} 条问题未列出。", issue_missing_file: "找不到历史文件", issue_permission_denied: "没有读取权限", issue_unsupported_format: "尚未支持的历史格式", issue_identity_mismatch: "历史文件身份与预期不符", issue_incomplete_records: "部分用量记录不完整", issue_malformed_records: "部分记录的 JSON 格式损坏", issue_record_too_large: "单条记录超过读取上限", issue_truncated: "子 Agent 导出记录已被截断", issue_file_limit: "文件超过读取上限", issue_unsafe_file: "历史文件位置或所有者不符合读取范围", issue_source_changed: "读取时文件已变更，请刷新", issue_read_failed: "无法读取历史文件" });
   const localeOf = () => document.documentElement.lang || "en";
   function label(key, vars = {}) { const locale = localeOf(); return (strings[locale]?.[key] || strings.en[key] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? ""); }
   const node = (tag, value = "", className = "") => { const el = document.createElement(tag); el.textContent = value; el.className = className; return el; };
@@ -33,7 +36,7 @@
     let indexingTimer;
     let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
-    let scrolls = { limits: 0, usage: 0 };
+    let scrolls = { limits: 0, usage: 0 }, issuesOpen = false;
     function close() { if (!panel) return; sequence++; clearInterval(timer); clearTimeout(indexingTimer); panel.close(); panel.remove(); panel = null; view = null; onVisibility(); if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus(); }
     function makeSelect(name, values, value, changed) {
       const select = node("select"); select.setAttribute("aria-label", label(name)); select.dataset.filter = name;
@@ -122,7 +125,7 @@
       }
       const metrics = node("section", "", "usage-metrics"); metrics.setAttribute("aria-label", label("usage"));
       const unreadable = !data.coverage.covered && (data.coverage.missing || data.coverage.partial || data.coverage.unsupported || data.coverage.indexing);
-      for (const [key, value, sub] of [["tokens", unreadable ? "—" : fmt(data.total.tokens), ""], ["cost", money(data.total, true), label("priced", { known: fmt(data.total.pricedCalls), total: fmt(data.total.calls) })], ["calls", unreadable ? "—" : fmt(data.total.calls), label("coverage", { covered: fmt(data.coverage.covered) })]]) {
+      for (const [key, value, sub] of [["tokens", unreadable ? "—" : fmt(data.total.tokens), ""], ["cost", money(data.total, true), label("priced", { known: fmt(data.total.pricedCalls), total: fmt(data.total.calls) })], ["calls", unreadable ? "—" : fmt(data.total.calls), label(data.coverage.scope === "history" ? "historyCoverage" : "coverage", { covered: fmt(data.coverage.covered) })]]) {
         const card = node("div", "", "usage-metric"); card.dataset.metric = key; card.append(node("span", label(key)), node("strong", value));
         if (key === "cost" && data.total.knownCost >= 1000) card.append(node("small", money(data.total)));
         card.append(node("small", sub)); metrics.append(card);
@@ -135,12 +138,25 @@
       body.append(components);
       const notices = [];
       if (data.hosts.some(host => host.status === "unavailable")) notices.push(data.hosts.filter(h => h.status === "unavailable").map(h => h.name + " · " + label("offline")).join(" · "));
-      if (data.coverage.missing) notices.push(label("missing", { count: fmt(data.coverage.missing) }));
+      if (data.coverage.missing) notices.push(label(data.coverage.scope === "history" ? "historyMissing" : "missing", { count: fmt(data.coverage.missing) }));
       if (data.coverage.unsupported) notices.push(label("unsupported", { count: fmt(data.coverage.unsupported) }));
       if (data.coverage.partial) notices.push(label("partial"));
       if (data.coverage.indexing) notices.push(label("indexing", { count: fmt(data.coverage.indexing) }));
       if (data.total.incompleteCalls) notices.push(label("incomplete"));
       if (notices.length) { const note = node("p", notices.join(" · "), "usage-notice"); note.setAttribute("role", "status"); body.append(note); }
+      if (data.issues?.length) {
+        const details = node("details", "", "usage-issues"), list = node("ul"); details.open = issuesOpen;
+        details.append(node("summary", label("issueDetails", { count: fmt(data.issues.length + data.coverage.issuesOmitted) })), node("p", label("issueScope")));
+        details.ontoggle = () => { if (details.isConnected) issuesOpen = details.open; };
+        for (const issue of [...data.issues].sort((a, b) => (a.status === "partial") - (b.status === "partial"))) {
+          const row = node("li"); row.dataset.reason = issue.reason;
+          row.append(node("strong", issue.name || agentName(issue.agent)), node("span", label("issue_" + issue.reason)));
+          row.append(node("small", [issue.hostName, agentName(issue.agent), issue.path].filter(Boolean).join(" · "))); list.append(row);
+        }
+        details.append(list);
+        if (data.coverage.issuesOmitted) details.append(node("p", label("issueMore", { count: fmt(data.coverage.issuesOmitted) })));
+        body.append(details);
+      }
       if (!data.total.calls) {
         const empty = node("section", "", "usage-empty"); empty.append(node("h2", Object.values(filters).some(Boolean) ? label("noResults") : label("noData")), node("p", label("noDataHint"))); body.append(empty);
       } else { body.append(chart(data)); body.append(breakdown(data)); }

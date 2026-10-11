@@ -3,7 +3,7 @@ const { parentPort } = require("node:worker_threads");
 const fs = require("node:fs"), path = require("node:path");
 const { createUsageParser } = require("./usage-records");
 const { estimate } = require("./usage-pricing");
-const { discoverUsageFiles, readUsageFile } = require("./usage-history");
+const { discoverUsageFiles, readUsageFile, failure } = require("./usage-history");
 const { empty, addCall } = require("../public/modules/usage-data");
 const SUPPORTED = new Set(["pi", "claude-code", "codex"]);
 const cache = new Map();
@@ -31,10 +31,10 @@ async function readFile(file, root, agent, expected, budget) {
   let handle;
   try {
     const real = await fs.promises.realpath(file);
-    if (!inside(root, real)) return { rows: [], partial: true };
+    if (!inside(root, real)) return { rows: [], partial: true, reason: "unsafe_file" };
     handle = await fs.promises.open(real, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const stat = await handle.stat();
-    if (!stat.isFile() || typeof process.getuid === "function" && stat.uid !== process.getuid()) return { rows: [], partial: true };
+    if (!stat.isFile() || typeof process.getuid === "function" && stat.uid !== process.getuid()) return { rows: [], partial: true, reason: "unsafe_file" };
     const fingerprint = [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
     const key = `${agent}:${expected}:${real}`, prior = cache.get(key);
     if (prior?.fingerprint === fingerprint) { cache.delete(key); cache.set(key, prior); return prior.result; }
@@ -67,7 +67,7 @@ async function readFile(file, root, agent, expected, budget) {
     if (after.ino !== stat.ino || after.dev !== stat.dev || after.size < stat.size || after.size === stat.size && after.mtimeMs !== stat.mtimeMs) return { rows: [], partial: true };
     const ignored = controlOnly && lines > 0 && !partial && !carry.length && offset === stat.size;
     partial ||= !ignored && (offset < stat.size || parsed.skipped > 0 || parsed.invalid);
-    const result = { rows: parsed.rows, partial, invalid: parsed.invalid, ignored };
+    const result = { rows: parsed.rows, partial, invalid: parsed.invalid, ignored, reason: parsed.reason || (partial ? "incomplete_records" : "") };
     if (!partial) {
       cache.delete(key); cache.set(key, { fingerprint, result });
       let count = 0;
@@ -75,29 +75,35 @@ async function readFile(file, root, agent, expected, budget) {
       while (cache.size > 128 || count > 120000) { const first = cache.keys().next().value; count -= cache.get(first).result.rows.length; cache.delete(first); }
     }
     return result;
-  } catch { return { rows: [], partial: true }; }
+  } catch (error) { return { rows: [], partial: true, reason: failure(error) }; }
   finally { await handle?.close().catch(() => {}); }
 }
 async function machineUsage({ home, roots, entries, indexDir }) {
   const budget = { deadline: Date.now() + 16000, maxBytes: 16 * 1024 * 1024 * 1024, bytes: 0, visited: 0, limited: false };
   const { files, sources } = await discoverUsageFiles(home, roots, budget);
   const registry = entries.slice(0, 2000).sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
-  const groups = new Map(), seen = new Map(), matched = new Set();
-  const coverage = { covered: 0, missing: 0, unsupported: registry.filter(item => !SUPPORTED.has(item.record.agentId)).length, partial: entries.length > 2000 ? 1 : 0, indexing: 0 };
+  const groups = new Map(), seen = new Map(), matched = new Set(), issues = [];
+  const coverage = { covered: 0, missing: 0, unsupported: registry.filter(item => !SUPPORTED.has(item.record.agentId)).length, partial: entries.length > 2000 ? 1 : 0, indexing: 0, scope: "history", issuesOmitted: 0 };
+  function issue(value) { if (issues.length < 100) issues.push(value); else coverage.issuesOmitted++; }
   for (let at = 0; at < files.length; at++) {
     if (Date.now() >= budget.deadline || budget.bytes >= budget.maxBytes) { coverage.indexing += files.length - at; break; }
     const source = files[at], read = await readUsageFile(source, budget, indexDir);
     if (read.ignored) continue;
     if (read.pending) coverage.indexing++;
-    const id = read.session || source.expected || source.file;
-    const registrations = registry.filter(item => item.record.agentId === source.agent && (nativeId(item.record) === id || source.agent === "pi" && typeof item.record.file === "string" && path.resolve(source.root, item.record.file) === source.file));
+    const id = !read.invalid && read.session || (source.artifact ? `artifact:${source.artifact}` : source.expected || source.file);
+    const registrations = registry.filter(item => {
+      if (item.record.agentId !== source.agent) return false;
+      const native = nativeId(item.record);
+      return !!native && (native === id || !source.artifact && native === source.expected)
+        || source.agent === "pi" && typeof item.record.file === "string" && path.resolve(source.root, item.record.file) === source.file;
+    });
     const registered = registrations[0];
     for (const registration of registrations) matched.add(registration.key);
     const groupId = source.agent + ":" + id;
     let group = groups.get(groupId);
     if (!group) {
       const record = { ...registered?.record, agentId: source.agent, cwd: read.meta?.cwd || registered?.record.cwd || "", name: registered?.record.name || read.meta?.name || `${source.agent} · ${id.slice(0, 8)}` };
-      group = { key: registered?.key || `native:${groupId}`, record, registered: !!registered, good: false, partial: false, pending: false };
+      group = { key: registered?.key || `native:${groupId}`, record, registered: !!registered, artifact: !!source.artifact, good: false, partial: false, pending: false, problems: [] };
       groups.set(groupId, group);
     }
     if (!source.subagent) {
@@ -106,6 +112,7 @@ async function machineUsage({ home, roots, entries, indexDir }) {
     }
     group.good ||= !read.invalid && !read.partial || read.rows.length > 0;
     group.partial ||= read.partial && !read.pending; group.pending ||= read.pending;
+    if (read.partial && !read.pending) group.problems.push({ agent: source.agent, path: source.file, reason: read.reason || "incomplete_records" });
     for (const row of read.rows) {
       const prior = seen.get(row.identity);
       if (prior) {
@@ -114,6 +121,10 @@ async function machineUsage({ home, roots, entries, indexDir }) {
         for (const key of Object.keys(row.tokens)) prior.tokens[key] = prior.tokens[key] === null ? row.tokens[key] : row.tokens[key] === null ? prior.tokens[key] : Math.max(prior.tokens[key], row.tokens[key]);
         if (row.cost !== null && (prior.cost === null || row.cost > prior.cost)) prior.cost = row.cost;
         prior.at = Math.min(prior.at, row.at);
+        // Exports may be newer than their native source. Prefer a registered
+        // conversation, then a native history, for project and Session links.
+        if (!prior.entry.registered && (group.registered || prior.entry.artifact && !group.artifact)
+          || !prior.entry.record.cwd && group.record.cwd) prior.entry = group;
         continue;
       }
       if (seen.size >= 150000) { budget.limited = true; break; }
@@ -123,17 +134,22 @@ async function machineUsage({ home, roots, entries, indexDir }) {
   for (const group of groups.values()) {
     if (group.good) coverage.covered++; else if (!group.pending) coverage.missing++;
     if (group.partial) coverage.partial++;
+    for (const problem of group.problems) issue({ ...problem, entry: group.key, name: group.record.name, status: group.good ? "partial" : "missing" });
   }
   // Retain a warning for explicitly added histories that have disappeared.
   // During initial indexing an unmatched entry may simply be later in the scan.
-  if (!coverage.indexing) coverage.missing += registry.filter(item => SUPPORTED.has(item.record.agentId) && !matched.has(item.key)).length;
+  if (!coverage.indexing && !budget.limited) for (const item of registry.filter(item => SUPPORTED.has(item.record.agentId) && !matched.has(item.key))) {
+    coverage.missing++;
+    issue({ agent: item.record.agentId, entry: item.key, name: item.record.name || nativeId(item.record) || item.record.agentId, path: typeof item.record.file === "string" ? item.record.file : "", reason: "missing_file", status: "missing" });
+  }
   if (budget.limited && !coverage.indexing) coverage.partial++;
-  return { seen, coverage, sources };
+  return { seen, coverage, sources, issues };
 }
 async function workspaceUsage({ home, roots, entries }) {
   const budget = { deadline: Date.now() + 16000, bytes: 0, visited: 0, limited: false };
   const selections = entries.slice(0, 2000).map(entry => ({ ...entry, id: nativeId(entry.record), files: [], root: null }));
-  const coverage = { covered: 0, missing: 0, unsupported: 0, partial: entries.length > 2000 ? 1 : 0 };
+  const coverage = { covered: 0, missing: 0, unsupported: 0, partial: entries.length > 2000 ? 1 : 0, scope: "history", issuesOmitted: 0 }, issues = [];
+  function issue(value) { if (issues.length < 100) issues.push(value); else coverage.issuesOmitted++; }
   const baseRoots = { pi: roots.pi || path.join(home, ".pi", "agent", "sessions"), "claude-code": roots.claude || path.join(home, ".claude", "projects"), codex: roots.codex || path.join(home, ".codex") };
   for (const agent of SUPPORTED) {
     const wanted = selections.filter(item => item.record.agentId === agent);
@@ -161,11 +177,12 @@ async function workspaceUsage({ home, roots, entries }) {
   const seen = new Map();
   for (const item of selections.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0))) {
     if (!SUPPORTED.has(item.record.agentId)) { coverage.unsupported++; continue; }
-    if (!item.files.length) { coverage.missing++; continue; }
+    if (!item.files.length) { coverage.missing++; issue({ agent: item.record.agentId, entry: item.key, name: item.record.name || item.id, path: "", reason: "missing_file", status: "missing" }); continue; }
     let good = false, partial = false;
     for (const file of [...new Set(item.files)].sort()) {
       const read = await readFile(file, item.root, item.record.agentId, item.id, budget);
       partial ||= read.partial; good ||= !read.ignored && (!read.invalid && !read.partial || read.rows.length > 0);
+      if (read.partial) issue({ agent: item.record.agentId, entry: item.key, name: item.record.name || item.id, path: file, reason: read.reason || "incomplete_records", status: read.rows.length ? "partial" : "missing" });
       for (const row of read.rows) if (!seen.has(row.identity)) {
         if (seen.size >= 150000) { budget.limited = true; break; }
         seen.set(row.identity, { ...row, entry: item });
@@ -175,12 +192,12 @@ async function workspaceUsage({ home, roots, entries }) {
     if (partial) coverage.partial++;
   }
   if (budget.limited) coverage.partial++;
-  return { seen, coverage };
+  return { seen, coverage, issues };
 }
 async function report(input) {
   const { home, roots = {}, entries = [], query, prices = {}, priceUpdatedAt } = input;
   const scope = query.scope === "workspace" ? "workspace" : "machine";
-  const { seen, coverage, sources } = await (scope === "machine" ? machineUsage({ home, roots, entries, indexDir: input.indexDir }) : workspaceUsage({ home, roots, entries }));
+  const { seen, coverage, sources, issues } = await (scope === "machine" ? machineUsage({ home, roots, entries, indexDir: input.indexDir }) : workspaceUsage({ home, roots, entries }));
   const total = empty(), groups = Object.fromEntries(["days", "models", "agents", "projects", "sessions"].map(key => [key, new Map()]));
   const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: query.timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   const dateOf = at => { const parts = Object.fromEntries(formatter.formatToParts(at).map(p => [p.type, p.value])); return `${parts.year}-${parts.month}-${parts.day}`; };
@@ -204,7 +221,7 @@ async function report(input) {
     fold("sessions", entry.key, row, cost, { name: record.name || record.agentId, agent: record.agentId, cwd: project, registered: entry.registered !== false });
   }
   return { version: 1, total, ...Object.fromEntries(Object.entries(groups).map(([key, map]) => [key, [...map.values()].sort((a, b) => key === "days" ? a.date.localeCompare(b.date) : b.tokens - a.tokens || a.id.localeCompare(b.id))])),
-    facets: Object.fromEntries(Object.entries(facets).map(([key, map]) => [key, [...map.values()].sort((a, b) => a.name.localeCompare(b.name))])), coverage,
+    facets: Object.fromEntries(Object.entries(facets).map(([key, map]) => [key, [...map.values()].sort((a, b) => a.name.localeCompare(b.name))])), coverage, issues,
     range: { from: query.from, to: query.to, timeZone: query.timeZone }, priceUpdatedAt, generatedAt: Date.now(), scope, sources, currency: "USD", costKind: "estimate" };
 }
 if (parentPort) parentPort.on("message", async request => {

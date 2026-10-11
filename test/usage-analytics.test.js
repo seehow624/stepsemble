@@ -12,6 +12,8 @@ const codexCount = (total, last, at = AT) => ({ type: "event_msg", timestamp: ne
 function codex(id = UUID) { const p = createUsageParser("codex", id); p.consume({ type: "session_meta", payload: { id, model_provider: "openai" } }); p.consume({ type: "turn_context", payload: { model: "test-model", turn_id: "turn-one" } }); return p; }
 const prices = sanitize({ "test-model": { litellm_provider: "openai", input_cost_per_token: .000001, output_cost_per_token: .000002, cache_read_input_token_cost: .0000001 },
   "claude-test": { litellm_provider: "anthropic", input_cost_per_token: .000002, output_cost_per_token: .000004, cache_read_input_token_cost: .0000002, cache_creation_input_token_cost: .0000025 } });
+const childMessage = (at = AT, value = "PRIVATE CHILD ANSWER") => ({ role: "assistant", timestamp: at, model: "test-model", provider: "opencodex", content: [{ type: "text", text: value }], usage: { input: 40, output: 20, cacheRead: 3, cacheWrite: 4, cost: { total: .001 } } });
+const childRecord = (message, extra = {}) => ({ version: 1, recordType: "message", source: "foreground", runId: UUID, agent: "worker", childIndex: 0, cwd: "/demo", timestamp: new Date(AT + 5000).toISOString(), sourceEventType: "message_end", message, ...extra });
 
 test("Codex cumulative usage becomes deltas; repeated totals and reasoning are not charged twice", () => {
   const parser = codex();
@@ -104,6 +106,38 @@ test("wrong native identity and absent required time never enter an aggregate", 
   assert.equal(p.result().invalid, true); assert.deepEqual(p.result().rows, []);
   const c = createUsageParser("claude-code", UUID); c.consume({ type: "assistant", sessionId: UUID, message: { id: "msg", usage: { input_tokens: 1, output_tokens: 2 } } });
   assert.equal(c.result().skipped, 1); assert.deepEqual(c.result().rows, []);
+});
+test("Pi native histories, raw child events and foreground/async transcripts share one completed response identity", () => {
+  const message = childMessage(), native = createUsageParser("pi", "native"); native.consume({ type: "session", id: "native" });
+  native.consume({ type: "message", id: "native-entry", timestamp: AT + 10000, message });
+  const parsers = [native];
+  for (const source of ["foreground", "async"]) {
+    const p = createUsageParser("pi", UUID, { format: "pi-transcript", artifact: UUID + "_worker_0" });
+    p.consume(childRecord(message, { source, usage: { input: 999999, cost: 100 } })); parsers.push(p);
+  }
+  const events = createUsageParser("pi", UUID, { format: "pi-events", artifact: UUID + "_worker_0" });
+  events.consume({ type: "message_update", message: { ...message, usage: { input: 10000, output: 1 } } });
+  events.consume({ type: "message_end", message }); events.consume({ type: "turn_end", messages: [message] }); parsers.push(events);
+  const reordered = createUsageParser("pi", "copy"); reordered.consume({ type: "session", id: "copy" });
+  reordered.consume({ type: "message", id: "copy-entry", timestamp: AT + 20000, message: { ...message, content: [{ text: "PRIVATE CHILD ANSWER", type: "text" }] } }); parsers.push(reordered);
+  for (const parser of parsers) {
+    const result = parser.result(); assert.equal(result.invalid, false); assert.equal(result.skipped, 0); assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0].identity, native.result().rows[0].identity); assert.equal(result.rows[0].at, AT);
+    assert.deepEqual(result.rows[0].tokens, { input: 40, output: 20, cacheRead: 3, cacheWrite: 4 }); assert.equal(result.rows[0].cost, .001);
+  }
+});
+test("Pi child readers validate the artifact identity and version, retain truncation warnings and refuse arbitrary headerless files", () => {
+  for (const [extra, reason] of [[{ version: 2 }, "unsupported_format"], [{ runId: "other" }, "identity_mismatch"], [{ agent: "reviewer" }, "identity_mismatch"], [{ childIndex: -1 }, "unsupported_format"]]) {
+    const p = createUsageParser("pi", UUID, { format: "pi-transcript", artifact: UUID + "_worker_0" }); p.consume(childRecord(childMessage(), extra));
+    assert.equal(p.result().invalid, true); assert.equal(p.result().reason, reason); assert.equal(p.result().rows.length, 0);
+  }
+  const native = createUsageParser("pi", UUID); native.consume(childRecord(childMessage())); assert.equal(native.result().invalid, true);
+  const p = createUsageParser("pi", UUID, { format: "pi-transcript", artifact: UUID + "_worker_0" }); p.consume(childRecord(childMessage()));
+  p.consume(childRecord("PRIVATE TRUNCATION TEXT", { recordType: "truncated" }));
+  assert.equal(p.result().invalid, false); assert.equal(p.result().rows.length, 1); assert.equal(p.result().skipped, 1); assert.equal(p.result().reason, "truncated");
+  const empty = createUsageParser("pi", UUID, { format: "pi-transcript", artifact: UUID + "_worker_0" });
+  empty.consume(childRecord({ ...childMessage(), content: [] })); empty.consume(childRecord({ ...childMessage(), content: [] }));
+  assert.equal(empty.result().rows.length, 2, "distinct completed empty responses must not collapse by timestamp alone");
 });
 test("catalog cost uses the whole input context for long-context tiers and refuses absent cache prices or provider mismatches", () => {
   const row = { model: "test-model", provider: "openai", tokens: { input: 100, output: 20, cacheRead: 800, cacheWrite: 0 }, cost: null };
@@ -227,6 +261,68 @@ test("computer-wide forks and copied Claude stream updates conserve each call on
   const data = await report({ ...f, query: { ...f.query, scope: "machine" }, roots: {}, prices });
   assert.equal(data.total.calls, 3); assert.equal(data.total.tokens, 270); assert.equal(data.total.output, 50);
 });
+test("computer-wide Pi children count raw/native/exported copies once and keep parallel children distinct", async t => {
+  const f = await fixture(t), dir = path.join(path.dirname(f.piFile), "subagent-artifacts"), child = "66666666-6666-4666-8666-666666666666";
+  await fs.mkdir(dir, { recursive: true });
+  const message = childMessage();
+  await f.write(path.join(path.dirname(f.piFile), child + ".jsonl"), [{ type: "session", id: child, cwd: "/demo" }, { type: "message", id: "child-native", timestamp: AT + 9000, message }]);
+  await fs.utimes(path.join(path.dirname(f.piFile), child + ".jsonl"), 1, 1);
+  await f.write(path.join(dir, UUID + "_worker_0.jsonl"), [{ type: "agent_start" }, { type: "message_update", message }, { type: "message_end", message }, { type: "turn_end", messages: [message] }]);
+  await f.write(path.join(dir, UUID + "_worker_0_transcript.jsonl"), [childRecord(message)]);
+  await fs.mkdir(path.join(dir, "copies")); await f.write(path.join(dir, "copies", UUID + "_worker_0_transcript.jsonl"), [childRecord(message)]);
+  await f.write(path.join(dir, UUID + "_worker_1_transcript.jsonl"), [childRecord(childMessage(AT, "PARALLEL CHILD ANSWER"), { childIndex: 1 })]);
+  await f.write(path.join(dir, UUID + "_reviewer_0_transcript.jsonl"), [childRecord(childMessage(AT + 1000), { agent: "reviewer", source: "async" })]);
+  await fs.writeFile(path.join(dir, UUID + "_waiting_0_transcript.jsonl"), "");
+  const indexDir = path.join(f.home, "index"), query = { ...f.query, scope: "machine" };
+  const result = await report({ ...f, query, indexDir, prices });
+  assert.equal(result.total.calls, 6); assert.equal(result.total.tokens, 260 + 3 * 67); assert.equal(result.coverage.missing, 0); assert.equal(result.coverage.partial, 0);
+  assert.equal(result.coverage.covered, 7, "sibling artifact Sessions sharing a parent run id stay separate");
+  assert.equal(result.coverage.scope, "history"); assert.deepEqual(result.issues, []);
+  assert.ok(result.sessions.some(row => row.id === "native:pi:" + child && row.cwd === "/demo"), "a newer export cannot replace its native Session attribution");
+  const filtered = await report({ ...f, query: { ...query, agent: "codex" }, indexDir, prices });
+  assert.equal(filtered.total.calls, 1); assert.deepEqual(filtered.coverage, result.coverage);
+  const outside = await report({ ...f, query: { ...query, from: AT + 100000, to: AT + 200000 }, indexDir, prices });
+  assert.equal(outside.total.calls, 0); assert.deepEqual(outside.coverage, result.coverage, "history checks explicitly cover all dates");
+  for (const file of await fs.readdir(indexDir)) {
+    const saved = await fs.readFile(path.join(indexDir, file), "utf8"); assert.ok(!saved.includes("PRIVATE CHILD ANSWER")); assert.ok(!saved.includes("PARALLEL CHILD ANSWER"));
+  }
+});
+test("history issues distinguish absent files, rejected identities, permission failures and damaged records", async t => {
+  const f = await fixture(t), dir = path.dirname(f.piFile), bad = "77777777-7777-4777-8777-777777777777";
+  await f.write(path.join(dir, bad + ".jsonl"), [{ type: "session", id: "wrong" }]);
+  f.entries.push({ key: "bad-identity", record: { agentId: "pi", nativeSessionId: bad, name: "Wrong identity", file: path.join(dir, bad + ".jsonl") } });
+  const damaged = path.join(dir, "damaged.jsonl"); await f.write(damaged, [{ type: "session", id: "damaged" }, { type: "message", id: "valid", timestamp: AT, message: { role: "assistant", usage: { input: 1, output: 2 } } }]);
+  await fs.appendFile(damaged, "INVALID JSON\n");
+  f.entries.push({ key: "missing", record: { agentId: "pi", name: "Missing history", file: path.join(dir, "absent.jsonl") } });
+  const result = await report({ ...f, query: { ...f.query, scope: "machine" }, prices });
+  assert.equal(result.coverage.missing, 2); assert.equal(result.total.calls, 4);
+  assert.deepEqual(new Set(result.issues.map(row => row.reason)), new Set(["identity_mismatch", "malformed_records", "missing_file"]));
+  assert.equal(result.issues.find(row => row.reason === "malformed_records").status, "partial");
+  assert.equal(result.issues.find(row => row.reason === "missing_file").name, "Missing history");
+  const budget = { deadline: Date.now() + 10000, maxBytes: 1e6, bytes: 0 };
+  const source = { file: path.join(dir, "absent.jsonl"), root: path.dirname(dir), agent: "pi", expected: "absent" };
+  assert.equal((await readUsageFile(source, budget)).reason, "missing_file");
+  const actual = fs.realpath; t.mock.method(fs, "realpath", async file => { if (file === source.file) throw Object.assign(new Error("PRIVATE OS ERROR"), { code: "EPERM" }); return actual(file); });
+  const denied = await readUsageFile(source, budget); assert.equal(denied.reason, "permission_denied"); assert.ok(!JSON.stringify(denied).includes("PRIVATE OS ERROR"));
+});
+test("Pi artifact checkpoints retain warnings, resume appends and rebuild indexes from the old identity version", async t => {
+  const f = await fixture(t), dir = path.join(path.dirname(f.piFile), "subagent-artifacts"), indexDir = path.join(f.home, "index"); await fs.mkdir(dir);
+  const file = path.join(dir, UUID + "_worker_0_transcript.jsonl");
+  await f.write(file, [childRecord(childMessage())]);
+  const budget = () => ({ deadline: Date.now() + 10000, maxBytes: 1e7, bytes: 0, visited: 0 });
+  const real = await fs.realpath(file), { files } = await discoverUsageFiles(f.home, {}, budget()), source = files.find(row => row.file === real);
+  assert.equal((await readUsageFile(source, budget(), indexDir)).rows.length, 1);
+  const { execFileSync } = require("node:child_process");
+  const code = "const {readUsageFile}=require('./server/usage-history');const budget={deadline:Date.now()+10000,bytes:0,maxBytes:10000000};readUsageFile(JSON.parse(process.argv[1]),budget,process.argv[2]).then(r=>console.log(JSON.stringify({bytes:budget.bytes,rows:r.rows.length,reason:r.reason,partial:r.partial})))";
+  const run = () => JSON.parse(execFileSync(process.execPath, ["-e", code, JSON.stringify(source), indexDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" }));
+  assert.deepEqual(run(), { bytes: 0, rows: 1, reason: "", partial: false });
+  await fs.appendFile(file, JSON.stringify(childRecord(childMessage(AT + 1000))) + "\n");
+  const appended = run(); assert.equal(appended.rows, 2); assert.ok(appended.bytes > 0 && appended.bytes < 1000);
+  const cacheFile = path.join(indexDir, (await fs.readdir(indexDir))[0]), saved = JSON.parse(await fs.readFile(cacheFile, "utf8")); saved.version = 2; await fs.writeFile(cacheFile, JSON.stringify(saved));
+  const rebuilt = run(); assert.equal(rebuilt.rows, 2); assert.ok(rebuilt.bytes >= (await fs.stat(file)).size, "old dedup identities must be rebuilt");
+  await fs.appendFile(file, JSON.stringify(childRecord("omitted", { recordType: "truncated" })) + "\n");
+  assert.equal(run().reason, "truncated"); assert.deepEqual(run(), { bytes: 0, rows: 2, reason: "truncated", partial: true });
+});
 test("managed native file links are validated; directory links and unrelated private JSONL are refused", async t => {
   const f = await fixture(t), id = "77777777-7777-4777-8777-777777777777", dir = path.join(f.home, ".codex/archived_sessions"); await fs.mkdir(dir, { recursive: true });
   const external = path.join(f.home, "external.jsonl");
@@ -235,6 +331,9 @@ test("managed native file links are validated; directory links and unrelated pri
   await fs.symlink(external, path.join(dir, UUID + ".jsonl")); // Wrong native identity.
   await fs.symlink(external, path.join(dir, "private.jsonl")); // No native filename.
   await fs.symlink(f.home, path.join(dir, "outside-directory"));
+  const artifacts = path.join(path.dirname(f.piFile), "subagent-artifacts"); await fs.mkdir(artifacts);
+  const rawChild = path.join(f.home, "external-child.jsonl"); await f.write(rawChild, [{ type: "message_end", message: childMessage() }]);
+  await fs.symlink(rawChild, path.join(artifacts, UUID + "_worker_0.jsonl"));
   const data = await report({ ...f, query: { ...f.query, scope: "machine" }, roots: {}, prices });
   assert.equal(data.total.tokens, 310); assert.equal(data.total.calls, 4); assert.ok(data.coverage.partial > 0);
 });
@@ -277,11 +376,13 @@ test("price refresh coalesces, preserves provider metadata on disk and retains o
   const failing = createUsagePricing({ cacheFile: file, now: () => at, fetchImpl: async () => { throw new Error("offline"); } });
   assert.deepEqual((await failing.read()).models, a.models);
 });
-test("multi-Host arithmetic keeps Host identity, unknown prices and offline Hosts", () => {
-  const one = { total: { ...Data.empty(), tokens: 100, calls: 1, knownCost: .1, pricedCalls: 1 }, sessions: [{ ...Data.empty(), id: "same", name: "same", tokens: 100 }], coverage: { covered: 1 } };
-  const two = { total: { ...Data.empty(), tokens: 200, calls: 1, unpricedCalls: 1 }, sessions: [{ ...Data.empty(), id: "same", name: "same", tokens: 200 }], coverage: { covered: 1 } };
+test("multi-Host arithmetic keeps Host identity, unknown prices, history issues and offline Hosts", () => {
+  const one = { total: { ...Data.empty(), tokens: 100, calls: 1, knownCost: .1, pricedCalls: 1 }, sessions: [{ ...Data.empty(), id: "same", name: "same", tokens: 100 }], coverage: { covered: 1, missing: 1, scope: "history" }, issues: [{ entry: "same", name: "Missing history", reason: "missing_file" }] };
+  const two = { total: { ...Data.empty(), tokens: 200, calls: 1, unpricedCalls: 1 }, sessions: [{ ...Data.empty(), id: "same", name: "same", tokens: 200 }], coverage: { covered: 1, scope: "history" } };
   const combined = Data.combine([{ host: "mini", name: "Mini", report: one }, { host: "mbp", name: "MBP", report: two }, { host: "offline", name: "Offline", report: null }]);
   assert.equal(combined.total.tokens, 300); assert.equal(combined.total.unpricedCalls, 1); assert.equal(combined.sessions.length, 2); assert.equal(combined.hosts[2].status, "unavailable");
+  assert.equal(combined.hosts[0].status, "partial"); assert.equal(combined.issues[0].host, "mini"); assert.equal(combined.issues[0].hostName, "Mini"); assert.equal(combined.coverage.scope, "history");
+  assert.equal(Data.combine([{ host: "old", name: "Old", report: { ...two, coverage: { covered: 1 } } }]).coverage.scope, "unknown", "old Hosts do not acquire a new coverage claim");
 });
 test("analytics query rejects malformed ranges, oversized periods and invalid time zones", () => {
   const valid = new URLSearchParams({ from: String(AT - 3600000), to: String(AT + 3600000), timeZone: "Asia/Kuala_Lumpur" });

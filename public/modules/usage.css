@@ -40,6 +40,14 @@
 .usage-components [data-token=cacheWrite] span::before { background: var(--usage-write); }
 .usage-components strong { font-weight: 550; font-variant-numeric: tabular-nums; }
 .usage-notice { padding: 12px 15px; margin: 0 0 20px; border: .5px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--warn) 5%, var(--paper)); color: var(--pine-soft); font-size: .74rem; line-height: 1.6; }
+.usage-issues { margin: -8px 0 20px; font-size: .74rem; color: var(--pine-soft); line-height: 1.6; }
+.usage-issues summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; color: var(--ink); }
+.usage-issues summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.usage-issues p { margin: 4px 0 12px; }
+.usage-issues ul { list-style: none; margin: 0; padding: 0; }
+.usage-issues li { display: flex; flex-direction: column; padding: 11px 0; border-top: .5px solid var(--line); overflow-wrap: anywhere; }
+.usage-issues strong { color: var(--ink); font-weight: 550; }
+.usage-issues small { font-size: .64rem; }
 .usage-chart-section, .usage-breakdown { margin-top: 25px; }
 .usage-panel h2 { font-size: .84rem; font-weight: 580; letter-spacing: -.01em; margin: 0 0 15px; }
 .usage-chart { display: flex; gap: clamp(3px, .7vw, 9px); height: 152px; padding: 12px 8px 0; border-bottom: .5px solid var(--line); background: repeating-linear-gradient(to top, transparent 0, transparent 39px, color-mix(in srgb, var(--line) 50%, transparent) 39px, color-mix(in srgb, var(--line) 50%, transparent) 40px); }

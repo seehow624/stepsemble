@@ -18,12 +18,15 @@
   }
   function combine(reports) {
     const total = empty(), maps = Object.fromEntries(["days", "models", "agents", "projects", "sessions"].map(key => [key, new Map()]));
-    let covered = 0, missing = 0, unsupported = 0, partial = 0, indexing = 0, priceUpdatedAt = null;
+    let covered = 0, missing = 0, unsupported = 0, partial = 0, indexing = 0, issuesOmitted = 0, priceUpdatedAt = null, historyCoverage = true;
     const scopes = new Set();
-    const hosts = [];
+    const hosts = [], issues = [];
     for (const { report, host, name } of reports) {
       if (!report) { hosts.push({ id: host, name, status: "unavailable" }); continue; }
-      hosts.push({ id: host, name, status: report.coverage?.partial || report.coverage?.indexing ? "partial" : "ready", total: report.total });
+      hosts.push({ id: host, name, status: report.coverage?.missing || report.coverage?.partial || report.coverage?.indexing ? "partial" : "ready", total: report.total });
+      historyCoverage &&= report.coverage?.scope === "history";
+      issuesOmitted += report.coverage?.issuesOmitted || 0;
+      for (const issue of (report.issues || []).slice(0, 100)) issues.push({ ...issue, host, hostName: name });
       scopes.add(report.scope || "workspace");
       add(total, report.total);
       covered += report.coverage?.covered || 0; missing += report.coverage?.missing || 0;
@@ -38,7 +41,7 @@
       }
     }
     return { total, ...Object.fromEntries(Object.entries(maps).map(([key, map]) => [key, [...map.values()].sort(key === "days" ? (a, b) => a.date.localeCompare(b.date) : (a, b) => b.tokens - a.tokens || String(a.id).localeCompare(String(b.id)))])),
-      hosts, coverage: { covered, missing, unsupported, partial, indexing }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine" };
+      hosts, issues, coverage: { covered, missing, unsupported, partial, indexing, issuesOmitted, scope: historyCoverage ? "history" : "unknown" }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine" };
   }
   return { empty, add, addCall, combine };
 });
