@@ -12,12 +12,12 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
   for (const mobile of [false, true]) {
     const fixture = await createUsagePreview(0, { unpriced: mobile });
     const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1280, height: mobile ? 844 : 1100 },
-      isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", locale: mobile ? "zh-TW" : "en-US", timezoneId: "Asia/Kuala_Lumpur", reducedMotion: "reduce" });
+      isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", locale: mobile ? "zh-TW" : "en-US", timezoneId: fixture.timeZone, reducedMotion: "reduce" });
     const page = await context.newPage(), errors = [], external = [], modelRequests = [];
     page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(12000);
     let stage = "authenticated endpoint";
     try {
-      const dates = { from: Date.now() - 30 * 86400000, to: Date.now() + 1000, timeZone: "Asia/Kuala_Lumpur" };
+      const dates = { from: Date.now() - 30 * 86400000, to: Date.now() + 1000, timeZone: fixture.timeZone };
       const url = fixture.origin + "/api/workspace/analytics?" + new URLSearchParams(dates);
       assert.equal((await fetch(url, { redirect: "manual" })).status, 401);
       const cookie = crypto.createHash("sha256").update(fixture.token).digest("hex"), headers = { cookie: "stepsemble=" + cookie };

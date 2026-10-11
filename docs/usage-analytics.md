@@ -106,7 +106,8 @@ npm run preview:usage
 The preview starts two isolated loopback Hosts with synthetic histories, prices
 and quota values. Its printed access token belongs only to these disposable
 fixtures. It cannot start an agent, read a user's credentials or change native
-histories. Stop it with Ctrl+C.
+histories. Its sample calendar is pinned to Asia/Kuala_Lumpur independently of
+the runner's time zone. Stop it with Ctrl+C.
 
 The headless browser cases use the test-only Playwright runtime prepared by the
 rolling-client checks. They are part of the core rolling suite, or can be run

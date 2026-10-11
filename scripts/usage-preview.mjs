@@ -13,7 +13,11 @@ import { freePort, waitForServer, stopServer } from "./host-performance-baseline
 const require = createRequire(import.meta.url), root = fileURLToPath(new URL("../", import.meta.url));
 const { createWorkspaceRegistry } = require("../server/workspace-registry");
 export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
-  const token = "usage-preview-owned-fixture", hosts = [], homes = [], seededAt = Date.now();
+  const token = "usage-preview-owned-fixture", hosts = [], homes = [], seededAt = Date.now(), timeZone = "Asia/Kuala_Lumpur";
+  const calendar = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "numeric", day: "numeric" })
+    .formatToParts(seededAt).map(part => [part.type, part.value]));
+  // Noon in the fixture/browser timezone, independent of the CI runner's TZ.
+  const noon = Date.UTC(Number(calendar.year), Number(calendar.month) - 1, Number(calendar.day), 4);
   async function host(multiplier, name) {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-usage-preview-")); homes.push(home);
     const config = path.join(home, ".config/stepsemble"); await fs.mkdir(config, { recursive: true });
@@ -26,7 +30,7 @@ export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
     const rows = [[{ type: "session_meta", payload: { id: ids[0], model_provider: "openai" } }, { type: "turn_context", payload: { model: "gpt-demo", turn_id: "preview-turn" } }], [], [{ type: "session", id: ids[2], cwd: projectTwo }]];
     let input = 0, output = 0, cached = 0;
     for (let day = 29; day >= 0; day--) {
-      const at = new Date(now); at.setDate(at.getDate() - day); at.setHours(9 + day % 8, 0, 0, 0);
+      const at = new Date(noon); at.setUTCDate(at.getUTCDate() - day);
       if (at.getTime() > now) at.setTime(now);
       const count = (day % 6 + 1) * multiplier, stamp = at.toISOString();
       input += 40000 * count; output += 1700 * count; cached += 31000 * count;
@@ -68,7 +72,7 @@ export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
   await new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
   let closing = null;
   const close = () => closing ||= (async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await Promise.all(hosts.map(host => stopServer(host.child))); await Promise.all(homes.map(home => fs.rm(home, { recursive: true, force: true }))); })();
-  return { origin: `http://127.0.0.1:${server.address().port}`, token, hosts, setOffline(value) { offline = value; }, close };
+  return { origin: `http://127.0.0.1:${server.address().port}`, token, hosts, timeZone, setOffline(value) { offline = value; }, close };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const preview = await createUsagePreview(Number(process.argv[2] || 0));
