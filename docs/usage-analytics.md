@@ -1,6 +1,6 @@
 # Usage overview
 
-Prepared for 3.8.46; not yet published.
+Introduced in 3.8.46.
 
 Open **Usage** at the bottom of the Workspace sidebar. The view follows the
 Workspace's selected Host when opened. Switch Hosts in the view, or choose
@@ -120,8 +120,8 @@ The design takes inspiration from TokenBar's separation of observed usage,
 reference costs and subscription limits. Stepsemble's implementation is a
 JavaScript Host worker and browser view; it does not depend on TokenBar's Rust
 engine. No production Host, updater or installed macOS App is changed by the
-preview or tests. Before publishing this feature, use the normal release-version
-workflow to update the service-worker cache and asset version queries together.
+preview or tests. The normal release-version workflow updates the service-worker
+cache and asset version queries together.
 
 Verified on 2026-10-11 on OneStep-MacMini: all 23 focused usage tests passed;
 the full suite passed 1,987 tests with five platform skips and no failures.
