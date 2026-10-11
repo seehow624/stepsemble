@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.8.49
 
 - Read Pi foreground and background child transcripts and raw child events. Deduplicate completed responses across native histories, exports and copies while keeping parallel child Sessions distinct; rebuild older numeric indexes for the new identities.
 - Show expandable history issues with Session names, Hosts, file locations and specific failure reasons. Label history coverage as covering all dates, independently of the selected usage period and filters.
