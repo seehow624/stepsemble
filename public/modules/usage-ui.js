@@ -38,6 +38,9 @@
     return (total.unpricedCalls ? "≥ " : "≈ ") + new Intl.NumberFormat(localeOf(), { style: "currency", currency: "USD", ...(short ? { notation: "compact", maximumFractionDigits: 1, minimumFractionDigits: 0 } : { maximumFractionDigits: 2, minimumFractionDigits: 2 }) }).format(total.knownCost);
   }
   const agentName = id => ({ pi: "Pi", codex: "Codex", "claude-code": "Claude Code" })[id] || id;
+  const vendorNames = { openai: "OpenAI", anthropic: "Anthropic", minimax: "MiniMax", z_ai: "Z.AI", deepseek: "DeepSeek", gemini: "Google", xai: "xAI" };
+  const vendorName = id => Object.hasOwn(vendorNames, id) ? vendorNames[id] : id;
+  const modelLabel = row => { const identity = Data.modelIdentity(row.provider, row.name); return { name: identity.model, provider: vendorName(identity.provider) }; };
   function range(period, now = new Date()) {
     const to = new Date(now); to.setHours(0, 0, 0, 0); to.setDate(to.getDate() + 1);
     const from = new Date(to); from.setDate(from.getDate() - 1);
@@ -52,6 +55,7 @@
     let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
     let scrolls = { limits: 0, usage: 0 }, issuesOpen = false;
+    const hostGrouping = new Map();
     function selectQuotaMode(value) {
       if (value === quotaMode) return;
       quotaMode = value === "used" ? "used" : "remaining";
@@ -92,7 +96,11 @@
       status(loading); view.refresh.disabled = true; panel.setAttribute("aria-busy", "true");
       const results = await Promise.all(targets.map(async host => {
         try {
-          const value = await api(loadingTab === "limits" ? "/api/workspace/usage" + (fresh ? "?fresh=1" : "") : "/api/workspace/analytics?" + query, undefined, host.id);
+          const value = loadingTab === "limits" ? await api("/api/workspace/usage" + (fresh ? "?fresh=1" : ""), undefined, host.id)
+            : await Data.readReport(params => {
+              if (!panel || epoch !== sequence) throw new Error("usage_read_cancelled");
+              return api("/api/workspace/analytics?" + params, undefined, host.id);
+            }, query, { modelGrouping: hostGrouping.get(host.id) });
           return { host: host.id, name: host.name, [loadingTab === "limits" ? "quota" : "report"]: value };
         } catch { return { host: host.id, name: host.name }; }
       }));
@@ -110,13 +118,15 @@
       }
       const succeeded = results.some(item => item.report);
       if (!succeeded) { status(label("retry"), "error"); if (!previous) renderEmpty(label("retry")); return; }
+      for (const result of results) if (result.report) hostGrouping.set(result.host, result.report.modelGrouping);
       previous = Data.combine(results); current = previous;
       current.facets = { agents: new Map(), projects: new Map(), models: new Map() };
       for (const result of results) for (const key of Object.keys(current.facets)) for (const item of result.report?.facets?.[key] || []) {
         if (key === "projects") {
           const old = current.facets.projects.get(item.id), hosts = [...new Set([...(old?.hostNames || []), result.name])];
           current.facets.projects.set(item.id, { ...item, hostNames: hosts });
-        } else current.facets[key].set(item.id, item);
+        } else if (key === "models") { const model = Data.modelGroup(item); current.facets.models.set(model.id, model); }
+        else current.facets[key].set(item.id, item);
       }
       render(current); status(label("updated", { time: new Date().toLocaleTimeString(localeOf(), { hour: "2-digit", minute: "2-digit" }) }));
       if (current.coverage.indexing) indexingTimer = setTimeout(() => { if (panel && tab === "usage" && !document.hidden) void load(); }, 2000);
@@ -133,8 +143,11 @@
       const filtersBar = node("div", "", "usage-filters");
       for (const [key, collection, name] of [["agent", "agents", "allAgents"], ["project", "projects", "allProjects"], ["model", "models", "allModels"]]) {
         const items = [...data.facets[collection].values()], duplicates = title => items.filter(item => item.name === title).length > 1;
-        const options = [["", label(name)], ...items.map(item => [item.id, key === "agent" ? agentName(item.id) : key === "model" ? item.name + (item.provider ? " · " + item.provider : "")
-          : item.name + (!selectedHost ? " · " + item.hostNames.join(", ") : duplicates(item.name) ? " · " + item.id : "")])];
+        const options = [["", label(name)], ...items.map(item => {
+          const model = key === "model" ? modelLabel(item) : null;
+          return [item.id, model ? model.name + (model.provider ? " · " + model.provider : "") : key === "agent" ? agentName(item.id)
+            : item.name + (!selectedHost ? " · " + item.hostNames.join(", ") : duplicates(item.name) ? " · " + item.id : "")];
+        })];
         if (filters[key] && !options.some(([id]) => id === filters[key])) options.push([filters[key], filters[key]]);
         filtersBar.append(makeSelect(name, options, filters[key], value => { filters[key] = value; filters.entry = ""; previous = null; void load(); }));
       }
@@ -231,8 +244,9 @@
           }, "usage-list-row");
           el.dataset.row = row.id;
           el.title = label(lens === "sessions" ? row.registered === false ? "viewSession" : "openSession" : lens === "models" ? "viewModel" : lens === "projects" ? "viewProject" : "viewAgent");
-          const identity = node("span", "", "usage-list-identity"); identity.append(node("strong", lens === "agents" ? agentName(row.name) : row.name));
-          const detail = lens === "models" ? row.provider : lens === "sessions" ? agentName(row.agent) + " · " + row.hostName : lens === "projects" ? row.hostName + " · " + row.cwd : "";
+          const model = lens === "models" ? modelLabel(row) : null;
+          const identity = node("span", "", "usage-list-identity"); identity.append(node("strong", model ? model.name : lens === "agents" ? agentName(row.name) : row.name));
+          const detail = model ? model.provider : lens === "sessions" ? agentName(row.agent) + " · " + row.hostName : lens === "projects" ? row.hostName + " · " + row.cwd : "";
           if (detail) identity.append(node("small", detail));
           const amount = node("span", "", "usage-list-amount"); amount.append(node("strong", fmt(row.tokens, true)));
           const track = node("span", "", "usage-row-track"), fill = node("span"); fill.style.width = row.tokens / max * 100 + "%"; track.append(fill); amount.append(track);

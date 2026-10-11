@@ -168,6 +168,35 @@ test("OpenCodex and compatible routes use the original vendor's exact model pric
   assert.equal(estimate({ ...row, provider: "custom-unknown", model: "gpt-6.1-sol" }, catalog), null);
   assert.equal(estimate({ ...row, provider: "opencodex", model: "minimax/MiniMax-M3.1-Flash-Preview" }, catalog), null, "never substitute an older model's price");
 });
+test("model identity distinguishes vendors from routed connections without depending on a price", () => {
+  for (const [provider, model] of [["openai", "anthropic/claude-opus-5-5"], ["openai-codex", "claude-opus-5-5"],
+    ["opencodex", "opencodex/anthropic/claude-opus-5-5"], ["anthropic", "anthropic/claude-opus-5-5"],
+    ["anthropic", "claude-ocx2-opencodex--anthropic~sclaude-opus-5-5"]]) {
+    assert.deepEqual(Data.modelIdentity(provider, model), { provider: "anthropic", model: "claude-opus-5-5" });
+  }
+  assert.deepEqual(Data.modelIdentity("opencodex", "minimax/MiniMax-M3.1-Flash-Preview"), { provider: "minimax", model: "MiniMax-M3.1-Flash-Preview" });
+  assert.deepEqual(Data.modelIdentity("opencodex", "opencode-go/glm-5.3-flash"), { provider: "z_ai", model: "glm-5.3-flash" });
+  assert.deepEqual(Data.modelIdentity("anthropic", "claude-ocx-native--gpt-6.1-sol"), { provider: "openai", model: "gpt-6.1-sol" });
+  assert.deepEqual(Data.modelIdentity("anthropic", "claude-ocx2-opencodex--anthropic~sclaude-test~ts"), { provider: "anthropic", model: "claude-test~s" });
+  assert.deepEqual(Data.modelIdentity("custom-unknown", "gpt-6.1-sol"), { provider: "custom-unknown", model: "gpt-6.1-sol" });
+  assert.deepEqual(Data.modelIdentity("opencodex", "unknown"), { provider: "opencodex", model: "unknown" });
+  assert.deepEqual(Data.modelIdentity("openai", "google/gemini-usage-test"), { provider: "gemini", model: "gemini-usage-test" });
+  assert.deepEqual(Data.modelIdentity("google", "google/gemini-usage-test"), { provider: "gemini", model: "gemini-usage-test" });
+  assert.deepEqual(Data.modelIdentity("openrouter", "anthropic/claude-opus-5-5"), { provider: "anthropic", model: "claude-opus-5-5" });
+  assert.deepEqual(Data.modelIdentity("openai", "anthropic/gpt-usage-test"), { provider: "anthropic", model: "gpt-usage-test" });
+  assert.deepEqual(Data.modelIdentity("openai", "anthropic/openai/gpt-usage-test"), { provider: "anthropic", model: "openai/gpt-usage-test" });
+});
+test("Google aliases and verified routers match vendor prices without borrowing a conflicting vendor's price", () => {
+  const catalog = sanitize({ "gemini-usage-test": { provider: "gemini", input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
+    "gpt-usage-test": { provider: "openai", input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
+    "claude-opus-5-5": { provider: "anthropic", input_cost_per_token: 2e-6, output_cost_per_token: 4e-6 } });
+  const row = { tokens: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0 }, cost: null };
+  for (const provider of ["google", "gemini", "openai", "opencodex", "openrouter"]) assert.ok(Math.abs(estimate({ ...row, provider, model: "google/gemini-usage-test" }, catalog).usd - .00014) < 1e-12);
+  const prefixed = sanitize({ "google/gemini-usage-test": { provider: "gemini", input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 } });
+  assert.ok(Math.abs(estimate({ ...row, provider: "google", model: "gemini-usage-test" }, prefixed).usd - .00014) < 1e-12);
+  for (const provider of ["opencode", "openrouter"]) assert.ok(Math.abs(estimate({ ...row, provider, model: "anthropic/claude-opus-5-5" }, catalog).usd - .00028) < 1e-12);
+  assert.equal(estimate({ ...row, provider: "openai", model: "anthropic/gpt-usage-test" }, catalog), null);
+});
 test("published long-context thresholds are not limited to a hard-coded list", () => {
   const catalog = sanitize({ "claude-haiku-5-5": { provider: "anthropic", input_cost_per_token: .1e-6, output_cost_per_token: .5e-6,
     input_cost_per_token_above_100k_tokens: .5e-6, output_cost_per_token_above_100k_tokens: 2.5e-6 } });
@@ -199,6 +228,49 @@ test("workspace aggregation conserves totals across all dimensions and uses the 
   for (const key of ["days", "models", "agents", "projects", "sessions"]) assert.equal(data[key].reduce((sum, row) => sum + row.tokens, 0), data.total.tokens);
   assert.ok(!JSON.stringify(data).includes("PRIVATE PROMPT")); assert.ok(!JSON.stringify(data).includes(f.home));
   assert.equal(data.costKind, "estimate");
+});
+test("routed Claude model groups, filters and persisted indexes keep all agent/Host totals intact", async t => {
+  const f = await fixture(t), model = "claude-opus-5-5", modelId = JSON.stringify(["anthropic", model]);
+  const catalog = sanitize({ [model]: { provider: "anthropic", input_cost_per_token: 4e-6, output_cost_per_token: 20e-6, cache_read_input_token_cost: .2e-6 } });
+  const claudeFile = path.join(f.home, ".claude/projects/demo", f.entries[1].record.nativeSessionId + ".jsonl");
+  const read = async file => (await fs.readFile(file, "utf8")).trim().split("\n").map(JSON.parse);
+  const codexRows = await read(f.codexFile), piRows = await read(f.piFile), claudeRows = await read(claudeFile);
+  codexRows[1].payload.model = "anthropic/" + model;
+  piRows[1].message.model = "opencodex/anthropic/" + model; piRows[1].message.provider = "opencodex";
+  claudeRows[0].message.model = model;
+  await Promise.all([[f.codexFile, codexRows], [f.piFile, piRows], [claudeFile, claudeRows]].map(([file, rows]) => f.write(file, rows)));
+  const expectedCost = .02 + (10 * 4e-6 + 10 * 20e-6 + 90 * .2e-6) + (5 * 4e-6 + 10 * 20e-6 + 100 * .2e-6);
+  for (const scope of ["workspace", "machine"]) {
+    const input = { ...f, query: { ...f.query, scope }, indexDir: path.join(f.home, "usage-index"), prices: catalog };
+    const data = await report(input);
+    assert.equal(data.total.tokens, 260); assert.equal(data.total.calls, 3); assert.equal(data.total.pricedCalls, 3);
+    assert.ok(Math.abs(data.total.knownCost - expectedCost) < 1e-12);
+    assert.deepEqual(data.models.map(row => [row.id, row.name, row.provider, row.tokens, row.calls]), [[modelId, model, "anthropic", 260, 3]]);
+    assert.deepEqual(data.facets.models, [{ id: modelId, name: model, provider: "anthropic" }]);
+    for (const key of ["days", "models", "agents", "projects", "sessions"]) assert.equal(data[key].reduce((sum, row) => sum + row.tokens, 0), data.total.tokens);
+    assert.deepEqual((await report({ ...input, query: { ...input.query, model: modelId } })).total, data.total);
+    const legacy = await report({ ...input, query: { ...input.query, model: JSON.stringify(["openai", "anthropic/" + model]) } });
+    assert.equal(legacy.total.tokens, 110); assert.equal(legacy.total.calls, 1); assert.equal(legacy.agents[0].id, "codex");
+    const combined = Data.combine([{ report: data, host: "mini", name: "Mini" }, { report: data, host: "mbp", name: "MBP" }]);
+    assert.equal(combined.models.length, 1); assert.equal(combined.models[0].tokens, 520); assert.equal(combined.total.calls, 6);
+    if (scope === "machine") {
+      const saved = await Promise.all((await fs.readdir(input.indexDir)).map(file => fs.readFile(path.join(input.indexDir, file), "utf8").then(JSON.parse)));
+      assert.ok(saved.some(index => index.result.rows.some(row => row.provider === "openai" && row.model === "anthropic/" + model)), "original connection stays in the existing index");
+      const service = createUsageAnalytics({ home: f.home, entries: () => f.entries, indexDir: input.indexDir, pricing: { read: async () => ({ models: catalog }) } });
+      try { const cached = await service.read(input.query); assert.deepEqual(cached.models, data.models); assert.deepEqual(cached.total, data.total); }
+      finally { await service.shutdown(); }
+    }
+  }
+});
+test("unpriced routed previews and unknown custom connections keep their own model groups", async t => {
+  const f = await fixture(t), rows = (await fs.readFile(f.piFile, "utf8")).trim().split("\n").map(JSON.parse);
+  rows[1].message = { role: "assistant", model: "minimax/MiniMax-M3.1-Flash-Preview", provider: "opencodex", usage: { input: 10, output: 20 } };
+  rows.push({ type: "message", id: "custom-model", timestamp: AT + 1, message: { role: "assistant", model: "claude-opus-5-5", provider: "custom-unknown", usage: { input: 30, output: 40 } } });
+  await f.write(f.piFile, rows);
+  const data = await report({ ...f, prices: {}, roots: {} });
+  assert.equal(data.total.calls, 4); assert.equal(data.total.pricedCalls, 0); assert.equal(data.total.unpricedCalls, 4); assert.equal(data.total.tokens, 325);
+  const preview = data.models.find(row => row.name === "MiniMax-M3.1-Flash-Preview"); assert.equal(preview.provider, "minimax"); assert.equal(preview.tokens, 30);
+  const custom = data.models.find(row => row.name === "claude-opus-5-5"); assert.equal(custom.provider, "custom-unknown"); assert.equal(custom.tokens, 70);
 });
 test("filters run before aggregation, unknown cost has explicit coverage, and files outside the workspace stay out", async t => {
   const f = await fixture(t);

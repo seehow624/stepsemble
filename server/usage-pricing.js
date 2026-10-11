@@ -2,6 +2,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { number } = require("./usage-records");
+const { modelIdentity, canonicalProvider: canonical } = require("../public/modules/usage-data");
 const PRICE_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 const MAX_BYTES = 5 * 1024 * 1024;
 const RATE_FIELDS = ["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost", "cache_creation_input_token_cost"];
@@ -17,33 +18,7 @@ const OFFICIAL = {
   "deepseek-v4.1-flash": { provider: "deepseek", input_cost_per_token: .30 / 1e6, output_cost_per_token: 1.2 / 1e6, cache_read_input_token_cost: .006 / 1e6 },
   "deepseek-flash": { provider: "deepseek", input_cost_per_token: .30 / 1e6, output_cost_per_token: 1.2 / 1e6, cache_read_input_token_cost: .006 / 1e6 },
 };
-const PROVIDER_ALIASES = { "openai-codex": "openai", "z-ai": "z_ai", zai: "z_ai", zhipu: "z_ai", "zhipu-ai": "z_ai", "minimax-cn": "minimax" };
-const canonical = provider => Object.hasOwn(PROVIDER_ALIASES, provider) ? PROVIDER_ALIASES[provider] : provider;
-const ROUTERS = new Set(["opencodex", "opencode-go"]);
-const VENDORS = new Set(["openai", "anthropic", "minimax", "z_ai", "deepseek", "gemini", "xai"]);
 const resolvedPrices = new WeakMap();
-function modelIdentity(provider, model) {
-  // OpenCodex's documented, reversible Claude Code picker aliases. The v2
-  // escape decoder must be single-pass (~ts is a literal ~s, not a slash).
-  const alias = canonical(provider) === "anthropic" && model.match(/^claude-ocx(2?)-([^/]+?)--(.+)$/);
-  if (alias) {
-    const decoded = alias[1] === "2" ? alias[3].replace(/~[st]/g, value => value === "~s" ? "/" : "~") : alias[3];
-    provider = alias[2] === "native" ? "openai" : "opencodex";
-    model = alias[2] === "native" ? decoded : alias[2] + "/" + decoded;
-  }
-  const routed = !provider || ROUTERS.has(provider) || canonical(provider) === "openai";
-  let vendor = canonical(provider), id = model;
-  if (routed) {
-    for (let count = 0; count < 3 && id.includes("/"); count++) {
-      const slash = id.indexOf("/"), prefix = canonical(id.slice(0, slash));
-      if (!ROUTERS.has(prefix) && !VENDORS.has(prefix)) break;
-      id = id.slice(slash + 1); if (VENDORS.has(prefix)) vendor = prefix;
-    }
-    const inferred = /^(?:gpt-|o[1-9](?:-|$))/.test(id) ? "openai" : /^claude-/.test(id) ? "anthropic" : /^minimax-/i.test(id) ? "minimax" : /^glm-/i.test(id) ? "z_ai" : /^deepseek-/i.test(id) ? "deepseek" : /^gemini-/i.test(id) ? "gemini" : /^grok-/i.test(id) ? "xai" : "";
-    if (inferred) vendor = inferred;
-  } else if (id.startsWith(vendor + "/")) id = id.slice(vendor.length + 1);
-  return { provider: vendor, model: id };
-}
 function findRates(provider, model, models) {
   let resolved = resolvedPrices.get(models);
   if (!resolved) { resolved = new Map(); resolvedPrices.set(models, resolved); }
@@ -57,7 +32,7 @@ function findRates(provider, model, models) {
   const wanted = identity.model.toLowerCase(); let match;
   for (const [key, value] of Object.entries(models)) {
     if (!compatible(value)) continue;
-    const clean = key.startsWith(value.provider + "/") ? key.slice(value.provider.length + 1) : key;
+    const slash = key.indexOf("/"), clean = slash > 0 && canonical(key.slice(0, slash)) === canonical(value.provider) ? key.slice(slash + 1) : key;
     if (clean.toLowerCase() !== wanted) continue;
     if (match) return remember(null); match = value;
   }

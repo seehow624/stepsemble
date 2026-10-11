@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.51
+
+- Show the original model vendor in Usage instead of an OpenAI-compatible transport name. Group Claude, Gemini and other known routed models consistently across Codex, Claude Code, Pi and OpenCodex connections while preserving recorded connection metadata and vendor reference pricing.
+- Keep model totals and filters complete when Hosts run different Stepsemble versions. Combine legacy model aliases without counting history coverage twice, and safely handle a Host upgrading or rolling back during a query.
+- Recognize Google provider aliases and OpenRouter routes, and prefer an explicit vendor prefix over model-name inference. Keep unknown custom providers and unpublished prices explicit.
+- Add regressions for vendor classification, reference-price matching, mixed-version model filters and changing Host capabilities. Preserve existing usage histories and indexes.
+
 ## 3.8.50
 
 - Switch quota percentages and bars between Remaining and Used. Remember the display choice on this device and apply it to sidebar percentages and hover details; low-allowance warnings continue to follow the amount remaining.

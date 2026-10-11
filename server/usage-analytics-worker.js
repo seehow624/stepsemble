@@ -4,7 +4,7 @@ const fs = require("node:fs"), path = require("node:path");
 const { createUsageParser } = require("./usage-records");
 const { estimate } = require("./usage-pricing");
 const { discoverUsageFiles, readUsageFile, failure } = require("./usage-history");
-const { empty, addCall } = require("../public/modules/usage-data");
+const { empty, addCall, modelIdentity } = require("../public/modules/usage-data");
 const SUPPORTED = new Set(["pi", "claude-code", "codex"]);
 const cache = new Map();
 const MAX_LINE = 8 * 1024 * 1024, MAX_FILE = 512 * 1024 * 1024, MAX_SCAN = 1024 * 1024 * 1024;
@@ -209,20 +209,23 @@ async function report(input) {
   }
   for (const row of seen.values()) {
     if (row.at < query.from || row.at >= query.to) continue;
-    const entry = row.entry, record = entry.record, modelId = JSON.stringify([row.provider, row.model]), project = record.cwd || "";
+    const entry = row.entry, record = entry.record, model = modelIdentity(row.provider, row.model), modelId = JSON.stringify([model.provider, model.model]), project = record.cwd || "";
     facets.agents.set(record.agentId, { id: record.agentId, name: record.agentId });
     facets.projects.set(project, { id: project, name: path.basename(project) || "—" });
-    facets.models.set(modelId, { id: modelId, name: row.model, provider: row.provider });
-    if (query.agent && query.agent !== record.agentId || query.project && query.project !== project || query.model && query.model !== modelId || query.entry && query.entry !== entry.key) continue;
+    facets.models.set(modelId, { id: modelId, name: model.model, provider: model.provider });
+    // Older clients may still send an id from a report grouped by the recorded
+    // connection. Keep that exact filter working during a rolling update.
+    const matchesModel = !query.model || query.model === modelId || query.model === JSON.stringify([row.provider, row.model]);
+    if (query.agent && query.agent !== record.agentId || query.project && query.project !== project || !matchesModel || query.entry && query.entry !== entry.key) continue;
     const cost = estimate(row, prices); addCall(total, row, cost);
     const date = dateOf(row.at);
-    fold("days", date, row, cost, { date }); fold("models", modelId, row, cost, { name: row.model, provider: row.provider });
+    fold("days", date, row, cost, { date }); fold("models", modelId, row, cost, { name: model.model, provider: model.provider });
     fold("agents", record.agentId, row, cost, { name: record.agentId }); fold("projects", project, row, cost, { name: path.basename(project) || "—", cwd: project });
     fold("sessions", entry.key, row, cost, { name: record.name || record.agentId, agent: record.agentId, cwd: project, registered: entry.registered !== false });
   }
   return { version: 1, total, ...Object.fromEntries(Object.entries(groups).map(([key, map]) => [key, [...map.values()].sort((a, b) => key === "days" ? a.date.localeCompare(b.date) : b.tokens - a.tokens || a.id.localeCompare(b.id))])),
     facets: Object.fromEntries(Object.entries(facets).map(([key, map]) => [key, [...map.values()].sort((a, b) => a.name.localeCompare(b.name))])), coverage, issues,
-    range: { from: query.from, to: query.to, timeZone: query.timeZone }, priceUpdatedAt, generatedAt: Date.now(), scope, sources, currency: "USD", costKind: "estimate" };
+    range: { from: query.from, to: query.to, timeZone: query.timeZone }, priceUpdatedAt, generatedAt: Date.now(), scope, sources, currency: "USD", costKind: "estimate", modelGrouping: "vendor" };
 }
 if (parentPort) parentPort.on("message", async request => {
   try { parentPort.postMessage({ id: request.id, report: await report(request.input) }); }

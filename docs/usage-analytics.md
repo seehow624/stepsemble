@@ -30,6 +30,16 @@ device's time zone. Agent, project and model filters run before aggregation.
 The daily chart separates uncached input, output, cache reads and cache writes;
 click, focus or tap a day for its exact token count and estimated cost. Models,
 Projects, Agents and Sessions show the same totals grouped in different ways.
+Models groups recognized routed IDs by their original vendor and model, so
+Claude through an OpenAI-compatible connection is shown under Anthropic, and
+the same model through native and OpenCodex connections shares one row. The
+model filter follows that grouping. Original connection names stay in the
+history and index; grouping does not identify the billing account or
+change sign-in. The combined view also normalizes older Hosts' model rows and
+filters their exact connection/model IDs separately before combining them.
+History coverage is counted once per Host; a failed component is shown as an
+unavailable Host rather than silently missing part of a selected model. Once
+vendor grouping is confirmed, current Hosts need only one request per model filter.
 Select an added Session to return to its conversation. Select an unregistered
 native Session to filter its usage in place; a removable Session chip identifies
 the filter. This does not import a conversation or start an agent.
@@ -89,10 +99,11 @@ reader does not fabricate its usage or remove its Workspace registration.
 Costs are **estimates in USD, not bills**. A positive Pi-reported estimate takes
 precedence; otherwise the original vendor/model is resolved before consulting the public
 [LiteLLM reference-price catalog](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json).
-OpenCodex, OpenCode Go and OpenAI-compatible transport names do not prevent
+OpenCodex, OpenCode, OpenRouter and OpenAI-compatible transport names do not prevent
 OpenAI, Anthropic, MiniMax, Z.AI or DeepSeek reference prices from matching.
-Nested vendor IDs and OpenCodex's reversible Claude Code picker aliases are
-recognized. Unknown custom providers are not silently equated with a vendor.
+Nested vendor IDs, Google's `google`/`gemini` names and OpenCodex's reversible
+Claude Code picker aliases are recognized. Explicit vendor prefixes take
+precedence over model-family guesses. Unknown custom providers are not silently equated with a vendor.
 Cache categories and supported long-context rates are priced independently.
 Missing cache rates, mismatched providers or unknown models remain unpriced.
 Pi's default zero cost for a custom/subscription model is not evidence of a free
