@@ -350,7 +350,8 @@ test("bounded native readers resume a large tool body and use a numeric disk ind
   const { execFileSync } = require("node:child_process");
   const code = "const {readUsageFile}=require('./server/usage-history');const budget={deadline:Date.now()+10000,bytes:0,maxBytes:100000000};readUsageFile(JSON.parse(process.argv[1]),budget,process.argv[2]).then(r=>console.log(JSON.stringify({bytes:budget.bytes,rows:r.rows.length,partial:r.partial})))";
   const warm = JSON.parse(execFileSync(process.execPath, ["-e", code, JSON.stringify(source), indexDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" }));
-  assert.deepEqual(warm, { bytes: 0, rows: 2, partial: false });
+  const saved = JSON.parse(await fs.readFile(path.join(indexDir, cache), "utf8"));
+  assert.deepEqual(warm, { bytes: 0, rows: 2, partial: false }, JSON.stringify({ file: saved.state.file, fingerprint: saved.fingerprint, checkpoint: saved.state.checkpoint }));
   await fs.appendFile(f.codexFile, JSON.stringify(codexCount(raw(250, 30, 100), raw(50, 10), AT + 2000)) + "\n");
   const appended = JSON.parse(execFileSync(process.execPath, ["-e", code, JSON.stringify(source), indexDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" }));
   assert.equal(appended.rows, 3); assert.equal(appended.partial, false); assert.ok(appended.bytes < 1024, "only the appended numeric record is read in a fresh worker");
