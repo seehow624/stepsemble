@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.8.48
 
 - Count readable Codex, Claude Code and Pi histories across the selected computer, including terminal work, archives and unregistered subagents. Deduplicate copied calls, show initial indexing progress, and filter native Sessions without importing or starting them.
 - Resolve OpenCodex and compatible routed model IDs to original vendor reference prices, including Claude Code aliases. Use published GLM/DeepSeek catalog fallbacks and all published context thresholds; keep unknown preview prices explicit.
