@@ -379,7 +379,8 @@ app_reload_receipt=""
 
 macos_app_ready() {
   [[ "$(/usr/bin/uname -s)" == "Darwin" && "$SERVICE_LABEL" == "com.stepsemble.server" && -f "$SERVER_PLIST" ]] || return 1
-  [[ -f "$INSTALL_DIR/deploy/stepsemble-macos-app.sh" && -d "$INSTALL_DIR/macos/Stepsemble.app" ]] || return 1
+  [[ -f "$INSTALL_DIR/deploy/stepsemble-macos-app.sh" \
+    && ( -d "$INSTALL_DIR/macos/Stepsemble.app" || -f "$INSTALL_DIR/macos/Stepsemble.app.zip" ) ]] || return 1
   # A rollback replaces the release, so undoing needs a copy of the helper.
   app_helper="$work_dir/stepsemble-macos-app.sh"
   app_reload_receipt="$work_dir/app-host-reloaded"

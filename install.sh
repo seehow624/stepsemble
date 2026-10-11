@@ -479,7 +479,7 @@ activate_release() {
 # Host starts directly with Node.js, as before.
 prepare_macos_app() {
   local helper="$INSTALL_DIR/deploy/stepsemble-macos-app.sh" source_app="$INSTALL_DIR/macos/Stepsemble.app"
-  if [[ ! -f "$helper" || ! -d "$source_app" ]]; then
+  if [[ ! -f "$helper" || ( ! -d "$source_app" && ! -f "$source_app.zip" ) ]]; then
     (( USE_SSH_LAUNCHER )) || note "This release has no Stepsemble app; the Host starts directly with Node.js"
     return 0
   fi

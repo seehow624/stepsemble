@@ -12,6 +12,21 @@
   Object.assign(strings.en, { historyCoverage: "{covered} histories read · all dates", historyMissing: "{count} histories could not be read", issueDetails: "View history issues ({count})", issueScope: "This check covers all saved history, independently of the selected dates and filters.", issueMore: "{count} more issues are not listed.", issue_missing_file: "History file not found", issue_permission_denied: "Permission denied", issue_unsupported_format: "Unsupported history format", issue_identity_mismatch: "History identity does not match", issue_incomplete_records: "Some usage records are incomplete", issue_malformed_records: "Some records contain invalid JSON", issue_record_too_large: "A record exceeds the reading limit", issue_truncated: "The child transcript was truncated", issue_file_limit: "The file exceeds the reading limit", issue_unsafe_file: "History is outside the allowed location or ownership", issue_source_changed: "The file changed while being read; refresh to retry", issue_read_failed: "History could not be read" });
   Object.assign(strings["zh-Hant"], { historyCoverage: "已讀取 {covered} 份歷史紀錄 · 所有日期", historyMissing: "{count} 份歷史紀錄無法讀取", issueDetails: "查看歷史紀錄問題（{count}）", issueScope: "此檢查涵蓋整個歷史庫，不受所選日期與篩選條件限制。", issueMore: "另有 {count} 筆問題未列出。", issue_missing_file: "找不到歷史檔", issue_permission_denied: "沒有讀取權限", issue_unsupported_format: "尚未支援的歷史格式", issue_identity_mismatch: "歷史檔身分與預期不符", issue_incomplete_records: "部分用量紀錄不完整", issue_malformed_records: "部分紀錄的 JSON 格式損壞", issue_record_too_large: "單筆紀錄超過讀取上限", issue_truncated: "子 Agent 匯出紀錄已被截斷", issue_file_limit: "檔案超過讀取上限", issue_unsafe_file: "歷史檔位置或擁有者不符合讀取範圍", issue_source_changed: "讀取時檔案已變更，請重新整理", issue_read_failed: "無法讀取歷史檔" });
   Object.assign(strings.zh, { historyCoverage: "已读取 {covered} 份历史记录 · 所有日期", historyMissing: "{count} 份历史记录无法读取", issueDetails: "查看历史记录问题（{count}）", issueScope: "此检查涵盖整个历史库，不受所选日期与筛选条件限制。", issueMore: "另有 {count} 条问题未列出。", issue_missing_file: "找不到历史文件", issue_permission_denied: "没有读取权限", issue_unsupported_format: "尚未支持的历史格式", issue_identity_mismatch: "历史文件身份与预期不符", issue_incomplete_records: "部分用量记录不完整", issue_malformed_records: "部分记录的 JSON 格式损坏", issue_record_too_large: "单条记录超过读取上限", issue_truncated: "子 Agent 导出记录已被截断", issue_file_limit: "文件超过读取上限", issue_unsafe_file: "历史文件位置或所有者不符合读取范围", issue_source_changed: "读取时文件已变更，请刷新", issue_read_failed: "无法读取历史文件" });
+  Object.assign(strings.en, { quotaDisplay: "Display", remainingMode: "Remaining", usedMode: "Used", used: "{percent}% used",
+    overviewHint: "Your allowance and the work behind it.", limitsNote: "Allowances come from your signed-in services. Token usage and estimated costs are available in Usage." });
+  Object.assign(strings["zh-Hant"], { quotaDisplay: "顯示方式", remainingMode: "剩餘", usedMode: "已用", used: "已用 {percent}%",
+    overviewHint: "查看額度，了解每一份工作的用量。", limitsNote: "額度來自已登入的服務；Token 用量與估算費用可在「用量」查看。" });
+  Object.assign(strings.zh, { quotaDisplay: "显示方式", remainingMode: "剩余", usedMode: "已用", used: "已用 {percent}%",
+    overviewHint: "查看额度，了解每一份工作的用量。", limitsNote: "额度来自已登录的服务；Token 用量与估算费用可在“用量”查看。" });
+  const QUOTA_DISPLAY_KEY = "stepsemble.quota-display.v1";
+  function readQuotaMode() { try { return root.localStorage?.getItem(QUOTA_DISPLAY_KEY) === "used" ? "used" : "remaining"; } catch { return "remaining"; } }
+  let quotaMode = readQuotaMode();
+  function quotaRemaining(window) {
+    const value = Number.isFinite(window?.remainingPercent) ? window.remainingPercent : Number.isFinite(window?.usedPercent) ? 100 - window.usedPercent : null;
+    return value === null ? null : Math.max(0, Math.min(100, Math.round(value)));
+  }
+  function quotaPercent(window) { const remaining = quotaRemaining(window); return remaining === null ? null : quotaMode === "used" ? 100 - remaining : remaining; }
+  function quotaLabel(window) { const percent = quotaPercent(window); return percent === null ? label("quotaUnknown") : label(quotaMode, { percent }); }
   const localeOf = () => document.documentElement.lang || "en";
   function label(key, vars = {}) { const locale = localeOf(); return (strings[locale]?.[key] || strings.en[key] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? ""); }
   const node = (tag, value = "", className = "") => { const el = document.createElement(tag); el.textContent = value; el.className = className; return el; };
@@ -32,11 +47,18 @@
     return { from: from.getTime(), to: to.getTime(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" };
   }
   function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
-  function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, openQuotaSources = () => {}, providerLogo = () => node("span"), restoreFocus = () => {} }) {
+  function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, onQuotaDisplayChanged = () => {}, openQuotaSources = () => {}, providerLogo = () => node("span"), restoreFocus = () => {} }) {
     let indexingTimer;
     let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
     let scrolls = { limits: 0, usage: 0 }, issuesOpen = false;
+    function selectQuotaMode(value) {
+      if (value === quotaMode) return;
+      quotaMode = value === "used" ? "used" : "remaining";
+      try { root.localStorage?.setItem(QUOTA_DISPLAY_KEY, quotaMode); } catch { /* Still usable when device storage is unavailable. */ }
+      if (panel && tab === "limits") renderLimits();
+      onQuotaDisplayChanged();
+    }
     function close() { if (!panel) return; sequence++; clearInterval(timer); clearTimeout(indexingTimer); panel.close(); panel.remove(); panel = null; view = null; onVisibility(); if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus(); }
     function makeSelect(name, values, value, changed) {
       const select = node("select"); select.setAttribute("aria-label", label(name)); select.dataset.filter = name;
@@ -229,15 +251,22 @@
       section.append(tabs, list); rows(); return section;
     }
     function renderLimits() {
-      const body = view.body, scroll = body.scrollTop, focused = body.contains(document.activeElement) ? document.activeElement?.dataset.quotaSource : null;
+      const body = view.body, scroll = body.scrollTop, focused = body.contains(document.activeElement) ? document.activeElement?.dataset : null;
       body.replaceChildren();
+      const toolbar = node("div", "", "usage-quota-toolbar"), toggle = node("div", "", "usage-quota-toggle");
+      toggle.setAttribute("role", "group"); toggle.setAttribute("aria-label", label("quotaDisplay"));
+      for (const mode of ["remaining", "used"]) {
+        const control = button(label(mode + "Mode"), () => selectQuotaMode(mode)); control.dataset.quotaMode = mode;
+        control.setAttribute("aria-pressed", String(mode === quotaMode)); toggle.append(control);
+      }
+      toolbar.append(node("span", label("quotaDisplay")), toggle); body.append(toolbar);
       const section = node("section", "", "usage-quotas"); section.setAttribute("aria-label", label("limitsTab"));
       const grid = node("div", "", "usage-quota-grid");
       const duration = minutes => minutes % 1440 === 0 ? minutes / 1440 + "d" : minutes % 60 === 0 ? minutes / 60 + "h" : minutes + "m";
       for (const host of quotas) {
         if (host.unavailable) { const notice = node("p", host.name + " · " + label("offline") + (host.quota ? " · " + label("cachedLimits") : ""), "usage-notice"); notice.setAttribute("role", "status"); body.append(notice); }
         const providers = [...(host.quota?.providers || [])].sort((a, b) => {
-          const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => Number.isFinite(w.remainingPercent) ? w.remainingPercent : 101));
+          const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => quotaRemaining(w) ?? 101));
           return tightest(a) - tightest(b);
         });
         if (!providers.length) {
@@ -255,17 +284,17 @@
           readings.style.setProperty("--quota-columns", String(Math.min(3, Math.max(2, windows.length))));
           if (!windows.length) readings.append(node("p", label("quotaUnknown"), "usage-quota-unknown usage-muted"));
           for (const window of windows) {
-            const remaining = Number.isFinite(window.remainingPercent) ? Math.max(0, Math.min(100, Math.round(window.remainingPercent))) : null;
+            const remaining = quotaRemaining(window), percent = quotaPercent(window);
             const row = node("div", "", "usage-quota-window"); row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining <= 10 ? "critical" : "low";
             const minutes = window.windowDurationMins, period = Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || "";
             const bucket = window.bucket && ![provider.provider, provider.service].some(name => String(name || "").toLowerCase() === String(window.bucket).toLowerCase()) ? window.bucket : "";
-            const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = remaining === null ? "—" : label("remaining", { percent: remaining });
-            const line = node("div", "", "usage-quota-line"), amount = node("strong", remaining === null ? "—" : remaining + "%");
-            amount.setAttribute("aria-label", remaining === null ? label("quotaUnknown") : value); amount.title = remaining === null ? label("quotaUnknown") : value;
+            const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = quotaLabel(window);
+            const line = node("div", "", "usage-quota-line"), amount = node("strong", percent === null ? "—" : percent + "%");
+            amount.setAttribute("aria-label", value); amount.title = value;
             line.append(node("span", name), amount);
-            const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + (remaining === null ? label("quotaUnknown") : value));
-            bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (remaining !== null) bar.setAttribute("aria-valuenow", String(remaining));
-            const fill = node("span"); fill.style.width = (remaining ?? 0) + "%"; bar.append(fill); row.append(line, bar);
+            const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + value);
+            bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (percent !== null) { bar.setAttribute("aria-valuenow", String(percent)); bar.setAttribute("aria-valuetext", value); }
+            const fill = node("span"); fill.style.width = (percent ?? 0) + "%"; bar.append(fill); row.append(line, bar);
             if (window.resetsAt) {
               const left = Math.max(0, Math.ceil((window.resetsAt - Date.now()) / 60000)), days = Math.floor(left / 1440), hours = Math.floor(left % 1440 / 60);
               const reset = node("small", left ? label("resetsIn", { time: days ? `${days}d ${hours}h` : hours ? `${hours}h ${left % 60}m` : `${left}m` }) : label("awaitingReset"));
@@ -282,7 +311,8 @@
       }
       if (grid.children.length) section.prepend(grid);
       body.append(section, node("p", label("limitsNote"), "usage-explanation usage-muted"));
-      if (focused) [...body.querySelectorAll("[data-quota-source]")].find(el => el.dataset.quotaSource === focused)?.focus({ preventScroll: true });
+      if (focused?.quotaSource) [...body.querySelectorAll("[data-quota-source]")].find(el => el.dataset.quotaSource === focused.quotaSource)?.focus({ preventScroll: true });
+      else if (focused?.quotaMode) [...body.querySelectorAll("[data-quota-mode]")].find(el => el.dataset.quotaMode === focused.quotaMode)?.focus({ preventScroll: true });
       body.scrollTop = scroll;
     }
     async function open(target, trigger = document.activeElement) {
@@ -317,7 +347,12 @@
       schedule(); await load();
     }
     document.addEventListener("visibilitychange", () => { if (panel && !document.hidden) void load(); });
+    root.addEventListener?.("storage", event => {
+      if (event.key !== null && event.key !== QUOTA_DISPLAY_KEY) return;
+      const next = readQuotaMode(); if (next === quotaMode) return; quotaMode = next;
+      if (panel && tab === "limits") renderLimits(); onQuotaDisplayChanged();
+    });
     return { open, close, label, followHost(target) { if (panel) selectHost(target, false); }, isOpen: () => !!panel };
   }
-  root.StepsembleUsageUI = { create, label, range, money };
+  root.StepsembleUsageUI = { create, label, range, money, quotaRemaining, quotaPercent, quotaLabel };
 })(window);

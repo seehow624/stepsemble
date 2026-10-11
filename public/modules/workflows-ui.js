@@ -36,6 +36,7 @@
     objectiveRequired: "Describe an objective before starting.",
     resultEmpty: "The result will appear here when the agent finishes a turn.", historyEmpty: "No runs yet. The first result will appear here.",
     nextNone: "No upcoming run", editTime: "Choose a new time to run this schedule again.", requestPending: "Saving…",
+    waitingCapacity: "Waiting for capacity",
   };
   const aliases = { pause: "pause", resume: "resume", stop: "stop", minutes: "minutes", turns: "turns", tokens: "tokens", limitsError: "limitsError", thinking: "state.thinking", approval: "state.waiting" };
   const locale = () => root?.document.documentElement.lang || "en";
@@ -261,7 +262,7 @@
       for (const node of shell.filters.children) { node.textContent = t(node.dataset.focus.slice(7)); node.setAttribute("aria-pressed", String(node.dataset.focus === "filter:" + filter)); }
       const visible = sortedRows();
       if (!visible.some(row => row.id === selected)) { selected = visible[0]?.id || null; historyId = null; }
-      const signature = JSON.stringify([locale(), view, query, filter, selected, loaded, visible.map(row => [row.id,row.title,row.status,row.agentId,row.cwd,row.enabled,row.schedule,row.nextAt])]);
+      const signature = JSON.stringify([locale(), view, query, filter, selected, loaded, visible.map(row => [row.id,row.title,row.status,row.agentId,row.cwd,row.enabled,row.schedule,row.nextAt,row.capacityBlocked])]);
       if (force || signature !== listSignature) {
         listSignature = signature; const scroll = shell.list.scrollTop, restore = rememberFocus(shell.list);
         shell.list.replaceChildren();
@@ -274,7 +275,7 @@
             if (root.matchMedia?.("(max-width:700px)").matches) shell.detail.querySelector(".wf-mobile-back")?.focus();
           }, "wf-item", "row:" + row.id);
           item.setAttribute("aria-current", String(row.id === selected)); item.dataset.state = row.status || scheduleState(row);
-          const top = el("span", "", "wf-item-top"); top.append(el("strong", row.title), badge(row.status || scheduleState(row)));
+          const top = el("span", "", "wf-item-top"); top.append(el("strong", row.title), badge(row.capacityBlocked ? "waitingCapacity" : row.status || scheduleState(row)));
           const context = el("span", agentName(row.agentId) + " · " + baseName(row.cwd), "wf-item-context");
           const meta = el("span", "", "wf-item-meta");
           if (view === "goals") { const time = el("span"); time.dataset.clock = row.id; meta.append(time); if (row.scheduleId) meta.append(el("span", t("scheduled"))); }
@@ -333,7 +334,7 @@
       history = [...history].sort((a,b) => (b.createdAt || 0)-(a.createdAt || 0));
       const node=el("article","","wf-inspector"); node.dataset.scheduleId=row.id;
       node.append(agentProject(row),el("h2",row.title));
-      const plan=el("div","","wf-plan"); plan.append(badge(scheduleState(row)),el("span",t("next"),"wf-caption"));
+      const plan=el("div","","wf-plan"); plan.append(badge(row.capacityBlocked ? "waitingCapacity" : scheduleState(row)),el("span",t("next"),"wf-caption"));
       plan.append(el("strong",row.enabled && row.nextAt ? stamp(row.nextAt,row.schedule.timeZone) : t("nextNone"),"wf-next-time"));
       const countdown=el("span","","wf-countdown"); if(row.enabled && row.nextAt)countdown.dataset.next=String(row.nextAt); plan.append(countdown);
       plan.append(el("p",scheduleLabel(row.schedule),"wf-recurrence"));

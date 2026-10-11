@@ -49,7 +49,7 @@
 .wf-status {display:inline-flex;align-items:center;gap:5px;font-size:.65rem;line-height:1.4;white-space:nowrap;color:var(--pine-soft);font-weight:500;}
 .wf-status::before {content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0;}
 .wf-status[data-state=running],.wf-status[data-state=enabled],.wf-status[data-state=completed] {color:var(--wf-green);}
-.wf-status:is([data-state=waiting],[data-state=blocked],[data-state=limited],[data-state=interrupted]) {color:var(--wf-amber);}
+.wf-status:is([data-state=waiting],[data-state=waitingCapacity],[data-state=blocked],[data-state=limited],[data-state=interrupted]) {color:var(--wf-amber);}
 .wf-status[data-state=failed] {color:var(--wf-red);}
 .wf-item-context {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;font-size:.72rem;color:var(--pine-soft);}
 .wf-item-meta {display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;color:var(--pine-soft);font-size:.68rem;font-variant-numeric:tabular-nums;}

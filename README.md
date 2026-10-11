@@ -382,7 +382,7 @@ kept for the app are cleared.
 | `~/.local/share/stepsemble` | Application release |
 | `~/.local/share/stepsemble-bin` | Updater and uninstaller |
 | `~/Applications/Stepsemble.app` | Starts the Host on macOS; signed on this Mac |
-| `~/Library/Application Support/Stepsemble` | This Mac's signing certificate for the app, and the app the last update replaced |
+| `~/Library/Application Support/Stepsemble` | This Mac's signing certificate, and `previous/Stepsemble.app.zip` for rollback |
 | `~/.config/stepsemble` | Web token, hash-only access tokens, device-trust grants, and update preferences |
 | `~/.config/stepsemble/tokens.json` | Additional access-token hashes; mode `600` |
 | `~/.local/state/stepsemble` | Local service logs and migration state |

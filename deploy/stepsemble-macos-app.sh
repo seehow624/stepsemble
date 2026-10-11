@@ -9,7 +9,7 @@
 # and never leaves this Mac. install.sh and the updater call this script.
 #
 # Usage:
-#   stepsemble-macos-app.sh install <Stepsemble.app>  sign a copy for this Mac and install it
+#   stepsemble-macos-app.sh install <Stepsemble.app[.zip]>  sign a copy for this Mac and install it
 #   stepsemble-macos-app.sh restore                   put back the app that install replaced
 #   stepsemble-macos-app.sh check [version]           succeed when the installed app is signed
 #                                                     by this Mac (and has that version)
@@ -25,6 +25,7 @@ readonly APP_PATH="${STEPSEMBLE_APP_PATH:-$HOME/Applications/Stepsemble.app}"
 readonly SUPPORT_DIR="${STEPSEMBLE_APP_SUPPORT_DIR:-$HOME/Library/Application Support/Stepsemble}"
 readonly SIGNING_DIR="$SUPPORT_DIR/signing"
 readonly PREVIOUS_APP="$SUPPORT_DIR/previous/Stepsemble.app"
+readonly PREVIOUS_ARCHIVE="$PREVIOUS_APP.zip"
 readonly APP_EXECUTABLE="$APP_PATH/Contents/MacOS/Stepsemble"
 readonly LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 readonly HOST_LABEL="${STEPSEMBLE_SERVICE_LABEL:-com.stepsemble.server}"
@@ -123,6 +124,8 @@ HOST_WAS_RELOADED=0
 APP_OLD_MOVED=0
 APP_NEW_MOVED=0
 RESTORE_DISPLACED=""
+RESTORE_COMMITTED=0
+STAGE_ROOT=""
 
 # Keep this in the release's helper: an older updater also calls the new
 # helper. launchd must forget the running app before its signed executable is
@@ -159,6 +162,7 @@ resume_app_host() {
       # Commit before clearing the recovery flag: a signal immediately after
       # bootstrap must not replace an executable the new Host is now using.
       APP_OLD_MOVED=0 APP_NEW_MOVED=0
+      RESTORE_COMMITTED=1
       HOST_RELOAD_NEEDED=0
       HOST_WAS_RELOADED=1
       /bin/rm -f -- "$HOST_RELOAD_MARKER"
@@ -178,11 +182,15 @@ finish_helper() {
     if (( APP_OLD_MOVED )) && [[ -d "$PREVIOUS_APP" ]]; then mv "$PREVIOUS_APP" "$APP_PATH"; fi
     [[ ! -d "$APP_PATH" ]] || "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
   fi
-  if [[ -n "$RESTORE_DISPLACED" ]]; then
-    if [[ -d "$RESTORE_DISPLACED" && ! -e "$APP_PATH" ]]; then mv "$RESTORE_DISPLACED" "$APP_PATH"; fi
+  if [[ -n "$RESTORE_DISPLACED" ]] && (( ! RESTORE_COMMITTED )); then
+    if [[ -d "$RESTORE_DISPLACED" ]]; then
+      /bin/rm -rf -- "$APP_PATH"
+      mv "$RESTORE_DISPLACED" "$APP_PATH"
+    fi
     [[ ! -d "$APP_PATH" ]] || "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
   fi
   resume_app_host || print -u2 -- "stepsemble-macos-app: Host reload is pending; the updater will retry"
+  [[ -z "$STAGE_ROOT" ]] || /bin/rm -rf -- "$STAGE_ROOT"
   return "$result"
 }
 trap 'finish_helper' EXIT
@@ -246,30 +254,73 @@ check_app() {
   [[ -z "$expected" || "$(plist_value "$APP_PATH/Contents/Info.plist" CFBundleShortVersionString)" == "${expected#v}" ]]
 }
 
+# LaunchServices can rediscover a deregistered .app on disk. Keep rollback
+# and managed release copies in opaque archives instead, preserving signatures
+# and permissions with ditto. A failed archive never removes its source.
+archive_bundle() {
+  local bundle="$1" archive="$1.zip" temporary
+  [[ -d "$bundle" ]] || return 0
+  [[ ! -L "$bundle" && ! -L "$archive" ]] || return 1
+  temporary="$(mktemp "${archive:h}/.stepsemble-archive.XXXXXX")" || return 1
+  if ! /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$bundle" "$temporary" \
+    || ! /usr/bin/unzip -tq "$temporary" >/dev/null 2>&1 \
+    || ! /bin/mv -f "$temporary" "$archive"; then
+    /bin/rm -f -- "$temporary"
+    return 1
+  fi
+  "$LSREGISTER" -u "$bundle" >/dev/null 2>&1 || true
+  /bin/rm -rf -- "$bundle"
+}
+
+archive_installer_copies() {
+  local source="${1%.zip}" managed="${HOME:A}/.local/share" root bundle
+  # Never move an arbitrary source App or a developer's build output. Releases
+  # still ship a directory so older updaters can call this new helper unchanged.
+  case "$source" in
+    "$managed"/stepsemble/macos/Stepsemble.app|"$managed"/pi-harbor/macos/Stepsemble.app|"$managed"/pi-web/macos/Stepsemble.app) ;;
+    *) return 0 ;;
+  esac
+  root="${source:h:h}"
+  for bundle in "$source" "$root.previous/macos/Stepsemble.app"; do
+    archive_bundle "$bundle" || print -u2 -- "stepsemble-macos-app: could not archive $bundle; its copy is retained"
+  done
+  return 0
+}
+
 install_app() {
-  local source="${1:A}" version stage_root stage reported
+  local input="${1:A}" source version stage reported
+  source="$input"
+  # Installed release payloads are archived after use. Accept the old argument
+  # as well, so retries and older callers can still recreate a missing App.
+  [[ -d "$source" || ! -f "$source.zip" ]] || source="$source.zip"
+  if [[ "$source" == *.zip && -f "$source" ]]; then
+    [[ ! -L "$SUPPORT_DIR" && ! -L "$SUPPORT_DIR/staging" ]] || die "refusing a symlinked staging directory"
+    mkdir -p "$SUPPORT_DIR/staging"
+    STAGE_ROOT="$(mktemp -d "$SUPPORT_DIR/staging/install.XXXXXX")"
+    /usr/bin/ditto -x -k "$source" "$STAGE_ROOT/source" || die "could not read the app archive"
+    source="$STAGE_ROOT/source/Stepsemble.app"
+  fi
   [[ -d "$source/Contents/MacOS" && -x "$source/Contents/MacOS/Stepsemble" ]] || die "not a Stepsemble app: $source"
   [[ "$(plist_value "$source/Contents/Info.plist" CFBundleIdentifier)" == "$BUNDLE_ID" ]] || die "not a Stepsemble app: $source"
   version="$(plist_value "$source/Contents/Info.plist" CFBundleShortVersionString)"
   [[ -n "$version" ]] || die "the app has no version"
   ensure_identity
-  /bin/rm -rf -- "$SUPPORT_DIR/staging"
+  [[ ! -L "$SUPPORT_DIR/staging" ]] || die "refusing a symlinked staging directory"
   mkdir -p "$SUPPORT_DIR/staging" "${PREVIOUS_APP:h}" "${APP_PATH:h}"
-  stage_root="$(mktemp -d "$SUPPORT_DIR/staging/install.XXXXXX")"
-  stage="$stage_root/Stepsemble.app"
+  [[ -n "$STAGE_ROOT" ]] || STAGE_ROOT="$(mktemp -d "$SUPPORT_DIR/staging/install.XXXXXX")"
+  stage="$STAGE_ROOT/Stepsemble.app"
   # Extended attributes (quarantine, Finder info) would fail codesign.
   if ! /usr/bin/ditto --norsrc --noextattr --noacl "$source" "$stage" || ! sign_bundle "$stage" \
     || ! bundle_is_signed_here "$stage"; then
-    /bin/rm -rf -- "$stage_root"
     die "could not sign Stepsemble.app for this Mac"
   fi
   reported="$("$stage/Contents/MacOS/Stepsemble" --version 2>/dev/null || true)"
   if [[ "$reported" != "$version" ]]; then
-    /bin/rm -rf -- "$stage_root"
     die "the signed app does not start"
   fi
   pause_app_host
   /bin/rm -rf -- "$PREVIOUS_APP"
+  /bin/rm -f -- "$PREVIOUS_ARCHIVE"
   if [[ -e "$APP_PATH" ]]; then
     APP_OLD_MOVED=1
     mv "$APP_PATH" "$PREVIOUS_APP"
@@ -277,38 +328,56 @@ install_app() {
   fi
   APP_NEW_MOVED=1
   if ! mv "$stage" "$APP_PATH"; then
-    /bin/rm -rf -- "$stage_root"
     die "could not install Stepsemble.app"
   fi
-  /bin/rm -rf -- "$stage_root"
+  /bin/rm -rf -- "$STAGE_ROOT"
+  STAGE_ROOT=""
   "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
   resume_app_host || die "could not reload the Host with the new app"
   record_host_reload
   APP_OLD_MOVED=0 APP_NEW_MOVED=0
+  archive_bundle "$PREVIOUS_APP" || print -u2 -- "stepsemble-macos-app: could not archive the previous app; it is retained for rollback"
+  archive_installer_copies "$input"
   print -r -- "$APP_PATH"
 }
 
 # The app that install replaced comes back; after a first install, the app is
 # removed.
 restore_app() {
+  local stage="" displaced="$SUPPORT_DIR/restore-current/Stepsemble.app"
+  # Validate and prepare rollback before stopping a healthy Host. Legacy
+  # directory backups remain supported during the first update to this helper.
+  if [[ -d "$PREVIOUS_APP" || -f "$PREVIOUS_ARCHIVE" ]]; then
+    [[ ! -L "$SUPPORT_DIR" && ! -L "$SUPPORT_DIR/staging" ]] || die "refusing a symlinked staging directory"
+    mkdir -p "$SUPPORT_DIR/staging"
+    STAGE_ROOT="$(mktemp -d "$SUPPORT_DIR/staging/restore.XXXXXX")"
+    stage="$STAGE_ROOT/Stepsemble.app"
+    if [[ -d "$PREVIOUS_APP" ]]; then
+      /usr/bin/ditto "$PREVIOUS_APP" "$stage" || die "could not prepare the previous app"
+    else
+      /usr/bin/ditto -x -k "$PREVIOUS_ARCHIVE" "$STAGE_ROOT" || die "could not read the previous app archive"
+    fi
+    [[ "$(plist_value "$stage/Contents/Info.plist" CFBundleIdentifier)" == "$BUNDLE_ID" ]] \
+      && bundle_is_signed_here "$stage" || die "the previous app is not intact"
+  fi
   pause_app_host
-  if [[ -d "$PREVIOUS_APP" ]]; then
-    local displaced="$SUPPORT_DIR/restore-current/Stepsemble.app"
+  if [[ -n "$stage" ]]; then
     RESTORE_DISPLACED="$displaced"
     /bin/rm -rf -- "${displaced:h}"
     mkdir -p "${displaced:h}"
     [[ ! -e "$APP_PATH" ]] || mv "$APP_PATH" "$displaced"
-    if ! mv "$PREVIOUS_APP" "$APP_PATH"; then
-      [[ ! -e "$displaced" ]] || mv "$displaced" "$APP_PATH"
-      die "could not restore Stepsemble.app"
-    fi
-    /bin/rm -rf -- "${displaced:h}"
+    mv "$stage" "$APP_PATH" || die "could not restore Stepsemble.app"
+    "$LSREGISTER" -u "$displaced" >/dev/null 2>&1 || true
     "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
   else
     [[ ! -e "$APP_PATH" ]] || "$LSREGISTER" -u "$APP_PATH" >/dev/null 2>&1 || true
     /bin/rm -rf -- "$APP_PATH"
   fi
   resume_app_host || die "could not reload the Host with the restored app"
+  RESTORE_COMMITTED=1
+  [[ -z "$stage" ]] || /bin/rm -rf -- "$PREVIOUS_APP" "${displaced:h}"
+  [[ -z "$stage" ]] || /bin/rm -f -- "$PREVIOUS_ARCHIVE"
+  RESTORE_DISPLACED=""
   record_host_reload
 }
 
@@ -352,7 +421,7 @@ use_node() {
 }
 
 case "${1:-}" in
-  install) (( $# == 2 )) || die "usage: install <Stepsemble.app>"; install_app "$2" ;;
+  install) (( $# == 2 )) || die "usage: install <Stepsemble.app[.zip]>"; install_app "$2" ;;
   restore) restore_app ;;
   check) check_app "${2:-}" ;;
   launch-mode) (( $# == 2 )) || die "usage: launch-mode <plist>"; launch_mode "$2" ;;

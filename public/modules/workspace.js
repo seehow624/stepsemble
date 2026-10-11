@@ -612,7 +612,7 @@
     for (const w of provider.windows) {
       const line = node("span", "", "workspace-tip-row");
       line.append(node("span", windowShape(w), "workspace-tip-key"),
-        node("span", t("remaining", { percent: Math.round(w.remainingPercent) }), "workspace-tip-value"));
+        node("span", window.StepsembleUsageUI.quotaLabel(w), "workspace-tip-value"));
       tip.append(line);
       if (w.resetsAt) {
         tip.append(node("span", t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) }), "workspace-tip-note"));
@@ -632,9 +632,11 @@
   addEventListener("scroll", closeUsageTip, true);
   // The strip stays quiet while every allowance is comfortable: one line and
   // the providers' own logos. A provider close to its limit gets a chip with
-  // what is left of its tightest window. It opens the shared Limits/Usage view,
+  // its tightest window using the selected Remaining/Used display. It opens the shared Limits/Usage view,
   // even when this Host cannot currently report an allowance.
+  let usageReading = null;
   function renderUsage(data) {
+    usageReading = data;
     const holder = $("workspace-usage");
     closeUsageTip();
     holder.replaceChildren();
@@ -661,7 +663,7 @@
       anchor.addEventListener("pointerleave", closeUsageTip);
     };
     const spoken = rows.map(row => {
-      const summary = row.tightest ? `${usageLabel(row.tightest, row.provider)} · ${t("remaining", { percent: Math.round(row.tightest.remainingPercent) })}` : t("quotaUnavailable");
+      const summary = row.tightest ? `${usageLabel(row.tightest, row.provider)} · ${window.StepsembleUsageUI.quotaLabel(row.tightest)}` : t("quotaUnavailable");
       return `${row.provider.provider} · ${summary}` + (row.provider.status === "cached" && row.provider.observedAt ? ` · ${t("checked", { date: date(row.provider.observedAt) })}` : "");
     });
     const label = `${window.StepsembleUsageUI.label("overview")} · ${spoken.join(" · ")}`;
@@ -677,7 +679,7 @@
         const chip = node("span", "", "workspace-limit-alert");
         chip.dataset.level = row.level;
         if (row.provider.status === "cached") chip.dataset.stale = "true";
-        chip.append(providerLogo(row.provider.provider), node("span", `${Math.round(row.tightest.remainingPercent)}%`, "workspace-limit-percent"),
+        chip.append(providerLogo(row.provider.provider), node("span", `${window.StepsembleUsageUI.quotaPercent(row.tightest)}%`, "workspace-limit-percent"),
           node("span", windowShape(row.tightest) || "", "workspace-limit-period"));
         hover(chip, row);
         lead.append(chip);
@@ -1081,6 +1083,7 @@
     providerLogo,
     onHostSelected: selectHost,
     onQuotaUpdated(target, data) { if (target === host) { usageReadAt = Date.now(); renderUsage(data); } },
+    onQuotaDisplayChanged() { renderUsage(usageReading); },
     openQuotaSources(target) { selectHost(target); openSettings("quota-sources"); },
     restoreFocus() { document.querySelector(".workspace-limits-strip")?.focus({ preventScroll: true }); },
     onVisibility() { closeUsageTip(); document.querySelector(".workspace-limits-strip")?.setAttribute("aria-expanded", String(usageUI.isOpen())); reportDragRegions(); notificationPresence(); },

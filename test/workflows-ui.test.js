@@ -86,6 +86,16 @@ test("Goals and Schedules share one stable New button with a contextual accessib
   assert.equal(h.byKey("new"), add); assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New schedule");
   h.close();
 });
+test("a blocked schedule shows capacity waiting and clears the badge when admitted", async () => {
+  const h = await harness({ runs: [], schedules: [{ ...schedule(), capacityBlocked: true }] });
+  await h.byKey("tab:schedules").click();
+  assert.match(h.byKey("row:schedule-1").textContent, /Waiting for capacity/);
+  assert.match(h.find(".wf-detail").textContent, /Waiting for capacity/);
+  h.schedules[0].capacityBlocked = false; await h.tick(4000);
+  assert.doesNotMatch(h.byKey("row:schedule-1").textContent, /Waiting for capacity/);
+  assert.doesNotMatch(h.find(".wf-detail").textContent, /Waiting for capacity/);
+  h.close();
+});
 
 test("the Host clock advances only active work; paused, queued and terminal clocks are fixed",()=>{
   assert.equal(ui.duration(754000),"12:34");assert.equal(ui.duration(3602000),"1:00:02");

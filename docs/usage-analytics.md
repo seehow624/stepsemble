@@ -15,8 +15,13 @@ needed. The macOS App uses this same view.
 
 Limits groups providers into compact rows, with small service logos and
 allowance windows side by side. On phones the service identity sits above
-two columns of windows. Percentages show remaining allowance; progress-bar
-labels retain the full accessible description. The shared desktop panel is
+two columns of windows. By default, percentages show remaining allowance; progress-bar
+labels retain the full accessible description. **Remaining / Used** switches
+the percentages and bars between remaining allowance and consumed allowance.
+The sidebar percentages and hover details follow the same choice, stored on
+this device/browser. Low-allowance warnings always follow the amount remaining.
+Switching this display does not make a provider request or change statistics.
+The shared desktop panel is
 900 × 680 pixels at most; both tabs preserve the same geometry and scroll
 inside it when needed.
 
@@ -141,9 +146,11 @@ stored boundary hashes distinguish unchanged files, normal appends and source
 replacements/truncation. Normal appends resume from the saved offset, including
 after worker idle shutdown; other changes rebuild the index. Malformed indexes
 are rebuilt, and failed index writes do not discard confirmed usage.
-Index version 3 rebuilds older identities to avoid combining old native-only
-Pi identities with new child-response identities. Truncation and record-error
-reasons survive cached reads and ordinary appends.
+Index version 4 stores device/inode IDs as exact decimal strings, including
+64-bit file IDs, and modification times at nanosecond precision. Older indexes
+rebuild once rather than trusting rounded identifiers. The native/child-response
+identity separation introduced in version 3 is retained. Truncation and
+record-error reasons survive cached reads and ordinary appends.
 
 Machine scans are bounded to 20,000 discovered entries, 150,000 unique usage
 records, 8 GiB per native file, 16 GiB per scan and 16 seconds, with a 25-second

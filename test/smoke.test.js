@@ -1066,7 +1066,8 @@ test("composer drafts are session-scoped and narrow screens keep send visible", 
   assert.match(app, /beginDraftScope\(\{ file: s\.file, cwd: s\.cwd, name: s\.name \}\)/);
   assert.match(app, /beginDraftScope\(\{ cwd, name \}\)/);
   assert.match(app, /el\.input\.addEventListener\("input", \(\) => \{[\s\S]*?saveActiveDraft\(\)/);
-  assert.match(app, /removeDraftForKey\(sendDraftKey\)/);
+  // Send/restore behavior is exercised by composer-draft-races.test.js;
+  // matching an unconditional removal would enforce the old data-loss bug.
   assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?#view-chat \.context-ring \{ width: 20px; height: 20px; \}/);
 });
 

@@ -268,6 +268,8 @@ let settings = loadSettings();
 const DRAFT_STORAGE_KEY = "stepsemble.composer-drafts.v1";
 const LEGACY_DRAFT_STORAGE_KEYS = Object.freeze(["piharbor.composer-drafts.v1", "piweb.composer-drafts.v1"]);
 let activeDraftKey = "";
+const draftWrites = new Map();
+const pendingDraftSends = new Map();
 let composerModelName = "";
 let composerReasoningLevel = "off";
 let modelCatalog = [];
@@ -292,15 +294,40 @@ function writeDraftEntries(entries) {
 
 function saveDraftForKey(key, text) {
   if (!key) return;
+  markDraftWrite(key);
   writeDraftEntries(updateDraftEntries(readDraftEntries(), key, text));
 }
 
 function removeDraftForKey(key) {
   if (!key) return;
+  markDraftWrite(key);
   writeDraftEntries(updateDraftEntries(readDraftEntries(), key, ""));
 }
 
+function markDraftWrite(key) {
+  const owner = {};
+  draftWrites.delete(key); draftWrites.set(key, owner);
+  while (draftWrites.size > 100) draftWrites.delete(draftWrites.keys().next().value);
+  return owner;
+}
+
+function beginDraftSend(key) {
+  const send = { key, owner: markDraftWrite(key), saved: JSON.stringify(readDraftEntries().find(row => row.key === key) || null) };
+  pendingDraftSends.set(key, send); return send;
+}
+
+function ownsDraftSend(send) {
+  return draftWrites.get(send.key) === send.owner && send.saved === JSON.stringify(readDraftEntries().find(row => row.key === send.key) || null);
+}
+
+function finishDraftSend(send) { if (pendingDraftSends.get(send.key) === send) pendingDraftSends.delete(send.key); }
+function clearSentDraft(send) { if (ownsDraftSend(send)) removeDraftForKey(send.key); finishDraftSend(send); }
+
 function saveActiveDraft() {
+  // Switching panes while a send is unconfirmed must retain its original
+  // draft. A later input edit has a different owner and is saved normally.
+  const sending = pendingDraftSends.get(activeDraftKey);
+  if (!el.input.value && sending && ownsDraftSend(sending)) return;
   if (activeDraftKey) saveDraftForKey(activeDraftKey, el.input.value);
 }
 
@@ -5790,8 +5817,8 @@ function trackCodexNativeEcho(connection, node, message) {
   return echo;
 }
 
-function dropCodexNativeEcho(connection, echo) {
-  echo.node?.remove?.();
+function dropCodexNativeEcho(connection, echo, { remove = true } = {}) {
+  if (remove) echo.node?.remove?.();
   if (Array.isArray(connection?.codexNativeEchoes)) {
     connection.codexNativeEchoes = connection.codexNativeEchoes.filter(row => row !== echo);
   }
@@ -11148,6 +11175,8 @@ async function sendCurrent() {
     return;
   }
   const sendDraftKey = activeDraftKey;
+  const sendDraft = beginDraftSend(sendDraftKey), sendView = viewGeneration;
+  const sendDraftText = el.input.value;
   el.input.value = "";
   el.input.style.height = "auto";
   el.slashMenu.classList.add("hidden");
@@ -11157,8 +11186,8 @@ async function sendCurrent() {
   const bm = !generic && text.match(/^\/(compact|clear)\s*$/i);
   if (bm) {
     const cmd = bm[1].toLowerCase();
-    if (cmd === "compact") { await BUILTIN_SLASH.compact(); removeDraftForKey(sendDraftKey); return; }
-    if (cmd === "clear") { removeDraftForKey(sendDraftKey); showList(); return; }
+    if (cmd === "compact") { await BUILTIN_SLASH.compact(); clearSentDraft(sendDraft); return; }
+    if (cmd === "clear") { clearSentDraft(sendDraft); showList(); return; }
   }
 
   // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
@@ -11184,8 +11213,10 @@ async function sendCurrent() {
     rpc.structuredThinking = null;
     rpc.claudeOutputStart = null;
   }
+  let genericEcho = null;
   if (generic && !rpc.nativeOpenCode && text && Array.isArray(rpc.genericInputEchoes)) {
-    rpc.genericInputEchoes.push({ text, at: Date.now() });
+    genericEcho = { text, at: Date.now() };
+    rpc.genericInputEchoes.push(genericEcho);
     if (rpc.genericInputEchoes.length > 32) rpc.genericInputEchoes.shift();
   }
   scrollBottom();
@@ -11204,6 +11235,7 @@ async function sendCurrent() {
   // ACP agent answers within the send request, which can take minutes. Pi
   // names a session after its first message itself.
   if (generic) nameFromFirstMessage(rpc, text);
+  let accepted = false;
   try {
     const result = generic
       ? (rpc?.nativeOpenCode
@@ -11227,29 +11259,30 @@ async function sendCurrent() {
               })
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
+    accepted = true;
+    clearSentDraft(sendDraft);
     // An ACP agent answers the prompt with the tokens it wrote, when it counts them.
     if (acpTurn?.outputMeter) {
       const tokens = contextUtils.acpTurnOutput(result, { agentId: acpTurn.acpAgentId || acpTurn.agentId });
       OutputRate.reportTotal(acpTurn.outputMeter, tokens);
     }
-    removeDraftForKey(sendDraftKey);
     if (pendingTurn) {
       pendingTurn.settled = true;
       if (result?.queued) { userShell.dataset.wlQueued = "1"; endPendingTurn(sendConnection, pendingTurn); }
-      else scheduleWorkLog("tail");
+      else if (rpc === sendConnection && viewGeneration === sendView) scheduleWorkLog("tail");
     }
     if (codexEcho) {
       codexEcho.turnId = result?.turnId || result?.completedTurnId || null;
       reconcileCodexNativeEchoes(codexNativeSend);
     }
-    if (rpc?.sid === sendSid && !rpc.approval && approvalTarget(rpc)) void loadApprovalModes(rpc);
+    if (rpc === sendConnection && !rpc.approval && approvalTarget(rpc)) void loadApprovalModes(rpc);
     // ACP reports the turn's token usage on this reply, not in its event
     // stream, so the context gauge is updated from here.
-    if ((rpc?.nativeAcp || rpc?.nativeGrokAcp) && rpc.sid === sendSid) applyAcpContextStats(result, rpc);
-    if ((rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && rpc.sid === sendSid) {
+    if (rpc === sendConnection && (rpc.nativeAcp || rpc.nativeGrokAcp)) applyAcpContextStats(result, rpc);
+    if (rpc === sendConnection && (rpc.nativeCodexMutation || rpc.nativeClaudeStructured)) {
       void syncNativeContext(rpc);
     }
-    if (rpc?.nativeCodexMutation && rpc.sid === sendSid && ["started", "requested"].includes(result?.kind)) {
+    if (rpc === sendConnection && rpc.nativeCodexMutation && ["started", "requested"].includes(result?.kind)) {
       rpc.taskStatus = "running";
       setStreaming(true);
       if (result?.turnId && rpc.outputMeter) rpc.outputMeterTurnId = String(result.turnId);
@@ -11257,43 +11290,59 @@ async function sendCurrent() {
     }
     // Claude's turn begins as it takes the message, so the run is timed and
     // measured from here, even a reply quicker than the next look.
-    if (rpc?.nativeClaudeStructured && rpc.sid === sendSid && result?.kind === "sent") {
+    if (rpc === sendConnection && rpc.nativeClaudeStructured && result?.kind === "sent") {
       rpc.claudeSentAt = Date.now();
       rpc.taskStatus = "running";
       setStreaming(true);
     }
     // Even a reply that finishes between two polls has a meter. A snapshot
     // requested before the accepted send must not finish this new run.
-    if (rpc?.nativeOpenCode && rpc.sid === sendSid && result?.message) {
+    if (rpc === sendConnection && rpc.nativeOpenCode && result?.message) {
       rpc.openCodeSentAt = Date.now();
       rpc.taskStatus = "running";
       setStreaming(true);
     }
-    if (result?.queued && rpc?.sid === sendSid) {
+    if (result?.queued && rpc === sendConnection) {
       el.queueNote.dataset.persistent = "queue";
       el.queueNote.textContent = tKey("runtime.messageQueued");
       el.queueNote.classList.remove("hidden");
     }
   } catch (e) {
     if (pendingTurn) endPendingTurn(sendConnection, pendingTurn);
-    // The text goes back to the composer, so the echo would be a duplicate.
-    if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho);
-    if (rpc?.sid === sendSid) {
-      if (generic && Array.isArray(rpc.genericInputEchoes)) {
-        const echoIndex = rpc.genericInputEchoes.findIndex(item => item.text === text);
-        if (echoIndex >= 0) rpc.genericInputEchoes.splice(echoIndex, 1);
-      }
-      el.input.value = text;
+    // Acceptance is authoritative. A subsequent display/meter error must
+    // never offer an accepted prompt for retry or say that sending failed.
+    if (accepted) { console.warn("Accepted message display failed", e); return; }
+    const currentSend = rpc === sendConnection && viewGeneration === sendView && activeDraftKey === sendDraftKey;
+    const restore = currentSend && ownsDraftSend(sendDraft) && !el.input.value && !pendingImages.length;
+    if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho, { remove: restore });
+    if (genericEcho && Array.isArray(sendConnection.genericInputEchoes)) {
+      const echoIndex = sendConnection.genericInputEchoes.indexOf(genericEcho);
+      if (echoIndex >= 0) sendConnection.genericInputEchoes.splice(echoIndex, 1);
+    }
+    if (restore) {
+      el.input.value = sendDraftText;
       resizeComposerInput();
-      saveDraftForKey(sendDraftKey, text);
-      pendingImages = images.concat(pendingImages).slice(0, composerImageBudget().count);
+      saveDraftForKey(sendDraftKey, sendDraftText);
+      pendingImages = images;
       renderImgPreview();
+      userShell.remove();
+    } else {
+      // A newer draft keeps the composer. Retain the failed message with
+      // Copy so it can be recovered without replacing what is being typed.
+      userShell.dataset.sendFailed = "1";
+      userShell.appendChild(msgActionsRow("user", () => sendDraftText));
+      const note = document.createElement("small");
+      note.className = "wf-muted"; note.textContent = tKey("runtime.messageNotSent");
+      userShell.appendChild(note);
+    }
+    if (currentSend) {
       // The agent's own reason, such as "You need to sign in to use this
       // model", follows when the Host passed one on with its code.
       const reason = e?.code && typeof e.message === "string" && e.message !== e.code && /\s/.test(e.message) ? e.message.slice(0, 300) : "";
       toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
     }
   } finally {
+    finishDraftSend(sendDraft);
     if (acpTurn) {
       acpTurn.acpPromptInFlight = false;
       if (rpc === acpTurn) { acpTurn.taskStatus = "waiting"; setStreaming(false); syncGenericInputState(); attachAcpReplyActions(acpTurn, { live: true }); }

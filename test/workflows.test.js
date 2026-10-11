@@ -99,6 +99,27 @@ test("restart preserves checkpointed elapsed time and output without silently co
   const run=host.list().runs[0];assert.equal(run.status,"interrupted");assert.equal(run.outputTokens,37);assert.equal(run.elapsedMs,7000);
   assert.equal(run.record,undefined);assert.equal(run.nonce,undefined);
 });
+for (const budget of ["minutes", "outputTokens"]) test(`a due schedule at full capacity cannot prevent ${budget} limits or queued dispatch`, async t => {
+  const f = fixture(t), start = Date.parse("2026-10-09T00:00:00Z");
+  const schedule = f.host.create({ ...def, kind: "schedule", schedule: { kind: "once", at: new Date(start + 1000).toISOString() } });
+  for (let i = 0; i < 200; i++) f.host.create({ ...def, title: `Goal ${i}`, limits: { minutes: 1, outputTokens: 100 } });
+  await wait(10); assert.equal(f.pending.length, 2);
+  const queued = f.host.list().runs.filter(r => r.status === "queued").map(r => r.id);
+  f.advance(budget === "minutes" ? 60001 : 1001);
+  if (budget === "outputTokens") f.bridge.tokens = () => 100;
+  assert.equal(f.host.list().schedules[0].capacityBlocked, true);
+  await f.host.tick(); await wait(10);
+  assert.equal(f.host.list().runs.filter(r => r.status === "limited").length, 2);
+  assert.equal(f.host.list().runs.filter(r => r.status === "running").length, 2);
+  assert.equal(f.host.list().schedules[0].nextAt, start + 1000, "the delayed occurrence is retained");
+  assert(queued.includes(f.pending[0].run.id));
+  f.bridge.tokens = () => 0;
+  await f.host.tick(); await wait(10);
+  const admitted = f.host.list().runs.filter(r => r.scheduleId === schedule.id);
+  assert.equal(admitted.length, 1); assert.equal(admitted[0].scheduledAt, start + 1000);
+  assert.equal(f.host.list().schedules[0].capacityBlocked, false);
+  await f.host.tick(); assert.equal(f.host.list().runs.filter(r => r.scheduleId === schedule.id).length, 1);
+});
 test("failed persistence cancels inflight native work and stops further dispatch",async t=>{
   const f=fixture(t);f.host.create(def);await wait(10);const signal=f.pending[0].signal;
   fs.unlinkSync(f.file);fs.mkdirSync(f.file);

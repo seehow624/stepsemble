@@ -114,7 +114,10 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
     if (changed) save();
   }
   function summary(run) { return { ...clone(run), elapsedMs: elapsed(run), outputTokens: run.outputTokens + (ACTIVE.has(run.status) ? bridge.tokens?.(run) || 0 : 0), nonce: undefined, record: undefined }; }
-  function list(entry = null) { return { available: healthy, runs: (entry ? state.runs.filter(r => r.entry === entry).slice(-1) : state.runs).map(summary), schedules: entry ? [] : clone(state.schedules), serverNow: now() }; }
+  function hasRunCapacity() { return state.runs.length < 200 || state.runs.some(r => ["limited", "completed", "failed", "stopped"].includes(r.status)); }
+  function scheduledRunPending(id) { return state.runs.some(r => r.scheduleId === id && (ACTIVE.has(r.status) || ["queued", "stopping"].includes(r.status))); }
+  function list(entry = null) { return { available: healthy, runs: (entry ? state.runs.filter(r => r.entry === entry).slice(-1) : state.runs).map(summary), schedules: entry ? [] : clone(state.schedules).map(row => ({ ...row,
+    capacityBlocked: row.enabled && row.nextAt !== null && row.nextAt <= now() && !scheduledRunPending(row.id) && !hasRunCapacity() })), serverNow: now() }; }
   function trim() {
     const disposable = state.runs.filter(r => ["limited", "completed", "failed", "stopped"].includes(r.status));
     while (state.runs.length >= 200 && disposable.length) state.runs.splice(state.runs.indexOf(disposable.shift()), 1);
@@ -181,7 +184,10 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
     try {
       for (const row of state.schedules) {
         if (!row.enabled || row.nextAt === null || row.nextAt > now()) continue;
-        if (state.runs.some(r => r.scheduleId === row.id && (ACTIVE.has(r.status) || ["queued", "stopping"].includes(r.status)))) continue;
+        if (scheduledRunPending(row.id)) continue;
+        // A full queue delays only this occurrence. Existing Goals must still
+        // enforce their budgets, checkpoint and dispatch on every tick.
+        if (!hasRunCapacity()) continue;
         const dueAt = row.nextAt;
         const run = makeRun(row, row.id); run.scheduledAt = dueAt;
         row.lastRunId = run.id; row.lastAt = dueAt;

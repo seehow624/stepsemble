@@ -6,6 +6,7 @@ const { createUsageParser, number, text } = require("./usage-records");
 const states = new Map();
 const MAX_LINE = 8 * 1024 * 1024, MAX_FILE = 8 * 1024 * 1024 * 1024, MAX_INDEX = 64 * 1024 * 1024;
 const MAX_ROWS = 100000, MAX_STATES = 2000, MAX_CACHED_ROWS = 120000;
+const INDEX_VERSION = 4;
 const uuid = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i;
 const REASONS = new Set(["", "missing_file", "permission_denied", "unsupported_format", "identity_mismatch", "incomplete_records", "malformed_records", "record_too_large", "truncated", "file_limit", "unsafe_file", "source_changed", "read_failed"]);
 function failure(error) { return error?.code === "ENOENT" ? "missing_file" : ["EACCES", "EPERM"].includes(error?.code) ? "permission_denied" : "read_failed"; }
@@ -17,8 +18,15 @@ function piArtifact(file, agent) {
 }
 const inside = (root, file) => { const relative = path.relative(root, file); return relative && relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative); };
 const owned = stat => typeof process.getuid !== "function" || stat.uid === process.getuid();
-const fingerprint = stat => [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+const fingerprint = stat => [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
 const fileState = stat => ({ dev: stat.dev, ino: stat.ino, size: stat.size });
+const validFileId = value => typeof value === "string" && /^(0|[1-9]\d{0,19})$/.test(value) && BigInt(value) <= 0xffffffffffffffffn;
+async function usageStat(handle) {
+  const stat = await handle.stat({ bigint: true });
+  return { dev: String(stat.dev), ino: String(stat.ino), size: Number(stat.size), uid: Number(stat.uid),
+    // Nanosecond strings retain same-size edits within a millisecond.
+    mtimeNs: String(stat.mtimeNs), ctimeNs: String(stat.ctimeNs), isFile: () => stat.isFile() };
+}
 async function probes(handle, offset) {
   const size = Math.min(4096, offset), head = Buffer.alloc(size), tail = Buffer.alloc(size);
   await handle.read(head, 0, size, 0); await handle.read(tail, 0, size, Math.max(0, offset - size));
@@ -102,14 +110,14 @@ function irrelevantCodexLine(bytes) {
 }
 
 function validSaved(saved, agent, expected, format, artifact) {
-  if (saved?.version !== 3 || typeof saved.fingerprint !== "string" || saved.fingerprint.length > 256 || saved.agent !== agent || saved.expected !== expected || saved.format !== format || saved.artifact !== artifact || !Array.isArray(saved.result?.rows) || saved.result.rows.length > MAX_ROWS) return false;
+  if (saved?.version !== INDEX_VERSION || typeof saved.fingerprint !== "string" || saved.fingerprint.length > 256 || saved.agent !== agent || saved.expected !== expected || saved.format !== format || saved.artifact !== artifact || !Array.isArray(saved.result?.rows) || saved.result.rows.length > MAX_ROWS) return false;
   if (typeof saved.result.session !== "string" || expected && saved.result.session !== (format === "native" ? expected : `artifact:${artifact}`) || !REASONS.has(saved.result.reason)) return false;
   if (!["partial", "invalid", "ignored", "pending"].every(key => typeof saved.result[key] === "boolean") || saved.result.invalid || saved.result.pending) return false;
   const cp = saved.state?.checkpoint;
   if (!cp || !["session", "fork", "turn", "model", "provider"].every(key => typeof cp[key] === "string" && cp[key].length <= 256) || cp.session !== saved.result.session || !["epoch", "skipped", "completed"].every(key => Number.isSafeInteger(cp[key]) && cp[key] >= 0) || !REASONS.has(cp.problem) || !REASONS.has(saved.state.readReason) || !["invalid", "headerSeen", "waitingFork", "replay", "userFork"].every(key => typeof cp[key] === "boolean")) return false;
   if (cp.previous !== null && (!Array.isArray(cp.previous) || cp.previous.length !== 4 || !cp.previous.every(value => Number.isSafeInteger(value) && number(value) !== null))) return false;
   if (!["started", "snapshots"].every(key => Array.isArray(cp[key]) && cp[key].length <= MAX_ROWS && cp[key].every(value => typeof value === "string" && value.length <= 1600))) return false;
-  if (!["dev", "ino", "size"].every(key => Number.isSafeInteger(saved.state.file?.[key]) && saved.state.file[key] >= 0) || !Number.isSafeInteger(saved.state.offset) || saved.state.offset < 0 || saved.state.offset > saved.state.file.size || !Array.isArray(saved.state.probes) || saved.state.probes.length !== 2 || !saved.state.probes.every(value => /^[a-f0-9]{64}$/.test(value))) return false;
+  if (!["dev", "ino"].every(key => validFileId(saved.state.file?.[key])) || !Number.isSafeInteger(saved.state.file?.size) || saved.state.file.size < 0 || !Number.isSafeInteger(saved.state.offset) || saved.state.offset < 0 || saved.state.offset > saved.state.file.size || !Array.isArray(saved.state.probes) || saved.state.probes.length !== 2 || !saved.state.probes.every(value => /^[a-f0-9]{64}$/.test(value))) return false;
   return saved.result.rows.every(row => /^[a-f0-9]{64}$/.test(row?.identity) && Number.isSafeInteger(row.at) && row.at > 0 && typeof row.model === "string" && row.model.length <= 160 && typeof row.provider === "string" && row.provider.length <= 160 && row.tokens && ["input", "output", "cacheRead", "cacheWrite"].every(key => row.tokens[key] === null || Number.isSafeInteger(row.tokens[key]) && number(row.tokens[key]) !== null) && (row.cost === null || number(row.cost) !== null));
 }
 
@@ -120,8 +128,9 @@ async function readUsageFile(source, budget, indexDir) {
     const real = await fs.realpath(file);
     if (!inside(root, real) && !source.linked) return { rows: [], partial: true, invalid: true, reason: "unsafe_file" };
     handle = await fs.open(real, require("node:fs").constants.O_RDONLY | (require("node:fs").constants.O_NOFOLLOW || 0) | (require("node:fs").constants.O_NONBLOCK || 0));
-    const stat = await handle.stat();
+    const stat = await usageStat(handle);
     if (!stat.isFile() || !owned(stat)) return { rows: [], partial: true, invalid: true, reason: "unsafe_file" };
+    if (!Number.isSafeInteger(stat.size) || stat.size < 0) return { rows: [], partial: true, invalid: true, reason: "file_limit" };
     const signature = fingerprint(stat), key = `${agent}:${expected}:${real}`, id = crypto.createHash("sha256").update(key).digest("hex");
     let state = states.get(key);
     if (state && state.fingerprint !== signature) {
@@ -176,8 +185,8 @@ async function readUsageFile(source, budget, indexDir) {
       }
       consume(chunk.subarray(start), false);
     }
-    const after = await handle.stat();
-    if (after.ino !== stat.ino || after.dev !== stat.dev || after.size < stat.size || after.size === stat.size && after.mtimeMs !== stat.mtimeMs) { states.delete(key); return { rows: [], partial: true, invalid: true, reason: "source_changed" }; }
+    const after = await usageStat(handle);
+    if (after.ino !== stat.ino || after.dev !== stat.dev || after.size < stat.size || after.size === stat.size && after.mtimeNs !== stat.mtimeNs) { states.delete(key); return { rows: [], partial: true, invalid: true, reason: "source_changed" }; }
     const parsed = state.parser.result(), ignored = format !== "native" && !stat.size || state.controlOnly && state.lines > 0 && !state.partial && !state.carry.length && state.offset === stat.size;
     state.count = parsed.rows.length;
     const pending = state.offset < Math.min(after.size, MAX_FILE);
@@ -189,7 +198,7 @@ async function readUsageFile(source, budget, indexDir) {
       if (cacheFile && !result.invalid) {
         const temporary = cacheFile + "." + process.pid + ".tmp";
         const savedState = { file: state.file, offset: state.offset, probes: state.probes, checkpoint: state.checkpoint, oversized: state.oversized, readReason: state.readReason };
-        try { await fs.mkdir(indexDir, { recursive: true, mode: 0o700 }); await fs.writeFile(temporary, JSON.stringify({ version: 3, fingerprint: state.fingerprint, agent, expected, format, artifact, state: savedState, result }), { mode: 0o600 }); await fs.rename(temporary, cacheFile); }
+        try { await fs.mkdir(indexDir, { recursive: true, mode: 0o700 }); await fs.writeFile(temporary, JSON.stringify({ version: INDEX_VERSION, fingerprint: state.fingerprint, agent, expected, format, artifact, state: savedState, result }), { mode: 0o600 }); await fs.rename(temporary, cacheFile); }
         catch { /* A cache failure must not discard confirmed native usage. */ }
         finally { await fs.rm(temporary, { force: true }).catch(() => {}); }
       }
