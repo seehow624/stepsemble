@@ -4,6 +4,7 @@ const { createUsageParser } = require("../server/usage-records");
 const { sanitize, estimate, createUsagePricing } = require("../server/usage-pricing");
 const { report } = require("../server/usage-analytics-worker");
 const { createUsageAnalytics, parseQuery } = require("../server/usage-analytics");
+const { discoverUsageFiles, readUsageFile } = require("../server/usage-history");
 const Data = require("../public/modules/usage-data");
 const AT = Date.parse("2026-10-10T17:00:00Z"), UUID = "11111111-1111-4111-8111-111111111111";
 const raw = (input, output, cached = 0) => ({ input_tokens: input, output_tokens: output, cached_input_tokens: cached, reasoning_output_tokens: 0 });
@@ -117,6 +118,29 @@ test("catalog cost uses the whole input context for long-context tiers and refus
   const free = sanitize({ free: { provider: "openai", input_cost_per_token: 0, output_cost_per_token: 0, cache_read_input_token_cost: 0 } });
   assert.equal(estimate({ ...row, model: "free", cost: 0 }, free).usd, 0, "explicit zero reference prices remain valid");
 });
+test("OpenCodex and compatible routes use the original vendor's exact model prices", () => {
+  const catalog = sanitize({ "gpt-6.1-sol": { provider: "openai", input_cost_per_token: 2e-6, output_cost_per_token: 10e-6, cache_read_input_token_cost: .1e-6 },
+    "claude-opus-5-5": { provider: "anthropic", input_cost_per_token: 4e-6, output_cost_per_token: 20e-6, cache_read_input_token_cost: .2e-6 },
+    "MiniMax-M3": { provider: "minimax", input_cost_per_token: .3e-6, output_cost_per_token: 1.2e-6, cache_read_input_token_cost: .06e-6 } });
+  const row = { tokens: { input: 100, output: 20, cacheRead: 800, cacheWrite: 0 }, cost: 0 };
+  for (const provider of ["opencodex", "openai", "openai-codex", ""]) assert.ok(Math.abs(estimate({ ...row, model: "gpt-6.1-sol", provider }, catalog).usd - .00048) < 1e-12);
+  for (const model of ["anthropic/claude-opus-5-5", "opencodex/anthropic/claude-opus-5-5", "claude-opus-5-5"]) assert.ok(Math.abs(estimate({ ...row, provider: "openai", model }, catalog).usd - .00096) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, provider: "opencodex", model: "minimax/minimax-m3" }, catalog).usd - .000102) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, provider: "opencodex", model: "opencode-go/glm-5.3-flash" }, {}).usd - .000049) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, provider: "anthropic", model: "claude-ocx-native--gpt-6.1-sol" }, catalog).usd - .00048) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, provider: "anthropic", model: "claude-ocx2-opencodex--anthropic~sclaude-opus-5-5" }, catalog).usd - .00096) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, provider: "anthropic", model: "claude-ocx-opencode-go--glm-5.3-flash" }, {}).usd - .000049) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, provider: "opencodex", model: "opencode-go/deepseek-v4.1-flash" }, {}).usd - .0000588) < 1e-12);
+  assert.equal(estimate({ ...row, provider: "custom-unknown", model: "gpt-6.1-sol" }, catalog), null);
+  assert.equal(estimate({ ...row, provider: "opencodex", model: "minimax/MiniMax-M3.1-Flash-Preview" }, catalog), null, "never substitute an older model's price");
+});
+test("published long-context thresholds are not limited to a hard-coded list", () => {
+  const catalog = sanitize({ "claude-haiku-5-5": { provider: "anthropic", input_cost_per_token: .1e-6, output_cost_per_token: .5e-6,
+    input_cost_per_token_above_100k_tokens: .5e-6, output_cost_per_token_above_100k_tokens: 2.5e-6 } });
+  const row = { provider: "opencodex", model: "anthropic/claude-haiku-5-5", tokens: { input: 100000, output: 100, cacheRead: 0, cacheWrite: 0 }, cost: null };
+  assert.ok(Math.abs(estimate(row, catalog).usd - .01005) < 1e-12);
+  assert.ok(Math.abs(estimate({ ...row, tokens: { ...row.tokens, input: 100001 } }, catalog).usd - .0502505) < 1e-12);
+});
 
 async function fixture(t) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-usage-")); t.after(() => fs.rm(home, { recursive: true, force: true }));
@@ -132,7 +156,7 @@ async function fixture(t) {
   const entries = [{ key: "pi-entry", addedAt: 1, record: { agentId: "pi", sid: piId, file: "demo/pi-test.jsonl", name: "Pi work", cwd: "/Projects/One" } },
     { key: "claude-entry", addedAt: 2, record: { agentId: "claude-code", nativeSessionId: claudeId, name: "Claude work", cwd: "/Projects/One" } },
     { key: "codex-entry", addedAt: 3, record: { agentId: "codex", nativeThreadId: codexId, name: "Codex work", cwd: "/Projects/Two" } }];
-  return { home, entries, piFile, codexFile, write, query: { from: AT - 3600000, to: AT + 3600000, timeZone: "Asia/Kuala_Lumpur" } };
+  return { home, entries, piFile, codexFile, write, query: { from: AT - 3600000, to: AT + 3600000, timeZone: "Asia/Kuala_Lumpur", scope: "workspace" } };
 }
 test("workspace aggregation conserves totals across all dimensions and uses the viewer's date, not UTC", async t => {
   const f = await fixture(t), data = await report({ ...f, roots: {}, prices, priceUpdatedAt: AT });
@@ -174,6 +198,75 @@ test("missing sessions, unsupported agents and escaping file references are visi
   const f = await fixture(t); f.entries.push({ key: "missing", record: { agentId: "pi", file: "demo/absent.jsonl" } }, { key: "escape", record: { agentId: "pi", file: "../../private.jsonl" } }, { key: "unsupported", record: { agentId: "hermes" } });
   const data = await report({ ...f, roots: {}, prices: {} }); assert.equal(data.coverage.missing, 2); assert.equal(data.coverage.unsupported, 1); assert.equal(data.total.tokens, 260);
 });
+test("computer-wide totals include native CLI histories, archives and unregistered subagents without copying prompts", async t => {
+  const f = await fixture(t), piId = "44444444-4444-4444-8444-444444444444", archiveId = "55555555-5555-4555-8555-555555555555";
+  const pi = path.join(f.home, ".pi/agent/sessions/demo", piId + ".jsonl"), archive = path.join(f.home, ".codex/archived_sessions", archiveId + ".jsonl");
+  await fs.mkdir(path.dirname(archive), { recursive: true });
+  await f.write(pi, [{ type: "session", id: piId, cwd: "/Projects/CLI" }, { type: "session_info", name: "CLI work" }, { type: "message", id: "native-only", timestamp: AT, message: { role: "assistant", content: "PRIVATE MACHINE PROMPT", model: "test-model", provider: "opencodex", usage: { input: 25, output: 35 } } }]);
+  await f.write(archive, [{ type: "session_meta", payload: { id: archiveId, cwd: "/Projects/Archive" } }, { type: "turn_context", payload: { model: "test-model" } }, codexCount(raw(300, 50, 200), raw(300, 50, 200))]);
+  const childDir = path.join(f.home, ".claude/projects/demo", f.entries[1].record.nativeSessionId, "subagents"); await fs.mkdir(childDir, { recursive: true });
+  await f.write(path.join(childDir, "agent-outside.jsonl"), [{ type: "assistant", sessionId: f.entries[1].record.nativeSessionId, timestamp: AT, message: { id: "outside-child", model: "claude-test", usage: { input_tokens: 8, output_tokens: 12 } } }]);
+  const indexDir = path.join(f.home, "numeric-index"), query = { ...f.query, scope: "machine" };
+  const data = await report({ ...f, query, indexDir, roots: {}, prices });
+  assert.equal(data.scope, "machine"); assert.equal(data.total.tokens, 690); assert.equal(data.total.calls, 6); assert.equal(data.coverage.covered, 5); assert.equal(data.coverage.partial, 0); assert.equal(data.coverage.indexing, 0);
+  assert.equal(data.sessions.filter(row => !row.registered).length, 2);
+  const native = data.sessions.find(row => row.name === "CLI work"); assert.equal(native.cwd, "/Projects/CLI");
+  const filtered = await report({ ...f, query: { ...query, entry: native.id }, indexDir, roots: {}, prices }); assert.equal(filtered.total.tokens, 60);
+  for (const key of ["days", "models", "agents", "projects", "sessions"]) assert.equal(data[key].reduce((sum, row) => sum + row.tokens, 0), data.total.tokens);
+  for (const name of await fs.readdir(indexDir)) assert.ok(!/PRIVATE|"content"|"message"/.test(await fs.readFile(path.join(indexDir, name), "utf8")));
+  // The API default, including a service worker, is the whole computer.
+  const service = createUsageAnalytics({ home: f.home, entries: () => f.entries, indexDir, pricing: { read: async () => ({ models: prices }) } }); t.after(() => service.shutdown());
+  assert.equal((await service.read({ ...query, scope: undefined })).total.tokens, 690);
+});
+test("computer-wide forks and copied Claude stream updates conserve each call once", async t => {
+  const f = await fixture(t), piFork = "66666666-6666-4666-8666-666666666666";
+  const original = (await fs.readFile(f.piFile, "utf8")).trim().split("\n").map(JSON.parse);
+  await f.write(path.join(path.dirname(f.piFile), piFork + ".jsonl"), [{ type: "session", id: piFork }, original[1]]);
+  const claude = f.entries[1].record.nativeSessionId, dir = path.join(f.home, ".claude/projects/demo", claude, "subagents"); await fs.mkdir(dir, { recursive: true });
+  await f.write(path.join(dir, "agent-repeat.jsonl"), [{ type: "assistant", sessionId: claude, timestamp: AT, message: { id: "msg-fixture", model: "claude-test", usage: { input_tokens: 5, output_tokens: 20, cache_read_input_tokens: 100 } } }]);
+  const data = await report({ ...f, query: { ...f.query, scope: "machine" }, roots: {}, prices });
+  assert.equal(data.total.calls, 3); assert.equal(data.total.tokens, 270); assert.equal(data.total.output, 50);
+});
+test("managed native file links are validated; directory links and unrelated private JSONL are refused", async t => {
+  const f = await fixture(t), id = "77777777-7777-4777-8777-777777777777", dir = path.join(f.home, ".codex/archived_sessions"); await fs.mkdir(dir, { recursive: true });
+  const external = path.join(f.home, "external.jsonl");
+  await f.write(external, [{ type: "session_meta", payload: { id } }, { type: "turn_context", payload: { model: "test-model" } }, codexCount(raw(40, 10), raw(40, 10))]);
+  await fs.symlink(external, path.join(dir, id + ".jsonl"));
+  await fs.symlink(external, path.join(dir, UUID + ".jsonl")); // Wrong native identity.
+  await fs.symlink(external, path.join(dir, "private.jsonl")); // No native filename.
+  await fs.symlink(f.home, path.join(dir, "outside-directory"));
+  const data = await report({ ...f, query: { ...f.query, scope: "machine" }, roots: {}, prices });
+  assert.equal(data.total.tokens, 310); assert.equal(data.total.calls, 4); assert.ok(data.coverage.partial > 0);
+});
+test("bounded native readers resume a large tool body and use a numeric disk index in a fresh process", async t => {
+  const f = await fixture(t), budget = () => ({ deadline: Date.now() + 10000, bytes: 0, maxBytes: 512 * 1024, visited: 0 });
+  const indexDir = path.join(f.home, "index");
+  await fs.appendFile(f.codexFile, JSON.stringify({ type: "response_item", payload: { content: "PRIVATE TOOL BODY" + "x".repeat(10 * 1024 * 1024) } }) + "\n");
+  await fs.appendFile(f.codexFile, JSON.stringify(codexCount(raw(200, 20, 100), raw(100, 10, 10), AT + 1000)) + "\n");
+  const { files } = await discoverUsageFiles(f.home, {}, budget()), source = files.find(row => row.agent === "codex");
+  let reads = 0, result;
+  do { result = await readUsageFile(source, budget(), indexDir); reads++; } while (result.pending && reads < 30);
+  assert.ok(reads > 1 && reads < 30); assert.equal(result.pending, false); assert.equal(result.partial, false); assert.equal(result.rows.length, 2);
+  const cache = (await fs.readdir(indexDir))[0]; assert.ok(!(await fs.readFile(path.join(indexDir, cache), "utf8")).includes("PRIVATE TOOL BODY"));
+  const { execFileSync } = require("node:child_process");
+  const code = "const {readUsageFile}=require('./server/usage-history');const budget={deadline:Date.now()+10000,bytes:0,maxBytes:100000000};readUsageFile(JSON.parse(process.argv[1]),budget,process.argv[2]).then(r=>console.log(JSON.stringify({bytes:budget.bytes,rows:r.rows.length,partial:r.partial})))";
+  const warm = JSON.parse(execFileSync(process.execPath, ["-e", code, JSON.stringify(source), indexDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" }));
+  assert.deepEqual(warm, { bytes: 0, rows: 2, partial: false });
+  await fs.appendFile(f.codexFile, JSON.stringify(codexCount(raw(250, 30, 100), raw(50, 10), AT + 2000)) + "\n");
+  const appended = JSON.parse(execFileSync(process.execPath, ["-e", code, JSON.stringify(source), indexDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" }));
+  assert.equal(appended.rows, 3); assert.equal(appended.partial, false); assert.ok(appended.bytes < 1024, "only the appended numeric record is read in a fresh worker");
+  await fs.writeFile(path.join(indexDir, cache), "broken index");
+  const rebuilt = JSON.parse(execFileSync(process.execPath, ["-e", code, JSON.stringify(source), indexDir], { cwd: path.resolve(__dirname, ".."), encoding: "utf8" }));
+  assert.ok(rebuilt.bytes > 10 * 1024 * 1024); assert.equal(rebuilt.rows, 3); assert.equal(rebuilt.partial, false);
+});
+test("index write failures never discard readable native usage, and appends invalidate its fingerprint", async t => {
+  const f = await fixture(t), budget = () => ({ deadline: Date.now() + 10000, bytes: 0, maxBytes: 1e8, visited: 0 });
+  const indexDir = path.join(f.home, "not-a-directory"); await fs.writeFile(indexDir, "occupied");
+  const { files } = await discoverUsageFiles(f.home, {}, budget()), source = files.find(row => row.agent === "pi");
+  assert.equal((await readUsageFile(source, budget(), indexDir)).rows.length, 1);
+  await fs.appendFile(f.piFile, JSON.stringify({ type: "message", id: "appended", timestamp: AT + 1000, message: { role: "assistant", usage: { input: 4, output: 5 } } }) + "\n");
+  const after = await readUsageFile(source, budget(), indexDir); assert.equal(after.rows.length, 2); assert.equal(after.partial, false);
+});
 test("price refresh coalesces, preserves provider metadata on disk and retains old prices on a failed refresh", async t => {
   const f = await fixture(t); let at = AT, calls = 0;
   const file = path.join(f.home, "price-cache.json");
@@ -193,7 +286,8 @@ test("multi-Host arithmetic keeps Host identity, unknown prices and offline Host
 test("analytics query rejects malformed ranges, oversized periods and invalid time zones", () => {
   const valid = new URLSearchParams({ from: String(AT - 3600000), to: String(AT + 3600000), timeZone: "Asia/Kuala_Lumpur" });
   assert.equal(parseQuery(valid, AT).timeZone, "Asia/Kuala_Lumpur");
-  for (const update of [{ from: "null" }, { to: String(AT - 7200000) }, { from: "1" }, { to: String(AT + 400 * 86400000) }, { timeZone: "not/a-zone" }, { project: "private\u0000path" }]) {
+  assert.equal(parseQuery(valid, AT).scope, "machine");
+  for (const update of [{ from: "null" }, { to: String(AT - 7200000) }, { from: "1" }, { to: String(AT + 400 * 86400000) }, { timeZone: "not/a-zone" }, { project: "private\u0000path" }, { scope: "arbitrary" }]) {
     const params = new URLSearchParams(valid); for (const [key, value] of Object.entries(update)) params.set(key, value); assert.throws(() => parseQuery(params, AT), { statusCode: 400 });
   }
 });

@@ -12,7 +12,7 @@ import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 const require = createRequire(import.meta.url), root = fileURLToPath(new URL("../", import.meta.url));
 const { createWorkspaceRegistry } = require("../server/workspace-registry");
-export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
+export async function createUsagePreview(port = 0, { unpriced = false, nativeHistory = false } = {}) {
   const token = "usage-preview-owned-fixture", hosts = [], homes = [], seededAt = Date.now(), timeZone = "Asia/Kuala_Lumpur";
   const calendar = Object.fromEntries(new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "numeric", day: "numeric" })
     .formatToParts(seededAt).map(part => [part.type, part.value]));
@@ -27,7 +27,7 @@ export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
     await Promise.all([projectOne, projectTwo].map(dir => fs.mkdir(dir, { recursive: true })));
     const ids = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"];
     const files = [path.join(home, ".codex/sessions/2026/10/11/rollout-2026-10-11-" + ids[0] + ".jsonl"), path.join(home, ".claude/projects/demo/" + ids[1] + ".jsonl"), path.join(home, ".pi/agent/sessions/demo/" + ids[2] + ".jsonl")];
-    const rows = [[{ type: "session_meta", payload: { id: ids[0], model_provider: "openai" } }, { type: "turn_context", payload: { model: "gpt-demo", turn_id: "preview-turn" } }], [], [{ type: "session", id: ids[2], cwd: projectTwo }]];
+    const rows = [[{ type: "session_meta", payload: { id: ids[0], model_provider: "openai" } }, { type: "turn_context", payload: { model: "gpt-demo", turn_id: "preview-turn" } }], [], [{ type: "session", id: ids[2], cwd: projectTwo }, { type: "session_info", name: "Design the landing page" }]];
     let input = 0, output = 0, cached = 0;
     for (let day = 29; day >= 0; day--) {
       const at = new Date(noon); at.setUTCDate(at.getUTCDate() - day);
@@ -41,7 +41,7 @@ export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
     for (let i = 0; i < files.length; i++) { await fs.mkdir(path.dirname(files[i]), { recursive: true }); await fs.writeFile(files[i], rows[i].map(row => JSON.stringify(row)).join("\n") + "\n"); }
     registry.remember({ agentId: "codex", id: "codex-history:" + ids[0], nativeHistorySessionId: ids[0], nativeHistoryReadonly: true, name: "Build the usage overview", cwd: projectOne });
     registry.remember({ agentId: "claude-code", id: "claude-history:" + ids[1], nativeHistorySessionId: ids[1], nativeHistoryReadonly: true, name: "Review model costs", cwd: projectOne });
-    registry.remember({ agentId: "pi", sid: ids[2], file: "demo/" + ids[2] + ".jsonl", name: "Design the landing page", cwd: projectTwo });
+    if (!nativeHistory) registry.remember({ agentId: "pi", sid: ids[2], file: "demo/" + ids[2] + ".jsonl", name: "Design the landing page", cwd: projectTwo });
     const models = {
       "gpt-demo": { provider: "openai", input_cost_per_token: .0000025, output_cost_per_token: .00001, cache_read_input_token_cost: .00000025 },
       "claude-demo": { provider: "anthropic", input_cost_per_token: .000003, output_cost_per_token: .000015, cache_read_input_token_cost: .0000003, cache_creation_input_token_cost: .00000375 },
@@ -75,7 +75,7 @@ export async function createUsagePreview(port = 0, { unpriced = false } = {}) {
   return { origin: `http://127.0.0.1:${server.address().port}`, token, hosts, timeZone, setOffline(value) { offline = value; }, close };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const preview = await createUsagePreview(Number(process.argv[2] || 0));
+  const preview = await createUsagePreview(Number(process.argv[2] || 0), { nativeHistory: process.argv.includes("--machine") });
   console.log(JSON.stringify({ url: preview.origin, token: preview.token, pid: process.pid, syntheticOnly: true, modelCalls: 0 }));
   for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => preview.close().finally(() => process.exit()));
 }

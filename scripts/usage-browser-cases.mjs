@@ -10,7 +10,7 @@ import { cleanEnvironment } from "./check-rolling-clients.mjs";
 
 export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}) {
   for (const mobile of [false, true]) {
-    const fixture = await createUsagePreview(0, { unpriced: mobile });
+    const fixture = await createUsagePreview(0, { unpriced: mobile, nativeHistory: true });
     const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1280, height: mobile ? 844 : 1100 },
       isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", locale: mobile ? "zh-TW" : "en-US", timezoneId: fixture.timeZone, reducedMotion: "reduce" });
     const page = await context.newPage(), errors = [], external = [], modelRequests = [], analyticsRequests = [], quotaRequests = [];
@@ -24,6 +24,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal((await fetch(fixture.origin + "/api/workspace/analytics?from=1", { headers })).status, 400);
       const response = await fetch(url, { headers }); assert.equal(response.status, 200);
       const parsed = await response.json(); assert.equal(parsed.coverage.covered, 3); assert.equal(parsed.total.calls, 90);
+      assert.equal(parsed.scope, "machine"); assert.equal(parsed.sessions.filter(row => !row.registered).length, 1);
       assert.equal(parsed.costKind, "estimate"); assert.ok(!JSON.stringify(parsed).includes("usage-preview-owned-fixture"));
       await context.route("**/*", route => {
         const request = route.request(), url = new URL(request.url());
@@ -83,6 +84,20 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.ok(miniCalls > 0 && miniCalls % 3 === 0 && miniCalls <= 21, "one call per supported agent on each elapsed weekday");
       assert.ok((await metric("cost").innerText()).startsWith(mobile ? "≥" : "≈"));
       assert.equal(await panel.locator(".usage-list-row").count(), 3);
+      stage = "indexing continues automatically";
+      let indexReads = 0;
+      const indexRoute = "**/api/workspace/analytics?*";
+      await context.route(indexRoute, async route => {
+        const response = await route.fetch(), json = await response.json();
+        if (++indexReads === 1) json.coverage.indexing = 2;
+        await route.fulfill({ response, json });
+      });
+      await panel.locator(".usage-refresh").click(); await ready();
+      assert.ok((await panel.locator(".usage-notice").innerText()).includes(mobile ? "索引" : "Indexing"));
+      const continued = page.waitForResponse(response => new URL(response.url()).pathname === "/api/workspace/analytics");
+      await page.clock.fastForward(2001); await continued; await ready();
+      assert.equal(indexReads, 2); assert.equal(await panel.locator(".usage-notice").count(), 0);
+      await context.unroute(indexRoute);
       stage = "Host totals";
       await host.selectOption("mbp"); await ready(); assert.equal(await tokens(), mini * 2);
       await host.selectOption(""); await ready(); assert.equal(await tokens(), mini * 3); assert.equal(Number(await metric("calls").innerText()), miniCalls * 2);
@@ -178,6 +193,25 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       stage = "return to original conversation";
       await entry.click(); await readyLimits(); await usageTab.click(); await ready();
       await panel.getByRole("tab", { name: mobile ? "Session" : "Sessions", exact: true }).click();
+      stage = "unregistered native history";
+      const beforeNative = Number(await metric("calls").innerText());
+      const native = panel.locator(".usage-list-row").filter({ hasText: "Design the landing page" });
+      assert.equal(await native.getAttribute("title"), mobile ? "篩選此 Session" : "Filter this session");
+      await native.click(); await ready(); assert.equal(Number(await metric("calls").innerText()), beforeNative / 3);
+      assert.equal(await panel.locator(".usage-list-row").count(), 1); assert.equal(await panel.count(), 1, "unregistered history filters in place");
+      assert.ok((await panel.locator(".usage-session-filter").innerText()).includes("Design the landing page"));
+      assert.ok(new URL(analyticsRequests.at(-1)).searchParams.get("entry").startsWith("native:pi:"));
+      await panel.locator("[data-filter=allAgents]").selectOption("codex"); await ready();
+      assert.equal(await panel.locator(".usage-list-row").count(), 1, "choosing a different filter clears the native Session filter");
+      await panel.locator(".usage-clear").click(); await ready();
+      assert.equal(Number(await metric("calls").innerText()), beforeNative);
+      await host.selectOption(""); await ready();
+      await panel.locator(".usage-list-row").filter({ hasText: "Design the landing page" }).filter({ hasText: "Mac Mini" }).click(); await ready();
+      assert.equal(await host.inputValue(), "mini"); assert.equal(await page.locator("#workspace-host").inputValue(), "mini");
+      assert.equal(await panel.locator(".usage-list-row").count(), 1);
+      await panel.locator(".usage-session-filter").click(); await ready();
+      await host.selectOption("mbp"); await ready();
+      stage = "return to original conversation";
       const opened = page.waitForResponse(response => new URL(response.url()).pathname === "/r/mbp/api/workspace/entry");
       await panel.locator(".usage-list-row").filter({ hasText: "Build the usage overview" }).click();
       await panel.waitFor({ state: "detached" });
@@ -187,7 +221,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal((await opened).status(), 200, "the original Host opens its registered conversation");
       assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(modelRequests, []);
       console.log(JSON.stringify({ case: "Usage overview " + (mobile ? "phone zh-Hant" : "desktop"), result: "passed", authenticated: true,
-        realParsing: true, sharedLimits: true, lazyUsage: true, hostSync: true, fixedPanel: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
+        realParsing: true, machineHistory: true, nativeSessionFilter: true, sharedLimits: true, lazyUsage: true, hostSync: true, fixedPanel: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
     } catch (error) { throw new Error(`Usage overview ${mobile ? "phone" : "desktop"} at ${stage}: ${error.message}`, { cause: error }); }
     finally { await context.close(); await fixture.close(); }
   }

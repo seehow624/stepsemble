@@ -25,16 +25,24 @@ device's time zone. Agent, project and model filters run before aggregation.
 The daily chart separates uncached input, output, cache reads and cache writes;
 click, focus or tap a day for its exact token count and estimated cost. Models,
 Projects, Agents and Sessions show the same totals grouped in different ways.
-Select a Session to return to its conversation.
+Select an added Session to return to its conversation. Select an unregistered
+native Session to filter its usage in place; a removable Session chip identifies
+the filter. This does not import a conversation or start an agent.
 
 ## What is counted
 
-Only sessions explicitly added to this Host's workspace registry are selected.
-Supported formats are Codex rollout JSONL, Claude Code project JSONL (including
-its associated subagent files), and Pi session JSONL. Other connectors show an
-unsupported-session notice. Unregistered sessions and Codex/Pi subagents stored
-as separate, unregistered sessions are not included. Imported history contributes
-usage already present in the selected period, not just work started in Stepsemble.
+The default is **this computer's readable native history**, including work done
+directly in a terminal or another App. Sessions do not need to be added to
+Stepsemble. The Host scans the current user's Codex `sessions` and
+`archived_sessions`, Claude Code `projects` (including subagents), and Pi
+`agent/sessions`. Configured Codex/Claude history roots are respected. These
+three formats are supported; other registered connectors show an unsupported
+notice. Deleted histories and formats without usable token counts cannot be
+reconstructed. Totals describe available records in the selected period.
+
+Hosts on an older version still report workspace-only scope. The combined view
+identifies mixed scope instead of implying that every Host has complete
+computer-wide statistics.
 
 - Codex uses `last_token_usage` for each observed call. Cumulative totals suppress
   repeated snapshots, and supply a fallback when per-call counts are missing.
@@ -59,13 +67,30 @@ status; switching selection never displays another Host's old totals.
 ## Costs and subscription allowances
 
 Costs are **estimates in USD, not bills**. A positive Pi-reported estimate takes
-precedence; otherwise exact provider/model matches use the public
+precedence; otherwise the original vendor/model is resolved before consulting the public
 [LiteLLM reference-price catalog](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json).
+OpenCodex, OpenCode Go and OpenAI-compatible transport names do not prevent
+OpenAI, Anthropic, MiniMax, Z.AI or DeepSeek reference prices from matching.
+Nested vendor IDs and OpenCodex's reversible Claude Code picker aliases are
+recognized. Unknown custom providers are not silently equated with a vendor.
 Cache categories and supported long-context rates are priced independently.
 Missing cache rates, mismatched providers or unknown models remain unpriced.
 Pi's default zero cost for a custom/subscription model is not evidence of a free
 call: reference prices are used when available, otherwise the cost is unknown.
 Explicit zero reference prices and zero-token calls can still produce zero cost.
+
+Published GLM-5.3/Flash/FlashX and DeepSeek-V4.1-Flash rates supplement missing
+catalog rows, verified on 2026-10-11 against [Z.AI pricing](https://docs.z.ai/guides/overview/pricing)
+and [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+DeepSeek uses the standard peak reference rate, without inferring off-peak or
+holiday discounts from routed histories. Published thresholds, including
+Claude Haiku's 100K tier, are read from the price table.
+OpenAI and Claude reference rows were checked against the official
+[GPT-6.1 Sol model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+and [Claude Opus 5.5 pricing](https://platform.claude.com/docs/en/models/opus-5-5/whats-new-opus-5-5).
+An unannounced preview price is not replaced by another generation's price:
+MiniMax-M3.1-Flash-Preview remains unpriced unless a positive agent estimate or
+an exact published catalog price is available.
 
 **≈** means all observed calls have an estimate, **≥** identifies the known
 portion when some calls are unpriced, and **—** means no estimate is available.
@@ -78,27 +103,40 @@ The Host caches reference prices for 24 hours in
 confirmed catalog and retry after at least five minutes. The only outbound
 pricing request is for public metadata from `raw.githubusercontent.com`; no
 session data, names, paths, prompts, token counts or credentials are sent.
-Set `STEPSEMBLE_USAGE_PRICING_NETWORK=0` to use only the existing price cache and
-agent estimates. English, Traditional Chinese and Simplified Chinese are
+Set `STEPSEMBLE_USAGE_PRICING_NETWORK=0` to use the existing price cache, bundled
+verified rates and agent estimates without fetching public metadata. English,
+Traditional Chinese and Simplified Chinese are
 provided; other interface locales currently fall back to English in this view.
 
 ## Operation and limits
 
 `GET /api/workspace/analytics` requires the ordinary Host authentication. Query
 parameters are millisecond `from` (inclusive) and `to` (exclusive), IANA
-`timeZone`, and optional `agent`, `project`, `model` and workspace-entry `entry`.
+`timeZone`, and optional `agent`, `project`, `model` and Session `entry`.
+The default `scope=machine` includes unregistered native Sessions. The explicit
+legacy `scope=workspace` remains available for existing readers.
 The maximum range is 366 days. `fresh=1` bypasses the normal 30-second report
 cache, with a ten-second minimum to coalesce concurrent refreshes.
 
 A dedicated worker reads source files without changing them or submitting agent
-work. File fingerprints invalidate cached numeric records after appends or
-rewrites. The worker keeps no prompt, answer or tool bodies in normalized records
-or reports. File reads remain inside configured native-history roots; escaping
-symlinks and non-regular files are refused. Scans are bounded to 2,000 workspace
-entries, 20,000 discovered files/directories, 150,000 unique records, 512 MiB per
-file, 1 GiB per scan and 16 seconds, with a 25-second worker timeout and memory
-limit. Hitting a scan limit produces a partial report, never a silently complete
-total. A final unfinished JSONL line is counted after it is finished.
+work. A private numeric index in `~/.config/stepsemble/usage-index/` (mode 600)
+stores counts and parser checkpoints, with saved titles and project paths. It
+contains no prompt, answer or tool bodies. Fingerprints, inode identity and
+stored boundary hashes distinguish unchanged files, normal appends and source
+replacements/truncation. Normal appends resume from the saved offset, including
+after worker idle shutdown; other changes rebuild the index. Malformed indexes
+are rebuilt, and failed index writes do not discard confirmed usage.
+
+Machine scans are bounded to 20,000 discovered entries, 150,000 unique usage
+records, 8 GiB per native file, 16 GiB per scan and 16 seconds, with a 25-second
+worker timeout and 192 MiB heap limit. First indexing can span multiple bounded
+requests; the panel names the remaining files and resumes after two seconds.
+Stable incomplete histories stay explicitly partial when indexed. Directory
+symlinks and non-regular files are refused. Native archive file symlinks are
+accepted only for owned regular targets whose native identity matches the
+UUID filename. Compressed JSONL archives currently mark coverage partial.
+Legacy workspace-only reads retain their 512 MiB/file and 1 GiB/scan limits.
+A final unfinished JSONL line is counted after it is finished.
 
 The active tab refreshes while open and visible: every two minutes for Limits,
 and once per minute for Usage. Each tab retains its own scroll position;
@@ -121,6 +159,8 @@ for the same view share a result.
 npm run test:usage
 npm run check:usage
 npm run preview:usage
+# Include an unregistered native Pi history in the disposable preview:
+node scripts/usage-preview.mjs 0 --machine
 ```
 
 The preview starts two isolated loopback Hosts with synthetic histories, prices
@@ -159,3 +199,18 @@ cached and unavailable quota readings, source settings, cross-tab stale
 responses, period-control focus, independent scroll positions and stopped
 refresh timers after close. The desktop preview was also checked through
 Computer Use. Phone coverage is an emulated viewport, not a physical iPhone.
+
+Computer-wide history and vendor price resolution were verified on 2026-10-11
+on OneStep-MacMini with 30 focused tests and the standalone desktop/390px phone
+browser cases. Cases cover unregistered histories, archived Codex work,
+subagents/fork deduplication, private numeric caches, malformed caches,
+incremental reads across worker restarts, transport/Claude alias prices and
+the 100K price tier. Browser cases also cover automatic indexing continuation
+and filtering a native Session across Hosts without starting model work.
+The full suite passed 1,994 tests with five platform skips and no failures;
+`check:workspace` and `git diff --check` also passed.
+A read-only scan of about 5.8 GB of local Codex history plus Claude/Pi histories
+completed initial indexing in two requests, then took 457 ms and 268 ms on warm
+views. It included 82 unregistered Sessions in the 30-day period and preserved
+existing missing/partial warnings. Numeric index inspection found no transcript
+body fields. This is local source validation, not deployment or a new App release.

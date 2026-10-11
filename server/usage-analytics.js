@@ -7,7 +7,9 @@ function parseQuery(params, now = Date.now()) {
   const from = numeric("from"), to = numeric("to"), timeZone = params.get("timeZone") || "UTC";
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to <= from || to - from > 366 * 86400000 || to > now + 2 * 86400000 || timeZone.length > 80) throw invalid();
   try { new Intl.DateTimeFormat("en", { timeZone }).format(); } catch { throw invalid(); }
-  const query = { from, to, timeZone };
+  const scope = params.get("scope") || "machine";
+  if (!["machine", "workspace"].includes(scope)) throw invalid();
+  const query = { from, to, timeZone, scope };
   for (const key of ["agent", "project", "model", "entry"]) {
     const value = params.get(key);
     if (value && (value.length > (key === "project" ? 4096 : 400) || /[\u0000-\u001f\u007f]/.test(value))) throw invalid();
@@ -15,7 +17,7 @@ function parseQuery(params, now = Date.now()) {
   }
   return query;
 }
-function createUsageAnalytics({ home, entries, pricing, roots = {}, now = Date.now } = {}) {
+function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = path.join(home, ".config", "stepsemble", "usage-index"), now = Date.now } = {}) {
   let worker = null, cache = new Map(), flights = new Map(), serial = 0, pending = new Map(), closed = false, idle;
   function fail() {
     for (const { reject, timer } of pending.values()) { clearTimeout(timer); reject(Object.assign(new Error("usage_unavailable"), { statusCode: 503 })); }
@@ -48,14 +50,14 @@ function createUsageAnalytics({ home, entries, pricing, roots = {}, now = Date.n
     const signature = crypto.createHash("sha256").update(JSON.stringify(selected)).digest("hex");
     const key = JSON.stringify([signature, query]);
     const previous = cache.get(key);
-    if (previous && now() - previous.at < (fresh ? 10000 : 30000)) return previous.report;
+    if (previous && !previous.report.coverage.indexing && now() - previous.at < (fresh ? 10000 : 30000)) return previous.report;
     if (flights.has(key)) return flights.get(key);
     if (flights.size >= 8) throw Object.assign(new Error("usage_unavailable"), { statusCode: 503 });
     // One bounded scan at a time, even if several devices pick different views.
     const flight = (async () => {
       await Promise.allSettled([...flights.values()]);
       const prices = await pricing.read();
-      const report = await execute({ home, roots, entries: selected, query, prices: prices.models, priceUpdatedAt: prices.updatedAt });
+      const report = await execute({ home, roots, indexDir, entries: selected, query, prices: prices.models, priceUpdatedAt: prices.updatedAt });
       cache.set(key, { at: now(), report });
       while (cache.size > 8) cache.delete(cache.keys().next().value);
       return report;

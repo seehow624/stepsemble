@@ -18,14 +18,17 @@
   }
   function combine(reports) {
     const total = empty(), maps = Object.fromEntries(["days", "models", "agents", "projects", "sessions"].map(key => [key, new Map()]));
-    let covered = 0, missing = 0, unsupported = 0, partial = 0, priceUpdatedAt = null;
+    let covered = 0, missing = 0, unsupported = 0, partial = 0, indexing = 0, priceUpdatedAt = null;
+    const scopes = new Set();
     const hosts = [];
     for (const { report, host, name } of reports) {
       if (!report) { hosts.push({ id: host, name, status: "unavailable" }); continue; }
-      hosts.push({ id: host, name, status: report.coverage?.partial ? "partial" : "ready", total: report.total });
+      hosts.push({ id: host, name, status: report.coverage?.partial || report.coverage?.indexing ? "partial" : "ready", total: report.total });
+      scopes.add(report.scope || "workspace");
       add(total, report.total);
       covered += report.coverage?.covered || 0; missing += report.coverage?.missing || 0;
       unsupported += report.coverage?.unsupported || 0; partial += report.coverage?.partial || 0;
+      indexing += report.coverage?.indexing || 0;
       if (report.priceUpdatedAt) priceUpdatedAt = priceUpdatedAt === null ? report.priceUpdatedAt : Math.min(priceUpdatedAt, report.priceUpdatedAt);
       for (const key of Object.keys(maps)) for (const row of report[key] || []) {
         const id = key === "days" ? row.date : ["projects", "sessions"].includes(key) ? JSON.stringify([host, row.id]) : row.id;
@@ -35,7 +38,7 @@
       }
     }
     return { total, ...Object.fromEntries(Object.entries(maps).map(([key, map]) => [key, [...map.values()].sort(key === "days" ? (a, b) => a.date.localeCompare(b.date) : (a, b) => b.tokens - a.tokens || String(a.id).localeCompare(String(b.id)))])),
-      hosts, coverage: { covered, missing, unsupported, partial }, priceUpdatedAt };
+      hosts, coverage: { covered, missing, unsupported, partial, indexing }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine" };
   }
   return { empty, add, addCall, combine };
 });

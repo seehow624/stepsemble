@@ -75,6 +75,7 @@
 .usage-row-track { width: 100%; max-width: 100px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .usage-row-track > span { display: block; height: 100%; background: var(--usage-input); border-radius: inherit; }
 .usage-list-cost { color: var(--pine-soft); }
+.usage-session-filter { display: block; max-width: 100%; padding: 7px 10px; margin: -3px 0 12px; border-radius: 8px; background: var(--milk); color: var(--pine-soft); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-more { display: block; margin: 12px auto 0; padding: 8px 16px; color: var(--pine-soft); font-size: .75rem; }
 .usage-quota-grid { display: flex; flex-direction: column; border: .5px solid var(--line); border-radius: 13px; background: var(--milk); overflow: hidden; }
 .usage-quota-card { min-width: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; padding: 14px 20px; gap: 24px; border: 0; border-bottom: .5px solid var(--line); border-radius: 0; background: transparent; }

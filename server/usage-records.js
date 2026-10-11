@@ -40,11 +40,12 @@ function reportedCost(raw) {
 }
 const digest = value => crypto.createHash("sha256").update(value).digest("hex");
 
-function createUsageParser(agent, expectedId, { maxRows = 100000 } = {}) {
-  const rows = new Map(), snapshots = new Set();
-  let session = "", model = "", provider = "", previous = null, fork = "", waitingFork = false, replay = false, userFork = false;
-  const started = new Set();
-  let turn = "", epoch = 0, skipped = 0, invalid = false, headerSeen = false;
+function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: saved, initialRows = [] } = {}) {
+  const rows = new Map(initialRows.map(row => [row.identity, row])), snapshots = new Set(saved?.snapshots || []);
+  let session = saved?.session || "", model = saved?.model || "", provider = saved?.provider || "", previous = saved?.previous || null, fork = saved?.fork || "", waitingFork = saved?.waitingFork || false, replay = saved?.replay || false, userFork = saved?.userFork || false;
+  const started = new Set(saved?.started || []);
+  const meta = { cwd: saved?.meta?.cwd || "", name: saved?.meta?.name || "" };
+  let turn = saved?.turn || "", epoch = saved?.epoch || 0, skipped = saved?.skipped || 0, invalid = saved?.invalid || false, headerSeen = saved?.headerSeen || false;
   function put(row, replace = false) {
     if (!row.at || !row.tokens) return;
     const old = rows.get(row.identity);
@@ -62,8 +63,10 @@ function createUsageParser(agent, expectedId, { maxRows = 100000 } = {}) {
     if (agent === "pi") {
       if (row.type === "session") {
         session = text(row.id, 256); headerSeen = true;
+        meta.cwd = text(row.cwd, 4096); meta.name = text(row.name);
         if (expectedId && session !== expectedId) invalid = true;
       }
+      if (row.type === "session_info" && typeof row.name === "string") meta.name = text(row.name);
       if (row.type === "model_change") { model = text(row.modelId || row.model); provider = text(row.provider); }
       const summary = ["compaction", "branch_summary"].includes(row.type);
       const message = summary ? row : row.type === "message" ? row.message : null;
@@ -82,6 +85,8 @@ function createUsageParser(agent, expectedId, { maxRows = 100000 } = {}) {
         headerSeen = true;
         if (expectedId && text(row.sessionId, 256) !== expectedId) invalid = true;
       }
+      if (row.cwd && !meta.cwd) meta.cwd = text(row.cwd, 4096);
+      if (row.type === "custom-title") meta.name = text(row.customTitle);
       if (row.type !== "assistant" || !row.message?.usage) return;
       const message = row.message, id = text(message.id, 256), at = time(row.timestamp);
       if (!id || !at) { skipped++; return; }
@@ -95,6 +100,7 @@ function createUsageParser(agent, expectedId, { maxRows = 100000 } = {}) {
         const id = text(payload.id || payload.session_id, 256);
         if (!session) {
           session = id; fork = text(payload.forked_from_id || payload.forked_from?.thread_id || payload.forked_from || payload.source?.subagent?.thread_spawn?.parent_thread_id, 256);
+          meta.cwd = text(payload.cwd, 4096); meta.name = text(payload.title || payload.name || payload.agent_nickname);
           waitingFork = !!fork; userFork = payload.thread_source === "user"; headerSeen = true;
           if (expectedId && id !== expectedId) invalid = true;
         } else if (id === session) { waitingFork = false; replay = false; }
@@ -152,7 +158,8 @@ function createUsageParser(agent, expectedId, { maxRows = 100000 } = {}) {
       put({ identity: digest(`codex:${nativeKey}`), at, model: model || "unknown", provider: provider || "openai", tokens: usage, cost: null, costSource: null }, true);
     }
   }
-  return { consume, result() { return { rows: invalid ? [] : [...rows.values()], skipped, invalid: invalid || !headerSeen, session }; } };
+  return { consume, result() { return { rows: invalid ? [] : [...rows.values()], skipped, invalid: invalid || !headerSeen, session, meta: { ...meta } }; },
+    checkpoint() { return { session, model, provider, previous, fork, waitingFork, replay, userFork, started: [...started], snapshots: [...snapshots], meta: { ...meta }, turn, epoch, skipped, invalid, headerSeen }; } };
 }
 
-module.exports = { createUsageParser, tokens, reportedCost, number, time };
+module.exports = { createUsageParser, tokens, reportedCost, number, time, text };

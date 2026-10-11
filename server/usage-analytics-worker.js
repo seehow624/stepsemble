@@ -3,6 +3,7 @@ const { parentPort } = require("node:worker_threads");
 const fs = require("node:fs"), path = require("node:path");
 const { createUsageParser } = require("./usage-records");
 const { estimate } = require("./usage-pricing");
+const { discoverUsageFiles, readUsageFile } = require("./usage-history");
 const { empty, addCall } = require("../public/modules/usage-data");
 const SUPPORTED = new Set(["pi", "claude-code", "codex"]);
 const cache = new Map();
@@ -77,11 +78,63 @@ async function readFile(file, root, agent, expected, budget) {
   } catch { return { rows: [], partial: true }; }
   finally { await handle?.close().catch(() => {}); }
 }
-async function report({ home, roots, entries, query, prices, priceUpdatedAt }) {
+async function machineUsage({ home, roots, entries, indexDir }) {
+  const budget = { deadline: Date.now() + 16000, maxBytes: 16 * 1024 * 1024 * 1024, bytes: 0, visited: 0, limited: false };
+  const { files, sources } = await discoverUsageFiles(home, roots, budget);
+  const registry = entries.slice(0, 2000).sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+  const groups = new Map(), seen = new Map(), matched = new Set();
+  const coverage = { covered: 0, missing: 0, unsupported: registry.filter(item => !SUPPORTED.has(item.record.agentId)).length, partial: entries.length > 2000 ? 1 : 0, indexing: 0 };
+  for (let at = 0; at < files.length; at++) {
+    if (Date.now() >= budget.deadline || budget.bytes >= budget.maxBytes) { coverage.indexing += files.length - at; break; }
+    const source = files[at], read = await readUsageFile(source, budget, indexDir);
+    if (read.ignored) continue;
+    if (read.pending) coverage.indexing++;
+    const id = read.session || source.expected || source.file;
+    const registrations = registry.filter(item => item.record.agentId === source.agent && (nativeId(item.record) === id || source.agent === "pi" && typeof item.record.file === "string" && path.resolve(source.root, item.record.file) === source.file));
+    const registered = registrations[0];
+    for (const registration of registrations) matched.add(registration.key);
+    const groupId = source.agent + ":" + id;
+    let group = groups.get(groupId);
+    if (!group) {
+      const record = { ...registered?.record, agentId: source.agent, cwd: read.meta?.cwd || registered?.record.cwd || "", name: registered?.record.name || read.meta?.name || `${source.agent} · ${id.slice(0, 8)}` };
+      group = { key: registered?.key || `native:${groupId}`, record, registered: !!registered, good: false, partial: false, pending: false };
+      groups.set(groupId, group);
+    }
+    if (!source.subagent) {
+      group.record.cwd = read.meta?.cwd || registered?.record.cwd || group.record.cwd;
+      group.record.name = registered?.record.name || read.meta?.name || group.record.name;
+    }
+    group.good ||= !read.invalid && !read.partial || read.rows.length > 0;
+    group.partial ||= read.partial && !read.pending; group.pending ||= read.pending;
+    for (const row of read.rows) {
+      const prior = seen.get(row.identity);
+      if (prior) {
+        // Copied/forked records share one call. A later Claude stream snapshot
+        // can complete its output count without adding a second generation.
+        for (const key of Object.keys(row.tokens)) prior.tokens[key] = prior.tokens[key] === null ? row.tokens[key] : row.tokens[key] === null ? prior.tokens[key] : Math.max(prior.tokens[key], row.tokens[key]);
+        if (row.cost !== null && (prior.cost === null || row.cost > prior.cost)) prior.cost = row.cost;
+        prior.at = Math.min(prior.at, row.at);
+        continue;
+      }
+      if (seen.size >= 150000) { budget.limited = true; break; }
+      seen.set(row.identity, { ...row, tokens: { ...row.tokens }, entry: group });
+    }
+  }
+  for (const group of groups.values()) {
+    if (group.good) coverage.covered++; else if (!group.pending) coverage.missing++;
+    if (group.partial) coverage.partial++;
+  }
+  // Retain a warning for explicitly added histories that have disappeared.
+  // During initial indexing an unmatched entry may simply be later in the scan.
+  if (!coverage.indexing) coverage.missing += registry.filter(item => SUPPORTED.has(item.record.agentId) && !matched.has(item.key)).length;
+  if (budget.limited && !coverage.indexing) coverage.partial++;
+  return { seen, coverage, sources };
+}
+async function workspaceUsage({ home, roots, entries }) {
   const budget = { deadline: Date.now() + 16000, bytes: 0, visited: 0, limited: false };
   const selections = entries.slice(0, 2000).map(entry => ({ ...entry, id: nativeId(entry.record), files: [], root: null }));
   const coverage = { covered: 0, missing: 0, unsupported: 0, partial: entries.length > 2000 ? 1 : 0 };
-  const baseRoots = { pi: path.join(home, ".pi", "agent", "sessions"), "claude-code": roots.claude || path.join(home, ".claude", "projects"), codex: roots.codex || path.join(home, ".codex") };
+  const baseRoots = { pi: roots.pi || path.join(home, ".pi", "agent", "sessions"), "claude-code": roots.claude || path.join(home, ".claude", "projects"), codex: roots.codex || path.join(home, ".codex") };
   for (const agent of SUPPORTED) {
     const wanted = selections.filter(item => item.record.agentId === agent);
     if (!wanted.length) continue;
@@ -122,6 +175,12 @@ async function report({ home, roots, entries, query, prices, priceUpdatedAt }) {
     if (partial) coverage.partial++;
   }
   if (budget.limited) coverage.partial++;
+  return { seen, coverage };
+}
+async function report(input) {
+  const { home, roots = {}, entries = [], query, prices = {}, priceUpdatedAt } = input;
+  const scope = query.scope === "workspace" ? "workspace" : "machine";
+  const { seen, coverage, sources } = await (scope === "machine" ? machineUsage({ home, roots, entries, indexDir: input.indexDir }) : workspaceUsage({ home, roots, entries }));
   const total = empty(), groups = Object.fromEntries(["days", "models", "agents", "projects", "sessions"].map(key => [key, new Map()]));
   const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: query.timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   const dateOf = at => { const parts = Object.fromEntries(formatter.formatToParts(at).map(p => [p.type, p.value])); return `${parts.year}-${parts.month}-${parts.day}`; };
@@ -142,11 +201,11 @@ async function report({ home, roots, entries, query, prices, priceUpdatedAt }) {
     const date = dateOf(row.at);
     fold("days", date, row, cost, { date }); fold("models", modelId, row, cost, { name: row.model, provider: row.provider });
     fold("agents", record.agentId, row, cost, { name: record.agentId }); fold("projects", project, row, cost, { name: path.basename(project) || "—", cwd: project });
-    fold("sessions", entry.key, row, cost, { name: record.name || record.agentId, agent: record.agentId, cwd: project });
+    fold("sessions", entry.key, row, cost, { name: record.name || record.agentId, agent: record.agentId, cwd: project, registered: entry.registered !== false });
   }
   return { version: 1, total, ...Object.fromEntries(Object.entries(groups).map(([key, map]) => [key, [...map.values()].sort((a, b) => key === "days" ? a.date.localeCompare(b.date) : b.tokens - a.tokens || a.id.localeCompare(b.id))])),
     facets: Object.fromEntries(Object.entries(facets).map(([key, map]) => [key, [...map.values()].sort((a, b) => a.name.localeCompare(b.name))])), coverage,
-    range: { from: query.from, to: query.to, timeZone: query.timeZone }, priceUpdatedAt, generatedAt: Date.now(), scope: "workspace", currency: "USD", costKind: "estimate" };
+    range: { from: query.from, to: query.to, timeZone: query.timeZone }, priceUpdatedAt, generatedAt: Date.now(), scope, sources, currency: "USD", costKind: "estimate" };
 }
 if (parentPort) parentPort.on("message", async request => {
   try { parentPort.postMessage({ id: request.id, report: await report(request.input) }); }

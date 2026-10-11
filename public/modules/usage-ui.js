@@ -2,9 +2,9 @@
   "use strict";
   const Data = root.StepsembleUsageData;
   const strings = {
-    en: { usage: "Usage", subtitle: "A clearer view of the work you do.", today: "Today", week: "This week", month: "This month", thirty: "30 days", allHosts: "All Hosts", host: "Host", close: "Close", refresh: "Refresh", loading: "Reading usage…", tokens: "Tokens", cost: "Estimated cost", calls: "Model calls", input: "Input", output: "Output", cacheRead: "Cache read", cacheWrite: "Cache write", chart: "Daily usage", models: "Models", agents: "Agents", projects: "Projects", sessions: "Sessions", allAgents: "All agents", allProjects: "All projects", allModels: "All models", reset: "Clear filters", noData: "No recorded usage in this period", noDataHint: "Usage appears after a supported agent records a model call. Try a longer period.", estimate: "USD estimate from agent reports or reference model prices. Subscription allowance is shown separately; this is not a bill.", unknownCost: "Price unavailable", priced: "{known} of {total} calls priced", partialCost: "Known portion", scope: "Sessions added to this workspace · Codex, Claude Code and Pi", coverage: "{covered} sessions read", missing: "{count} sessions unavailable", unsupported: "{count} sessions use an unsupported agent", partial: "Some records could not be read. Totals show the available portion.", offline: "Unavailable", retry: "Could not read usage. Try again.", updated: "Updated {time}", limits: "Subscription limits", remaining: "{percent}% remaining", resetAt: "Resets {time}", quotaUnknown: "Limits unavailable", incomplete: "Some calls have incomplete token counts.", openSession: "Open conversation", viewProject: "Filter this project", viewModel: "Filter this model", viewAgent: "Filter this agent", back: "Back", costSource: "Reference model prices", readOnly: "Usage refresh never starts an agent.", noResults: "No calls match these filters", filter: "Filter usage", sidebar: "Usage overview" },
-    "zh-Hant": { usage: "用量", subtitle: "看見每一份工作的消耗。", today: "今天", week: "本週", month: "本月", thirty: "30 天", allHosts: "所有 Host", host: "Host", close: "關閉", refresh: "重新整理", loading: "正在讀取用量…", tokens: "Token 用量", cost: "估算費用", calls: "模型呼叫", input: "輸入", output: "輸出", cacheRead: "快取讀取", cacheWrite: "快取寫入", chart: "每日用量", models: "模型", agents: "Agent", projects: "專案", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有專案", allModels: "所有模型", reset: "清除篩選", noData: "這段期間還沒有用量紀錄", noDataHint: "支援的 Agent 保存模型呼叫後就會顯示。也可以切換更長的期間。", estimate: "依 Agent 回報或參考模型單價估算，幣別為 USD。訂閱配額另外顯示；這不是實際帳單。", unknownCost: "缺少單價", priced: "已估算 {known}／{total} 次呼叫", partialCost: "已知部分", scope: "已加入此工作區的 Session · Codex、Claude Code、Pi", coverage: "已讀取 {covered} 個 Session", missing: "{count} 個 Session 暫時無法讀取", unsupported: "{count} 個 Session 的 Agent 暫不支援", partial: "部分紀錄無法讀取，目前顯示可取得的用量。", offline: "無法連線", retry: "暫時無法讀取用量，請重試。", updated: "更新於 {time}", limits: "訂閱配額", remaining: "剩餘 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暫時無法取得配額", incomplete: "部分呼叫缺少完整的 Token 數字。", openSession: "開啟對話", viewProject: "篩選此專案", viewModel: "篩選此模型", viewAgent: "篩選此 Agent", back: "返回", costSource: "參考模型單價", readOnly: "重新整理用量不會啟動 Agent。", noResults: "沒有符合篩選的呼叫", filter: "篩選用量", sidebar: "用量總覽" },
-    zh: { usage: "用量", subtitle: "看见每一份工作的消耗。", today: "今天", week: "本周", month: "本月", thirty: "30 天", allHosts: "所有 Host", close: "关闭", refresh: "刷新", loading: "正在读取用量…", tokens: "Token 用量", cost: "估算费用", calls: "模型调用", input: "输入", output: "输出", cacheRead: "缓存读取", cacheWrite: "缓存写入", chart: "每日用量", models: "模型", agents: "Agent", projects: "项目", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有项目", allModels: "所有模型", reset: "清除筛选", noData: "这段时间还没有用量记录", noDataHint: "支持的 Agent 保存模型调用后就会显示。也可以切换更长的时间。", estimate: "按 Agent 回报或参考模型单价估算，币种为 USD。订阅配额另外显示；这不是实际账单。", unknownCost: "缺少单价", priced: "已估算 {known}／{total} 次调用", partialCost: "已知部分", scope: "已加入此工作区的 Session · Codex、Claude Code、Pi", coverage: "已读取 {covered} 个 Session", missing: "{count} 个 Session 暂时无法读取", unsupported: "{count} 个 Session 的 Agent 暂不支持", partial: "部分记录无法读取，目前显示可取得的用量。", offline: "无法连接", retry: "暂时无法读取用量，请重试。", updated: "更新于 {time}", limits: "订阅配额", remaining: "剩余 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暂时无法取得配额", incomplete: "部分调用缺少完整的 Token 数字。", openSession: "打开对话", viewProject: "筛选此项目", viewModel: "筛选此模型", viewAgent: "筛选此 Agent", back: "返回", readOnly: "刷新用量不会启动 Agent。", noResults: "没有符合筛选的调用", filter: "筛选用量", sidebar: "用量总览" },
+    en: { usage: "Usage", subtitle: "A clearer view of the work you do.", today: "Today", week: "This week", month: "This month", thirty: "30 days", allHosts: "All Hosts", host: "Host", close: "Close", refresh: "Refresh", loading: "Reading usage…", tokens: "Tokens", cost: "Estimated cost", calls: "Model calls", input: "Input", output: "Output", cacheRead: "Cache read", cacheWrite: "Cache write", chart: "Daily usage", models: "Models", agents: "Agents", projects: "Projects", sessions: "Sessions", allAgents: "All agents", allProjects: "All projects", allModels: "All models", reset: "Clear filters", noData: "No recorded usage in this period", noDataHint: "Usage appears after a supported agent records a model call. Try a longer period.", estimate: "USD estimate from agent reports or reference model prices. Subscription allowance is shown separately; this is not a bill.", unknownCost: "Price unavailable", priced: "{known} of {total} calls priced", partialCost: "Known portion", scope: "This computer’s readable history · Codex, Claude Code and Pi", workspaceScope: "This Host uses workspace-only statistics. Update it to include this computer’s history.", mixedScope: "Some Hosts still use workspace-only statistics. Update them for computer-wide totals.", indexing: "Indexing history · {count} files remaining. Totals will update automatically.", viewSession: "Filter this session", coverage: "{covered} sessions read", missing: "{count} sessions unavailable", unsupported: "{count} sessions use an unsupported agent", partial: "Some records could not be read. Totals show the available portion.", offline: "Unavailable", retry: "Could not read usage. Try again.", updated: "Updated {time}", limits: "Subscription limits", remaining: "{percent}% remaining", resetAt: "Resets {time}", quotaUnknown: "Limits unavailable", incomplete: "Some calls have incomplete token counts.", openSession: "Open conversation", viewProject: "Filter this project", viewModel: "Filter this model", viewAgent: "Filter this agent", back: "Back", costSource: "Reference model prices", readOnly: "Usage refresh never starts an agent.", noResults: "No calls match these filters", filter: "Filter usage", sidebar: "Usage overview" },
+    "zh-Hant": { usage: "用量", subtitle: "看見每一份工作的消耗。", today: "今天", week: "本週", month: "本月", thirty: "30 天", allHosts: "所有 Host", host: "Host", close: "關閉", refresh: "重新整理", loading: "正在讀取用量…", tokens: "Token 用量", cost: "估算費用", calls: "模型呼叫", input: "輸入", output: "輸出", cacheRead: "快取讀取", cacheWrite: "快取寫入", chart: "每日用量", models: "模型", agents: "Agent", projects: "專案", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有專案", allModels: "所有模型", reset: "清除篩選", noData: "這段期間還沒有用量紀錄", noDataHint: "支援的 Agent 保存模型呼叫後就會顯示。也可以切換更長的期間。", estimate: "依 Agent 回報或參考模型單價估算，幣別為 USD。訂閱配額另外顯示；這不是實際帳單。", unknownCost: "缺少單價", priced: "已估算 {known}／{total} 次呼叫", partialCost: "已知部分", scope: "這台電腦可讀取的紀錄 · Codex、Claude Code、Pi", workspaceScope: "此 Host 仍只統計工作區，更新後可讀取整台電腦的紀錄。", mixedScope: "部分 Host 仍只統計工作區，更新後才能顯示整機用量。", indexing: "正在建立歷史索引 · 尚有 {count} 個檔案，用量將自動更新。", viewSession: "篩選此 Session", coverage: "已讀取 {covered} 個 Session", missing: "{count} 個 Session 暫時無法讀取", unsupported: "{count} 個 Session 的 Agent 暫不支援", partial: "部分紀錄無法讀取，目前顯示可取得的用量。", offline: "無法連線", retry: "暫時無法讀取用量，請重試。", updated: "更新於 {time}", limits: "訂閱配額", remaining: "剩餘 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暫時無法取得配額", incomplete: "部分呼叫缺少完整的 Token 數字。", openSession: "開啟對話", viewProject: "篩選此專案", viewModel: "篩選此模型", viewAgent: "篩選此 Agent", back: "返回", costSource: "參考模型單價", readOnly: "重新整理用量不會啟動 Agent。", noResults: "沒有符合篩選的呼叫", filter: "篩選用量", sidebar: "用量總覽" },
+    zh: { usage: "用量", subtitle: "看见每一份工作的消耗。", today: "今天", week: "本周", month: "本月", thirty: "30 天", allHosts: "所有 Host", close: "关闭", refresh: "刷新", loading: "正在读取用量…", tokens: "Token 用量", cost: "估算费用", calls: "模型调用", input: "输入", output: "输出", cacheRead: "缓存读取", cacheWrite: "缓存写入", chart: "每日用量", models: "模型", agents: "Agent", projects: "项目", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有项目", allModels: "所有模型", reset: "清除筛选", noData: "这段时间还没有用量记录", noDataHint: "支持的 Agent 保存模型调用后就会显示。也可以切换更长的时间。", estimate: "按 Agent 回报或参考模型单价估算，币种为 USD。订阅配额另外显示；这不是实际账单。", unknownCost: "缺少单价", priced: "已估算 {known}／{total} 次调用", partialCost: "已知部分", scope: "这台电脑可读取的记录 · Codex、Claude Code、Pi", workspaceScope: "此 Host 仍只统计工作区，更新后可读取整台电脑的记录。", mixedScope: "部分 Host 仍只统计工作区，更新后才能显示整机用量。", indexing: "正在建立历史索引 · 尚有 {count} 个文件，用量将自动更新。", viewSession: "筛选此 Session", coverage: "已读取 {covered} 个 Session", missing: "{count} 个 Session 暂时无法读取", unsupported: "{count} 个 Session 的 Agent 暂不支持", partial: "部分记录无法读取，目前显示可取得的用量。", offline: "无法连接", retry: "暂时无法读取用量，请重试。", updated: "更新于 {time}", limits: "订阅配额", remaining: "剩余 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暂时无法取得配额", incomplete: "部分调用缺少完整的 Token 数字。", openSession: "打开对话", viewProject: "筛选此项目", viewModel: "筛选此模型", viewAgent: "筛选此 Agent", back: "返回", readOnly: "刷新用量不会启动 Agent。", noResults: "没有符合筛选的调用", filter: "筛选用量", sidebar: "用量总览" },
   };
   Object.assign(strings.en, { more: "Show {count} more", overview: "Limits & usage", limitsTab: "Limits", overviewHint: "Your remaining allowance and the work behind it.", loadingLimits: "Reading limits…", retryLimits: "Could not read limits. Try again.", cachedLimits: "Previous reading", resetsIn: "Resets in {time}", awaitingReset: "Waiting for a new reading", sources: "Manage sources", limitsNote: "Remaining allowance comes from your signed-in services. Token usage and estimated costs are available in Usage." });
   Object.assign(strings["zh-Hant"], { more: "再顯示 {count} 筆", overview: "額度與用量", limitsTab: "額度", overviewHint: "查看剩餘額度，了解每一份工作的用量。", loadingLimits: "正在讀取額度…", retryLimits: "暫時無法讀取額度，請重試。", cachedLimits: "先前讀取的額度", resetsIn: "{time} 後重置", awaitingReset: "等待更新額度", sources: "管理額度來源", limitsNote: "剩餘額度來自已登入的服務；Token 用量與估算費用可在「用量」查看。" });
@@ -30,10 +30,11 @@
   }
   function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
   function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, openQuotaSources = () => {}, providerLogo = () => node("span"), restoreFocus = () => {} }) {
+    let indexingTimer;
     let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
-    let filters = { agent: "", project: "", model: "" }, view = null, previous = null, quotas = [], hostChoices = [];
+    let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
     let scrolls = { limits: 0, usage: 0 };
-    function close() { if (!panel) return; sequence++; clearInterval(timer); panel.close(); panel.remove(); panel = null; view = null; onVisibility(); if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus(); }
+    function close() { if (!panel) return; sequence++; clearInterval(timer); clearTimeout(indexingTimer); panel.close(); panel.remove(); panel = null; view = null; onVisibility(); if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus(); }
     function makeSelect(name, values, value, changed) {
       const select = node("select"); select.setAttribute("aria-label", label(name)); select.dataset.filter = name;
       for (const [id, title] of values) { const option = node("option", title); option.value = id; select.append(option); }
@@ -43,7 +44,7 @@
     function schedule() { clearInterval(timer); timer = setInterval(() => { if (panel && !document.hidden) void load(); }, tab === "limits" ? 120000 : 60000); }
     function selectTab(value) {
       if (value === tab) return;
-      scrolls[tab] = view.body.scrollTop; tab = value;
+      clearTimeout(indexingTimer); scrolls[tab] = view.body.scrollTop; tab = value;
       for (const control of view.tabs.children) { const active = control.dataset.overviewTab === tab; control.setAttribute("aria-selected", String(active)); control.tabIndex = active ? 0 : -1; }
       view.body.setAttribute("aria-labelledby", "usage-tab-" + tab); panel.dataset.tab = tab;
       if (tab === "usage" && previous) render(previous);
@@ -53,11 +54,12 @@
     }
     function selectHost(value, notify = true) {
       if (selectedHost === value) return;
-      selectedHost = value; view.host.value = value; previous = null; quotas = []; filters = { agent: "", project: "", model: "" }; scrolls = { limits: 0, usage: 0 }; view.body.scrollTop = 0;
+      selectedHost = value; view.host.value = value; previous = null; quotas = []; filters = { agent: "", project: "", model: "", entry: "" }; scrolls = { limits: 0, usage: 0 }; view.body.scrollTop = 0;
       if (notify && value) onHostSelected(value);
       void load();
     }
     async function load(fresh = false) {
+      clearTimeout(indexingTimer);
       const epoch = ++sequence, loadingTab = tab, targets = selectedHost ? hostChoices.filter(item => item.id === selectedHost) : hostChoices;
       const query = new URLSearchParams({ ...range(period), ...filters, ...(fresh ? { fresh: "1" } : {}) });
       const loading = label(tab === "limits" ? "loadingLimits" : "loading");
@@ -92,6 +94,7 @@
         } else current.facets[key].set(item.id, item);
       }
       render(current); status(label("updated", { time: new Date().toLocaleTimeString(localeOf(), { hour: "2-digit", minute: "2-digit" }) }));
+      if (current.coverage.indexing) indexingTimer = setTimeout(() => { if (panel && tab === "usage" && !document.hidden) void load(); }, 2000);
     }
     function renderEmpty(title) {
       view.body.replaceChildren(node("p", title, "usage-empty"));
@@ -108,12 +111,17 @@
         const options = [["", label(name)], ...items.map(item => [item.id, key === "agent" ? agentName(item.id) : key === "model" ? item.name + (item.provider ? " · " + item.provider : "")
           : item.name + (!selectedHost ? " · " + item.hostNames.join(", ") : duplicates(item.name) ? " · " + item.id : "")])];
         if (filters[key] && !options.some(([id]) => id === filters[key])) options.push([filters[key], filters[key]]);
-        filtersBar.append(makeSelect(name, options, filters[key], value => { filters[key] = value; previous = null; void load(); }));
+        filtersBar.append(makeSelect(name, options, filters[key], value => { filters[key] = value; filters.entry = ""; previous = null; void load(); }));
       }
-      if (Object.values(filters).some(Boolean)) filtersBar.append(button(label("reset"), () => { filters = { agent: "", project: "", model: "" }; previous = null; void load(); }, "usage-clear"));
+      if (Object.values(filters).some(Boolean)) filtersBar.append(button(label("reset"), () => { filters = { agent: "", project: "", model: "", entry: "" }; previous = null; void load(); }, "usage-clear"));
       body.append(filtersBar);
+      if (filters.entry) {
+        const session = data.sessions.find(row => row.nativeId === filters.entry);
+        const chip = button("Session · " + (session?.name || filters.entry.replace(/^native:[^:]+:/, "").slice(0, 8)) + " ×", () => { filters.entry = ""; previous = null; void load(); }, "usage-session-filter");
+        chip.title = label("reset"); body.append(chip);
+      }
       const metrics = node("section", "", "usage-metrics"); metrics.setAttribute("aria-label", label("usage"));
-      const unreadable = !data.coverage.covered && (data.coverage.missing || data.coverage.partial || data.coverage.unsupported);
+      const unreadable = !data.coverage.covered && (data.coverage.missing || data.coverage.partial || data.coverage.unsupported || data.coverage.indexing);
       for (const [key, value, sub] of [["tokens", unreadable ? "—" : fmt(data.total.tokens), ""], ["cost", money(data.total, true), label("priced", { known: fmt(data.total.pricedCalls), total: fmt(data.total.calls) })], ["calls", unreadable ? "—" : fmt(data.total.calls), label("coverage", { covered: fmt(data.coverage.covered) })]]) {
         const card = node("div", "", "usage-metric"); card.dataset.metric = key; card.append(node("span", label(key)), node("strong", value));
         if (key === "cost" && data.total.knownCost >= 1000) card.append(node("small", money(data.total)));
@@ -130,12 +138,13 @@
       if (data.coverage.missing) notices.push(label("missing", { count: fmt(data.coverage.missing) }));
       if (data.coverage.unsupported) notices.push(label("unsupported", { count: fmt(data.coverage.unsupported) }));
       if (data.coverage.partial) notices.push(label("partial"));
+      if (data.coverage.indexing) notices.push(label("indexing", { count: fmt(data.coverage.indexing) }));
       if (data.total.incompleteCalls) notices.push(label("incomplete"));
       if (notices.length) { const note = node("p", notices.join(" · "), "usage-notice"); note.setAttribute("role", "status"); body.append(note); }
       if (!data.total.calls) {
         const empty = node("section", "", "usage-empty"); empty.append(node("h2", Object.values(filters).some(Boolean) ? label("noResults") : label("noData")), node("p", label("noDataHint"))); body.append(empty);
       } else { body.append(chart(data)); body.append(breakdown(data)); }
-      const foot = node("footer", "", "usage-explanation"); foot.append(node("p", label("estimate")), node("small", label("scope")));
+      const foot = node("footer", "", "usage-explanation"); foot.append(node("p", label("estimate")), node("small", label(data.scope === "workspace" ? "workspaceScope" : data.scope === "mixed" ? "mixedScope" : "scope")));
       if (data.priceUpdatedAt) foot.append(node("small", label("costSource") + " · " + new Date(data.priceUpdatedAt).toLocaleDateString(localeOf())));
       body.append(foot);
       if (focus) [...body.querySelectorAll("[data-" + focus[0] + "]")].find(el => el.dataset[focus[0]] === focus[1])?.focus({ preventScroll: true });
@@ -178,11 +187,12 @@
         const values = data[lens] || [], max = Math.max(1, ...values.map(row => row.tokens));
         for (const row of values.slice(0, limit)) {
           const el = button("", () => {
-            if (lens === "sessions") { close(); openConversation(row.nativeId, row.name, row.host); }
-            else { filters[lens === "models" ? "model" : lens === "projects" ? "project" : "agent"] = lens === "projects" ? row.cwd : row.id; if (lens === "projects" && selectedHost !== row.host) { selectedHost = row.host; view.host.value = selectedHost; quotas = []; onHostSelected(selectedHost); } previous = null; void load(); }
+            if (lens === "sessions" && row.registered !== false) { close(); openConversation(row.nativeId, row.name, row.host); }
+            else if (lens === "sessions") { filters = { agent: "", project: "", model: "", entry: row.nativeId }; if (selectedHost !== row.host) { selectedHost = row.host; view.host.value = selectedHost; quotas = []; onHostSelected(selectedHost); } previous = null; void load(); }
+            else { filters.entry = ""; filters[lens === "models" ? "model" : lens === "projects" ? "project" : "agent"] = lens === "projects" ? row.cwd : row.id; if (lens === "projects" && selectedHost !== row.host) { selectedHost = row.host; view.host.value = selectedHost; quotas = []; onHostSelected(selectedHost); } previous = null; void load(); }
           }, "usage-list-row");
           el.dataset.row = row.id;
-          el.title = label(lens === "sessions" ? "openSession" : lens === "models" ? "viewModel" : lens === "projects" ? "viewProject" : "viewAgent");
+          el.title = label(lens === "sessions" ? row.registered === false ? "viewSession" : "openSession" : lens === "models" ? "viewModel" : lens === "projects" ? "viewProject" : "viewAgent");
           const identity = node("span", "", "usage-list-identity"); identity.append(node("strong", lens === "agents" ? agentName(row.name) : row.name));
           const detail = lens === "models" ? row.provider : lens === "sessions" ? agentName(row.agent) + " · " + row.hostName : lens === "projects" ? row.hostName + " · " + row.cwd : "";
           if (detail) identity.append(node("small", detail));
@@ -261,7 +271,7 @@
     }
     async function open(target, trigger = document.activeElement) {
       if (panel) return;
-      const ctx = context(); hostChoices = ctx.hosts; selectedHost = target || ctx.selected; anchor = trigger; previous = null; quotas = []; tab = "limits"; scrolls = { limits: 0, usage: 0 }; filters = { agent: "", project: "", model: "" };
+      const ctx = context(); hostChoices = ctx.hosts; selectedHost = target || ctx.selected; anchor = trigger; previous = null; quotas = []; tab = "limits"; scrolls = { limits: 0, usage: 0 }; filters = { agent: "", project: "", model: "", entry: "" };
       panel = node("dialog", "", "usage-panel"); panel.id = "usage-panel"; panel.dataset.tab = tab; panel.setAttribute("aria-labelledby", "usage-title");
       const header = node("header", "", "usage-header"), brand = node("div", "", "usage-brand");
       const logo = node("span", "", "workspace-logo"); logo.setAttribute("aria-hidden", "true"); brand.append(logo, node("strong", "Stepsemble"));

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Count readable Codex, Claude Code and Pi histories across the selected computer, including terminal work, archives and unregistered subagents. Deduplicate copied calls, show initial indexing progress, and filter native Sessions without importing or starting them.
+- Resolve OpenCodex and compatible routed model IDs to original vendor reference prices, including Claude Code aliases. Use published GLM/DeepSeek catalog fallbacks and all published context thresholds; keep unknown preview prices explicit.
+- Cache private numeric usage checkpoints and resume ordinary history appends after worker restarts. Preserve incomplete-history warnings without repeatedly reading large transcripts.
 - Make the shared Limits and Usage panel smaller, with a quieter heading and compact provider rows. Keep allowance windows side by side, using slim bars and clear remaining percentages; retain Host synchronization and fixed dimensions between tabs.
 
 ## 3.8.47
