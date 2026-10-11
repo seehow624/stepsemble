@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Open Limits and Usage from one sidebar quota entry. Start on Limits and switch tabs inside a fixed-size panel, with the same Host selection on desktop and phones.
+- Keep individual Host selections synchronized with the Workspace. Preserve each tab's scroll position and Usage filters, period and breakdown; return to the quota strip on close.
+- Read only the active tab's data. Refresh quota readings explicitly, mark retained readings as cached after a failure, and keep Usage accessible when quota is unavailable.
+
 ## 3.8.46
 
 - Add a dark Usage overview for desktop and phones, with today/week/month/30-day periods, daily token charts, model/project/agent/session breakdowns and per-Host or combined views.

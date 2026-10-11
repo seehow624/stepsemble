@@ -2,8 +2,13 @@
 
 Introduced in 3.8.46.
 
-Open **Usage** at the bottom of the Workspace sidebar. The view follows the
-Workspace's selected Host when opened. Switch Hosts in the view, or choose
+Open the **quota strip** at the bottom of the Workspace sidebar. The shared
+**Limits & usage** panel opens on **Limits**; switch to **Usage** for history
+charts and breakdowns. Both tabs keep the same panel dimensions and Host
+selection. Choosing an individual Host updates the Workspace selection too;
+**All Hosts** combines the readings without replacing the Workspace Host.
+The panel follows later Workspace Host changes and starts on the selected
+Host every time it opens. Switch Hosts in the view, or choose
 **All Hosts**, to combine the Hosts configured in this Workspace. Desktop and
 mobile use the same authenticated Host endpoint; no additional account is
 needed. The macOS App uses this same view.
@@ -58,7 +63,7 @@ Explicit zero reference prices and zero-token calls can still produce zero cost.
 **≈** means all observed calls have an estimate, **≥** identifies the known
 portion when some calls are unpriced, and **—** means no estimate is available.
 Pricing coverage appears below the total. Subscription quota remaining and reset
-times come from the existing Host quota sources and appear separately. Neither
+times come from the existing Host quota sources and appear in **Limits**. Neither
 estimate represents subscription charges, discounts, credits or actual invoices.
 
 The Host caches reference prices for 24 hours in
@@ -88,9 +93,17 @@ file, 1 GiB per scan and 16 seconds, with a 25-second worker timeout and memory
 limit. Hitting a scan limit produces a partial report, never a silently complete
 total. A final unfinished JSONL line is counted after it is finished.
 
-The view refreshes once per minute while open and visible, preserving keyboard
-focus and scroll position. Closing it stops the refresh timer. Quota sources
-retain their existing behavior; the analytics reader itself never launches a
+The active tab refreshes while open and visible: every two minutes for Limits,
+and once per minute for Usage. Each tab retains its own scroll position;
+Usage also keeps its selected period, filters and breakdown when switching tabs.
+Refresh asks for a fresh reading of only the active tab. Limits never queries
+analytics, and Usage does not request quota readings. A failed quota refresh
+can retain an earlier reading of that same Host, explicitly marked as cached;
+changing Hosts clears the previous selection's readings. Closing the panel
+stops its refresh timer and returns focus to the sidebar quota strip.
+The strip remains usable when a Host reports no quota, so Usage is still
+accessible. Quota-source settings open on the Host selected in the panel.
+Quota sources retain their existing behavior; the analytics reader itself never launches a
 native harness or sends a model prompt. Reading analytics is safe during work.
 At most eight distinct report requests are queued per Host; repeated requests
 for the same view share a result.
@@ -131,3 +144,11 @@ All 28 core rolling-browser cases passed. The latest standalone desktop and
 its original Host, with no model work submitted. A read-only check of this
 machine's seven registered Codex, Claude Code and Pi sessions found no missing,
 unsupported or partial histories; pricing networking was disabled for that check.
+
+The shared Limits/Usage panel was verified on 2026-10-11 on OneStep-MacMini
+with 52 focused tests and the desktop/390-pixel Traditional Chinese browser
+cases. They cover lazy analytics, synchronized Hosts, fixed panel/header sizes,
+cached and unavailable quota readings, source settings, cross-tab stale
+responses, period-control focus, independent scroll positions and stopped
+refresh timers after close. The desktop preview was also checked through
+Computer Use. Phone coverage is an emulated viewport, not a physical iPhone.

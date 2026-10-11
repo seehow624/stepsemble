@@ -225,64 +225,13 @@ small { color: var(--pine-soft); }
 /* The footer holds only the allowances: the providers' logos, and what is
    left for any provider close to its limit. */
 #workspace-sidebar footer { display: grid; padding: 0 2px; }
-/* The box grows upward from the strip when it is tapped, over the list, and
-   shows every allowance; the strip stays at its foot. */
-#workspace-usage.workspace-limits { position: relative; min-width: 0; height: 50px; }
-.workspace-limits-box {
-  position: absolute;
-  z-index: 30;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: grid;
-  grid-template-rows: 0fr 50px;
-  overflow: hidden;
-  border: .5px solid var(--line);
-  border-radius: 12px;
-  background: var(--milk);
-  transition: grid-template-rows .26s cubic-bezier(.2, .8, .2, 1), box-shadow .26s ease;
-}
-.workspace-limits-box[data-open="true"] { grid-template-rows: 1fr 50px; box-shadow: 0 -14px 34px -10px color-mix(in srgb, #000 32%, transparent); }
-.workspace-limits-note { grid-row: 2; display: flex; align-items: center; height: 100%; padding: 0 10px; color: var(--pine-soft); font-size: .68rem; }
-.workspace-limits-details { grid-row: 1; min-height: 0; overflow: hidden; visibility: hidden; transition: visibility 0s linear .26s; }
-.workspace-limits-box[data-open="true"] .workspace-limits-details { visibility: visible; transition-delay: 0s; }
-.workspace-limits-scroll { max-height: min(62dvh, 540px); overflow-y: auto; overscroll-behavior: contain; padding: 12px 14px 4px; }
-/* One line per allowance, in columns shared by every provider. */
-.workspace-limits-grid { display: grid; grid-template-columns: max-content minmax(32px, 1fr) max-content max-content; column-gap: 10px; align-items: center; }
-.workspace-limits-provider { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 12px 0 3px; }
-.workspace-limits-provider:first-child { padding-top: 0; }
-.workspace-limits-provider:not(:first-child) { margin-top: 7px; border-top: .5px solid var(--line); }
-.workspace-limits-provider .workspace-provider-logo { width: 14px; height: 14px; flex-basis: 14px; }
-.workspace-limits-provider strong { min-width: 0; overflow: hidden; font-size: .76rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-limits-provider small { margin-left: auto; color: var(--pine-soft); font-size: .62rem; white-space: nowrap; }
-.workspace-limits-row { --level: color-mix(in srgb, var(--ink) 50%, transparent); display: contents; }
-.workspace-limits-row[data-level="low"] { --level: var(--warn); }
-.workspace-limits-row[data-level="critical"] { --level: var(--err); }
-.workspace-limits-name { color: var(--pine-soft); font-size: .7rem; line-height: 25px; white-space: nowrap; }
-.workspace-limits-bar { height: 3px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--pine-soft) 18%, transparent); }
-.workspace-limits-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--level); transition: width .35s ease; }
-.workspace-limits-row[data-stale="true"] .workspace-limits-bar > span { opacity: .5; }
-.workspace-limits-value { font-size: .74rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 25px; text-align: right; }
-.workspace-limits-row:not([data-level="ok"]) .workspace-limits-value { color: var(--level); }
-.workspace-limits-reset { display: flex; align-items: center; justify-content: flex-end; gap: 3px; min-width: 3.4em; color: var(--pine-soft); font-size: .66rem; font-variant-numeric: tabular-nums; line-height: 25px; white-space: nowrap; }
-.workspace-limits-reset svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.workspace-limits-unknown { grid-column: 1 / -1; margin: 0 0 4px; color: var(--pine-soft); font-size: .7rem; line-height: 1.45; }
-.workspace-limits-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; border-top: .5px solid var(--line); }
-.workspace-limits-foot small { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-limits-checked { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.workspace-limits-refresh { flex: none; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--pine-soft); }
-.workspace-limits-refresh:hover, .workspace-limits-refresh:focus-visible { background: var(--bubble-user); color: var(--ink); }
-.workspace-limits-refresh svg { display: block; width: 14px; height: 14px; margin: auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.workspace-limits-refresh[data-busy=true] svg { animation: workspace-turn .7s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .workspace-limits-refresh[data-busy=true] svg { animation: none; opacity: .45; } }
-.workspace-limits-sources { flex: none; min-height: 32px; padding: 0 2px; border: 0; background: none; color: var(--pine-soft); font: inherit; font-size: .68rem; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; cursor: pointer; }
-.workspace-limits-sources:hover, .workspace-limits-sources:focus-visible { color: var(--ink); outline: 0; }
-html.reduced-motion .workspace-limits-box, html.reduced-motion .workspace-limits-details, html.reduced-motion .workspace-limits-bar > span { transition: none; }
-@media (prefers-reduced-motion: reduce) { .workspace-limits-box, .workspace-limits-details, .workspace-limits-bar > span { transition: none; } }
+/* A single entry opens the fixed-size Limits/Usage panel. */
+#workspace-usage.workspace-limits { min-width: 0; height: 50px; }
+.workspace-limits-box { height: 50px; overflow: hidden; border: .5px solid var(--line); border-radius: 12px; background: var(--milk); }
+.workspace-limits-note { color: var(--pine-soft); font-size: .68rem; }
 /* One quiet line while every allowance is comfortable; a chip for each
    provider close to its limit. The whole strip opens the details. */
 .workspace-limits-strip {
-  grid-row: 2;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -299,7 +248,6 @@ html.reduced-motion .workspace-limits-box, html.reduced-motion .workspace-limits
   cursor: pointer;
 }
 .workspace-limits-strip:hover, .workspace-limits-strip:focus-visible { background: var(--bubble-user); outline: 0; }
-.workspace-limits-box[data-open="true"] .workspace-limits-strip { box-shadow: inset 0 .5px 0 var(--line); }
 .workspace-limits-lead { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .workspace-limits-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .workspace-limits-summary { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }

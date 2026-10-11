@@ -6,9 +6,9 @@
     "zh-Hant": { usage: "用量", subtitle: "看見每一份工作的消耗。", today: "今天", week: "本週", month: "本月", thirty: "30 天", allHosts: "所有 Host", host: "Host", close: "關閉", refresh: "重新整理", loading: "正在讀取用量…", tokens: "Token 用量", cost: "估算費用", calls: "模型呼叫", input: "輸入", output: "輸出", cacheRead: "快取讀取", cacheWrite: "快取寫入", chart: "每日用量", models: "模型", agents: "Agent", projects: "專案", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有專案", allModels: "所有模型", reset: "清除篩選", noData: "這段期間還沒有用量紀錄", noDataHint: "支援的 Agent 保存模型呼叫後就會顯示。也可以切換更長的期間。", estimate: "依 Agent 回報或參考模型單價估算，幣別為 USD。訂閱配額另外顯示；這不是實際帳單。", unknownCost: "缺少單價", priced: "已估算 {known}／{total} 次呼叫", partialCost: "已知部分", scope: "已加入此工作區的 Session · Codex、Claude Code、Pi", coverage: "已讀取 {covered} 個 Session", missing: "{count} 個 Session 暫時無法讀取", unsupported: "{count} 個 Session 的 Agent 暫不支援", partial: "部分紀錄無法讀取，目前顯示可取得的用量。", offline: "無法連線", retry: "暫時無法讀取用量，請重試。", updated: "更新於 {time}", limits: "訂閱配額", remaining: "剩餘 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暫時無法取得配額", incomplete: "部分呼叫缺少完整的 Token 數字。", openSession: "開啟對話", viewProject: "篩選此專案", viewModel: "篩選此模型", viewAgent: "篩選此 Agent", back: "返回", costSource: "參考模型單價", readOnly: "重新整理用量不會啟動 Agent。", noResults: "沒有符合篩選的呼叫", filter: "篩選用量", sidebar: "用量總覽" },
     zh: { usage: "用量", subtitle: "看见每一份工作的消耗。", today: "今天", week: "本周", month: "本月", thirty: "30 天", allHosts: "所有 Host", close: "关闭", refresh: "刷新", loading: "正在读取用量…", tokens: "Token 用量", cost: "估算费用", calls: "模型调用", input: "输入", output: "输出", cacheRead: "缓存读取", cacheWrite: "缓存写入", chart: "每日用量", models: "模型", agents: "Agent", projects: "项目", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有项目", allModels: "所有模型", reset: "清除筛选", noData: "这段时间还没有用量记录", noDataHint: "支持的 Agent 保存模型调用后就会显示。也可以切换更长的时间。", estimate: "按 Agent 回报或参考模型单价估算，币种为 USD。订阅配额另外显示；这不是实际账单。", unknownCost: "缺少单价", priced: "已估算 {known}／{total} 次调用", partialCost: "已知部分", scope: "已加入此工作区的 Session · Codex、Claude Code、Pi", coverage: "已读取 {covered} 个 Session", missing: "{count} 个 Session 暂时无法读取", unsupported: "{count} 个 Session 的 Agent 暂不支持", partial: "部分记录无法读取，目前显示可取得的用量。", offline: "无法连接", retry: "暂时无法读取用量，请重试。", updated: "更新于 {time}", limits: "订阅配额", remaining: "剩余 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暂时无法取得配额", incomplete: "部分调用缺少完整的 Token 数字。", openSession: "打开对话", viewProject: "筛选此项目", viewModel: "筛选此模型", viewAgent: "筛选此 Agent", back: "返回", readOnly: "刷新用量不会启动 Agent。", noResults: "没有符合筛选的调用", filter: "筛选用量", sidebar: "用量总览" },
   };
-  Object.assign(strings.en, { more: "Show {count} more" });
-  Object.assign(strings["zh-Hant"], { more: "再顯示 {count} 筆" });
-  Object.assign(strings.zh, { more: "再显示 {count} 条" });
+  Object.assign(strings.en, { more: "Show {count} more", overview: "Limits & usage", limitsTab: "Limits", overviewHint: "Your remaining allowance and the work behind it.", loadingLimits: "Reading limits…", retryLimits: "Could not read limits. Try again.", cachedLimits: "Previous reading", resetsIn: "Resets in {time}", awaitingReset: "Waiting for a new reading", sources: "Manage sources", limitsNote: "Remaining allowance comes from your signed-in services. Token usage and estimated costs are available in Usage." });
+  Object.assign(strings["zh-Hant"], { more: "再顯示 {count} 筆", overview: "額度與用量", limitsTab: "額度", overviewHint: "查看剩餘額度，了解每一份工作的用量。", loadingLimits: "正在讀取額度…", retryLimits: "暫時無法讀取額度，請重試。", cachedLimits: "先前讀取的額度", resetsIn: "{time} 後重置", awaitingReset: "等待更新額度", sources: "管理額度來源", limitsNote: "剩餘額度來自已登入的服務；Token 用量與估算費用可在「用量」查看。" });
+  Object.assign(strings.zh, { more: "再显示 {count} 条", overview: "额度与用量", limitsTab: "额度", overviewHint: "查看剩余额度，了解每一份工作的用量。", loadingLimits: "正在读取额度…", retryLimits: "暂时无法读取额度，请重试。", cachedLimits: "先前读取的额度", resetsIn: "{time} 后重置", awaitingReset: "等待更新额度", sources: "管理额度来源", limitsNote: "剩余额度来自已登录的服务；Token 用量与估算费用可在“用量”查看。" });
   const localeOf = () => document.documentElement.lang || "en";
   function label(key, vars = {}) { const locale = localeOf(); return (strings[locale]?.[key] || strings.en[key] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? ""); }
   const node = (tag, value = "", className = "") => { const el = document.createElement(tag); el.textContent = value; el.className = className; return el; };
@@ -29,28 +29,59 @@
     return { from: from.getTime(), to: to.getTime(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" };
   }
   function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
-  function create({ api, context, openConversation, onVisibility = () => {} }) {
-    let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null;
+  function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, openQuotaSources = () => {}, providerLogo = () => node("span"), restoreFocus = () => {} }) {
+    let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "" }, view = null, previous = null, quotas = [], hostChoices = [];
-    function close() { if (!panel) return; sequence++; clearInterval(timer); panel.close(); panel.remove(); panel = null; onVisibility(); anchor?.focus?.({ preventScroll: true }); }
+    let scrolls = { limits: 0, usage: 0 };
+    function close() { if (!panel) return; sequence++; clearInterval(timer); panel.close(); panel.remove(); panel = null; view = null; onVisibility(); if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus(); }
     function makeSelect(name, values, value, changed) {
       const select = node("select"); select.setAttribute("aria-label", label(name)); select.dataset.filter = name;
       for (const [id, title] of values) { const option = node("option", title); option.value = id; select.append(option); }
       select.value = value; select.onchange = () => changed(select.value); return select;
     }
     function status(value, kind = "") { const note = view.status; note.textContent = value; note.dataset.kind = kind; }
+    function schedule() { clearInterval(timer); timer = setInterval(() => { if (panel && !document.hidden) void load(); }, tab === "limits" ? 120000 : 60000); }
+    function selectTab(value) {
+      if (value === tab) return;
+      scrolls[tab] = view.body.scrollTop; tab = value;
+      for (const control of view.tabs.children) { const active = control.dataset.overviewTab === tab; control.setAttribute("aria-selected", String(active)); control.tabIndex = active ? 0 : -1; }
+      view.body.setAttribute("aria-labelledby", "usage-tab-" + tab); panel.dataset.tab = tab;
+      if (tab === "usage" && previous) render(previous);
+      else if (tab === "limits" && quotas.length) renderLimits();
+      else renderEmpty(label(tab === "limits" ? "loadingLimits" : "loading"));
+      view.body.scrollTop = scrolls[tab]; schedule(); void load();
+    }
+    function selectHost(value, notify = true) {
+      if (selectedHost === value) return;
+      selectedHost = value; view.host.value = value; previous = null; quotas = []; filters = { agent: "", project: "", model: "" }; scrolls = { limits: 0, usage: 0 }; view.body.scrollTop = 0;
+      if (notify && value) onHostSelected(value);
+      void load();
+    }
     async function load(fresh = false) {
-      const epoch = ++sequence, targets = selectedHost ? hostChoices.filter(item => item.id === selectedHost) : hostChoices;
+      const epoch = ++sequence, loadingTab = tab, targets = selectedHost ? hostChoices.filter(item => item.id === selectedHost) : hostChoices;
       const query = new URLSearchParams({ ...range(period), ...filters, ...(fresh ? { fresh: "1" } : {}) });
-      if (!previous) renderEmpty(label("loading"));
-      status(label("loading")); view.refresh.disabled = true; panel.setAttribute("aria-busy", "true");
+      const loading = label(tab === "limits" ? "loadingLimits" : "loading");
+      if (tab === "limits" ? !quotas.length : !previous) renderEmpty(loading);
+      status(loading); view.refresh.disabled = true; panel.setAttribute("aria-busy", "true");
       const results = await Promise.all(targets.map(async host => {
-        const [report, quota] = await Promise.allSettled([api("/api/workspace/analytics?" + query, undefined, host.id), api("/api/workspace/usage", undefined, host.id)]);
-        return { host: host.id, name: host.name, report: report.status === "fulfilled" ? report.value : null, quota: quota.status === "fulfilled" ? quota.value : null };
+        try {
+          const value = await api(loadingTab === "limits" ? "/api/workspace/usage" + (fresh ? "?fresh=1" : "") : "/api/workspace/analytics?" + query, undefined, host.id);
+          return { host: host.id, name: host.name, [loadingTab === "limits" ? "quota" : "report"]: value };
+        } catch { return { host: host.id, name: host.name }; }
       }));
       if (!panel || epoch !== sequence) return;
       view.refresh.disabled = false; panel.removeAttribute("aria-busy");
-      quotas = results; const succeeded = results.some(item => item.report);
+      if (loadingTab === "limits") {
+        // A failed reading can retain only this selection's earlier values,
+        // explicitly marked as cached, never another Host's quota.
+        quotas = results.map(result => result.quota ? result : { ...result, quota: quotas.find(old => old.host === result.host)?.quota, unavailable: true });
+        renderLimits();
+        for (const result of results) if (result.quota) onQuotaUpdated(result.host, result.quota);
+        const succeeded = results.some(item => item.quota);
+        status(succeeded ? label("updated", { time: new Date().toLocaleTimeString(localeOf(), { hour: "2-digit", minute: "2-digit" }) }) : label("retryLimits"), succeeded ? "" : "error");
+        return;
+      }
+      const succeeded = results.some(item => item.report);
       if (!succeeded) { status(label("retry"), "error"); if (!previous) renderEmpty(label("retry")); return; }
       previous = Data.combine(results); current = previous;
       current.facets = { agents: new Map(), projects: new Map(), models: new Map() };
@@ -67,9 +98,10 @@
     }
     function render(data) {
       const body = view.body, scroll = body.scrollTop, active = body.contains(document.activeElement) ? document.activeElement : null;
-      const focus = active?.dataset.filter ? ["filter", active.dataset.filter] : active?.dataset.lens ? ["lens", active.dataset.lens]
+      const focus = active?.dataset.period ? ["period", active.dataset.period] : active?.dataset.filter ? ["filter", active.dataset.filter] : active?.dataset.lens ? ["lens", active.dataset.lens]
         : active?.dataset.date ? ["date", active.dataset.date] : active?.dataset.row ? ["row", active.dataset.row] : null;
       body.replaceChildren();
+      body.append(view.periods);
       const filtersBar = node("div", "", "usage-filters");
       for (const [key, collection, name] of [["agent", "agents", "allAgents"], ["project", "projects", "allProjects"], ["model", "models", "allModels"]]) {
         const items = [...data.facets[collection].values()], duplicates = title => items.filter(item => item.name === title).length > 1;
@@ -103,7 +135,6 @@
       if (!data.total.calls) {
         const empty = node("section", "", "usage-empty"); empty.append(node("h2", Object.values(filters).some(Boolean) ? label("noResults") : label("noData")), node("p", label("noDataHint"))); body.append(empty);
       } else { body.append(chart(data)); body.append(breakdown(data)); }
-      body.append(quotaSection());
       const foot = node("footer", "", "usage-explanation"); foot.append(node("p", label("estimate")), node("small", label("scope")));
       if (data.priceUpdatedAt) foot.append(node("small", label("costSource") + " · " + new Date(data.priceUpdatedAt).toLocaleDateString(localeOf())));
       body.append(foot);
@@ -148,7 +179,7 @@
         for (const row of values.slice(0, limit)) {
           const el = button("", () => {
             if (lens === "sessions") { close(); openConversation(row.nativeId, row.name, row.host); }
-            else { filters[lens === "models" ? "model" : lens === "projects" ? "project" : "agent"] = lens === "projects" ? row.cwd : row.id; if (lens === "projects") { selectedHost = row.host; view.host.value = selectedHost; } previous = null; void load(); }
+            else { filters[lens === "models" ? "model" : lens === "projects" ? "project" : "agent"] = lens === "projects" ? row.cwd : row.id; if (lens === "projects" && selectedHost !== row.host) { selectedHost = row.host; view.host.value = selectedHost; quotas = []; onHostSelected(selectedHost); } previous = null; void load(); }
           }, "usage-list-row");
           el.dataset.row = row.id;
           el.title = label(lens === "sessions" ? "openSession" : lens === "models" ? "viewModel" : lens === "projects" ? "viewProject" : "viewAgent");
@@ -171,51 +202,91 @@
       }
       section.append(tabs, list); rows(); return section;
     }
-    function quotaSection() {
-      const section = node("section", "", "usage-quotas"); section.append(node("h2", label("limits")));
+    function renderLimits() {
+      const body = view.body, scroll = body.scrollTop, focused = body.contains(document.activeElement) ? document.activeElement?.dataset.quotaSource : null;
+      body.replaceChildren();
+      const section = node("section", "", "usage-quotas"); section.setAttribute("aria-label", label("limitsTab"));
       const grid = node("div", "", "usage-quota-grid");
-      for (const host of quotas) for (const provider of host.quota?.providers || []) {
-        if (!provider.windows?.length) continue;
-        const card = node("div", "", "usage-quota-card"); card.append(node("strong", provider.provider), node("small", host.name));
-        for (const window of provider.windows) {
-          const remaining = typeof window.remainingPercent === "number" ? Math.round(window.remainingPercent) : null;
-          const row = node("div", "", "usage-quota-window");
-          const period = window.windowDurationMins === 300 ? "5h" : window.windowDurationMins === 10080 ? "7d" : window.windowDurationMins === 43200 ? "30d" : window.label || window.bucket || "";
-          row.append(node("span", period), node("strong", remaining === null ? "—" : label("remaining", { percent: remaining })));
-          if (remaining !== null && remaining < 20) row.dataset.low = "true";
-          card.append(row);
-          if (window.resetsAt && window.resetsAt > Date.now()) card.append(node("small", label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })));
+      const duration = minutes => minutes % 1440 === 0 ? minutes / 1440 + "d" : minutes % 60 === 0 ? minutes / 60 + "h" : minutes + "m";
+      for (const host of quotas) {
+        if (host.unavailable) { const notice = node("p", host.name + " · " + label("offline") + (host.quota ? " · " + label("cachedLimits") : ""), "usage-notice"); notice.setAttribute("role", "status"); body.append(notice); }
+        const providers = [...(host.quota?.providers || [])].sort((a, b) => {
+          const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => Number.isFinite(w.remainingPercent) ? w.remainingPercent : 101));
+          return tightest(a) - tightest(b);
+        });
+        if (!providers.length) {
+          const empty = node("div", "", "usage-quota-empty"); empty.append(node("strong", host.name), node("p", label("quotaUnknown"))); section.append(empty);
         }
-        grid.append(card);
+        for (const provider of providers) {
+          const cached = host.unavailable || provider.status === "cached";
+          const card = node("article", "", "usage-quota-card"); card.dataset.cached = String(!!cached);
+          const heading = node("header", "", "usage-quota-heading"), identity = node("div", "", "usage-quota-identity");
+          identity.append(node("strong", provider.provider), node("small", host.name)); heading.append(providerLogo(provider.provider), identity);
+          if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
+          card.append(heading);
+          const windows = [...(provider.windows || [])].sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
+          if (!windows.length) card.append(node("p", label("quotaUnknown"), "usage-muted"));
+          for (const window of windows) {
+            const remaining = Number.isFinite(window.remainingPercent) ? Math.max(0, Math.min(100, Math.round(window.remainingPercent))) : null;
+            const row = node("div", "", "usage-quota-window"); row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining <= 10 ? "critical" : "low";
+            const minutes = window.windowDurationMins, period = Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || "";
+            const bucket = window.bucket && ![provider.provider, provider.service].some(name => String(name || "").toLowerCase() === String(window.bucket).toLowerCase()) ? window.bucket : "";
+            const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = remaining === null ? "—" : label("remaining", { percent: remaining });
+            const line = node("div", "", "usage-quota-line"); line.append(node("span", name), node("strong", value));
+            const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + (remaining === null ? label("quotaUnknown") : value));
+            bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (remaining !== null) bar.setAttribute("aria-valuenow", String(remaining));
+            const fill = node("span"); fill.style.width = (remaining ?? 0) + "%"; bar.append(fill); row.append(line, bar);
+            if (window.resetsAt) {
+              const left = Math.max(0, Math.ceil((window.resetsAt - Date.now()) / 60000)), days = Math.floor(left / 1440), hours = Math.floor(left % 1440 / 60);
+              const reset = node("small", left ? label("resetsIn", { time: days ? `${days}d ${hours}h` : hours ? `${hours}h ${left % 60}m` : `${left}m` }) : label("awaitingReset"));
+              reset.title = label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf()) }); row.append(reset);
+            }
+            card.append(row);
+          }
+          if (cached && provider.observedAt) card.append(node("small", label("updated", { time: new Date(provider.observedAt).toLocaleString(localeOf()) }), "usage-muted"));
+          grid.append(card);
+        }
+        const sources = button(label("sources") + (!selectedHost ? " · " + host.name : ""), () => { close(); openQuotaSources(host.host); }, "usage-quota-sources");
+        sources.dataset.quotaSource = host.host; section.append(sources);
       }
-      section.append(grid.children.length ? grid : node("p", label("quotaUnknown"), "usage-muted")); return section;
+      if (grid.children.length) section.prepend(grid);
+      body.append(section, node("p", label("limitsNote"), "usage-explanation usage-muted"));
+      if (focused) [...body.querySelectorAll("[data-quota-source]")].find(el => el.dataset.quotaSource === focused)?.focus({ preventScroll: true });
+      body.scrollTop = scroll;
     }
     async function open(target, trigger = document.activeElement) {
       if (panel) return;
-      const ctx = context(); hostChoices = ctx.hosts; selectedHost = target || ctx.selected; anchor = trigger; previous = null; filters = { agent: "", project: "", model: "" };
-      panel = node("dialog", "", "usage-panel"); panel.setAttribute("aria-labelledby", "usage-title");
+      const ctx = context(); hostChoices = ctx.hosts; selectedHost = target || ctx.selected; anchor = trigger; previous = null; quotas = []; tab = "limits"; scrolls = { limits: 0, usage: 0 }; filters = { agent: "", project: "", model: "" };
+      panel = node("dialog", "", "usage-panel"); panel.id = "usage-panel"; panel.dataset.tab = tab; panel.setAttribute("aria-labelledby", "usage-title");
       const header = node("header", "", "usage-header"), brand = node("div", "", "usage-brand");
       const logo = node("span", "", "workspace-logo"); logo.setAttribute("aria-hidden", "true"); brand.append(logo, node("strong", "Stepsemble"));
       const closeButton = button("×", close, "usage-close"); closeButton.setAttribute("aria-label", label("close"));
-      header.append(brand, closeButton);
-      const top = node("div", "", "usage-top"), heading = node("div", "", "usage-heading"), title = node("h1", label("usage")); title.id = "usage-title";
-      heading.append(title, node("p", label("subtitle"))); top.append(heading);
+      const tabs = node("div", "", "usage-view-tabs"); tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", label("overview"));
+      for (const key of ["limits", "usage"]) {
+        const control = button(label(key === "limits" ? "limitsTab" : "usage"), () => selectTab(key)); control.id = "usage-tab-" + key; control.dataset.overviewTab = key;
+        control.setAttribute("role", "tab"); control.setAttribute("aria-controls", "usage-view"); control.setAttribute("aria-selected", String(key === tab)); control.tabIndex = key === tab ? 0 : -1;
+        control.onkeydown = event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? tabs.firstElementChild : event.key === "End" ? tabs.lastElementChild : key === "limits" ? tabs.lastElementChild : tabs.firstElementChild; next.click(); next.focus(); } };
+        tabs.append(control);
+      }
+      header.append(brand, tabs, closeButton);
+      const top = node("div", "", "usage-top"), heading = node("div", "", "usage-heading"), title = node("h1", label("overview")); title.id = "usage-title";
+      heading.append(title, node("p", label("overviewHint"))); top.append(heading);
       const controls = node("div", "", "usage-controls"), periods = node("div", "", "usage-periods"); periods.setAttribute("role", "group"); periods.setAttribute("aria-label", label("chart"));
       for (const key of ["today", "week", "month", "thirty"]) {
         const b = button(label(key), () => { period = key; for (const control of periods.children) control.setAttribute("aria-pressed", String(control === b)); previous = null; void load(); });
         b.dataset.period = key; b.setAttribute("aria-pressed", String(period === key)); periods.append(b);
       }
-      const host = makeSelect("host", [["", label("allHosts")], ...hostChoices.map(item => [item.id, item.name])], selectedHost, value => { selectedHost = value; previous = null; void load(); });
+      const host = makeSelect("host", [["", label("allHosts")], ...hostChoices.map(item => [item.id, item.name])], selectedHost, value => selectHost(value));
       const refresh = button("↻", () => void load(true), "usage-refresh"); refresh.setAttribute("aria-label", label("refresh"));
-      controls.append(periods, host, refresh); top.append(controls);
-      const statusNote = node("p", label("loading"), "usage-status"); statusNote.setAttribute("role", "status");
-      const body = node("div", "", "usage-body"); view = { body, status: statusNote, refresh, host };
+      controls.append(host, refresh); top.append(controls);
+      const statusNote = node("p", label("loadingLimits"), "usage-status"); statusNote.setAttribute("role", "status");
+      const body = node("div", "", "usage-body"); body.id = "usage-view"; body.setAttribute("role", "tabpanel"); body.setAttribute("aria-labelledby", "usage-tab-" + tab); view = { body, status: statusNote, refresh, host, tabs, periods };
       panel.append(header, top, statusNote, body); document.body.append(panel); panel.showModal(); closeButton.focus({ preventScroll: true }); onVisibility();
       panel.addEventListener("cancel", event => { event.preventDefault(); close(); });
-      await load(); if (panel) timer = setInterval(() => { if (panel && !document.hidden) void load(); }, 60000);
+      schedule(); await load();
     }
-    function summary(report, element) { const total = report?.total, coverage = report?.coverage; element.textContent = total && !(coverage && !coverage.covered && (coverage.missing || coverage.partial || coverage.unsupported)) ? `${fmt(total.tokens, true)} · ${money(total, true)}` : ""; }
-    return { open, close, summary, label, isOpen: () => !!panel };
+    document.addEventListener("visibilitychange", () => { if (panel && !document.hidden) void load(); });
+    return { open, close, label, followHost(target) { if (panel) selectHost(target, false); }, isOpen: () => !!panel };
   }
   root.StepsembleUsageUI = { create, label, range, money };
 })(window);
