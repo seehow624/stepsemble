@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.50
+
+- Switch quota percentages and bars between Remaining and Used. Remember the display choice on this device and apply it to sidebar percentages and hover details; low-allowance warnings continue to follow the amount remaining.
+- Preserve newer composer drafts while a message is being sent, including pane changes and edits in another window. Recover failed sends without overwriting subsequent input, and keep accepted messages from appearing unsent after a display failure.
+- Keep Goal budget checks, checkpoints and queued dispatch running when the workflow capacity is full. Retain due schedules until capacity is available and show Waiting for capacity.
+- Store exact 64-bit file identities and nanosecond timestamps in usage indexes. Rebuild older indexes once so distinct histories cannot share a cache through rounded identifiers.
+- Archive private macOS recovery and managed installation-source App copies as ZIP files after a successful install, retaining signatures and rollback support. Preserve the current App if restoring the previous Host fails or is interrupted; keep older updater calls compatible.
+
 ## 3.8.49
 
 - Read Pi foreground and background child transcripts and raw child events. Deduplicate completed responses across native histories, exports and copies while keeping parallel child Sessions distinct; rebuild older numeric indexes for the new identities.
