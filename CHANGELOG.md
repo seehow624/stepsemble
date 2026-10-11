@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Make the shared Limits and Usage panel smaller, with a quieter heading and compact provider rows. Keep allowance windows side by side, using slim bars and clear remaining percentages; retain Host synchronization and fixed dimensions between tabs.
+
 ## 3.8.47
 
 - Open Limits and Usage from one sidebar quota entry. Start on Limits and switch tabs inside a fixed-size panel, with the same Host selection on desktop and phones.

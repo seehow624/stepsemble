@@ -224,15 +224,19 @@
           identity.append(node("strong", provider.provider), node("small", host.name)); heading.append(providerLogo(provider.provider), identity);
           if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
           card.append(heading);
+          const readings = node("div", "", "usage-quota-windows");
           const windows = [...(provider.windows || [])].sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
-          if (!windows.length) card.append(node("p", label("quotaUnknown"), "usage-muted"));
+          readings.style.setProperty("--quota-columns", String(Math.min(3, Math.max(2, windows.length))));
+          if (!windows.length) readings.append(node("p", label("quotaUnknown"), "usage-quota-unknown usage-muted"));
           for (const window of windows) {
             const remaining = Number.isFinite(window.remainingPercent) ? Math.max(0, Math.min(100, Math.round(window.remainingPercent))) : null;
             const row = node("div", "", "usage-quota-window"); row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining <= 10 ? "critical" : "low";
             const minutes = window.windowDurationMins, period = Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || "";
             const bucket = window.bucket && ![provider.provider, provider.service].some(name => String(name || "").toLowerCase() === String(window.bucket).toLowerCase()) ? window.bucket : "";
             const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = remaining === null ? "—" : label("remaining", { percent: remaining });
-            const line = node("div", "", "usage-quota-line"); line.append(node("span", name), node("strong", value));
+            const line = node("div", "", "usage-quota-line"), amount = node("strong", remaining === null ? "—" : remaining + "%");
+            amount.setAttribute("aria-label", remaining === null ? label("quotaUnknown") : value); amount.title = remaining === null ? label("quotaUnknown") : value;
+            line.append(node("span", name), amount);
             const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + (remaining === null ? label("quotaUnknown") : value));
             bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (remaining !== null) bar.setAttribute("aria-valuenow", String(remaining));
             const fill = node("span"); fill.style.width = (remaining ?? 0) + "%"; bar.append(fill); row.append(line, bar);
@@ -241,9 +245,10 @@
               const reset = node("small", left ? label("resetsIn", { time: days ? `${days}d ${hours}h` : hours ? `${hours}h ${left % 60}m` : `${left}m` }) : label("awaitingReset"));
               reset.title = label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf()) }); row.append(reset);
             }
-            card.append(row);
+            readings.append(row);
           }
-          if (cached && provider.observedAt) card.append(node("small", label("updated", { time: new Date(provider.observedAt).toLocaleString(localeOf()) }), "usage-muted"));
+          if (cached && provider.observedAt) readings.append(node("small", label("updated", { time: new Date(provider.observedAt).toLocaleString(localeOf()) }), "usage-quota-observed usage-muted"));
+          card.append(readings);
           grid.append(card);
         }
         const sources = button(label("sources") + (!selectedHost ? " · " + host.name : ""), () => { close(); openQuotaSources(host.host); }, "usage-quota-sources");

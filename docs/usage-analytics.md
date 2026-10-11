@@ -13,6 +13,13 @@ Host every time it opens. Switch Hosts in the view, or choose
 mobile use the same authenticated Host endpoint; no additional account is
 needed. The macOS App uses this same view.
 
+Limits groups providers into compact rows, with small service logos and
+allowance windows side by side. On phones the service identity sits above
+two columns of windows. Percentages show remaining allowance; progress-bar
+labels retain the full accessible description. The shared desktop panel is
+900 × 680 pixels at most; both tabs preserve the same geometry and scroll
+inside it when needed.
+
 Today, This week (Monday onwards), This month and 30 days use the viewing
 device's time zone. Agent, project and model filters run before aggregation.
 The daily chart separates uncached input, output, cache reads and cache writes;
