@@ -1,4 +1,4 @@
-/* stepsemble v3.8.51 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.52 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -5554,6 +5554,16 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 #view-chat .activity-group.wl-seg > summary { display: none; }
 #view-chat .activity-group.wl-seg > .activity-body { display: block; margin: 0; padding: 0 0 2px; }
 #view-chat .wl-seg + .wl-row { margin-top: 2px; }
+/* Expanded work is a compact list, while touch keeps a full tap target. */
+#view-chat .wl-seg .tool-card > .tool-head,
+#view-chat .tool-card.wl-seg > .tool-head {
+  min-height: 26px !important;
+  padding: 2px 0 !important;
+}
+@media (max-width: 600px), (hover: none), (pointer: coarse) {
+  #view-chat .wl-seg .tool-card > .tool-head,
+  #view-chat .tool-card.wl-seg > .tool-head { min-height: 44px !important; }
+}
 #view-chat .tool-card .tool-info {
   display: flex;
   flex-direction: row;

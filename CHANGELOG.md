@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.52
+
+- Make expanded work-log tool rows more compact on desktop, reducing their minimum height from 39px to 26px and vertical padding from 5px to 2px.
+- Keep 44px tool tap targets on phones and touch devices. Verify long commands, expandable output and keyboard disclosure controls with isolated desktop and mobile fixtures.
+
 ## 3.8.51
 
 - Show the original model vendor in Usage instead of an OpenAI-compatible transport name. Group Claude, Gemini and other known routed models consistently across Codex, Claude Code, Pi and OpenCodex connections while preserving recorded connection metadata and vendor reference pricing.
