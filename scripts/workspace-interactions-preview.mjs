@@ -13,6 +13,7 @@ export async function createWorkspaceInteractionsPreview(port = 0) {
   const backend = await createNativeComposerPreview({ workflows: { runs: [{ ...base, id: "preview-goal", status: "running", activity: "驗證拖動與通知" }], schedules: [{ ...base, id: "preview-schedule", title: "每日專案健康檢查", enabled: true, mode: "task", schedule: { kind: "daily", time: "09:00", timeZone: "Asia/Kuala_Lumpur" }, nextAt: now + 3600000 }] } });
   const machines = [{ id: "mini", name: "Mac Mini", self: true, local: true }, { id: "mbp", name: "MacBook Pro", self: false, local: false }].map(row => ({ ...row, host: "127.0.0.1", authMode: "local", managed: true }));
   const presentations = new Map();
+  const activity = new Map(), reads = [];
   let cached;
   async function workspace() {
     if (!cached) {
@@ -23,6 +24,16 @@ export async function createWorkspaceInteractionsPreview(port = 0) {
     }
     return cached;
   }
+  async function snapshot(target) {
+    const data = structuredClone(await workspace());
+    for (const row of data.entries) Object.assign(row, { working: false }, activity.get(target + ":" + row.key));
+    return { ...data, presentation: presentations.get(target) };
+  }
+  async function setActivity(target, index, value) {
+    const row = (await workspace()).entries[index];
+    activity.set(target + ":" + row.key, structuredClone(value));
+    return row.key;
+  }
   const server = http.createServer((req, res) => { void (async () => {
     const url = new URL(req.url, "http://127.0.0.1"), target = url.pathname.startsWith("/r/mbp/") ? "mbp" : "mini";
     const route = url.pathname.replace(/^\/r\/mbp(?=\/)/, "");
@@ -32,7 +43,26 @@ export async function createWorkspaceInteractionsPreview(port = 0) {
     if (authed && route === "/api/machines") return json(200, { current: "mini", machines });
     if (authed && route === "/api/version") return json(200, { appVersion, version: appVersion });
     if (authed && route === "/api/machine") return json(200, { authed: true, platform: "darwin", home: "/tmp/Stepsemble", machine: machines.find(row => row.id === target) });
-    if (authed && route === "/api/workspace") return json(200, { ...await workspace(), presentation: presentations.get(target) });
+    if (authed && route === "/api/workspace") return json(200, await snapshot(target));
+    if (authed && route === "/api/workspace/read" && req.method === "POST") {
+      let raw = ""; for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw), value = activity.get(target + ":" + body.key);
+      reads.push({ ...body, host: target });
+      if (value?.completion?.id === body.completionId) value.completion.read = true;
+      return json(200, { key: body.key, completion: value?.completion || null });
+    }
+    if (authed && ["/api/codex/thread", "/api/codex/turns", "/api/codex/mutation"].includes(route)) {
+      const first = (await workspace()).entries[0], value = activity.get(target + ":" + first.key);
+      if (value) {
+        const data = await (await fetch(backend.origin + route + url.search, { headers: { Cookie: "stepsemble=" + backend.token } })).json();
+        if (route === "/api/codex/thread") { data.thread.status = { type: value.working ? "active" : "idle", activeFlags: [] }; data.goal = null; }
+        if (route === "/api/codex/turns") for (const turn of data.data) {
+          turn.status = value.working ? "inProgress" : "completed"; turn.completedAt = value.working ? null : Date.now();
+        }
+        if (route === "/api/codex/mutation") data.pendingApprovals = [];
+        return json(200, data);
+      }
+    }
     if (authed && route === "/api/workspace/arrange" && req.method === "POST") {
       let body = ""; for await (const chunk of req) body += chunk;
       const presentation = Order.arrange({ ...await workspace(), presentation: presentations.get(target) }, JSON.parse(body));
@@ -46,7 +76,7 @@ export async function createWorkspaceInteractionsPreview(port = 0) {
   })().catch(error => { if (!res.headersSent) res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: error.message })); }); });
   await new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
   async function close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await backend.close(); }
-  return { origin: "http://127.0.0.1:" + server.address().port, token: backend.token, presentations, close };
+  return { origin: "http://127.0.0.1:" + server.address().port, token: backend.token, presentations, setActivity, snapshot, reads, close };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const preview = await createWorkspaceInteractionsPreview(Number(process.argv[2] || 0));

@@ -1206,8 +1206,9 @@ function returnToWorkspace() {
 // A Workspace pane never falls back to the conversation list or a sign-in
 // form while its computer is briefly unreachable. It says so and opens the
 // conversation by itself once the computer answers.
-let paneRetryTimer = 0, paneRetryAttempt = 0;
+let paneRetryTimer = 0, paneRetryAttempt = 0, paneTranscriptReady = false;
 function waitForPaneHost(error) {
+  paneTranscriptReady = false;
   el.login.classList.add("hidden");
   el.app.classList.remove("hidden");
   el.viewList.classList.add("hidden");
@@ -1327,6 +1328,8 @@ async function enterApp() {
             setChatTitle(record.name || "Pi"); el.chatEmpty.textContent = tKey("workspace.sessionUnavailable");
           }
         } else await openAgentTaskFromHub(record);
+        paneTranscriptReady = true;
+        parent.postMessage({ type: "workspace-ready" }, location.origin);
       } catch (error) {
         if (paneHostUnreachable(error)) { waitForPaneHost(); return false; }
         el.viewList.classList.add("hidden"); el.viewChat.classList.remove("hidden");
@@ -10963,6 +10966,7 @@ function updateLiveUsage(u) {
 }
 function setStreaming(on) {
   const wasStreaming = !!rpc?.streaming;
+  if (WORKSPACE_PANE && !!on !== wasStreaming) parent.postMessage({ type: "workspace-refresh" }, location.origin);
   el.btnAbort.disabled = !!rpc?.stopPending;
   syncGenericInputState();
   if (rpc) rpc.streaming = on;
@@ -18875,6 +18879,11 @@ if (WORKSPACE_PANE) {
     if (event.origin !== location.origin || event.source !== parent) return;
     if (event.data?.type === "workspace-detach") closeChat(true);
     if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
+    if (event.data?.type === "workspace-read-probe" && paneTranscriptReady && !rpc?.streaming
+      && !rpc?.nativeLoading && !rpc?.nativeRefreshInFlight && !rpc?.connectionLost && !rpc?.pendingTurn
+      && !el.viewChat.classList.contains("chat-open-failed") && el.messages.querySelector(".msg")) {
+      parent.postMessage({ type: "workspace-read-ready", completionId: event.data.completionId }, location.origin);
+    }
   });
 }
 

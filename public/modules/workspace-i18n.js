@@ -3,6 +3,9 @@
   "use strict";
   const tables = {
   "en": {
+    "sessionWorking": "Working",
+    "sessionUnread": "Completed · unread",
+    "sessionAttention": "Stopped or needs attention · unread",
     "pin": "Pin to top",
     "unpin": "Unpin",
     "moveUp": "Move up",
@@ -145,6 +148,9 @@
     "minutes": "{minutes} minutes"
   },
   "zh-Hant": {
+    "sessionWorking": "工作中",
+    "sessionUnread": "已完成・尚未查看",
+    "sessionAttention": "已停止或需要處理・尚未查看",
     "pin": "釘選至頂部",
     "unpin": "取消釘選",
     "moveUp": "上移",
@@ -287,6 +293,9 @@
     "minutes": "{minutes} 分鐘"
   },
   "zh-Hans": {
+    "sessionWorking": "工作中",
+    "sessionUnread": "已完成・尚未查看",
+    "sessionAttention": "已停止或需要处理・尚未查看",
     "pin": "置顶",
     "unpin": "取消置顶",
     "moveUp": "上移",
@@ -429,6 +438,9 @@
     "minutes": "{minutes} 分钟"
   },
   "ja": {
+    "sessionWorking": "作業中",
+    "sessionUnread": "完了・未読",
+    "sessionAttention": "停止または要確認・未読",
     "pin": "上部に固定",
     "unpin": "固定を解除",
     "moveUp": "上へ移動",
@@ -571,6 +583,9 @@
     "minutes": "{minutes}分"
   },
   "ko": {
+    "sessionWorking": "작업 중",
+    "sessionUnread": "완료 · 읽지 않음",
+    "sessionAttention": "중지 또는 확인 필요 · 읽지 않음",
     "pin": "상단에 고정",
     "unpin": "고정 해제",
     "moveUp": "위로 이동",
@@ -713,6 +728,9 @@
     "minutes": "{minutes}분"
   },
   "tr": {
+    "sessionWorking": "Çalışıyor",
+    "sessionUnread": "Tamamlandı · okunmadı",
+    "sessionAttention": "Durduruldu veya ilgilenilmesi gerekiyor · okunmadı",
     "pin": "Üste sabitle",
     "unpin": "Sabitlemeyi kaldır",
     "moveUp": "Yukarı taşı",
@@ -855,6 +873,9 @@
     "minutes": "{minutes} dakika"
   },
   "fr": {
+    "sessionWorking": "En cours",
+    "sessionUnread": "Terminé · non lu",
+    "sessionAttention": "Arrêté ou à vérifier · non lu",
     "pin": "Épingler en haut",
     "unpin": "Désépingler",
     "moveUp": "Monter",
@@ -997,6 +1018,9 @@
     "minutes": "{minutes} minutes"
   },
   "de": {
+    "sessionWorking": "Wird bearbeitet",
+    "sessionUnread": "Abgeschlossen · ungelesen",
+    "sessionAttention": "Gestoppt oder Aufmerksamkeit nötig · ungelesen",
     "pin": "Oben anheften",
     "unpin": "Lösen",
     "moveUp": "Nach oben",
@@ -1139,6 +1163,9 @@
     "minutes": "{minutes} Minuten"
   },
   "es": {
+    "sessionWorking": "En curso",
+    "sessionUnread": "Completado · sin leer",
+    "sessionAttention": "Detenido o requiere atención · sin leer",
     "pin": "Fijar arriba",
     "unpin": "Desfijar",
     "moveUp": "Subir",
@@ -1281,6 +1308,9 @@
     "minutes": "{minutes} minutos"
   },
   "pt-BR": {
+    "sessionWorking": "Em andamento",
+    "sessionUnread": "Concluído · não lido",
+    "sessionAttention": "Interrompido ou requer atenção · não lido",
     "pin": "Fixar no topo",
     "unpin": "Desafixar",
     "moveUp": "Mover para cima",
@@ -1423,6 +1453,9 @@
     "minutes": "{minutes} minutos"
   },
   "it": {
+    "sessionWorking": "In corso",
+    "sessionUnread": "Completato · non letto",
+    "sessionAttention": "Interrotto o da verificare · non letto",
     "pin": "Fissa in alto",
     "unpin": "Rimuovi fissaggio",
     "moveUp": "Sposta su",
@@ -1603,6 +1636,7 @@
       designTheme: DESIGN_THEME_IDS.has(settings.designTheme) ? settings.designTheme : DEFAULT_DESIGN_THEME,
       fontScale: clampNumber(settings.fontScale, 100, 90, 125),
       compact: settings.compact === true,
+      reducedMotion: settings.reducedMotion === true,
       sidebarWidth: clampNumber(settings.sidebarWidth, 336, 280, 440),
       showTemporarySessions: settings.showTemporarySessions === true,
     };

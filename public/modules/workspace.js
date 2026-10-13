@@ -22,6 +22,7 @@
     root.lang = prefs.locale;
     root.dataset.theme = prefs.resolvedTheme;
     root.dataset.designTheme = prefs.designTheme;
+    root.classList.toggle("reduced-motion", prefs.reducedMotion);
     root.style.fontSize = `${prefs.fontScale}%`;
     root.style.setProperty("--workspace-sidebar-width", `${prefs.sidebarWidth}px`);
     document.body.classList.toggle("compact", prefs.compact);
@@ -72,6 +73,8 @@
     try { localStorage.setItem(`stepsemble.workspace.collapsed.v1.${target}`, JSON.stringify([...collapsedFor(target)])); } catch {}
   }
   const frames = new Map(), slots = new Map(), pendingTransfers = new Map();
+  const hostSnapshots = new Map(), readsPending = new Set(), readCompletions = new Set();
+  const snapshotRequests = new Map();
   let channel;
   try { channel = new BroadcastChannel("stepsemble.workspace.v1"); } catch {}
   try { const saved = JSON.parse(localStorage.getItem(storageKey)); if (saved) { tree = L.normalize(saved.tree); focused = L.leaves(tree).some(p => p.id === saved.focused) ? saved.focused : L.leaves(tree)[0].id; } } catch {}
@@ -467,11 +470,14 @@
         const ref = refOf(entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
         const displayTitle = plainTitle(ref.title) || ref.title;
         const row = node("div", "", "workspace-session-row");
+        row.dataset.entry = entry.key;
         const pinned = presentation.pinnedSessions.includes(entry.key);
         const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
         b.dataset.open = String(openKeys.has(L.identity(ref)));
         b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
         if (pinned) b.append(pinMark());
+        const indicator = node("span", "", "workspace-session-status");
+        b.append(indicator);
         reorderRow(b, row, "session", entry.key, cwd, pinned, e => dragStart(e, ref, false));
         const actions = button("⋯", () => openPaneMenu(actions, [
           ...orderActions("session", entry.key, cwd, pinned),
@@ -487,10 +493,59 @@
         actions.setAttribute("aria-haspopup", "menu");
         b.oncontextmenu = e => { e.preventDefault(); actions.click(); };
         row.append(b, actions); contents.append(row);
+        sessionStatus(row, entry);
       }
       if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
     if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
+  }
+  function sessionStatus(row, entry) {
+    const indicator = row.querySelector(".workspace-session-status");
+    if (!indicator) return;
+    const unread = entry.completion && !entry.completion.read;
+    const state = entry.working === true || entry.working === undefined && ["running", "starting", "reconnecting"].includes(entry.record.status)
+      ? "working" : unread ? entry.completion.kind === "completed" ? "unread" : "attention" : "idle";
+    indicator.dataset.state = state;
+    const label = state === "working" ? t("sessionWorking") : state === "unread" ? t("sessionUnread")
+      : state === "attention" ? t("sessionAttention") : "";
+    indicator.title = label;
+    indicator.setAttribute("aria-hidden", "true");
+    const identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
+    const title = plainTitle(refOf(entry).title) || refOf(entry).title;
+    row.querySelector(".workspace-session").setAttribute("aria-label", `${identity.label}: ${title}${label ? " · " + label : ""}`);
+  }
+  function rememberSnapshot(target, data) {
+    for (const entry of data.entries) if (entry.completion && readCompletions.has(`${target}:${entry.key}:${entry.completion.id}`)) entry.completion.read = true;
+    hostSnapshots.set(target, data);
+    return data;
+  }
+  function probeVisibleResults() {
+    for (const ref of visibleSessions()) {
+      const entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
+      if (!entry?.completion || entry.completion.read || entry.working) continue;
+      frames.get(L.identity(ref))?.frame.contentWindow?.postMessage({ type: "workspace-read-probe", completionId: entry.completion.id }, location.origin);
+    }
+  }
+  async function markViewed(item, completionId) {
+    const ref = item.ref, entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
+    if (!visibleSessions().some(value => L.identity(value) === L.identity(ref))
+      || !entry?.completion || entry.completion.id !== completionId || entry.completion.read || entry.working) return;
+    const id = `${ref.host}:${ref.key}:${completionId}`;
+    if (readsPending.has(id)) return;
+    readsPending.add(id);
+    try {
+      const result = await api("/api/workspace/read", { key: ref.key, completionId }, ref.host);
+      if (result.completion?.id !== completionId || !result.completion.read) return;
+      readCompletions.add(id);
+      while (readCompletions.size > 1000) readCompletions.delete(readCompletions.values().next().value);
+      const current = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
+      if (current?.completion?.id === completionId) current.completion.read = true;
+      if (host === ref.host) for (const row of document.querySelectorAll(".workspace-session-row")) {
+        if (row.dataset.entry === ref.key && current) sessionStatus(row, current);
+      }
+      channel?.postMessage({ type: "refresh" });
+    } catch { /* Keep unread on failure; a visible conversation retries on refresh. */ }
+    finally { readsPending.delete(id); }
   }
   function pinMark() {
     const mark = icon("M9 3h6l-1 6 4 4v2h-5v6h-2v-6H6v-2l4-4-1-6", "workspace-pin");
@@ -559,9 +614,31 @@
     if (!online && message !== connectionNotice) toast(message);
     connectionNotice = online ? "" : message;
   }
+  function requestSnapshot(target) {
+    // A slow remote Host must be allowed to finish. Starting a new poll every
+    // three seconds would otherwise invalidate every older response forever.
+    if (snapshotRequests.has(target)) return snapshotRequests.get(target);
+    const request = api("/api/workspace", undefined, target).finally(() => { if (snapshotRequests.get(target) === request) snapshotRequests.delete(target); });
+    snapshotRequests.set(target, request);
+    return request;
+  }
   async function refresh() {
     const epoch = ++refreshEpoch, target = host;
-    try { const data = await api("/api/workspace", undefined, target); if (epoch !== refreshEpoch || target !== host || sidebarBusy || sidebarDragging) return; if (JSON.stringify(data) !== JSON.stringify(snapshot)) { snapshot = data; if (!document.body.classList.contains("workspace-dragging")) renderSidebar(); }
+    try { const data = await requestSnapshot(target); if (epoch !== refreshEpoch || target !== host || sidebarBusy || sidebarDragging) return;
+      rememberSnapshot(target, data);
+      if (JSON.stringify(data) !== JSON.stringify(snapshot)) {
+        // Activity changes should not recreate the row under a finger, reset
+        // its spinner, or steal keyboard focus from its menu button.
+        const structure = value => JSON.stringify({ ...value, entries: value.entries.map(({ working, completion, ...row }) => ({ ...row, record: { ...row.record, status: undefined } })) });
+        const statusOnly = structure(data) === structure(snapshot);
+        snapshot = data;
+        if (!document.body.classList.contains("workspace-dragging")) {
+          if (statusOnly) for (const row of document.querySelectorAll(".workspace-session-row")) {
+            const entry = data.entries.find(entry => entry.key === row.dataset.entry); if (entry) sessionStatus(row, entry);
+          }
+          else renderSidebar();
+        }
+      }
       if (!document.body.classList.contains("workspace-dragging")) for (const entry of data.entries) {
         const ref = { host: target, key: entry.key };
         if (allRefs().some(tab => L.identity(tab) === L.identity(ref))) { setRefAgent(ref, entry.record.agentId); setRefTitle(ref, refOf(entry).title); }
@@ -571,7 +648,15 @@
       const available = new Set(data.entries.map(entry => entry.key));
       const stale = allRefs().filter(ref => ref.host === target && !available.has(ref.key));
       if (stale.length) { let next = tree; for (const ref of stale) next = L.remove(next, ref); commit(next); }
-      setConnection(true, `${hostName(host)} · ${t("connected")}`); }
+      setConnection(true, `${hostName(host)} · ${t("connected")}`);
+      // A split pane may still show a conversation from another Host.
+      // An offline computer in another pane must not hold up this Host's list.
+      for (const id of new Set(visibleSessions().map(ref => ref.host))) if (id !== target) {
+        void requestSnapshot(id).then(data => {
+          if (id !== host && visibleSessions().some(ref => ref.host === id)) { rememberSnapshot(id, data); probeVisibleResults(); }
+        }, () => { hostSnapshots.delete(id); });
+      }
+      probeVisibleResults(); }
     catch (error) { if (epoch === refreshEpoch) setConnection(false, error.message); }
   }
   const remainingLevel = percent => percent <= 10 ? "critical" : percent <= 25 ? "low" : "ok";
@@ -1050,6 +1135,8 @@
     }
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
+    if (event.data?.type === "workspace-read-ready") void markViewed(item, event.data.completionId);
+    if (event.data?.type === "workspace-ready") { void refresh(); }
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
     if (event.data?.type === "workspace-workflows-changed") {
       void refresh();
@@ -1182,7 +1269,7 @@
   // allowances, not the ones from before it was left.
   document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
   window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
-  setInterval(() => { if (!document.hidden && host) void refresh(); }, 10000);
+  setInterval(() => { if (!document.hidden && host) void refresh(); }, 3000);
   setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 120000);
   // A Workspace opened while its host cannot be reached keeps trying, so it
   // connects by itself once the host answers instead of needing a reload.
@@ -1237,6 +1324,7 @@
     openUsageIntent(value);
   });
   function notificationPresence(worker = null, requestId = null) {
+    probeVisibleResults();
     const sessions = visibleSessions(), data = { type: "STEPSEMBLE_NOTIFICATION_PRESENCE", sessions, visible: sessions.length > 0, requestId };
     if (worker) worker.postMessage(data);
     else {

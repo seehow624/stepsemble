@@ -39,6 +39,7 @@ test("workspace HTTP isolates membership, history, project registration and pane
     req.on("error", reject);
   });
   assert.equal((await request("/api/workspace")).status, 401);
+  assert.equal((await request("/api/workspace/read", {})).status, 401);
   assert.equal((await request("/api/notifications")).status, 401);
   assert.equal((await request("/api/workspace/arrange", { kind: "project", id: "/fake", pinned: true })).status, 401);
   const login = await request("/api/login", { token }); assert.equal(login.status, 204);
@@ -54,6 +55,15 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const arranged = await (await request("/api/workspace")).json();
   assert.deepEqual(arranged.presentation.pinnedSessions, [before.entries[1].key]);
   assert.deepEqual(arranged.entries, before.entries);
+  const read = { key: before.entries[0].key, completionId: before.entries[0].completion.id };
+  assert.equal((await request("/api/workspace/read", read, "https://evil.invalid")).status, 403);
+  assert.equal((await request("/api/workspace/read", { ...read, completionId: "invalid" })).status, 400);
+  assert.equal((await request("/api/workspace/read", { ...read, key: "missing" })).status, 404);
+  assert.equal((await (await request("/api/workspace/entry?key=" + read.key)).json()).completion.read, false, "opening metadata is not a read acknowledgement");
+  assert.equal((await (await request("/api/workspace/read", { ...read, completionId: read.completionId.replace(":1", ":0") })).json()).completion.read, false);
+  assert.equal((await (await request("/api/workspace/read", read)).json()).completion.read, true);
+  assert.equal((await (await request("/api/workspace")).json()).entries[0].completion.read, true);
+  assert.ok(before.entries.every(row => row.working === false), "completed records do not spin after a Host restart");
   assert.deepEqual((await (await request("/api/push/status", { endpoints: [] })).json()).endpoints, []);
   assert.equal((await request("/api/push/test", { endpoint: "https://example.invalid" })).status, 404);
   const taskFile = path.join(home, ".config/stepsemble/agent-tasks.json");

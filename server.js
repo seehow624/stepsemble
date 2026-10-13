@@ -188,7 +188,11 @@ const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, "
 const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
 const hostNotifications = require("./server/notifications").createNotifications({ entries: () => workspaceRegistry.list().entries,
   host: () => selfMachineId(), quietCompletion: key => { try { return key && workflows.locked(key); } catch { return false; } },
-  publish: event => deliverPushNotification(null, "Stepsemble", event.title, event) });
+  publish: event => {
+    try { workspaceRegistry.completed(event); }
+    catch { console.warn("[stepsemble] Could not save the session's unread status"); }
+    deliverPushNotification(null, "Stepsemble", event.title, event);
+  } });
 const workflowEvents = require("./server/workflow-events").createWorkflowEvents({ onEvent: (agent, id, event) => hostNotifications.observe(agent, id, event) });
 const hostRates = require("./server/host-output-rates").createHostOutputRates({ store: turnRates,
   entries: () => workspaceRegistry.list().entries,
@@ -6520,12 +6524,17 @@ const server = http.createServer(async (req, res) => {
           // stays; otherwise the agent's own current name is shown.
           const keepName = record.named === true || record.autoNamed === true;
           if (current) Object.assign(record, { status: current.status, ...(keepName ? {} : { name: current.name || record.name }) });
+          else record.status = "history";
           if (record.nativeClaudeStructured) {
             const resolved = resolveClaudeStructuredSession(record.nativeSessionId);
             record.status = resolved ? publicClaudeStructuredTask(resolved.id, resolved.session).status : "history";
           } else if (record.nativeCodex && record.nativeThreadId) {
             const state = codexNative.nativeState(record.nativeThreadId);
             record.status = state.state === "turn_running" ? "running" : state.state === "not_ready" ? "history" : "waiting";
+          } else if (record.nativeGrokAcp || record.nativeAcp) {
+            const adapter = record.nativeGrokAcp ? grokAcp : acpAdapterForAgent(record.agentId);
+            const session = adapter?.sessions().find(row => row.id === record.nativeSessionId);
+            record.status = session?.status === "running" ? "running" : "history";
           }
           if (record.agentId === "pi") {
             const session = rpcSessions.get(record.sid);
@@ -6541,8 +6550,20 @@ const server = http.createServer(async (req, res) => {
               if (title) record.name = title;
             }
           }
+          row.working = ["starting", "running", "reconnecting"].includes(record.status)
+            || hostNotifications.working(row) || workflows.locked(row.key);
         }
         sendJSON(res, 200, snapshot); return;
+      }
+      if (p === "/api/workspace/read" && req.method === "POST") {
+        const body = await readJSON(req, 8192);
+        if (typeof body?.key !== "string" || typeof body?.completionId !== "string"
+          || !/^[a-f0-9-]{36}:\d+$/.test(body.completionId)) {
+          sendJSON(res, 400, { error: "workspace_read_invalid" }); return;
+        }
+        const entry = workspaceRegistry.markRead(body.key, body.completionId);
+        if (!entry) { sendJSON(res, 404, { error: "workspace_entry_not_found" }); return; }
+        sendJSON(res, 200, { key: entry.key, completion: entry.completion || null }); return;
       }
       if (p === "/api/notifications" && req.method === "GET") {
         sendJSON(res, 200, hostNotifications.read(url.searchParams.get("after"))); return;

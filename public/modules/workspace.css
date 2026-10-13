@@ -217,7 +217,14 @@ small { color: var(--pine-soft); }
 .workspace-session:hover { background: var(--bubble-user); }
 .workspace-session:active { transform: scale(.985); }
 .workspace-session .agent-logo { flex: 0 0 28px; }
-.workspace-session strong { display: block; min-width: 0; overflow: hidden; font-size: .81rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-session strong { display: block; flex: 1; min-width: 0; overflow: hidden; font-size: .81rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-session-status { flex: 0 0 16px; width: 16px; height: 16px; display: grid; place-items: center; }
+.workspace-session-status::after { content: ""; display: block; box-sizing: border-box; }
+.workspace-session-status[data-state="working"]::after { width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--ink) 16%, transparent); border-top-color: var(--ink); border-right-color: color-mix(in srgb, var(--ink) 55%, transparent); border-radius: 50%; animation: workspace-session-spin .9s linear infinite; }
+.workspace-session-status[data-state="unread"]::after { width: 7px; height: 7px; background: #51b87b; border-radius: 50%; }
+.workspace-session-status[data-state="attention"]::after { width: 7px; height: 7px; border: 2px solid #cd9855; border-radius: 50%; }
+@keyframes workspace-session-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .workspace-session-status[data-state="working"]::after { animation: none; } }
 .workspace-session[data-open=true] { background: var(--bubble-user); border-color: var(--line); }
 #workspace-projects .workspace-session-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .9rem; }
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:hover, .workspace-session-menu:focus-visible { background: var(--bubble-user); color: var(--ink); }

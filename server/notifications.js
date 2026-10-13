@@ -74,6 +74,12 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
     return { cursor: `${boot}:${sequence}`, events: Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= sequence
       ? recent.filter(row => Number(row.id.slice(prefix.length)) > parsed && keys.has(row.key)).map(row => structuredClone(row)) : [] };
   }
-  return { observe, settled, finished, read: snapshot };
+  function working(entry) {
+    const r = entry.record;
+    return [r.id, r.taskId, r.sid, r.nativeThreadId, r.nativeSessionId].some(id => typeof id === "string"
+      && (runs.get(`${r.agentId}:${id}`)?.active === true
+        || id.startsWith(r.agentId + ":") && runs.get(id)?.active === true));
+  }
+  return { observe, settled, finished, working, read: snapshot };
 }
 module.exports = { createNotifications };

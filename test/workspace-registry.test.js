@@ -2,6 +2,63 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { createWorkspaceRegistry } = require("../server/workspace-registry");
 function fixture(t) { const dir = fs.mkdtempSync(path.join(os.tmpdir(), "workspace-registry-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true })); return path.join(dir, "workspaces.json"); }
+test("completed unread state persists, survives identity updates, and acknowledges only the viewed result", t => {
+  const file = fixture(t), registry = createWorkspaceRegistry(file);
+  const row = registry.remember({ id: "codex:a", agentId: "codex", nativeThreadId: "a" });
+  const event = { key: row.key, id: "00000000-0000-4000-8000-000000000001:1", kind: "completed", at: 100 };
+  assert.equal(row.completion, undefined, "imported history is not retroactively unread");
+  registry.completed(event);
+  assert.equal(registry.list().entries[0].completion.read, false);
+  assert.equal(registry.completed({ ...event, kind: "approval" }), null);
+  registry.remember({ ...row.record, name: "Renamed" });
+  registry.update(row.key, { nativeSessionId: "resumed" });
+  assert.deepEqual(createWorkspaceRegistry(file).get(row.key).completion, { id: event.id, kind: event.kind, at: event.at, read: false });
+  registry.markRead(row.key, event.id);
+  registry.completed(event);
+  assert.equal(registry.get(row.key).completion.read, true, "replayed completion cannot create unread again");
+  const newer = { ...event, id: event.id.replace(":1", ":2"), kind: "failed", at: 200 };
+  registry.completed(newer);
+  registry.markRead(row.key, event.id);
+  assert.equal(registry.get(row.key).completion.read, false, "late read from another device cannot clear a newer result");
+  assert.equal(registry.get(row.key).completion.kind, "failed");
+  registry.markRead(row.key, newer.id);
+  assert.equal(createWorkspaceRegistry(file).get(row.key).completion.read, true);
+  registry.remove(row.key);
+  assert.equal(registry.completed(newer), null);
+  assert.equal(registry.markRead(row.key, newer.id), null);
+});
+test("Host lifecycle persists outcomes independently of push delivery and ignores replay and intermediate Goal turns", t => {
+  const registry = createWorkspaceRegistry(fixture(t));
+  const row = registry.remember({ id: "codex:a", agentId: "codex", nativeThreadId: "a" });
+  let goal = false;
+  const notifications = require("../server/notifications").createNotifications({ entries: () => registry.list().entries,
+    host: () => "mini", quietCompletion: () => goal,
+    publish(event) { registry.completed(event); throw new Error("notifications disabled"); } });
+  const observe = event => notifications.observe("codex", "a", event);
+  observe({ type: "turn.started", turnId: "one" });
+  assert.equal(notifications.working(row), true);
+  observe({ type: "turn.completed", turnId: "old", status: "completed" });
+  assert.equal(registry.get(row.key).completion, undefined);
+  observe({ type: "turn.completed", turnId: "one", status: "completed" });
+  assert.equal(notifications.working(row), false);
+  const completion = registry.get(row.key).completion;
+  registry.markRead(row.key, completion.id);
+  observe({ type: "turn.started", turnId: "one", isReplay: true });
+  observe({ type: "turn.completed", turnId: "one", status: "completed", isReplay: true });
+  assert.equal(registry.get(row.key).completion.read, true);
+  goal = true;
+  observe({ type: "turn.started", turnId: "two" });
+  observe({ type: "turn.completed", turnId: "two", status: "completed" });
+  assert.equal(registry.get(row.key).completion.id, completion.id);
+  notifications.finished({ entry: row.key, status: "blocked" });
+  assert.equal(registry.get(row.key).completion.kind, "blockedGoal");
+  assert.equal(registry.get(row.key).completion.read, false);
+  goal = false;
+  observe({ type: "turn.started", turnId: "three" });
+  observe({ type: "transport.failed", turnId: "three" });
+  assert.equal(registry.get(row.key).completion.kind, "failed");
+  assert.equal(notifications.working(row), false);
+});
 const order = require("../public/modules/workspace-order");
 test("pins and custom order persist while native identities and memberships stay intact", t => {
   const file = fixture(t), registry = createWorkspaceRegistry(file);

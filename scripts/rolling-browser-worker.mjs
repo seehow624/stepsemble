@@ -20,6 +20,7 @@ import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
 import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs";
 import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.mjs";
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
+import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
@@ -179,6 +180,7 @@ try {
     await runCodexActivityBrowserCases(browser);
     await runConversationUxBrowserCases(browser);
     await runWorkspaceReorderBrowserCases(browser);
+    await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);

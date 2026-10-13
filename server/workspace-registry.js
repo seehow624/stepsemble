@@ -26,6 +26,12 @@ function clean(value) {
   if (out.agentId === "pi" ? !out.file && !out.sid : !out.id && !out.taskId) throw new Error("workspace_reference_invalid");
   return out;
 }
+function cleanCompletion(value) {
+  if (!value || typeof value.id !== "string" || !/^[a-f0-9-]{36}:\d+$/.test(value.id)
+    || !["completed", "failed", "stopped", "blockedGoal"].includes(value.kind)
+    || !Number.isSafeInteger(value.at) || value.at < 0) return null;
+  return { id: value.id, kind: value.kind, at: value.at, read: value.read === true };
+}
 function createWorkspaceRegistry(filename) {
   let state = { version: 1, entries: [], projects: [] }, healthy = true;
   try {
@@ -33,7 +39,8 @@ function createWorkspaceRegistry(filename) {
     if (saved.version !== 1 || !Array.isArray(saved.entries) || !Array.isArray(saved.projects)) throw new Error("workspace_registry_invalid");
     state = { version: 1, entries: saved.entries.map(row => {
       if (!/^[a-f0-9-]{36}$/.test(row.key) || !["created", "added"].includes(row.origin)) throw new Error("workspace_registry_invalid");
-      return { key: row.key, origin: row.origin, addedAt: row.addedAt, record: clean(row.record) };
+      const completion = cleanCompletion(row.completion);
+      return { key: row.key, origin: row.origin, addedAt: row.addedAt, record: clean(row.record), ...(completion ? { completion } : {}) };
     }), projects: saved.projects.filter(p => typeof p === "string" && path.isAbsolute(p)) };
     if (saved.presentation) state.presentation = sidebarOrder.normalize(saved.presentation, state);
   } catch (error) { if (error.code !== "ENOENT") healthy = false; }
@@ -62,13 +69,33 @@ function createWorkspaceRegistry(filename) {
           || Boolean(record.nativeClaudeStructured && record.persisted && row.record.persisted
             && record.nativeSessionId && row.record.nativeSessionId === record.nativeSessionId)));
     const prior = state.entries.find(same);
-    const entry = { key: prior?.key || crypto.randomUUID(), origin: prior?.origin || origin,
+    const entry = { ...prior, key: prior?.key || crypto.randomUUID(), origin: prior?.origin || origin,
       addedAt: prior?.addedAt || Date.now(), record: { ...prior?.record, ...record } };
     const projects = record.cwd && !state.projects.includes(record.cwd) ? [...state.projects, record.cwd] : state.projects;
     write({ ...state, projects, entries: [...state.entries.filter(row => !same(row)), entry] });
     return structuredClone(entry);
   }
   return { list, remember,
+    // Only Host lifecycle events create unread state. Importing history or
+    // reconnecting a viewer must never make old conversations unread.
+    completed(event) {
+      const completion = cleanCompletion({ ...event, read: false });
+      if (!completion) return null;
+      const prior = list().entries.find(row => row.key === event.key);
+      if (!prior || prior.completion?.id === completion.id) return prior || null;
+      const next = { ...prior, completion };
+      write({ ...state, entries: state.entries.map(row => row.key === prior.key ? next : row) });
+      return structuredClone(next);
+    },
+    markRead(key, completionId) {
+      const prior = list().entries.find(row => row.key === key);
+      if (!prior) return null;
+      // An old tab's delayed acknowledgement cannot clear a newer result.
+      if (!prior.completion || prior.completion.id !== completionId || prior.completion.read) return prior;
+      const next = { ...prior, completion: { ...prior.completion, read: true } };
+      write({ ...state, entries: state.entries.map(row => row.key === key ? next : row) });
+      return structuredClone(next);
+    },
     arrange(input) { const presentation = sidebarOrder.arrange(list(), input); write({ ...state, presentation }); return structuredClone(presentation); },
     get: key => list().entries.find(row => row.key === key),
     update(key, patch) {

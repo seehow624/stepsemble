@@ -26,6 +26,7 @@ tasks.push({ id: 'workspace-fixture-3', agentId: 'claude-code', name: 'Claude Co
 await fs.writeFile(path.join(config, 'agent-tasks.json'), JSON.stringify({ tasks }));
 const registry = createWorkspaceRegistry(path.join(config, 'workspaces.json'));
 for (const task of tasks.slice(0, 2)) registry.remember(task);
+registry.completed({ key: registry.list().entries[0].key, id: '00000000-0000-4000-8000-000000000001:1', kind: 'completed', at: Date.now() - 2000 });
 const piDir = path.join(home, '.pi/agent/sessions/demo'); await fs.mkdir(piDir, { recursive: true });
 await fs.writeFile(path.join(piDir, 'external.jsonl'), [ { type: 'session', id: 'external-pi', cwd: project, timestamp: new Date().toISOString() },
   { type: 'session_info', name: '外部 Pi 對話' }, { type: 'message', id: 'external-message', parentId: null, message: { role: 'user', content: [{ type: 'text', text: 'External history should stay outside the workspace until added.' }] } } ].map(r => JSON.stringify(r)).join('\n')+'\n');
