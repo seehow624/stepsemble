@@ -143,7 +143,9 @@ async function runCodexFailureBrowserCases(browser) {
       assert.equal(await reopened.locator("[data-codex-failed-turn]").count(), 2);
       stage = "retry in the same thread after reload";
       await reopened.locator('[data-codex-failed-turn="fixture-turn-1"] [data-codex-recovery="retry"]').click();
-      await reopened.waitForFunction(() => document.querySelectorAll("#messages .msg.user").length >= 3);
+      // A local user echo precedes Host acceptance. Wait for the actual
+      // synthetic reply before checking the recorded send or failing it again.
+      await reopened.getByText("Synthetic response recorded.", { exact: true }).waitFor();
       assert.equal(preview.state.codexTurns.length, 2);
       assert.equal(preview.state.codexTurns[1].threadId, preview.state.codexTurns[0].threadId);
       stage = "native control unavailable and reconnected";
@@ -152,6 +154,7 @@ async function runCodexFailureBrowserCases(browser) {
       assert.equal(await reopened.locator('[data-codex-failed-turn="fixture-turn-2"] [data-codex-recovery="retry"]').isEnabled(), false);
       await context.request.post(`${preview.origin}/__fixture/codex/fail`, { data: { controlUnavailable: false } });
       await reopened.waitForFunction(() => !document.querySelector("#input").readOnly);
+      assert.equal(await reopened.locator("#task-replay-note").isVisible(), false);
       assert.equal(await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: `Codex failure recovery ${viewport.name}`, result: "passed", sameThread: true,
