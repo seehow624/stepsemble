@@ -455,6 +455,31 @@
     return "tool";
   }
 
+  // The row names the command, rather than the shell used to launch it.
+  // Only unwrap a single, fully quoted payload; ambiguous shell syntax stays
+  // intact. This is display-only and never evaluates or changes a command.
+  function workDisplayCommand(value) {
+    const raw = String(value ?? "").trim();
+    const wrapper = raw.match(/^(?:\/[^\s'"\/]+(?:\/[^\s'"\/]+)*\/)?(?:sh|bash|zsh|dash|ksh)\s+(?:-c|-lc|-cl|-l\s+-c|-c\s+-l)\s+(['"])/);
+    if (!wrapper) return raw;
+    const quote = wrapper[1];
+    let command = "";
+    for (let index = wrapper[0].length; index < raw.length; index += 1) {
+      const character = raw[index];
+      if (character === quote) return raw.slice(index + 1).trim() ? raw : command;
+      if (quote === '"' && character === "\\" && index + 1 < raw.length) {
+        const next = raw[index + 1];
+        if ('"\\$`\n'.includes(next)) {
+          if (next !== "\n") command += next;
+          index += 1;
+          continue;
+        }
+      }
+      command += character;
+    }
+    return raw;
+  }
+
   // Duration parts for "Worked for 19m 44s"; the caller localizes the units.
   function workDurationParts(ms) {
     const duration = Math.max(0, Number(ms) || 0);
@@ -491,7 +516,7 @@
     activityReceiptStats, computeActivityReceipt,
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
     runElapsedText, compactRelativeTime, normalizeTimestampMs,
-    lineDiffStats, unifiedDiffStats, applyPatchStats, toolEditChanges, isEditToolName, workCategory, workDurationParts,
+    lineDiffStats, unifiedDiffStats, applyPatchStats, toolEditChanges, isEditToolName, workCategory, workDisplayCommand, workDurationParts,
     localFileReference,
   });
   global.piHarborSessionUtils = global.stepsembleSessionUtils;

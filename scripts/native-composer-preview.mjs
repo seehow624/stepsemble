@@ -70,6 +70,8 @@ const state = {
   claudeModel: claudeModels[0].id,
   codexModel: codexModels[0].id,
   codexTurns: [],
+  codexFailure: false,
+  codexControlUnavailable: false,
   claudePrompts: [],
   codexInterrupts: 0,
   claudeInterrupts: 0,
@@ -273,13 +275,15 @@ function taskFor(id) {
 }
 
 function codexThreadPayload() {
+  const latest = state.codexTurns.at(-1);
   return {
     id: CODEX_THREAD,
     threadId: CODEX_THREAD,
     sessionId: CODEX_THREAD,
     cwd: tasks[0].cwd,
     updatedAt: Date.now(),
-    status: { type: "active", activeFlags: [] },
+    model: state.codexModel,
+    status: { type: state.codexFailure ? (!latest || latest.status === "failed" ? "systemError" : "idle") : "active", activeFlags: [] },
   };
 }
 
@@ -297,8 +301,10 @@ function codexItems() {
     { turnId: "fixture-turn-0", item: { id: "fixture-assistant-0", type: "agentMessage", text: "Synthetic Codex response. No provider was called." } },
   ];
   for (const [index, turn] of state.codexTurns.entries()) {
-    base.push({ turnId: turn.turnId || `fixture-turn-${index + 1}`, item: { id: `fixture-user-${index + 1}`, type: "userMessage", content: [{ type: "text", text: turn.text || "" }] } });
-    base.push({ turnId: turn.turnId || `fixture-turn-${index + 1}`, item: { id: `fixture-assistant-${index + 1}`, type: "agentMessage", text: "Synthetic response recorded." } });
+    base.push({ turnId: turn.turnId || `fixture-turn-${index + 1}`, item: { id: `fixture-user-${index + 1}`, type: "userMessage", content: [
+      { type: "text", text: turn.text || "" }, ...(turn.images || []).map(image => ({ type: "image", url: image.data })),
+    ] } });
+    if (turn.status !== "failed") base.push({ turnId: turn.turnId || `fixture-turn-${index + 1}`, item: { id: `fixture-assistant-${index + 1}`, type: "agentMessage", text: "Synthetic response recorded." } });
   }
   return base.reverse();
 }
@@ -306,10 +312,15 @@ function codexItems() {
 function codexTurns() {
   const rows = [];
   for (const [index, turn] of state.codexTurns.entries()) {
-    rows.push({ id: turn.turnId || `fixture-turn-${index + 1}`, items: [] });
+    rows.push({ id: turn.turnId || `fixture-turn-${index + 1}`, status: turn.status, error: turn.error,
+      startedAt: turn.receivedAt, completedAt: turn.receivedAt + 100, items: [] });
   }
-  rows.push({ id: "fixture-turn-0", status: "inProgress", startedAt, completedAt: null, items: [] });
-  return rows.reverse();
+  rows.reverse();
+  rows.push({ id: "fixture-turn-0", status: state.codexFailure ? "failed" : "inProgress", startedAt,
+    completedAt: state.codexFailure ? startedAt + 100 : null, error: state.codexFailure ? {
+      message: "Selected model is at capacity. Please try a different model.", codexErrorInfo: "serverOverloaded",
+    } : null, items: [] });
+  return rows;
 }
 
 
@@ -350,10 +361,13 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
+  state.codexFailure = codexFailure;
+  state.codexControlUnavailable = false;
+  if (codexFailure) { state.codexTurns.length = 0; state.codexModel = codexModels[0].id; }
   if (workflows) {
     state.goals = workflows.runs || [];
     state.schedules = workflows.schedules || [];
@@ -455,7 +469,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null }
       }
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
-      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { pendingApprovals: [{
+      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { adapter: { mutationReady: !state.codexControlUnavailable }, pendingApprovals: state.codexFailure ? [] : [{
         requestId: 7, threadId: CODEX_THREAD, method: "item/commandExecution/requestApproval",
         params: { cwd: "/synthetic-project", command: "echo synthetic-fixture-only" },
         summary: "Synthetic permission card — no command will run.", authority: { sourceAuthenticated: true }, responseWritten: !!state.codexApproval,
@@ -470,7 +484,11 @@ export async function createNativeComposerPreview({ port = 0, workflows = null }
         let body;
         try { body = await parseJsonBody(req); } catch { return json(res, 400, { error: "invalid_request" }); }
         const turnId = `fixture-turn-${state.codexTurns.length + 1}`;
-        state.codexTurns.push({ ...body, turnId, receivedAt: Date.now(), imageCount: Array.isArray(body?.images) ? body.images.length : 0 });
+        state.codexTurns.push({ ...body, turnId, status: state.codexFailure ? "completed" : undefined,
+          receivedAt: Date.now(), imageCount: Array.isArray(body?.images) ? body.images.length : 0 });
+        if (body.model) state.codexModel = body.model;
+        if (state.codexFailure) return json(res, 200, { kind: "completed", threadId: CODEX_THREAD,
+          turnId: null, completedTurnId: turnId, status: "completed" });
         return json(res, 200, { kind: "started", threadId: CODEX_THREAD, turnId, status: "inProgress" });
       }
       if (pathname === "/api/codex/mutation/interrupt" && req.method === "POST") { state.codexInterrupts += 1; return json(res, 200, { kind: "requested", threadId: CODEX_THREAD }); }
@@ -508,6 +526,13 @@ export async function createNativeComposerPreview({ port = 0, workflows = null }
       }
       if (pathname === "/api/agent/abort" && req.method === "POST") return json(res, 200, { kind: "requested" });
       if (pathname === "/__fixture/state" && req.method === "GET") return json(res, 200, { token: TOKEN, codexModel: state.codexModel, claudeModel: state.claudeModel, codexTurns: state.codexTurns, claudePrompts: state.claudePrompts, codexInterrupts: state.codexInterrupts, claudeInterrupts: state.claudeInterrupts, openCodeCatalogReads: state.openCodeCatalogReads, openCodeReconciles: state.openCodeReconciles });
+      if (pathname === "/__fixture/codex/fail" && req.method === "POST") {
+        const body = await parseJsonBody(req);
+        if (typeof body.controlUnavailable === "boolean") state.codexControlUnavailable = body.controlUnavailable;
+        const latest = state.codexTurns.at(-1);
+        if (latest) { latest.status = "failed"; latest.error = { message: "Synthetic second failure", codexErrorInfo: "serverOverloaded" }; }
+        return json(res, 200, { ok: true });
+      }
       if (pathname === "/__fixture/reset" && req.method === "POST") { state.codexTurns.length = 0; state.claudePrompts.length = 0; state.codexInterrupts = 0; state.claudeInterrupts = 0; state.codexModel = codexModels[0].id; state.claudeModel = claudeModels[0].id; state.openCodeCatalogReads = 0; state.openCodeReconciles = 0; return json(res, 200, { ok: true }); }
       if (pathname.startsWith("/api/")) return json(res, 200, {});
       if (!["GET", "HEAD"].includes(req.method)) return json(res, 405, { error: "preview_method_not_allowed" });

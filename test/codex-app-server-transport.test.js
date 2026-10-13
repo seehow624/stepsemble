@@ -1080,6 +1080,22 @@ function ownedApproval(id) {
   return { id, method: "item/commandExecution/requestApproval", params: { threadId: "native-typed", turnId: "turn-typed",
     itemId: `item-${typeof id}`, startedAtMs: now, command: "owned", cwd: "/owned", kind: "command" } };
 }
+
+test("a server-overloaded turn permits a new turn on the same native thread with a different model", async t => {
+  const { child, transport, writes } = await readyOwnedTransport(t);
+  frame(child, { method: "turn/completed", params: { threadId: "native-typed", turn: {
+    id: "turn-typed", status: "failed", error: { message: "Selected model is at capacity.", codexErrorInfo: "serverOverloaded" },
+  } } });
+  assert.equal(transport.state().state, "thread_started");
+  assert.equal(transport.state().failure, null);
+  const retry = transport.startTurn([{ type: "text", text: "retry original" }], { model: "other-model" }, null, "native-typed");
+  const request = await writes.next();
+  assert.equal(request.method, "turn/start"); assert.equal(request.params.threadId, "native-typed");
+  assert.equal(request.params.model, "other-model");
+  assert.equal((await transport.startTurn([{ type: "text", text: "duplicate" }])).code, "native_lifecycle_conflict");
+  frame(child, { id: request.id, result: { turn: { id: "retry-turn", status: "inProgress", items: [] } } });
+  assert.equal((await retry).kind, "started");
+});
 test("numeric and string native request IDs remain distinct in the durable journal", { skip: process.platform === "win32" }, async t => {
   const f = await makeJournal(t, { withApproval: false, harnessId: "codex", nativeSessionId: "native-typed", nativeRunId: "turn-typed" });
   const bridge = require("../server/codex-approval-bridge").createCodexApprovalBridge({ journal: f.journal,

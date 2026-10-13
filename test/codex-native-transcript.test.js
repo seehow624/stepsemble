@@ -23,6 +23,7 @@ class Node {
   get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; }
   get scrollHeight() { return this.children.length * 100; }
   appendChild(node) { return this.insertBefore(node, null); }
+  append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
   prepend(node) { this.insertBefore(node, this.firstChild); }
   insertBefore(node, before) {
     if (before === node) return node;
@@ -44,7 +45,7 @@ class Node {
 function harness(api) {
   const messages = new Node(), notices = [], calls = [], contextCalls = [], timers = [];
   const ctx = vm.createContext({ URLSearchParams, AbortController, apiBase: "/r/owned", viewGeneration: 1,
-    agentTranscriptPresentation,
+    agentTranscriptPresentation, agentStatusText: status => status, genericInputBlock: () => null,
     codexNativeHistoryButton: null, codexNativePollTimer: null, autoScrollPinned: false,
     document: { createElement: tag => new Node(tag) },
     window: { stepsembleI18n: { t: value => value } },
@@ -68,6 +69,45 @@ function harness(api) {
   ctx.rpc = { nativeCodex: true, nativeThreadId: "thread-a", nativeTranscriptState: ctx.createCodexNativeTranscriptState() };
   return { ctx, calls, contextCalls, notices, messages, state: ctx.rpc.nativeTranscriptState, connection: ctx.rpc, timers };
 }
+
+test("failed turn errors remain in their chronological turn and never duplicate across polls or a new failure", () => {
+  const h = harness(() => ({}));
+  const failed = id => ({ id, status: "failed", error: { message: `capacity ${id}`, codexErrorInfo: "serverOverloaded" } });
+  h.state.turns = [failed("new"), failed("old")];
+  h.state.entries = [entry("new", "n"), entry("old", "o")];
+  h.state.hasMore = false;
+  h.ctx.renderCodexNativeSnapshot(h.connection);
+  assert.equal(h.messages.children.length, 4);
+  assert.match(h.messages.children[1].textContent, /capacity old/);
+  assert.match(h.messages.children[3].textContent, /capacity new/);
+  h.ctx.renderCodexNativeSnapshot(h.connection);
+  assert.equal(h.messages.children.length, 4);
+  h.state.turns.unshift({ id: "empty", status: "failed", error: null });
+  h.ctx.renderCodexNativeSnapshot(h.connection);
+  assert.equal(h.messages.children.length, 5);
+  assert.match(h.messages.children[4].textContent, /codexRecovery.unknownError/);
+});
+
+test("a snapshot requested before a new send cannot restore the previous failed state", async () => {
+  let finish;
+  const old = new Promise(resolve => { finish = resolve; });
+  let reads = 0;
+  const h = harness(async url => {
+    if (url.pathname.endsWith("/thread")) {
+      reads++;
+      if (reads === 1) return old;
+      return { thread: { id: "thread-a", status: { type: "active" } } };
+    }
+    return page([]);
+  });
+  const refresh = h.ctx.refreshCodexNativeSnapshot(h.connection);
+  h.connection.nativeSendRevision = 1;
+  finish({ thread: { id: "thread-a", status: { type: "systemError" } } });
+  await refresh;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.state.thread.status.type, "active");
+  assert.equal(reads, 2);
+});
 
 test("unequal turn/item pages retain every item, scoped IDs, native ordering and EOF", async () => {
   const h = harness(url => {

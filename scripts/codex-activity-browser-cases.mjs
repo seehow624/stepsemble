@@ -92,4 +92,72 @@ export async function runCodexActivityBrowserCases(browser) {
       await preview.close();
     }
   }
+  await runCodexFailureBrowserCases(browser);
+}
+
+async function runCodexFailureBrowserCases(browser) {
+  for (const viewport of [{ name: "desktop", width: 1440, height: 1000 }, { name: "mobile", width: 390, height: 844 }]) {
+    const preview = await createNativeComposerPreview({ codexFailure: true });
+    let context, stage = "fixture";
+    try {
+      context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
+      await context.addInitScript(() => {
+        localStorage.setItem("stepsemble.onboarding.v1", "complete");
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", reducedMotion: true, groupByProject: false }));
+      });
+      assert.equal((await context.request.post(`${preview.origin}/api/login`, { data: { token: preview.token } })).status(), 200);
+      const page = await context.newPage(), errors = [];
+      page.setDefaultTimeout(15_000); page.on("pageerror", error => errors.push(error.message));
+      stage = "failed original conversation";
+      await page.goto(`${preview.origin}/`); await workspaceReady(page);
+      const pane = await openFromSidebar(page, "Codex composer fixture");
+      const first = pane.locator('[data-codex-failed-turn="fixture-turn-0"]');
+      await first.waitFor();
+      assert.match(await first.textContent(), /Selected model is at capacity/);
+      assert.match(await first.textContent(), /serverOverloaded/);
+      await pane.waitForFunction(() => !document.querySelector("#input").readOnly && !document.querySelector("#btn-send").disabled);
+      stage = "preserve a new draft";
+      await pane.locator("#input").fill("Keep my newer draft");
+      await first.locator('[data-codex-recovery="retry"]').click();
+      assert.equal(await pane.locator("#input").inputValue(), "Keep my newer draft");
+      assert.equal(preview.state.codexTurns.length, 0);
+      await pane.locator("#input").fill("");
+      stage = "change model and retry once";
+      await first.locator('[data-codex-recovery="model"]').click();
+      await pane.getByText("Fixture Codex Reasoning", { exact: true }).click();
+      await pane.getByRole("button", { name: "Close model menu", exact: true }).click();
+      await pane.locator("#model-sheet").waitFor({ state: "hidden" });
+      await first.locator('[data-codex-recovery="retry"]').click();
+      await pane.getByText("Synthetic response recorded.", { exact: true }).waitFor();
+      assert.equal(preview.state.codexTurns.length, 1);
+      assert.equal(preview.state.codexTurns[0].model, "fixture-codex-reasoning");
+      assert.equal(preview.state.codexTurns[0].text, "Synthetic Codex prompt — fixture only.");
+      assert.equal(await first.locator('[data-codex-recovery="retry"]').isEnabled(), false);
+      stage = "a later failure and reload";
+      await context.request.post(`${preview.origin}/__fixture/codex/fail`, { data: {} });
+      await pane.getByText("Synthetic second failure", { exact: false }).waitFor();
+      assert.equal(await pane.locator("[data-codex-failed-turn]").count(), 2);
+      await page.reload(); await workspaceReady(page);
+      const reopened = await openFromSidebar(page, "Codex composer fixture");
+      await reopened.getByText("Synthetic second failure", { exact: false }).waitFor();
+      assert.equal(await reopened.locator("[data-codex-failed-turn]").count(), 2);
+      stage = "retry in the same thread after reload";
+      await reopened.locator('[data-codex-failed-turn="fixture-turn-1"] [data-codex-recovery="retry"]').click();
+      await reopened.waitForFunction(() => document.querySelectorAll("#messages .msg.user").length >= 3);
+      assert.equal(preview.state.codexTurns.length, 2);
+      assert.equal(preview.state.codexTurns[1].threadId, preview.state.codexTurns[0].threadId);
+      stage = "native control unavailable and reconnected";
+      await context.request.post(`${preview.origin}/__fixture/codex/fail`, { data: { controlUnavailable: true } });
+      await reopened.waitForFunction(() => document.querySelector("#input").readOnly);
+      assert.equal(await reopened.locator('[data-codex-failed-turn="fixture-turn-2"] [data-codex-recovery="retry"]').isEnabled(), false);
+      await context.request.post(`${preview.origin}/__fixture/codex/fail`, { data: { controlUnavailable: false } });
+      await reopened.waitForFunction(() => !document.querySelector("#input").readOnly);
+      assert.equal(await reopened.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: `Codex failure recovery ${viewport.name}`, result: "passed", sameThread: true,
+        errorReason: true, modelSwitch: true, draftPreserved: true, repeatedFailure: true, modelCalls: 0, pageErrors: 0 }));
+    } catch (error) {
+      throw new Error(`Codex failure recovery ${viewport.name} at ${stage}: ${error.message}`, { cause: error });
+    } finally { await context?.close(); await preview.close(); }
+  }
 }

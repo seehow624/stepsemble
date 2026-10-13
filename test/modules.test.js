@@ -25,6 +25,29 @@ function loadBrowserModule(file, { storage = null, piI18n = null } = {}) {
   return { value: window[globalName], storage: localStorage, window };
 }
 
+test("work command summaries unwrap known shells without losing quoted payload content", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  assert.equal(utils.workDisplayCommand('/bin/zsh -lc "cd ~/app && rg -n \\"tool\\" public"'), 'cd ~/app && rg -n "tool" public');
+  assert.equal(utils.workDisplayCommand("bash -lc 'python3 -m pytest'"), "python3 -m pytest");
+  assert.equal(utils.workDisplayCommand("/usr/bin/bash -l -c 'npm test'"), "npm test");
+  assert.equal(utils.workDisplayCommand('/bin/sh -c "printf \\"%s\\" \\\\path"'), 'printf "%s" \\path');
+  assert.equal(utils.workDisplayCommand("zsh -c 'cat <<EOF\nfirst line\nsecond line\nEOF'"), "cat <<EOF\nfirst line\nsecond line\nEOF");
+});
+
+test("work command summaries preserve ambiguous wrappers, extra arguments and ordinary commands", () => {
+  const { value: utils } = loadBrowserModule("session-utils.js");
+  for (const command of [
+    "rg -n 'tool-head' public/style.css",
+    "env DEBUG=1 bash -lc 'npm test'",
+    "bash -n -c 'npm test'",
+    "zsh -lc 'printf hello' extra",
+    "zsh -lc 'printf hello' && echo done",
+    "zsh -lc 'unfinished",
+    'powershell -Command "Get-ChildItem"',
+  ]) assert.equal(utils.workDisplayCommand(command), command);
+  assert.equal(utils.workDisplayCommand(null), "");
+});
+
 test("frontend foundation normalizes preferences and preserves selected device state", () => {
   const storage = {
     values: new Map([

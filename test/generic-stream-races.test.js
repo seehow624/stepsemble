@@ -73,3 +73,17 @@ test("send guard does not clear a draft or contact the Host while input is unava
   assert.equal(f.context.genericInputBlock({ generic: false }), null);
   assert.equal(f.context.genericInputBlock({ generic: true, streamReady: true, taskStatus: "waiting", stopPending: true }), "inputUnavailable");
 });
+
+test("a failed native Codex turn keeps input when control is available, without unlocking observed or disconnected tasks", () => {
+  const f = setup();
+  const connection = { generic: true, nativeCodex: true, nativeCodexMutation: true, taskStatus: "failed", nativeControlUnavailable: false };
+  assert.equal(f.context.genericInputBlock(connection), null);
+  for (const extra of [{ connectionLost: true }, { nativeLoading: true }, { stopPending: true },
+    { codexSendInFlight: true }, { nativeControlUnavailable: true }, { nativeControlUnavailable: undefined }]) {
+    assert.equal(f.context.genericInputBlock({ ...connection, ...extra }), "inputUnavailable");
+  }
+  for (const extra of [{ readOnly: true }, { nativeHistoryReadonly: true }, { nativeCodexMutation: false }, { taskStatus: "orphaned" }]) {
+    assert.equal(f.context.genericInputBlock({ ...connection, ...extra }), "taskReadOnly");
+  }
+  assert.equal(f.context.genericInputBlock({ generic: true, taskStatus: "failed", streamReady: true }), "taskReadOnly");
+});

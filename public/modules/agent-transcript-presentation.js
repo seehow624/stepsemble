@@ -83,6 +83,35 @@
     return { images: parts.length, imageAttachments: parts.map(part => part.type === "image" ? imageAttachment(part.url) : null).filter(Boolean) };
   }
 
+  function codexTurnFailure(turn) {
+    if (turn?.status !== "failed") return null;
+    const error = turn.error;
+    return {
+      message: text(typeof error === "string" ? error : error?.message, 4000),
+      details: text(error?.additionalDetails, 4000),
+      code: typeof error?.codexErrorInfo === "string" ? text(error.codexErrorInfo, 512)
+        : encoded(error?.codexErrorInfo ?? error?.code, 512),
+    };
+  }
+
+  // Retry only a complete, single user message. Display text may be shortened
+  // or contain skill/mention labels; it must never be sent as the original.
+  function codexRetryPrompt(entries, turnId) {
+    const users = (Array.isArray(entries) ? entries : []).filter(row => row?.turnId === turnId && row.item?.type === "userMessage");
+    if (users.length !== 1 || !Array.isArray(users[0].item.content)) return null;
+    const texts = [], images = [];
+    for (const part of users[0].item.content) {
+      if (part?.type === "text" && typeof part.text === "string") texts.push(part.text);
+      else if (part?.type === "image" && typeof part.url === "string" && part.url.length <= MAX_IMAGE_URL) {
+        const match = part.url.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i);
+        if (!match) return null;
+        images.push({ data: part.url, mimeType: match[1] });
+      } else return null;
+    }
+    const message = texts.join("\n");
+    return message.trim() || images.length ? { text: message, images } : null;
+  }
+
   function codexFileTarget(item) {
     const direct = item?.path || item?.filePath || item?.file_path;
     if (typeof direct === "string") return text(direct, 4096);
@@ -300,5 +329,5 @@
     return values;
   }
 
-  return Object.freeze({ codexItem, openCodeMessage, acpUpdate, claudeEvent });
+  return Object.freeze({ codexItem, codexTurnFailure, codexRetryPrompt, openCodeMessage, acpUpdate, claudeEvent });
 });

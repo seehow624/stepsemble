@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.53
+
+- Codex failed turns now show the native error message and error code in their original conversation. Model capacity failures explain that another model or a later retry can be used.
+- Native Codex conversations stay writable after a failed turn when control is available. Each failed message provides Retry and Change model actions; old failures cannot resend after a new turn is accepted, and newer drafts are preserved. Observed, disconnected, or unavailable-control conversations remain protected.
+- Failed-turn history is retained without duplicate error cards after polling, reopening, or later failures. Native send failures also display their reason, and stale snapshots cannot replace a newly started turn.
+- Refined mobile work logs with denser command and thinking rows, quieter typography, and shorter command summaries. Expanded details retain the complete original command and output.
+- Added synthetic desktop/mobile recovery coverage and regression tests for retry payloads, draft protection, repeated failures, native transport reuse, and send/refresh races.
+
 ## 3.8.52
 
 - Make expanded work-log tool rows more compact on desktop, reducing their minimum height from 39px to 26px and vertical padding from 5px to 2px.

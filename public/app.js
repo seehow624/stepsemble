@@ -1,7 +1,7 @@
-/* stepsemble v3.8.52 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.53 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.52";
+const CLIENT_APP_VERSION = "3.8.53";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -4912,8 +4912,10 @@ function genericInputBlock(connection = rpc) {
     return connection.taskStatus === "running" ? "taskObservedReadOnly" : "taskReadOnly";
   }
   if (connection?.nativeCodexMutation) {
-    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
-    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
+    const recoverable = connection.taskStatus === "failed" && connection.nativeControlUnavailable === false;
+    if (genericTaskTerminal(connection.taskStatus) && connection.taskStatus !== "failed") return "taskReadOnly";
+    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || connection.codexSendInFlight
+      || connection.nativeControlUnavailable === true || !(recoverable || ["running", "waiting"].includes(connection.taskStatus))) return "inputUnavailable";
     return null;
   }
   if (connection?.nativeClaudeStructured) {
@@ -5087,6 +5089,7 @@ function syncGenericInputState() {
   const reason = genericInputBlock();
   el.input.readOnly = !!reason;
   el.btnSend.disabled = !!reason;
+  if (rpc?.nativeCodex) syncCodexNativeRecoveryActions(rpc);
   const note = $("agent-input-note");
   if (note) {
     note.classList.toggle("hidden", !reason);
@@ -5243,7 +5246,8 @@ function applyGenericTaskSnapshot(snapshot = {}) {
   // thread must not expose the generic abort/send controls through this
   // metadata-only adapter.
   setStreaming(rpc.nativeCodex && !rpc.nativeCodexMutation ? false : agentTaskIsRunning({ status }));
-  if (genericTaskTerminal(status)) appendGenericTerminalNotice(status, snapshot);
+  // Native Codex errors belong to their turn, rendered with the transcript.
+  if (genericTaskTerminal(status) && !rpc.nativeCodex) appendGenericTerminalNotice(status, snapshot);
 }
 
 function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
@@ -5533,7 +5537,7 @@ function appendCodexNativeItem(item, container = el.messages, { fork = null, ts 
   }
 }
 
-function codexNativeRenderUnits(entries) {
+function codexNativeRenderUnits(entries, turns = []) {
   const units = [];
   // Consecutive tool and reasoning items form one unit; an assistant message
   // closes it, so commentary and work keep their order within a turn.
@@ -5555,7 +5559,83 @@ function codexNativeRenderUnits(entries) {
     openWork.delete(turnId);
     units.push({ key: `item:${codexNativeEntryKey(entry)}`, kind: "message", item: entry.item, view, turnId });
   }
-  return units;
+  const failures = new Map(turns.filter(turn => agentTranscriptPresentation.codexTurnFailure(turn)).map(turn => [String(turn.id), turn]));
+  const last = new Map(units.map((unit, index) => [unit.turnId, index]));
+  const result = [];
+  for (const [index, unit] of units.entries()) {
+    result.push(unit);
+    if (last.get(unit.turnId) === index && failures.has(unit.turnId)) {
+      result.push({ key: `error:${unit.turnId}`, kind: "error", turnId: unit.turnId, turn: failures.get(unit.turnId) });
+    }
+  }
+  // The newest failed turn can be empty (failure before the first item).
+  // Older turns whose items have not loaded yet stay behind Load earlier.
+  const latest = turns[0];
+  if (latest && failures.has(String(latest.id)) && !last.has(String(latest.id))) {
+    result.push({ key: `error:${latest.id}`, kind: "error", turnId: String(latest.id), turn: latest });
+  }
+  return result;
+}
+
+function codexNativeRecoveryAvailable(connection, turnId) {
+  return rpc === connection && connection.nativeCodexMutation && ["failed", "waiting"].includes(connection.taskStatus)
+    && (!connection.nativeAcceptedTurnId || connection.nativeAcceptedTurnId === turnId)
+    && connection.nativeTranscriptState?.turns?.[0]?.id === turnId && !genericInputBlock(connection);
+}
+
+function syncCodexNativeRecoveryActions(connection) {
+  for (const row of connection.nativeRenderedItems?.values() || []) {
+    if (!row.recovery) continue;
+    const ready = codexNativeRecoveryAvailable(connection, row.recovery.turnId);
+    const prompt = ready ? agentTranscriptPresentation.codexRetryPrompt(connection.nativeTranscriptState.entries, row.recovery.turnId) : null;
+    row.recovery.retry.disabled = !ready || !prompt;
+    row.recovery.retry.title = ready && !prompt ? tKey("codexRecovery.promptUnavailable") : "";
+    row.recovery.model.disabled = !ready;
+  }
+}
+
+async function retryCodexNativeTurn(connection, turnId) {
+  if (!codexNativeRecoveryAvailable(connection, turnId)) return;
+  // A new draft always wins; never replace or send what is being typed.
+  if (el.input.value.trim() || pendingImages.length) { toast(tKey("codexRecovery.draftPreserved"), true); return; }
+  const prompt = agentTranscriptPresentation.codexRetryPrompt(connection.nativeTranscriptState.entries, turnId);
+  if (!prompt) return;
+  el.input.value = prompt.text;
+  pendingImages = prompt.images;
+  resizeComposerInput(); renderImgPreview();
+  saveDraftForKey(activeDraftKey, prompt.text);
+  await sendCurrent();
+}
+
+function appendCodexNativeTurnError(connection, turn, container) {
+  const failure = agentTranscriptPresentation.codexTurnFailure(turn);
+  const shell = makeMsgShell("assistant", "Codex", container);
+  const box = document.createElement("div"); box.className = "run-error";
+  box.dataset.codexFailedTurn = String(turn.id);
+  const title = document.createElement("div"); title.className = "run-error-title";
+  title.textContent = `Codex · ${agentStatusText("failed")}`;
+  const message = document.createElement("div"); message.className = "run-error-message";
+  message.textContent = [failure.message || tKey("codexRecovery.unknownError"), failure.details, failure.code].filter(Boolean).join("\n");
+  const hint = document.createElement("p"); hint.className = "run-error-hint";
+  hint.textContent = tKey(failure.code === "serverOverloaded" ? "codexRecovery.capacity" : "codexRecovery.continue");
+  box.append(title, message);
+  if (connection.nativeCodexMutation) box.appendChild(hint);
+  let recovery = null;
+  if (connection.nativeCodexMutation) {
+    const actions = document.createElement("div"); actions.className = "run-error-actions";
+    const retry = document.createElement("button"); retry.type = "button"; retry.className = "btn";
+    retry.textContent = tKey("codexRecovery.retry"); retry.dataset.codexRecovery = "retry";
+    retry.disabled = true;
+    retry.addEventListener("click", () => void retryCodexNativeTurn(connection, String(turn.id)));
+    const model = document.createElement("button"); model.type = "button"; model.className = "btn ghost";
+    model.textContent = tKey("codexRecovery.changeModel"); model.dataset.codexRecovery = "model";
+    model.disabled = true;
+    model.addEventListener("click", () => { if (codexNativeRecoveryAvailable(connection, String(turn.id))) void openModelSheet(); });
+    actions.append(retry, model); box.appendChild(actions);
+    recovery = { turnId: String(turn.id), retry, model };
+  }
+  shell.bubble.appendChild(box);
+  return recovery;
 }
 
 function appendCodexNativeActivity(rows, container = el.messages, key = "") {
@@ -5866,16 +5946,18 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
   let previous = null;
   const activeKeys = new Set();
   const turnTimes = new Map((state.turns || []).map(turn => [String(turn?.id || ""), turn]));
-  for (const unit of codexNativeRenderUnits(state.entries)) {
+  for (const unit of codexNativeRenderUnits(state.entries, state.turns)) {
     const key = unit.key;
     activeKeys.add(key);
     // A reply is drawn again when its turn finishes: it can then be branched.
     const turn = turnTimes.get(String(unit.turnId || ""));
-    const revision = JSON.stringify(unit.kind === "work" ? unit.rows.map(row => row.item) : unit.item) + "|" + (turn?.status || "") + "|" + (turn?.completedAt || "");
+    const revision = JSON.stringify(unit.kind === "work" ? unit.rows.map(row => row.item) : unit.kind === "error" ? unit.turn.error : unit.item) + "|" + (turn?.status || "") + "|" + (turn?.completedAt || "");
     let row = rendered.get(key);
     if (!row || row.revision !== revision) {
       const staging = document.createElement("div");
-      if (unit.kind === "work") appendCodexNativeActivity(unit.rows, staging, unit.key);
+      let recovery = null;
+      if (unit.kind === "error") recovery = appendCodexNativeTurnError(connection, unit.turn, staging);
+      else if (unit.kind === "work") appendCodexNativeActivity(unit.rows, staging, unit.key);
       else appendCodexNativeItem(unit.item, staging, { fork: codexReplyFork(connection, String(unit.turnId || ""), turn?.status || null),
         ts: turn?.completedAt ? normalizedTimestampMs(turn.completedAt) || null : null });
       const node = staging.firstChild;
@@ -5883,7 +5965,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
       node.classList.remove("msg-in");
       node.dataset.i18nIgnore = "";
       if (row?.node.parentNode === el.messages) row.node.replaceWith(node);
-      row = { node, revision };
+      row = { node, revision, recovery };
       rendered.set(key, row);
     }
     const reference = previous ? previous.nextSibling : codexNativeHistoryButton?.parentNode === el.messages
@@ -5906,6 +5988,7 @@ function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) 
     rendered.delete(key);
   }
   reconcileCodexNativeEchoes(connection);
+  syncCodexNativeRecoveryActions(connection);
   connection.nativeRenderedRevision = true;
   ensureSessionUsageFooter();
   keepSessionUsageAtEnd();
@@ -6014,6 +6097,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
   if (!connection || rpc !== connection || !connection.nativeCodex) return;
   if (connection.nativeTranscriptState.loading || connection.nativeRefreshInFlight) return;
   const generation = viewGeneration;
+  const sendRevision = connection.nativeSendRevision || 0;
   const controller = new AbortController();
   const isCurrent = () => rpc === connection && generation === viewGeneration;
   connection.nativeHistoryRequest = controller;
@@ -6028,6 +6112,8 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
         : null,
     ]);
     if (!isCurrent()) return;
+    if (sendRevision !== (connection.nativeSendRevision || 0)) return;
+    connection.nativeControlUnavailable = mutation?.unavailable === true || mutation?.adapter?.mutationReady === false;
     // Leave an older-page error visible until that page is successfully retried.
     applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
     connection.nativeTranscriptState.goalAvailable = page.goalAvailable;
@@ -6061,13 +6147,20 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     renderCodexNativeSnapshot(connection);
     renderCodexNativeRunState(connection);
     if (connection.nativeCodexMutation) {
-      if (mutation?.unavailable) {
+      if (connection.nativeControlUnavailable) {
         connection.codexApprovals?.unavailable();
         if (el.taskReplayNote) {
+          el.taskReplayNote.dataset.nativeControlUnavailable = "1";
           el.taskReplayNote.textContent = browseText("Approval status unavailable; reconnect to continue");
           el.taskReplayNote.classList.remove("hidden");
         }
-      } else renderCodexNativeApprovals(connection, mutation?.pendingApprovals);
+      } else {
+        if (el.taskReplayNote?.dataset.nativeControlUnavailable) {
+          delete el.taskReplayNote.dataset.nativeControlUnavailable;
+          el.taskReplayNote.textContent = ""; el.taskReplayNote.classList.add("hidden");
+        }
+        renderCodexNativeApprovals(connection, mutation?.pendingApprovals);
+      }
     }
     void syncNativeContext(connection);
     connection.nativeLoading = false;
@@ -6089,6 +6182,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     connection.nativeRefreshInFlight = false;
     if (connection.nativeHistoryRequest === controller) connection.nativeHistoryRequest = null;
     if (isCurrent()) showCodexNativeHistoryButton();
+    if (isCurrent() && sendRevision !== (connection.nativeSendRevision || 0)) void refreshCodexNativeSnapshot(connection);
   }
 }
 
@@ -6181,6 +6275,7 @@ async function openCodexNativeTask(task, generationOverride = null) {
     codexThreadEffort: null,
     codexEffortSelected: false,
     nativeLoading: true,
+    nativeControlUnavailable: true,
     nativeRenderedRevision: null,
     nativeTranscriptState: createCodexNativeTranscriptState(),
     nativeRenderedItems: new Map(),
@@ -8406,22 +8501,25 @@ function toolKey(name) {
 }
 function toolTarget(args) {
   const raw = typeof args === "string" ? args : summarizeArgs(args);
-  return String(raw || "").replace(/^['\"]|['\"]$/g, "").trim();
+  const target = String(raw || "").trim();
+  const quoted = target.match(/^(['"])([\s\S]*)\1$/);
+  return quoted ? quoted[2] : target;
 }
 function toolTargetShort(args) {
   const target = toolTarget(args);
   if (!target || target.includes(" ")) return target;
   return target.split(/[\\/]/).filter(Boolean).pop() || target;
 }
-function toolTitle(name, args, running) {
+function toolTitle(name, args, running, { compact = true } = {}) {
   const target = toolTarget(args);
   const short = toolTargetShort(args);
   // Codex-style action lines: "Ran npm test", "Edited app.js", "Read log".
   const state = running ? "active" : "done";
   const category = window.stepsembleSessionUtils.workCategory(name, args);
+  const command = compact ? window.stepsembleSessionUtils.workDisplayCommand(target) : target;
   const label = String(name || "tool");
   const file = short || target || label;
-  const title = category === "run" ? tKey(`work.item.run.${state}`, { target: target || label })
+  const title = category === "run" ? tKey(`work.item.run.${state}`, { target: command || label })
     : category === "read" ? tKey(`work.item.read.${state}`, { target: file })
     : category === "edit" ? tKey(`work.item.edit.${state}`, { target: workEditTarget(args) || file })
     : category === "search" ? tKey(`work.item.search.${state}`, { target: target || label })
@@ -8431,6 +8529,12 @@ function toolTitle(name, args, running) {
     : ["plan", "context", "wait"].includes(category) ? tKey(`work.item.${category}.${state}`)
     : tKey(`work.item.tool.${state}`, { name: label, target: target ? ` ${target}` : "" });
   return title.replace(/\s+/g, " ").trim();
+}
+function toolCommand(name, args) {
+  if (window.stepsembleSessionUtils.workCategory(name, args) === "run") {
+    return String((typeof args === "string" ? args : summarizeArgs(args)) || name || "");
+  }
+  return toolTitle(name, args, false, { compact: false });
 }
 // A multi-file change names every file; one file shows its base name.
 function workEditTarget(args) {
@@ -8724,7 +8828,7 @@ function makeToolCard(name, args, resultText, isError, running) {
   title.className = "tool-name";
   title.dataset.i18nIgnore = "";
   title.textContent = toolTitle(name, args, running);
-  title.title = toolTitle(name, args, false);
+  title.title = toolTitle(name, args, false, { compact: false });
   const stat = document.createElement("span");
   stat.className = "tool-stat";
   stat.dataset.i18nIgnore = "";
@@ -8737,7 +8841,7 @@ function makeToolCard(name, args, resultText, isError, running) {
   body.className = "tool-body";
   const command = document.createElement("div");
   command.className = "tool-command";
-  command.textContent = toolTitle(name, args, false);
+  command.textContent = toolCommand(name, args);
   const label = document.createElement("div");
   label.className = "tool-output-label";
   label.textContent = toolOutputLabel(name);
@@ -8815,8 +8919,8 @@ function setToolCardState(card, { running = false, isError = false, text = null 
   card.classList.toggle("running", running);
   card.classList.toggle("err", !!isError);
   if (title) title.textContent = toolTitle(meta.name, meta.args, running);
-  if (title) title.title = toolTitle(meta.name, meta.args, false);
-  if (command) command.textContent = toolTitle(meta.name, meta.args, false);
+  if (title) title.title = toolTitle(meta.name, meta.args, false, { compact: false });
+  if (command) command.textContent = toolCommand(meta.name, meta.args);
   if (sub) sub.textContent = running ? "working…" : "";
   if (status) {
     status.classList.remove("running", "error", "done");
@@ -9997,7 +10101,7 @@ function relabelWorkLog() {
     const title = card.querySelector(".tool-name");
     if (!title) continue;
     title.textContent = toolTitle(meta.name, meta.args, card.classList.contains("running"));
-    title.title = toolTitle(meta.name, meta.args, false);
+    title.title = toolTitle(meta.name, meta.args, false, { compact: false });
   }
   for (const toggle of el.messages?.querySelectorAll?.(".thinking-toggle") || []) toggle.textContent = tKey("work.item.thinking");
   for (const card of el.messages?.querySelectorAll?.(".wl-files") || []) delete card.dataset.signature;
@@ -11177,6 +11281,7 @@ async function sendCurrent() {
   const sendDraftKey = activeDraftKey;
   const sendDraft = beginDraftSend(sendDraftKey), sendView = viewGeneration;
   const sendDraftText = el.input.value;
+  const codexSendConnection = rpc.nativeCodexMutation ? rpc : null;
   el.input.value = "";
   el.input.style.height = "auto";
   el.slashMenu.classList.add("hidden");
@@ -11236,6 +11341,11 @@ async function sendCurrent() {
   // names a session after its first message itself.
   if (generic) nameFromFirstMessage(rpc, text);
   let accepted = false;
+  if (codexSendConnection) {
+    codexSendConnection.codexSendInFlight = true;
+    codexSendConnection.nativeSendRevision = (codexSendConnection.nativeSendRevision || 0) + 1;
+    syncGenericInputState();
+  }
   try {
     const result = generic
       ? (rpc?.nativeOpenCode
@@ -11273,6 +11383,7 @@ async function sendCurrent() {
     }
     if (codexEcho) {
       codexEcho.turnId = result?.turnId || result?.completedTurnId || null;
+      if (codexEcho.turnId) codexNativeSend.nativeAcceptedTurnId = String(codexEcho.turnId);
       reconcileCodexNativeEchoes(codexNativeSend);
     }
     if (rpc === sendConnection && !rpc.approval && approvalTarget(rpc)) void loadApprovalModes(rpc);
@@ -11286,7 +11397,11 @@ async function sendCurrent() {
       rpc.taskStatus = "running";
       setStreaming(true);
       if (result?.turnId && rpc.outputMeter) rpc.outputMeterTurnId = String(result.turnId);
-      if (!codexNativePollTimer) codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(rpc), 2500);
+      if (!codexNativePollTimer) codexNativePollTimer = setInterval(() => void refreshCodexNativeSnapshot(sendConnection), 2500);
+    }
+    if (rpc === sendConnection && rpc.nativeCodexMutation && result?.kind === "completed") {
+      rpc.taskStatus = result.status === "failed" ? "failed" : "waiting";
+      setStreaming(false);
     }
     // Claude's turn begins as it takes the message, so the run is timed and
     // measured from here, even a reply quicker than the next look.
@@ -11340,9 +11455,14 @@ async function sendCurrent() {
       // model", follows when the Host passed one on with its code.
       const reason = e?.code && typeof e.message === "string" && e.message !== e.code && /\s/.test(e.message) ? e.message.slice(0, 300) : "";
       toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
+      if (codexSendConnection) appendTurnErrorNotice(codexSendConnection, e?.message || e?.code || tKey("codexRecovery.unknownError"));
     }
   } finally {
     finishDraftSend(sendDraft);
+    if (codexSendConnection) {
+      codexSendConnection.codexSendInFlight = false;
+      if (rpc === codexSendConnection) { syncGenericInputState(); void refreshCodexNativeSnapshot(codexSendConnection); }
+    }
     if (acpTurn) {
       acpTurn.acpPromptInFlight = false;
       if (rpc === acpTurn) { acpTurn.taskStatus = "waiting"; setStreaming(false); syncGenericInputState(); attachAcpReplyActions(acpTurn, { live: true }); }

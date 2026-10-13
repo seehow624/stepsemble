@@ -1,4 +1,4 @@
-/* stepsemble v3.8.52 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.53 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -2843,6 +2843,9 @@ html.reduced-motion .session-running-dot { animation: none; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.run-error-hint { margin: 8px 0 0; color: var(--pine-soft); font-size: .8rem; line-height: 1.5; }
+.run-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.run-error-actions .btn { min-height: 40px; padding: 6px 12px; font-size: .8rem; }
 .history-load-button {
   align-self: center;
   min-height: 34px;
@@ -5458,9 +5461,9 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 44px;
-  margin: 0 0 12px;
-  padding: 4px 0 10px;
+  min-height: 36px;
+  margin: 0 0 8px;
+  padding: 4px 0 6px;
   border: 0;
   border-bottom: .5px solid var(--line);
   border-radius: 0;
@@ -5508,7 +5511,7 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   gap: 10px;
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: 34px;
   margin: 0;
   padding: 5px 0;
   border: 0;
@@ -5554,15 +5557,44 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 #view-chat .activity-group.wl-seg > summary { display: none; }
 #view-chat .activity-group.wl-seg > .activity-body { display: block; margin: 0; padding: 0 0 2px; }
 #view-chat .wl-seg + .wl-row { margin-top: 2px; }
-/* Expanded work is a compact list, while touch keeps a full tap target. */
+/* Work is read as a continuous list. Touch rows keep a little more room,
+   without turning every command or thought into a separate large control. */
 #view-chat .wl-seg .tool-card > .tool-head,
 #view-chat .tool-card.wl-seg > .tool-head {
   min-height: 26px !important;
   padding: 2px 0 !important;
+  gap: 8px;
+  touch-action: manipulation;
 }
 @media (max-width: 600px), (hover: none), (pointer: coarse) {
   #view-chat .wl-seg .tool-card > .tool-head,
-  #view-chat .tool-card.wl-seg > .tool-head { min-height: 44px !important; }
+  #view-chat .tool-card.wl-seg > .tool-head { min-height: 30px !important; }
+}
+#view-chat .wl-seg .tool-name,
+#view-chat .tool-card.wl-seg .tool-name {
+  font-weight: 400;
+  font-size: .88rem;
+}
+#view-chat .activity-group.wl-seg .thinking-wrap,
+#view-chat .thinking-wrap.wl-seg { margin: 0; }
+#view-chat .wl-seg .thinking-toggle,
+#view-chat .thinking-wrap.wl-seg > .thinking-toggle {
+  min-height: 26px;
+  padding: 2px 0;
+  color: var(--pine-soft);
+  opacity: .8;
+  font: 400 .78rem/1.4 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  letter-spacing: 0;
+  touch-action: manipulation;
+}
+#view-chat .wl-seg .thinking-toggle:hover,
+#view-chat .wl-seg .thinking-toggle:focus-visible,
+#view-chat .thinking-wrap.wl-seg > .thinking-toggle:hover,
+#view-chat .thinking-wrap.wl-seg > .thinking-toggle:focus-visible { opacity: 1; }
+#view-chat .wl-seg .tool-head:focus-visible {
+  outline: 1px solid var(--pine-soft);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 #view-chat .tool-card .tool-info {
   display: flex;
