@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.56
+
+- Show a compact working spinner beside each Session's menu, followed by a green dot when a completed response has not been viewed. Failed, stopped and blocked work uses a distinct amber marker.
+- Keep unread completion state on the Host so it survives reloads and synchronizes across devices. Mark only the loaded, visible conversation as read, and protect newer completions from delayed acknowledgements.
+- Preserve sidebar focus, dragging and title alignment while activity changes. Keep status updates responsive on slow Hosts without interrupting updates for other visible Hosts, and respect reduced-motion preferences.
+- Add desktop and mobile browser coverage for working, completion, read synchronization, hidden conversations, failed turns, slow connections and sidebar interaction stability.
+
 ## 3.8.55
 
 - Add a spinning menu-bar cat whose speed follows fresh output activity, with an animation switch, reduced-motion support, idle/stale-data stopping and an icon-only option. Live model output and the past-minute history estimate are clearly distinguished; input/cache usage remains a separate tok/min reading.
