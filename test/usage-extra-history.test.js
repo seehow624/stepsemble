@@ -3,7 +3,7 @@ const test=require("node:test"),assert=require("node:assert/strict"),fs=require(
 const R=require("../server/usage-extra-records"),H=require("../server/usage-extra-history"),{report}=require("../server/usage-analytics-worker"),{createUsageParser}=require("../server/usage-records"),D=require("../public/modules/usage-data"),M=require("../public/modules/menubar-data");
 const AT=Date.parse("2026-10-13T03:00:00Z"), UUID="11111111-1111-4111-8111-111111111111";
 const budget=()=>({deadline:Date.now()+15000,maxBytes:1e8,bytes:0,visited:0,limited:false});
-async function fixture(t){const home=await fs.mkdtemp(path.join(os.tmpdir(),"stepsemble-extra-"));t.after(()=>fs.rm(home,{recursive:true,force:true}));return fs.realpath(home);}
+async function fixture(t,beforeRemove=()=>{}){const home=await fs.mkdtemp(path.join(os.tmpdir(),"stepsemble-extra-"));t.after(async()=>{await beforeRemove();await fs.rm(home,{recursive:true,force:true});});return fs.realpath(home);}
 async function write(file,value){await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,JSON.stringify(value));}
 const msg=(id="msg1")=>({id,sessionID:"session1",role:"assistant",modelID:"claude-test",providerID:"anthropic",time:{created:AT},tokens:{input:100,output:20,reasoning:5,cache:{read:80,write:10}},cost:.1,content:"PRIVATE PROMPT MUST NOT LEAVE READER"});
 const input=home=>({home,entries:[],query:{from:AT-1,to:AT+1000,timeZone:"UTC"}});
@@ -42,8 +42,8 @@ test("Antigravity protobuf has bounded parsing, readable labels and explicit app
  assert.equal(R.proto(Buffer.from([10,255,255,255,255,255,255,255,255,255,255,255])),null);assert.equal(R.proto(Buffer.alloc(4*1024*1024+1)),null);
 });
 test("machine scan reads OpenCode WAL and deduplicates legacy exports without changing the database",async t=>{
- const home=await fixture(t),folder=path.join(home,".local/share/opencode");await fs.mkdir(folder,{recursive:true});
- const db=new DatabaseSync(path.join(folder,"opencode.db"));t.after(()=>db.close());
+ let db;const home=await fixture(t,()=>db?.close()),folder=path.join(home,".local/share/opencode");await fs.mkdir(folder,{recursive:true});
+ db=new DatabaseSync(path.join(folder,"opencode.db"));
  db.exec("PRAGMA journal_mode=WAL; CREATE TABLE session(id TEXT PRIMARY KEY,directory TEXT,title TEXT); CREATE TABLE message(id TEXT,session_id TEXT,data TEXT);");
  db.prepare("INSERT INTO session VALUES(?,?,?)").run("session1","/demo","Saved session");db.prepare("INSERT INTO message VALUES(?,?,?)").run("msg1","session1",JSON.stringify(msg()));
  await write(path.join(folder,"storage/message/session1/msg1.json"),msg());
