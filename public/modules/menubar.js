@@ -2,9 +2,9 @@
 (() => {
   const D = window.StepsembleMenubarData, U = window.StepsembleUsageData, $ = id => document.getElementById(id);
   const copy = {
-    en: { limits:"Limits", remaining:"Remaining", used:"Used", today:"Today", tokens:"Tokens", cost:"Estimated cost", refresh:"Refresh", all:"All Hosts", menu:"Menu bar", open:"Open usage ↗", estimate:"USD estimate · not a bill", loading:"Reading limits…", unknown:"Limits unavailable", offline:"Could not read this Host. Retry or open Stepsemble.", partial:"Some histories or prices are unavailable. These are the available totals.", aggregate:"Some usage is a session total, dated by its session start.", updated:"Updated", expires:"Resets", days:"d", hours:"h", minutes:"m", indexing:"Indexing history…", retry:"Retry" },
-    "zh-Hant": { limits:"額度", remaining:"剩餘", used:"已用", today:"今天", tokens:"Token 用量", cost:"估算費用", refresh:"重新整理", all:"所有 Host", menu:"選單列", open:"開啟用量 ↗", estimate:"USD 估算 · 非實際帳單", loading:"正在讀取額度…", unknown:"暫無額度資料", offline:"無法讀取此 Host，請重試或開啟 Stepsemble。", partial:"部分歷史或單價不可用，目前顯示可取得的總數。", aggregate:"部分用量為對話總數，按對話開始日期歸檔。", updated:"更新於", expires:"重置", days:"天", hours:"小時", minutes:"分", indexing:"正在建立歷史索引…", retry:"重試" },
-    zh: { limits:"额度", remaining:"剩余", used:"已用", today:"今天", tokens:"Token 用量", cost:"估算费用", refresh:"刷新", all:"所有 Host", menu:"菜单栏", open:"打开用量 ↗", estimate:"USD 估算 · 非实际账单", loading:"正在读取额度…", unknown:"暂无额度数据", offline:"无法读取此 Host，请重试或打开 Stepsemble。", partial:"部分历史或价格不可用，当前显示可取得的总数。", aggregate:"部分用量为对话总数，按对话开始日期归档。", updated:"更新于", expires:"重置", days:"天", hours:"小时", minutes:"分", indexing:"正在建立历史索引…", retry:"重试" },
+    en: { limits:"Limits", remaining:"Remaining", used:"Used", today:"Today", tokens:"Tokens", cost:"Estimated cost", refresh:"Refresh", all:"All Hosts", rate:"Output tok/s", burn:"Usage tok/min", hidden:"Icon only", animate:"Animate cat", live:"Live output", average:"Current model average", history:"Output · past 60s", waiting:"Waiting for output", unknownActivity:"Activity unavailable", historyNote:"Saved output over the past minute; not model decoding speed.", burnNote:"Usage / min includes input, output and cache.", partialActivity:"Some Hosts or histories are unavailable.", menu:"Menu bar", open:"Open usage ↗", estimate:"USD estimate · not a bill", loading:"Reading limits…", unknown:"Limits unavailable", offline:"Could not read this Host. Retry or open Stepsemble.", partial:"Some histories or prices are unavailable. These are the available totals.", aggregate:"Some usage is a session total, dated by its session start.", updated:"Updated", expires:"Resets", days:"d", hours:"h", minutes:"m", indexing:"Indexing history…", retry:"Retry" },
+    "zh-Hant": { limits:"額度", remaining:"剩餘", used:"已用", today:"今天", tokens:"Token 用量", cost:"估算費用", refresh:"重新整理", all:"所有 Host", rate:"輸出 tok/s", burn:"用量 tok/min", hidden:"只顯示圖示", animate:"貓咪動畫", live:"即時輸出", average:"本輪模型平均", history:"輸出 · 過去 60 秒", waiting:"等待模型輸出", unknownActivity:"暫無活動資料", historyNote:"過去一分鐘保存的輸出量，並非模型生成速度。", burnNote:"每分鐘用量包含輸入、輸出與快取。", partialActivity:"部分 Host 或歷史不可用。", menu:"選單列", open:"開啟用量 ↗", estimate:"USD 估算 · 非實際帳單", loading:"正在讀取額度…", unknown:"暫無額度資料", offline:"無法讀取此 Host，請重試或開啟 Stepsemble。", partial:"部分歷史或單價不可用，目前顯示可取得的總數。", aggregate:"部分用量為對話總數，按對話開始日期歸檔。", updated:"更新於", expires:"重置", days:"天", hours:"小時", minutes:"分", indexing:"正在建立歷史索引…", retry:"重試" },
+    zh: { limits:"额度", remaining:"剩余", used:"已用", today:"今天", tokens:"Token 用量", cost:"估算费用", refresh:"刷新", all:"所有 Host", rate:"输出 tok/s", burn:"用量 tok/min", hidden:"只显示图标", animate:"猫咪动画", live:"实时输出", average:"本轮模型平均", history:"输出 · 过去 60 秒", waiting:"等待模型输出", unknownActivity:"暂无活动数据", historyNote:"过去一分钟保存的输出量，并非模型生成速度。", burnNote:"每分钟用量包含输入、输出与缓存。", partialActivity:"部分 Host 或历史不可用。", menu:"菜单栏", open:"打开用量 ↗", estimate:"USD 估算 · 非实际账单", loading:"正在读取额度…", unknown:"暂无额度数据", offline:"无法读取此 Host，请重试或打开 Stepsemble。", partial:"部分历史或价格不可用，当前显示可取得的总数。", aggregate:"部分用量为对话总数，按对话开始日期归档。", updated:"更新于", expires:"重置", days:"天", hours:"小时", minutes:"分", indexing:"正在建立历史索引…", retry:"重试" },
   };
   const get = key => { try { return localStorage.getItem(key); } catch { return null; } };
   const save = (key, value) => { try { localStorage.setItem(key,value); } catch {} };
@@ -14,10 +14,34 @@
   document.documentElement.lang = prefs.locale; document.documentElement.dataset.theme = prefs.resolvedTheme;
   let machines = [], self = "", selected = null, report = null, quotas = [], unavailable = true, loading = true, sequence = 0, abort = null, retryTimer = null;
   let mode = get("stepsemble.quota-display.v1") === "used" ? "used" : "remaining";
-  let metric = ["tokens","cost"].includes(get("stepsemble.menubar.metric.v1")) ? get("stepsemble.menubar.metric.v1") : "limits";
+  let metric = ["tokens","cost","rate","burn","hidden"].includes(get("stepsemble.menubar.metric.v1")) ? get("stepsemble.menubar.metric.v1") : "limits";
   const node = (tag,text="",cls="") => { const e=document.createElement(tag); e.textContent=text; e.className=cls; return e; };
   const post = body => window.webkit?.messageHandlers?.stepsemble?.postMessage(body);
-  function updateBadge() { post({type:"menubar-summary",text:D.badge(metric,report,quotas,mode,prefs.locale,unavailable),label:metric === "limits" ? t(mode) : t(metric),metric}); }
+  let activity = D.activity([]), activityBusy = false, activityAbort = null, activitySequence = 0, activityTimer = null;
+  let animate = get("stepsemble.menubar.animate.v1") !== "off";
+  function updateBadge() {
+    let text = metric === "rate" ? (activity.rate === null ? "—" : (activity.estimated ? "≈ " : "") + D.rate(activity.rate,prefs.locale)) + " tok/s"
+      : metric === "burn" ? D.compact(activity.tokensPerMinute,prefs.locale) + " tok/min" : D.badge(metric,report,quotas,mode,prefs.locale,unavailable);
+    post({type:"menubar-summary",text,label:metric === "limits" ? t(mode) : t(metric),metric,rate:activity.rate,animate});
+  }
+  function renderActivity() {
+    $("rate").textContent=(activity.rate !== null && activity.estimated ? "≈ " : "") + D.rate(activity.rate,prefs.locale);
+    $("activity-label").textContent=t(activity.source === "live" ? activity.averaged ? "average" : "live" : activity.source === "history" ? "history" : activity.source === "waiting" ? "waiting" : "unknownActivity");
+    $("activity-note").textContent=[activity.source === "history" ? t("historyNote") : "", activity.tokensPerMinute !== null ? D.compact(activity.tokensPerMinute,prefs.locale)+" tok/min · "+t("burnNote") : "", activity.partial ? t("partialActivity") : ""].filter(Boolean).join(" ");
+    updateBadge();
+  }
+  async function refreshActivity() {
+    if (activityBusy || selected === null) return;
+    activityBusy=true; const epoch=activitySequence, selection=selected, controller=new AbortController();activityAbort=controller;
+    const timeout=setTimeout(()=>controller.abort(),7000);
+    try {
+      const targets=selected?machines.filter(m=>m.id===selected):machines;
+      const results=await Promise.all(targets.map(m=>api("/api/workspace/activity",m.id,controller.signal).catch(()=>null)));
+      if(epoch===activitySequence && selection===selected){activity=D.activity(results);renderActivity();}
+    } finally {clearTimeout(timeout);if(epoch===activitySequence){activityBusy=false;activityAbort=null;}}
+  }
+  $("animate").checked=animate;$("animate-label").textContent=t("animate");
+  $("animate").onchange=()=>{animate=$("animate").checked;save("stepsemble.menubar.animate.v1",animate?"on":"off");updateBadge();};
   function openUsage(agent="") {
     const body={type:"menubar-open",host:selected || "",tab:"usage",agent};
     if (window.webkit?.messageHandlers?.stepsemble) post(body);
@@ -76,7 +100,7 @@
       machines=(data.machines||[]).filter(m=>typeof m.id==="string" && /^[a-zA-Z0-9_-]{1,128}$/.test(m.id));
       self=data.current || data.selfId || machines.find(m=>m.self)?.id || machines.find(m=>m.local)?.id || machines[0]?.id;
       if (selected===null) {const wanted=get("stepsemble.menubar.host.v1") || get("stepsemble.selected.v1"); selected=wanted==="*"?"":machines.some(m=>m.id===wanted)?wanted:self;}
-      if (selected && !machines.some(m=>m.id===selected)) selected=self;
+      if (selected && !machines.some(m=>m.id===selected)) {selected=self;++activitySequence;activityAbort?.abort();activityBusy=false;activity=D.activity([]);renderActivity();}
       const all=node("option",t("all"));all.value="";$("hosts").replaceChildren(all);
       for (const m of machines) {const o=node("option",m.name || m.id);o.value=m.id;$("hosts").append(o);}$("hosts").value=selected || "";
       const targets=selected?machines.filter(m=>m.id===selected):machines;
@@ -94,14 +118,17 @@
       if (report && (report.coverage.missing || report.coverage.partial || report.coverage.unsupported || report.total.unpricedCalls || report.total.unknownUnpricedRecords || report.total.incompleteCalls)) notes.push(t("partial"));
       if (results.some(r=>r.report?.dateApproximateRecords>0)) notes.push(t("aggregate"));
       if (report?.coverage.indexing) {notes.push(t("indexing"));retryTimer=setTimeout(()=>refresh(),3000);}
-      $("notice").textContent=notes.join(" ");$("updated").textContent=t("updated")+" "+new Date().toLocaleTimeString(prefs.locale,{hour:"2-digit",minute:"2-digit"});loading=false;render();
+      $("notice").textContent=notes.join(" ");$("updated").textContent=t("updated")+" "+new Date().toLocaleTimeString(prefs.locale,{hour:"2-digit",minute:"2-digit"});loading=false;render();void refreshActivity();
     } catch (error) {if (epoch!==sequence) return;loading=false;unavailable=true;report=null;quotas=[];$("notice").textContent=t("offline");$("updated").textContent="";render();}
     finally {clearTimeout(timeout);if(epoch===sequence) $("refresh").disabled=false;}
   }
-  $("hosts").onchange=()=>{selected=$("hosts").value;save("stepsemble.menubar.host.v1",selected || "*");report=null;quotas=[];unavailable=true;loading=true;$("notice").textContent="";$("updated").textContent="";render();void refresh();};
+  $("hosts").onchange=()=>{++activitySequence;activityAbort?.abort();activityBusy=false;activity=D.activity([]);renderActivity();selected=$("hosts").value;save("stepsemble.menubar.host.v1",selected || "*");report=null;quotas=[];unavailable=true;loading=true;$("notice").textContent="";$("updated").textContent="";render();void refresh();};
   $("refresh").onclick=()=>refresh(true);$("open").onclick=()=>openUsage();
   window.addEventListener("storage",event=>{if(event.key==="stepsemble.quota-display.v1"){mode=get(event.key)==="used"?"used":"remaining";renderMode();render();}});
   window.StepsembleMenubarRefresh=()=>refresh();
-  window.addEventListener("pagehide",()=>{++sequence;abort?.abort();clearTimeout(retryTimer);});
+  window.StepsembleMenubarActivity=()=>refreshActivity();
+  // Native heartbeat continues when WebKit throttles timers in a closed popover.
+  if(!window.webkit?.messageHandlers?.stepsemble) activityTimer=setInterval(refreshActivity,2000);
+  window.addEventListener("pagehide",()=>{++sequence;abort?.abort();clearTimeout(retryTimer);++activitySequence;activityAbort?.abort();clearInterval(activityTimer);});
   renderMode();$("limits").append(node("p",t("loading"),"empty"));void refresh();
 })();

@@ -50,10 +50,12 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
       run.texts.set(id, Math.max(previous, count));
       count = Math.max(0, count - previous);
     }
+    if (count > 0) run.lastEmissionAt = now();
     sample(run, count);
   }
   function count(run, id, value) {
     if (!run || !(Number(value) >= 0)) return;
+    if (Number(value) > (run.counts.get(String(id)) || 0)) run.lastEmissionAt = now();
     run.counts.set(String(id), Math.max(run.counts.get(String(id)) || 0, Number(value)));
     Rate.reportTotal(run.meter, [...run.counts.values()].reduce((sum, n) => sum + n, 0));
   }
@@ -139,6 +141,7 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
       if (Number.isSafeInteger(total) && total >= 0) {
         run.totalBefore ??= run.total !== null && run.total <= total ? run.total : Math.max(0, total - (Number.isSafeInteger(last) ? last : total));
         run.total = Math.max(total, run.total || 0);
+        if (run.total - run.totalBefore > run.meter.reported) run.lastEmissionAt = now();
         Rate.reportTotal(run.meter, run.total - run.totalBefore);
         persist(run);
       }
@@ -224,7 +227,26 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     return { ...store.read(entry), hostTracked: !!manages(record), active: run ? { startedAt: run.meter.startedAt, observedAt: at,
       liveRate: Rate.liveRate(run.meter, at), estimated: !run.meter.liveAverage || !(run.meter.reported > 0), liveAverage: run.meter.liveAverage } : null };
   }
-  return { start, end, get, pi, claude, acp, codex, openCode, sendOpenCode, abortOpenCode, read, manages };
+  // No session names, prompts or identifiers cross this summary boundary.
+  // A cached Codex turn average is not evidence that it is still emitting.
+  function live() {
+    const at = now(), agents = new Map();
+    let active = 0, emitting = 0, tokensPerSecond = 0, estimated = false, averaged = false;
+    for (const run of runs.values()) {
+      if (run.meter.endedAt !== null) continue;
+      active++;
+      if (!run.lastEmissionAt || at - run.lastEmissionAt > 5000 || run.busy.size) continue;
+      const rate = Rate.liveRate(run.meter, at);
+      if (!(rate > 0) || !Number.isFinite(rate)) continue;
+      emitting++; tokensPerSecond += rate;
+      estimated ||= !run.meter.liveAverage || !(run.meter.reported > 0);
+      averaged ||= run.meter.liveAverage;
+      agents.set(run.agent, (agents.get(run.agent) || 0) + rate);
+    }
+    return { at, active, emitting, tokensPerSecond, estimated, averaged,
+      agents: [...agents].map(([agent, tokensPerSecond]) => ({ agent, tokensPerSecond })) };
+  }
+  return { start, end, get, pi, claude, acp, codex, openCode, sendOpenCode, abortOpenCode, read, manages, live };
 }
 
 module.exports = { createHostOutputRates, manages };

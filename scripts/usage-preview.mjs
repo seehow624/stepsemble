@@ -56,7 +56,7 @@ export async function createUsagePreview(port = 0, { unpriced = false, nativeHis
   }
   try { hosts.push(await host(1, "Mac Mini")); hosts.push(await host(2, "MacBook Pro")); }
   catch (error) { for (const host of hosts) await stopServer(host.child); for (const home of homes) await fs.rm(home, { recursive: true, force: true }); throw error; }
-  let offline = false;
+  let offline = false, activity = null;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1"), remote = url.pathname.startsWith("/r/mbp/"), target = hosts[remote ? 1 : 0], route = remote ? url.pathname.slice(6) : url.pathname;
     const hash = crypto.createHash("sha256").update(token).digest("hex");
@@ -64,6 +64,7 @@ export async function createUsagePreview(port = 0, { unpriced = false, nativeHis
     const json = (status, value) => { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(value)); };
     if (authenticated && route === "/api/machines") return json(200, { current: "mini", machines: [{ id: "mini", name: "Mac Mini", self: true }, { id: "mbp", name: "MacBook Pro", self: false }] });
     if (remote && offline) return json(503, { error: "synthetic_host_offline" });
+    if (authenticated && route === "/api/workspace/activity" && activity) return json(200, activity);
     if (authenticated && route === "/api/workspace/usage") return json(200, { updatedAt: Date.now(), providers: [{ provider: "Codex", status: "ready", windows: [{ remainingPercent: remote ? 38 : 72, windowDurationMins: 300, resetsAt: Date.now() + 7200000 }] }, { provider: "Claude", status: "ready", windows: [{ remainingPercent: 62, windowDurationMins: 10080, resetsAt: Date.now() + 86400000 }] }] });
     const headers = { ...req.headers, host: new URL(target.origin).host }; delete headers.origin;
     const proxy = http.request(target.origin + route + url.search, { method: req.method, headers }, response => { res.writeHead(response.statusCode, response.headers); response.pipe(res); });
@@ -72,7 +73,7 @@ export async function createUsagePreview(port = 0, { unpriced = false, nativeHis
   await new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
   let closing = null;
   const close = () => closing ||= (async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await Promise.all(hosts.map(host => stopServer(host.child))); await Promise.all(homes.map(home => fs.rm(home, { recursive: true, force: true }))); })();
-  return { origin: `http://127.0.0.1:${server.address().port}`, token, hosts, timeZone, setOffline(value) { offline = value; }, close };
+  return { origin: `http://127.0.0.1:${server.address().port}`, token, hosts, timeZone, setOffline(value) { offline = value; }, setActivity(value) { activity = value; }, close };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const preview = await createUsagePreview(Number(process.argv[2] || 0), { nativeHistory: process.argv.includes("--machine") });

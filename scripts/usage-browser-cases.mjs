@@ -255,6 +255,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
 
 async function runMenubarBrowserCase(browser) {
   const fixture = await createUsagePreview();
+  fixture.setActivity({ live: { active: 1, tokensPerSecond: 12, estimated: true }, history: null });
   const context = await browser.newContext({ viewport: { width: 380, height: 550 }, locale: "en-US", serviceWorkers: "block" });
   try {
     await context.addInitScript(() => {
@@ -268,6 +269,15 @@ async function runMenubarBrowserCase(browser) {
     await page.goto(fixture.origin + "/menubar.html");
     const ready = () => page.waitForFunction(() => document.querySelector("#updated")?.textContent && !document.querySelector("#refresh").disabled);
     await ready();
+    await page.waitForFunction(() => document.querySelector("#rate")?.textContent === "≈ 12");
+    await page.locator("#metric").selectOption("rate");
+    fixture.setActivity({ live: { active: 1, tokensPerSecond: 120, estimated: true }, history: null });
+    await page.waitForFunction(() => document.querySelector("#rate")?.textContent === "≈ 120");
+    await page.locator("#animate").uncheck();
+    assert.equal(await page.locator("#animate").isChecked(), false);
+    await page.locator("#metric").selectOption("hidden");
+    fixture.setActivity({ live: { active: 0, tokensPerSecond: 0 }, history: { available: true, tokensPerSecond: 2, tokensPerMinute: 900, partial: false }, historyAgeMs: 0 });
+    await page.waitForFunction(() => document.querySelector("#activity-label")?.textContent === "Output · past 60s");
     assert.equal(await page.locator("#hosts").inputValue(), "mini");
     assert.equal(await page.locator(".quota").count(), 2);
     assert.match(await page.locator("#limits").innerText(), /72%/);

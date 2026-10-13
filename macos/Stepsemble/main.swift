@@ -18,6 +18,7 @@ let fullDiskAccessSettings = URL(string: "x-apple.systempreferences:com.apple.pr
 enum Text {
     static let tables: [String: [String: String]] = [
         "en": [
+            "menuBarUsage": "Menu Bar Usage",
             "closeTab": "Close Tab",
             "quit": "Quit Stepsemble",
             "running": "Stepsemble {version} is running on this Mac.",
@@ -68,6 +69,7 @@ enum Text {
             "cancel": "Cancel",
         ],
         "zh-Hant": [
+            "menuBarUsage": "選單列用量",
             "closeTab": "關閉分頁",
             "quit": "結束 Stepsemble",
             "running": "Stepsemble {version} 正在這台 Mac 上運行。",
@@ -118,6 +120,7 @@ enum Text {
             "cancel": "取消",
         ],
         "zh-Hans": [
+            "menuBarUsage": "菜单栏用量",
             "closeTab": "关闭标签页",
             "quit": "退出 Stepsemble",
             "running": "Stepsemble {version} 正在这台 Mac 上运行。",
@@ -168,6 +171,7 @@ enum Text {
             "cancel": "取消",
         ],
         "ja": [
+            "menuBarUsage": "メニューバーの使用状況",
             "closeTab": "タブを閉じる",
             "quit": "Stepsemble を終了",
             "running": "Stepsemble {version} はこの Mac で動作しています。",
@@ -218,6 +222,7 @@ enum Text {
             "cancel": "キャンセル",
         ],
         "ko": [
+            "menuBarUsage": "메뉴 막대 사용량",
             "closeTab": "탭 닫기",
             "quit": "Stepsemble 종료",
             "running": "Stepsemble {version}이(가) 이 Mac에서 실행 중입니다.",
@@ -268,6 +273,7 @@ enum Text {
             "cancel": "취소",
         ],
         "tr": [
+            "menuBarUsage": "Menü Çubuğu Kullanımı",
             "closeTab": "Sekmeyi Kapat",
             "quit": "Stepsemble'dan çık",
             "running": "Stepsemble {version} bu Mac'te çalışıyor.",
@@ -318,6 +324,7 @@ enum Text {
             "cancel": "Vazgeç",
         ],
         "fr": [
+            "menuBarUsage": "Utilisation dans la barre des menus",
             "closeTab": "Fermer l’onglet",
             "quit": "Quitter Stepsemble",
             "running": "Stepsemble {version} fonctionne sur ce Mac.",
@@ -368,6 +375,7 @@ enum Text {
             "cancel": "Annuler",
         ],
         "de": [
+            "menuBarUsage": "Nutzung in der Menüleiste",
             "closeTab": "Tab schließen",
             "quit": "Stepsemble beenden",
             "running": "Stepsemble {version} läuft auf diesem Mac.",
@@ -418,6 +426,7 @@ enum Text {
             "cancel": "Abbrechen",
         ],
         "es": [
+            "menuBarUsage": "Uso en la barra de menús",
             "closeTab": "Cerrar pestaña",
             "quit": "Salir de Stepsemble",
             "running": "Stepsemble {version} se está ejecutando en este Mac.",
@@ -468,6 +477,7 @@ enum Text {
             "cancel": "Cancelar",
         ],
         "pt-BR": [
+            "menuBarUsage": "Uso na barra de menus",
             "closeTab": "Fechar aba",
             "quit": "Encerrar o Stepsemble",
             "running": "O Stepsemble {version} está em execução neste Mac.",
@@ -518,6 +528,7 @@ enum Text {
             "cancel": "Cancelar",
         ],
         "it": [
+            "menuBarUsage": "Utilizzo nella barra dei menu",
             "closeTab": "Chiudi scheda",
             "quit": "Esci da Stepsemble",
             "running": "Stepsemble {version} è in esecuzione su questo Mac.",
@@ -1447,6 +1458,12 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationWillTerminate(_ notification: Notification) { menuBar.stop() }
+
+    @objc func showMenuBarUsage(_ sender: Any?) {
+        // Let the main menu finish tracking before anchoring the popover.
+        DispatchQueue.main.async { [weak self] in self?.menuBar.toggle(sender) }
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { showWorkspace() }
@@ -1603,6 +1620,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             item(Text.t("selectAll"), #selector(NSText.selectAll(_:)), "a"),
         ]))
         main.addItem(menu(Text.t("view"), [
+            item(Text.t("menuBarUsage"), #selector(showMenuBarUsage(_:)), "u", [.command, .shift], target: self),
+            .separator(),
             item(Text.t("reload"), #selector(WorkspaceWindow.reloadPage(_:)), "r"),
             .separator(),
             item(Text.t("actualSize"), #selector(WorkspaceWindow.actualSize(_:)), "0"),

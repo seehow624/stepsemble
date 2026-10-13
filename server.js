@@ -118,7 +118,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.54";
+const APP_VERSION = "3.8.55";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -6498,6 +6498,10 @@ const server = http.createServer(async (req, res) => {
       // The workspace inventory never invokes provider-wide list/discovery.
       if (p === "/api/workspace/usage" && req.method === "GET") {
         sendJSON(res, 200, await workspaceUsage.read({ fresh: url.searchParams.get("fresh") === "1" })); return;
+      }
+      if (p === "/api/workspace/activity" && req.method === "GET") {
+        const history = usageAnalytics.recent();
+        sendJSON(res, 200, { live: hostRates.live(), history, historyAgeMs: history ? Math.max(0, Date.now() - history.at) : null }); return;
       }
       if (p === "/api/workspace/analytics" && req.method === "GET") {
         try {

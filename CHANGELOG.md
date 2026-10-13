@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.55
+
+- Add a spinning menu-bar cat whose speed follows fresh output activity, with an animation switch, reduced-motion support, idle/stale-data stopping and an icon-only option. Live model output and the past-minute history estimate are clearly distinguished; input/cache usage remains a separate tok/min reading.
+- Add a lightweight, authenticated cross-host activity summary with bounded, serialized history refreshes. It counts saved usage outside Stepsemble without adding live and historical output twice or treating session-dated totals as current activity.
+- Improve the native menu-bar popover with activation, screen-aware height, Escape dismissal, clean teardown and a View → Menu Bar Usage command (Cmd+Shift+U). Verify native host switching, quota modes and opening filtered usage.
+
 ## 3.8.54
 
 - Add a compact macOS menu bar panel for subscription limits and today's usage, with Host selection, Remaining/Used, a configurable badge and links to filtered usage.

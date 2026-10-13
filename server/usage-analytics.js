@@ -19,6 +19,7 @@ function parseQuery(params, now = Date.now()) {
 }
 function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = path.join(home, ".config", "stepsemble", "usage-index"), now = Date.now } = {}) {
   let worker = null, cache = new Map(), flights = new Map(), serial = 0, pending = new Map(), closed = false, idle;
+  let activity = null, activityAt = -Infinity;
   function fail() {
     for (const { reject, timer } of pending.values()) { clearTimeout(timer); reject(Object.assign(new Error("usage_unavailable"), { statusCode: 503 })); }
     pending.clear(); worker = null;
@@ -65,6 +66,20 @@ function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = p
     flights.set(key, flight); return flight;
   }
   async function shutdown() { closed = true; clearTimeout(idle); cache.clear(); const prior = worker; worker = null; fail(); await prior?.terminate(); return { cleanupConfirmed: true }; }
-  return { read, shutdown };
+  // Cheap polling endpoint: return a bounded-age snapshot immediately. The
+  // shared worker serializes a read-only history refresh at most every 15s.
+  function recent() {
+    if (!closed && !flights.has("activity") && now() - activityAt >= 15000 && flights.size < 8) {
+      activityAt = now();
+      const waiting = [...flights.values()];
+      const flight = (async () => {
+        await Promise.allSettled(waiting);
+        activity = await execute({ home, roots, indexDir, entries: entries(), kind: "activity", at: now(), query: {} });
+      })().catch(() => { activity = null; }).finally(() => flights.delete("activity"));
+      flights.set("activity", flight);
+    }
+    return activity && now() - activity.at < 45000 ? activity : null;
+  }
+  return { read, shutdown, recent };
 }
 module.exports = { createUsageAnalytics, parseQuery };

@@ -35,7 +35,7 @@ mkdir -p "$contents/MacOS" "$contents/Resources"
 # macOS 11 is the oldest system Node.js 22 runs on.
 for arch in "${architectures[@]}"; do
   xcrun swiftc -O -swift-version 5 -target "$arch-apple-macos11.0" \
-    -o "$work/Stepsemble-$arch" "$SOURCE_DIR/main.swift" "$SOURCE_DIR/Notifications.swift" "$SOURCE_DIR/MenuBar.swift"
+    -o "$work/Stepsemble-$arch" "$SOURCE_DIR/main.swift" "$SOURCE_DIR/Notifications.swift" "$SOURCE_DIR/MenuBar.swift" "$SOURCE_DIR/MenuBarCat.swift"
 done
 xcrun lipo -create -output "$contents/MacOS/Stepsemble" "$work"/Stepsemble-*(N)
 chmod 755 "$contents/MacOS/Stepsemble"
@@ -52,6 +52,7 @@ for size in 16 32 128 256 512; do
 done
 /usr/bin/iconutil -c icns -o "$contents/Resources/Stepsemble.icns" "$iconset"
 cp "$ROOT/public/stepsemble-glyph.png" "$contents/Resources/MenuBarIcon.png"
+cp -R "$SOURCE_DIR/MenuBarCat" "$contents/Resources/MenuBarCat"
 
 # English is in Info.plist; each translation becomes <language>.lproj/InfoPlist.strings.
 for language in "${LANGUAGES[@]}"; do

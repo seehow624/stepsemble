@@ -13,3 +13,7 @@ Vendored third-party software retains its upstream licenses and notices.
 See public/vendor/THIRD-PARTY-NOTICES.md and public/vendor/licenses/.
 The coding-agent programs launched by Stepsemble are separately installed
 products and are not relicensed by this distribution.
+
+The spinning menu-bar cat frames come from TokenBar / tokcat (MIT), tracing
+back to RunCat by Takuto Nakamura. Attribution and license are bundled in
+macos/Stepsemble/MenuBarCat/LICENSE.txt and the app’s MenuBarCat resources.

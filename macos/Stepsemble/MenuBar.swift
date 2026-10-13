@@ -16,6 +16,9 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
     private var webView: WKWebView!
     private var port: Int?
     private var timer: Timer?
+    private var activityTimer: Timer?
+    private var cat: MenuBarCat?
+    private var escapeMonitor: Any?
     private var connecting = false
     private var loaded = false
     private var acceptedResponse = false
@@ -33,6 +36,7 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
             button.title = " —"; button.target = self; button.action = #selector(toggle(_:))
             button.setAccessibilityLabel("Stepsemble · Limits & usage")
             button.toolTip = "Stepsemble · Limits & usage"
+            cat = MenuBarCat(button: button)
         }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
@@ -44,13 +48,32 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
         popover.contentViewController = controller; popover.contentSize = NSSize(width: 380, height: 550)
         popover.behavior = .transient; popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+        let heartbeat = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self = self, self.loaded else { return }
+            self.webView.evaluateJavaScript("window.StepsembleMenubarActivity?.()", completionHandler: nil)
+        }
+        activityTimer = heartbeat; RunLoop.main.add(heartbeat, forMode: .common)
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, self?.popover.isShown == true else { return event }
+            self?.popover.performClose(nil); return nil
+        }
         connect()
     }
-    @objc private func toggle(_ sender: Any?) {
+    @objc func toggle(_ sender: Any?) {
         if popover.isShown { popover.performClose(sender); return }
         guard let button = item?.button else { return }
+        let visibleHeight = (button.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 700
+        popover.contentSize = NSSize(width: 380, height: max(300, min(600, visibleHeight - 40)))
+        NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        webView.window?.setAccessibilityLabel("Stepsemble · Limits & usage")
         webView.window?.makeKey(); refresh()
+    }
+    func stop() {
+        timer?.invalidate(); activityTimer?.invalidate(); cat?.stop()
+        if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor); escapeMonitor = nil }
+        popover.performClose(nil)
+        if let item = item { NSStatusBar.system.removeStatusItem(item) }; item = nil
     }
     private func refresh() {
         if loaded { webView.evaluateJavaScript("window.StepsembleMenubarRefresh?.()", completionHandler: nil) }
@@ -107,9 +130,12 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
         if type == "menubar-summary", let text = body["text"] as? String, text.count <= 32,
            !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
            let label = body["label"] as? String, label.count <= 80 {
-            item?.button?.title = " " + text
+            item?.button?.title = text.isEmpty ? "" : " " + text
+            item?.button?.imagePosition = text.isEmpty ? .imageOnly : .imageLeading
             item?.button?.toolTip = "Stepsemble · \(label) · \(text)"
             item?.button?.setAccessibilityLabel("Stepsemble · \(label) · \(text)")
+            let rate = body["rate"] as? Double ?? 0
+            cat?.update(rate: min(max(0, rate.isFinite ? rate : 0), 100000), enabled: body["animate"] as? Bool ?? true)
         } else if type == "menubar-open", let host = body["host"] as? String,
                   host.isEmpty || host.range(of: "^[a-zA-Z0-9_-]{1,128}$", options: .regularExpression) != nil {
             let agent = body["agent"] as? String ?? ""

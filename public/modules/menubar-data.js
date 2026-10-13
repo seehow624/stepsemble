@@ -23,6 +23,7 @@
     return (total.unpricedCalls || total.unknownUnpricedRecords ? "≥ " : "≈ ") + new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(total.knownCost);
   }
   function badge(metric, reports, quotas, mode = "remaining", locale = "en", unavailable = false) {
+    if (metric === "hidden") return "";
     if (metric === "tokens") return unavailable ? "—" : compact(reports?.total?.tokens, locale);
     if (metric === "cost") return unavailable ? "—" : cost(reports?.total, locale);
     const windows = (quotas || []).flatMap(p => p.windows || []).filter(w => percent(w) !== null);
@@ -30,5 +31,23 @@
     const tightest = windows.reduce((a, b) => percent(a) < percent(b) ? a : b);
     return percent(tightest, mode) + "%";
   }
-  return Object.freeze({ AGENT_NAMES, range, percent, compact, cost, badge });
+  function activity(results, now = Date.now()) {
+    let live = 0, active = 0, estimated = false, averaged = false, output = 0, burn = 0, historyHosts = 0, partial = false;
+    for (const result of results) {
+      if (!result) { partial = true; continue; }
+      const l = result.live, h = result.history;
+      if (l && Number.isFinite(l.tokensPerSecond) && l.tokensPerSecond >= 0) {
+        live += l.tokensPerSecond; active += l.active || 0; estimated ||= l.estimated; averaged ||= l.averaged;
+      }
+      // Host clocks can differ; freshness is a duration supplied by the Host.
+      if (h?.available && Number.isFinite(h.tokensPerSecond) && h.tokensPerSecond >= 0 && (result.historyAgeMs ?? 0) < 45000) {
+        output += h.tokensPerSecond; burn += h.tokensPerMinute || 0; historyHosts++; partial ||= h.partial;
+      } else partial = true;
+    }
+    const source = live > 0 ? "live" : active ? "waiting" : historyHosts ? "history" : "unknown";
+    return { source, rate: source === "live" ? live : source === "history" ? output : source === "waiting" ? 0 : null, active,
+      estimated: source === "history" || !!estimated, averaged: !!averaged, tokensPerMinute: historyHosts ? burn : null, partial };
+  }
+  function rate(value, locale = "en") { return Number.isFinite(value) && value >= 0 ? new Intl.NumberFormat(locale, { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value) : "—"; }
+  return Object.freeze({ AGENT_NAMES, range, percent, compact, cost, badge, activity, rate });
 });

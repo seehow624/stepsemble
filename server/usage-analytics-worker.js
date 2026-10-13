@@ -96,6 +96,9 @@ async function report(input) {
   const { home, roots = {}, entries = [], query, prices = {}, priceUpdatedAt } = input;
   const scope = query.scope === "workspace" ? "workspace" : "machine";
   const { seen, coverage, sources, issues } = await machineUsage({ home, roots, entries, indexDir: input.indexDir, workspaceOnly: scope === "workspace" });
+  if (input.kind === "activity") return { ...require("./recent-usage").summarizeRecent(seen.values(), input.at), coverage,
+    available: coverage.covered > 0 || !(coverage.indexing || coverage.missing || coverage.partial || coverage.unsupported),
+    partial: !!(coverage.indexing || coverage.partial || coverage.missing || coverage.unsupported) };
   const total = empty(), groups = Object.fromEntries(["days", "models", "agents", "projects", "sessions"].map(key => [key, new Map()]));
   const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: query.timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
   const dateOf = at => { const parts = Object.fromEntries(formatter.formatToParts(at).map(p => [p.type, p.value])); return `${parts.year}-${parts.month}-${parts.day}`; };
