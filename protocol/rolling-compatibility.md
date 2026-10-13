@@ -51,6 +51,11 @@ historical sources, Host data and owned children are removed on completion/failu
 No existing browser profile, installed Pi, agent account or production service is
 used. No runtime dependency or build output is installed onto the project volume.
 
+Compatibility/conversation, workspace, and optional native history groups each
+run in a fresh worker with a five-minute process budget. Deliberate workspace
+polling waits do not consume the conversation group's budget. Each case retains
+its own timeout; a failed or timed-out group stops the run without retries.
+
 The separate `Rolling browser compatibility` workflow runs macOS 14 arm64 and
 Ubuntu 24.04 x64. Historical Host launch code is Unix-based, so Windows is not
 claimed here. The current Host's general/native Pi tests have their own actual

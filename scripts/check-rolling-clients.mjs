@@ -31,10 +31,11 @@ export function validateBrowserLock(manifest, lock) {
 }
 export function browserWorkerJobs(runtimeDirectory, historyHelper) {
   // Every group gets a fresh worker/browser and the same finite process budget.
-  // Growing the matrix must not spend Codex's budget on unrelated earlier cases.
-  return ["core", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
+  // Workspace polling cases have deliberate waits; give them their own budget
+  // instead of spending the compatibility/conversation group's remaining time.
+  return ["core", "workspace", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
     suite, args: [path.join(root, "scripts/rolling-browser-worker.mjs"), runtimeDirectory, suite,
-      ...(suite === "core" ? [] : [historyHelper])],
+      ...(["sources", "codex"].includes(suite) ? [historyHelper] : [])],
   }));
 }
 export function run(command, args, cwd, env, timeout = 300000, spawnProcess = spawn) {
