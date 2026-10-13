@@ -5,6 +5,7 @@
 - Add a spinning menu-bar cat whose speed follows fresh output activity, with an animation switch, reduced-motion support, idle/stale-data stopping and an icon-only option. Live model output and the past-minute history estimate are clearly distinguished; input/cache usage remains a separate tok/min reading.
 - Add a lightweight, authenticated cross-host activity summary with bounded, serialized history refreshes. It counts saved usage outside Stepsemble without adding live and historical output twice or treating session-dated totals as current activity.
 - Improve the native menu-bar popover with activation, screen-aware height, Escape dismissal, clean teardown and a View → Menu Bar Usage command (Cmd+Shift+U). Verify native host switching, quota modes and opening filtered usage.
+- Keep a mobile conversation in place when the first visual-viewport event is only a typing nudge, rather than mistaking it for a keyboard opening.
 
 ## 3.8.54
 

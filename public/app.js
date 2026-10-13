@@ -18767,11 +18767,13 @@ el.newStart.addEventListener("click", async () => {
   // The keyboard coming up or going down brings the latest message back into
   // view. iOS also nudges the visual viewport while text is typed or a line is
   // added; that must not move the conversation.
-  let keyboardHeight = null;
+  // Establish the baseline immediately: the first event may only be a scroll
+  // nudge while typing, not the keyboard opening.
+  let keyboardHeight = Math.round(vv.height);
   const apply = () => {
     const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     document.documentElement.style.setProperty("--kb", overlap + "px");
-    const height = Math.round(vv.height), keyboardMoved = keyboardHeight === null || Math.abs(height - keyboardHeight) > 80;
+    const height = Math.round(vv.height), keyboardMoved = Math.abs(height - keyboardHeight) > 80;
     keyboardHeight = height;
     if (keyboardMoved && !el.viewChat.classList.contains("hidden")) scrollBottom();
   };
