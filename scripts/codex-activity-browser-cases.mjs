@@ -93,6 +93,7 @@ export async function runCodexActivityBrowserCases(browser) {
     }
   }
   await runCodexFailureBrowserCases(browser);
+  await runRichContentBrowserCases(browser);
 }
 
 async function runCodexFailureBrowserCases(browser) {
@@ -162,5 +163,36 @@ async function runCodexFailureBrowserCases(browser) {
     } catch (error) {
       throw new Error(`Codex failure recovery ${viewport.name} at ${stage}: ${error.message}`, { cause: error });
     } finally { await context?.close(); await preview.close(); }
+  }
+}
+
+export async function runRichContentBrowserCases(browser) {
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    const preview = await createNativeComposerPreview({ richContent: true });
+    const context = await browser.newContext({ viewport, serviceWorkers: "block", locale: "en-US" });
+    try {
+      await context.addInitScript(() => {
+        localStorage.setItem("stepsemble.onboarding.v1", "complete");
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", reducedMotion: true, groupByProject: false }));
+      });
+      await context.request.post(`${preview.origin}/api/login`, { data: { token: preview.token } });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", e => errors.push(e.message));
+      await page.goto(preview.origin); await workspaceReady(page);
+      const pane = await openFromSidebar(page, "Codex composer fixture");
+      for (const image of await pane.locator('.host-file-image:not([hidden])').all()) await image.scrollIntoViewIfNeeded();
+      await pane.waitForFunction(() => [...document.querySelectorAll(".host-file-preview.loaded img")].filter(i => i.naturalWidth > 0).length === 2);
+      const diagram = pane.locator(".mermaid-block svg"); await diagram.waitFor();
+      assert.match(await diagram.textContent(), /Agent 工作台/);
+      assert.match(await diagram.textContent(), /Mac mini 主機/);
+      assert.equal(await diagram.locator("foreignObject,script").count(), 0);
+      const retry = pane.getByRole("button", { name: "Retry image", exact: true }); await retry.waitFor();
+      await retry.click(); await retry.waitFor();
+      const img = pane.locator("img.host-file-image").first(); await img.click();
+      await pane.locator("#image-lightbox:not(.hidden)").waitFor();
+      assert.equal(await pane.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: `Rich content ${viewport.width}`, result: "passed", transientImage: true, expiredHandle: true, manualRetry: true, mermaidLabels: true, modelCalls: 0 }));
+    } finally { await context.close(); await preview.close(); }
   }
 }

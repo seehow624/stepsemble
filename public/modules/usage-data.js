@@ -7,7 +7,7 @@
   "use strict";
   const providerAliases = { "openai-codex": "openai", google: "gemini", "z-ai": "z_ai", zai: "z_ai", zhipu: "z_ai", "zhipu-ai": "z_ai", "minimax-cn": "minimax" };
   const canonicalProvider = provider => Object.hasOwn(providerAliases, provider) ? providerAliases[provider] : provider;
-  const routers = new Set(["opencodex", "opencode-go", "opencode", "openrouter"]);
+  const routers = new Set(["opencodex", "opencode-go", "opencode", "openrouter", "antigravity"]);
   const vendors = new Set(["openai", "anthropic", "minimax", "z_ai", "deepseek", "gemini", "xai"]);
   // The recorded provider can identify a router or an API-compatible connection,
   // rather than the model's vendor. Share the same identity for prices and groups.
@@ -20,7 +20,7 @@
       provider = alias[2] === "native" ? "openai" : "opencodex";
       model = alias[2] === "native" ? decoded : alias[2] + "/" + decoded;
     }
-    const routed = !provider || routers.has(provider) || canonicalProvider(provider) === "openai";
+    const routed = !provider || provider === "unknown" || routers.has(provider) || canonicalProvider(provider) === "openai";
     let vendor = canonicalProvider(provider), id = model, qualifiedVendor = false;
     if (routed) {
       for (let count = 0; count < 3 && id.includes("/"); count++) {
@@ -39,16 +39,18 @@
     const identity = modelIdentity(row.provider, row.name);
     return { ...row, id: JSON.stringify([identity.provider, identity.model]), name: identity.model, provider: identity.provider };
   }
-  const fields = ["input", "output", "cacheRead", "cacheWrite", "tokens", "calls", "knownCost", "pricedCalls", "unpricedCalls", "incompleteCalls"];
+  const fields = ["input", "output", "cacheRead", "cacheWrite", "tokens", "calls", "knownCost", "pricedCalls", "unpricedCalls", "incompleteCalls", "unknownCalls", "unknownPricedRecords", "unknownUnpricedRecords"];
   const empty = () => Object.fromEntries(fields.map(key => [key, 0]));
   function add(target, source) { for (const key of fields) if (typeof source?.[key] === "number" && Number.isFinite(source[key]) && source[key] >= 0) target[key] += source[key]; return target; }
   function addCall(target, row, cost) {
     for (const key of ["input", "output", "cacheRead", "cacheWrite"]) target[key] += row.tokens[key] || 0;
     target.tokens = target.input + target.output + target.cacheRead + target.cacheWrite;
-    target.calls++;
-    if (Object.values(row.tokens).some(n => n === null)) target.incompleteCalls++;
-    if (cost && typeof cost.usd === "number" && Number.isFinite(cost.usd) && cost.usd >= 0) { target.knownCost += cost.usd; target.pricedCalls++; }
-    else target.unpricedCalls++;
+    const calls = row.callsUnknown ? 0 : Number.isSafeInteger(row.calls) && row.calls > 0 ? row.calls : 1;
+    target.calls += calls;
+    if (row.callsUnknown) target.unknownCalls++;
+    if (Object.values(row.tokens).some(n => n === null)) target.incompleteCalls += calls;
+    if (cost && typeof cost.usd === "number" && Number.isFinite(cost.usd) && cost.usd >= 0) { target.knownCost += cost.usd; target.pricedCalls += calls; if (row.callsUnknown) target.unknownPricedRecords++; }
+    else { target.unpricedCalls += calls; if (row.callsUnknown) target.unknownUnpricedRecords++; }
   }
   const dimensions = ["days", "models", "agents", "projects", "sessions"];
   const sorted = (key, rows) => rows.sort(key === "days" ? (a, b) => a.date.localeCompare(b.date) : (a, b) => b.tokens - a.tokens || String(a.id).localeCompare(String(b.id)));
@@ -111,7 +113,7 @@
   }
   function combine(reports) {
     const total = empty(), maps = Object.fromEntries(dimensions.map(key => [key, new Map()]));
-    let covered = 0, missing = 0, unsupported = 0, partial = 0, indexing = 0, issuesOmitted = 0, priceUpdatedAt = null, historyCoverage = true;
+    let covered = 0, missing = 0, unsupported = 0, partial = 0, indexing = 0, issuesOmitted = 0, priceUpdatedAt = null, historyCoverage = true, dateApproximateRecords = 0;
     const scopes = new Set();
     const hosts = [], issues = [];
     for (const { report, host, name } of reports) {
@@ -121,6 +123,7 @@
       issuesOmitted += report.coverage?.issuesOmitted || 0;
       for (const issue of (report.issues || []).slice(0, 100)) issues.push({ ...issue, host, hostName: name });
       scopes.add(report.scope || "workspace");
+      dateApproximateRecords += report.dateApproximateRecords || 0;
       add(total, report.total);
       covered += report.coverage?.covered || 0; missing += report.coverage?.missing || 0;
       unsupported += report.coverage?.unsupported || 0; partial += report.coverage?.partial || 0;
@@ -135,7 +138,7 @@
       }
     }
     return { total, ...Object.fromEntries(Object.entries(maps).map(([key, map]) => [key, sorted(key, [...map.values()])])),
-      hosts, issues, coverage: { covered, missing, unsupported, partial, indexing, issuesOmitted, scope: historyCoverage ? "history" : "unknown" }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine" };
+      hosts, issues, coverage: { covered, missing, unsupported, partial, indexing, issuesOmitted, scope: historyCoverage ? "history" : "unknown" }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine", dateApproximateRecords };
   }
   return { empty, add, addCall, combine, modelIdentity, canonicalProvider, modelGroup, readReport };
 });

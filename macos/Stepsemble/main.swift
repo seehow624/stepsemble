@@ -1415,6 +1415,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private let processPool = WKProcessPool()
     private lazy var relay = MessageRelay(self)
     private lazy var access = AccessPanel(showWorkspace: { [weak self] in self?.showWorkspace() })
+    private lazy var menuBar = MenuBarPanel(open: { [weak self] host, agent in self?.openUsage(host: host, agent: agent) })
     private lazy var notifications = NativeNotifications(open: { [weak self] notice in self?.openNotice(notice) }, visible: { [weak self] host, key in
         NSApp.isActive && self?.windows.contains(where: { $0.window.isVisible && $0.window.occlusionState.contains(.visible) && $0.visibleSessions.contains("\(host):\(key)") }) == true
     })
@@ -1436,6 +1437,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         launched = true
         notifications.start()
+        menuBar.start()
         // The first time, the app asks for the places macOS protects.
         let shownKey = "folderAccessShown"
         if startsHost && (askForAccess || !UserDefaults.standard.bool(forKey: shownKey)) {
@@ -1545,6 +1547,20 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     @objc func showFolderAccess(_ sender: Any?) {
         access.show(ask: false)
+    }
+
+    private func openUsage(host: String, agent: String) {
+        if let workspace = windows.first(where: { !$0.isPopup && $0.webView.url?.path == "/workspace.html" }) {
+            let body: [String: String] = ["type": "stepsemble-open-usage", "host": host, "agent": agent]
+            if let data = try? JSONSerialization.data(withJSONObject: body), let json = String(data: data, encoding: .utf8) {
+                workspace.webView.evaluateJavaScript("window.postMessage(\(json),location.origin)", completionHandler: nil)
+                workspace.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+        }
+        var path = URLComponents(); path.path = "/workspace.html"
+        path.queryItems = [URLQueryItem(name: "usageTab", value: "usage"), URLQueryItem(name: "host", value: host), URLQueryItem(name: "usageAgent", value: agent)]
+        newWindow(path: path.string ?? "/workspace.html"); NSApp.activate(ignoringOtherApps: true)
     }
 
     private func buildMenu() {

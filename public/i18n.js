@@ -1145,17 +1145,17 @@
   // A reply that names a file on the Host: the file is missing or outside the
   // folders Stepsemble may open, or it is a folder.
   const HOST_FILE_TRANSLATIONS = {
-    en: { "Can't open this file on {device}": "Can't open this file on {device}", "Folder on {device}: {path}": "Folder on {device}: {path}" },
-    "zh-Hant": { "Can't open this file on {device}": "無法在 {device} 上開啟這個檔案", "Folder on {device}: {path}": "{device} 上的資料夾：{path}" },
-    "zh-Hans": { "Can't open this file on {device}": "无法在 {device} 上打开这个文件", "Folder on {device}: {path}": "{device} 上的文件夹：{path}" },
-    ja: { "Can't open this file on {device}": "{device} でこのファイルを開けません", "Folder on {device}: {path}": "{device} のフォルダ：{path}" },
-    ko: { "Can't open this file on {device}": "{device}에서 이 파일을 열 수 없습니다", "Folder on {device}: {path}": "{device}의 폴더: {path}" },
-    tr: { "Can't open this file on {device}": "Bu dosya {device} üzerinde açılamıyor", "Folder on {device}: {path}": "{device} üzerindeki klasör: {path}" },
-    fr: { "Can't open this file on {device}": "Impossible d’ouvrir ce fichier sur {device}", "Folder on {device}: {path}": "Dossier sur {device} : {path}" },
-    de: { "Can't open this file on {device}": "Diese Datei lässt sich auf {device} nicht öffnen", "Folder on {device}: {path}": "Ordner auf {device}: {path}" },
-    es: { "Can't open this file on {device}": "No se puede abrir este archivo en {device}", "Folder on {device}: {path}": "Carpeta en {device}: {path}" },
-    "pt-BR": { "Can't open this file on {device}": "Não é possível abrir este arquivo em {device}", "Folder on {device}: {path}": "Pasta em {device}: {path}" },
-    it: { "Can't open this file on {device}": "Impossibile aprire questo file su {device}", "Folder on {device}: {path}": "Cartella su {device}: {path}" },
+    en: { "Retry image": "Retry image", "Can't open this file on {device}": "Can't open this file on {device}", "Folder on {device}: {path}": "Folder on {device}: {path}" },
+    "zh-Hant": { "Retry image": "重新載入圖片", "Can't open this file on {device}": "無法在 {device} 上開啟這個檔案", "Folder on {device}: {path}": "{device} 上的資料夾：{path}" },
+    "zh-Hans": { "Retry image": "重新加载图片", "Can't open this file on {device}": "无法在 {device} 上打开这个文件", "Folder on {device}: {path}": "{device} 上的文件夹：{path}" },
+    ja: { "Retry image": "画像を再読み込み", "Can't open this file on {device}": "{device} でこのファイルを開けません", "Folder on {device}: {path}": "{device} のフォルダ：{path}" },
+    ko: { "Retry image": "이미지 다시 불러오기", "Can't open this file on {device}": "{device}에서 이 파일을 열 수 없습니다", "Folder on {device}: {path}": "{device}의 폴더: {path}" },
+    tr: { "Retry image": "Görseli yeniden yükle", "Can't open this file on {device}": "Bu dosya {device} üzerinde açılamıyor", "Folder on {device}: {path}": "{device} üzerindeki klasör: {path}" },
+    fr: { "Retry image": "Recharger l’image", "Can't open this file on {device}": "Impossible d’ouvrir ce fichier sur {device}", "Folder on {device}: {path}": "Dossier sur {device} : {path}" },
+    de: { "Retry image": "Bild neu laden", "Can't open this file on {device}": "Diese Datei lässt sich auf {device} nicht öffnen", "Folder on {device}: {path}": "Ordner auf {device}: {path}" },
+    es: { "Retry image": "Recargar imagen", "Can't open this file on {device}": "No se puede abrir este archivo en {device}", "Folder on {device}: {path}": "Carpeta en {device}: {path}" },
+    "pt-BR": { "Retry image": "Recarregar imagem", "Can't open this file on {device}": "Não é possível abrir este arquivo em {device}", "Folder on {device}: {path}": "Pasta em {device}: {path}" },
+    it: { "Retry image": "Ricarica immagine", "Can't open this file on {device}": "Impossibile aprire questo file su {device}", "Folder on {device}: {path}": "Cartella su {device}: {path}" },
   };
   for (const [id, table] of Object.entries(HOST_FILE_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 

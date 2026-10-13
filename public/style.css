@@ -1,4 +1,4 @@
-/* stepsemble v3.8.53 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.54 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -1777,8 +1777,10 @@ body.image-lightbox-open { overflow: hidden; }
 .md-body .host-file-image {
   display: block;
   max-width: 100%;
-  max-height: 420px;
-  margin: 6px 0;
+  max-height: 260px;
+  width: auto;
+  height: auto;
+  margin: 18px 0;
   border-radius: 10px;
   cursor: zoom-in;
 }
@@ -6103,4 +6105,20 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 /* Reply actions: a finger-sized target on a phone. */
 @media (max-width: 600px), (hover: none) {
   .msg-actions .msg-action { width: 40px; min-height: 40px; }
+}
+
+/* Keep prose and activity in one reading rhythm. Flex children avoid the
+   accidental whitespace/margin stacking of separate assistant fragments. */
+#view-chat .msg.assistant.wl-turn .bubble { display: flex; flex-direction: column; gap: 12px; white-space: normal; }
+#view-chat .msg.assistant.wl-turn .bubble > .wl-head { margin-bottom: 2px; }
+#view-chat .msg.assistant.wl-turn .bubble > .wl-row { min-height: 28px; padding: 3px 0; }
+#view-chat .msg.assistant.wl-turn .bubble > .wl-seg { margin-top: -8px; }
+#view-chat .msg.assistant .md-body > p { margin: 0 0 16px; }
+#view-chat .msg.assistant .md-body > p:last-child { margin-bottom: 0; }
+.host-file-preview { display: block; }
+.host-file-preview .host-file-image[hidden] { display: none; }
+.host-image-retry { margin-left: 8px; min-width: 32px; min-height: 32px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--pine-soft); background: transparent; cursor: pointer; }
+@media (max-width: 640px) {
+  #view-chat .msg.assistant.wl-turn .bubble { gap: 10px; }
+  #view-chat .msg.assistant .md-body > p { margin-bottom: 14px; }
 }

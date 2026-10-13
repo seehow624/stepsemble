@@ -50,10 +50,21 @@ The default is **this computer's readable native history**, including work done
 directly in a terminal or another App. Sessions do not need to be added to
 Stepsemble. The Host scans the current user's Codex `sessions` and
 `archived_sessions`, Claude Code `projects` (including subagents), and Pi
-`agent/sessions`. Configured Codex/Claude history roots are respected. These
-three formats are supported; other registered connectors show an unsupported
-notice. Deleted histories and formats without usable token counts cannot be
-reconstructed. Totals describe available records in the selected period.
+`agent/sessions`. Configured Codex/Claude history roots are respected. Version 3.8.54 also reads the following histories:
+
+| Agent | Saved source | Details |
+| --- | --- | --- |
+| OMP | `~/.omp/agent/sessions/*.jsonl` | Native assistant usage, distinct from Pi |
+| OpenCode / Kilo CLI | `~/.local/share/{opencode,kilo}/*.db` and legacy `storage/message` | SQLite WAL snapshot, deduplicated by native response ID |
+| Hermes | `~/.hermes/state.db` and profile databases | Per-model ledgers, auxiliary tasks and unattributed residuals; session totals use the session start date |
+| Gemini CLI | `~/.gemini/tmp/*/chats/session-*.json` | Cache interpretation checked against the redundant total |
+| Cline CLI | `~/.cline/data/sessions/*.messages.json` | Assistant metrics and model metadata |
+| Cline / Kilo / Roo extensions | Editor `User/globalStorage/<extension>/tasks/*/ui_messages.json` | VS Code, Insiders, Cursor, Windsurf and VS Code Server default stores |
+| Grok Build | `~/.grok/logs/unified.jsonl`, `sessions/*/updates.jsonl` | Per-inference logs preferred over overlapping turn totals; overlap is marked incomplete |
+| Antigravity | `~/.gemini/{antigravity-cli,antigravity}/conversations/*.db` | Bounded generator metadata; missing per-call dates explicitly use session start |
+
+Unrecognized stores, editor profiles outside default locations, deleted histories
+and formats without usable token counts cannot be reconstructed. Totals describe available records in the selected period.
 
 Hosts on an older version still report workspace-only scope. The combined view
 identifies mixed scope instead of implying that every Host has complete
@@ -174,7 +185,7 @@ UUID filename. Compressed JSONL archives currently mark coverage partial.
 Pi child artifact symlinks are refused because raw events have no native header
 with which to validate an external target. Structured child artifacts validate
 their version, run ID, agent name and child index against the artifact filename.
-Legacy workspace-only reads retain their 512 MiB/file and 1 GiB/scan limits.
+Workspace-only reads use the same parsers and filter to registered conversations.
 A final unfinished JSONL line is counted after it is finished.
 
 The active tab refreshes while open and visible: every two minutes for Limits,
@@ -253,3 +264,28 @@ completed initial indexing in two requests, then took 457 ms and 268 ms on warm
 views. It included 82 unregistered Sessions in the 30-day period and preserved
 existing missing/partial warnings. Numeric index inspection found no transcript
 body fields. This is local source validation, not deployment or a new App release.
+
+## macOS menu bar (3.8.54)
+
+Click the Stepsemble menu bar icon for a 380 × 550 panel. Choose one Host or all
+Hosts, Remaining/Used, and the badge metric: allowance, today's tokens or
+estimated USD cost. The most constrained known allowance supplies the badge.
+Click an Agent to open its filtered Usage view, or Open usage for the full view.
+The panel refreshes on opening and every minute while the App is running; all
+requests reuse its authenticated Host connections. Closing workspace windows
+leaves the panel available; quitting Stepsemble closes it.
+
+The additional readers retain numeric usage and bounded metadata only. They
+never launch agents or export prompt text. SQLite opens read-only, rejects
+views and unsafe companion files, and invalidates cached readings when the WAL
+changes. Unknown aggregate call counts are shown as unknown, never as one call.
+Reported costs remain estimates; context-tier prices are not applied to a whole
+session aggregate. Approximate dates and partial coverage are visible in both
+views. This does not claim coverage of every source supported by TokenBar.
+
+Release validation for 3.8.54: 72 focused usage cases and 2,072 full-suite
+tests passed (five platform skips). Browser coverage includes the 380 × 550
+menu panel, Host changes, Remaining/Used, offline readings, all-Host totals
+and opening the full Usage view. Numeric readers are exercised with synthetic
+SQLite/WAL, JSON, JSONL and protobuf histories; this does not claim every
+installed upstream version uses an identical format.

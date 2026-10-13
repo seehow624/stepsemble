@@ -3,6 +3,7 @@
 // Numeric history index. Native transcripts are never copied into the index.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
 const { createUsageParser, number, text } = require("./usage-records");
+const { discoverExtraUsageFiles, readExtraUsageFile } = require("./usage-extra-history");
 const states = new Map();
 const MAX_LINE = 8 * 1024 * 1024, MAX_FILE = 8 * 1024 * 1024 * 1024, MAX_INDEX = 64 * 1024 * 1024;
 const MAX_ROWS = 100000, MAX_STATES = 2000, MAX_CACHED_ROWS = 120000;
@@ -95,6 +96,8 @@ async function discoverUsageFiles(home, roots, budget) {
     if (agent === "codex") for (const part of ["sessions", "archived_sessions"]) await walk(path.join(root, part), root, agent);
     else await walk(root, root, agent);
   }
+  const extra = await discoverExtraUsageFiles(home, roots, budget);
+  files.push(...extra.files); sources.push(...extra.sources);
   files.sort((a, b) => b.modified - a.modified || a.file.localeCompare(b.file));
   return { files, sources };
 }
@@ -122,6 +125,7 @@ function validSaved(saved, agent, expected, format, artifact) {
 }
 
 async function readUsageFile(source, budget, indexDir) {
+  if (source.format && !["native", "omp", "pi-transcript", "pi-events"].includes(source.format)) return readExtraUsageFile(source, budget);
   let handle;
   const { file, root, agent, expected, format = "native", artifact = "" } = source;
   try {

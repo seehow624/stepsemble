@@ -41,9 +41,11 @@ allow-listed and upgrades require explicit confirmation; active sessions are
 never interrupted. See [docs/harness-updates.md](docs/harness-updates.md).
 
 The Workspace's **Usage** view breaks down recorded tokens and estimated USD
-cost by day, model, project, agent and session. It supports registered Codex,
-Claude Code and Pi sessions and can combine reachable Hosts from a desktop or
-phone. Subscription allowances remain separate from estimated costs; missing
+cost by day, model, project, agent and session. It reads native histories for
+12 agents across the computer, including Codex, Claude Code, Pi, OMP, OpenCode
+and Hermes, and combines reachable Hosts from a desktop or phone. The macOS
+menu bar offers a compact limits and daily usage panel, with a configurable
+allowance, token or cost badge. Subscription allowances remain separate from estimated costs; missing
 records and prices are identified explicitly. See [docs/usage-analytics.md](docs/usage-analytics.md).
 
 ## Install on macOS

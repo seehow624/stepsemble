@@ -69,7 +69,7 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
   }
   function consume(row) {
     if (!row || typeof row !== "object") return;
-    if (agent === "pi") {
+    if (agent === "pi" || agent === "omp") {
       let message, summary = false;
       if (format === "pi-transcript") {
         if (row.version !== 1 || !artifactTypes.has(row.recordType) || !["foreground", "async"].includes(row.source) || typeof row.agent !== "string"
@@ -109,7 +109,7 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
       // Completed responses retain their own timestamp and content across a
       // native file, raw child events and exported child transcripts. Native
       // entry ids remain the fallback for older logs and summary records.
-      put({ identity: digest(`pi:${identity}:${at}`), at, model: callModel, provider: callProvider,
+      put({ identity: digest(`${agent}:${identity}:${at}`), at, model: callModel, provider: callProvider,
         tokens: usage, cost: reportedCost(message.usage.cost), costSource: "agent" });
     } else if (agent === "claude-code") {
       if (row.sessionId) {

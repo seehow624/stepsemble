@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.54
+
+- Add a compact macOS menu bar panel for subscription limits and today's usage, with Host selection, Remaining/Used, a configurable badge and links to filtered usage.
+- Read computer-wide numeric histories from OMP, OpenCode, Hermes, Gemini CLI, Cline, Kilo, Roo Code, Grok Build and Antigravity alongside Codex, Claude Code and Pi. Deduplicate overlapping records and explicitly identify approximate dates, unknown call counts and incomplete coverage.
+- Restore Mermaid text labels and protect diagram text from interface translation. Retry local image previews after temporary lookup failures or expired handles, with an explicit retry control when unavailable.
+- Refine spacing between assistant prose, work summaries and image previews; remove empty thinking placeholders while preserving meaningful reasoning and compact tool rows.
+
 ## 3.8.53
 
 - Codex failed turns now show the native error message and error code in their original conversation. Model capacity failures explain that another model or a later retry can be used.

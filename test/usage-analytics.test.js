@@ -301,7 +301,7 @@ test("file changes invalidate usage caches and incomplete JSONL tails wait for t
   await fs.appendFile(f.piFile, "\n"); assert.equal((await report({ ...f, roots: {}, prices: {} })).total.tokens, before.total.tokens + 70);
 });
 test("missing sessions, unsupported agents and escaping file references are visible instead of silently reporting a complete zero", async t => {
-  const f = await fixture(t); f.entries.push({ key: "missing", record: { agentId: "pi", file: "demo/absent.jsonl" } }, { key: "escape", record: { agentId: "pi", file: "../../private.jsonl" } }, { key: "unsupported", record: { agentId: "hermes" } });
+  const f = await fixture(t); f.entries.push({ key: "missing", record: { agentId: "pi", file: "demo/absent.jsonl" } }, { key: "escape", record: { agentId: "pi", file: "../../private.jsonl" } }, { key: "unsupported", record: { agentId: "external-test-agent" } });
   const data = await report({ ...f, roots: {}, prices: {} }); assert.equal(data.coverage.missing, 2); assert.equal(data.coverage.unsupported, 1); assert.equal(data.total.tokens, 260);
 });
 test("computer-wide totals include native CLI histories, archives and unregistered subagents without copying prompts", async t => {

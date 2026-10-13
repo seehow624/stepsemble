@@ -1,7 +1,7 @@
-/* stepsemble v3.8.53 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.54 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.53";
+const CLIENT_APP_VERSION = "3.8.54";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -1185,6 +1185,12 @@ function workspaceDestination() {
   for (const key of ["window", "ack", "source", "host", "entry"]) {
     const value = PAGE_QUERY.get(key);
     if (/^[a-f0-9-]{36}$/.test(value) || key === "source" && value === "main" || key === "host" && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) destination.searchParams.set(key, value);
+  }
+  if (PAGE_QUERY.get("usageTab") === "usage") {
+    destination.searchParams.set("usageTab", "usage");
+    const agent = PAGE_QUERY.get("usageAgent");
+    if (agent && /^[a-zA-Z0-9_-]{1,80}$/.test(agent)) destination.searchParams.set("usageAgent", agent);
+    if (PAGE_QUERY.has("host") && !PAGE_QUERY.get("host")) destination.searchParams.set("host", "");
   }
   return destination.href;
 }
@@ -8322,7 +8328,13 @@ function describeHostFile(filePath, { fresh = false } = {}) {
   const cached = hostFileDescriptions.get(key);
   if (!fresh && cached && Date.now() - cached.at < HOST_FILE_CACHE_MS) return cached.request;
   const request = post("/api/host-files/open", { path: filePath })
-    .then((file) => (file && typeof file === "object" && typeof file.kind === "string" ? file : null), () => null);
+    .then((file) => (file && typeof file === "object" && typeof file.kind === "string" ? file : null), () => null)
+    .then(file => {
+      // A brief disconnect must not turn every subsequent render into a
+      // failed preview for five minutes. Successful handles alone are cached.
+      if (!file && hostFileDescriptions.get(key)?.request === request) hostFileDescriptions.delete(key);
+      return file;
+    });
   hostFileDescriptions.delete(key);
   hostFileDescriptions.set(key, { at: Date.now(), request });
   while (hostFileDescriptions.size > 200) hostFileDescriptions.delete(hostFileDescriptions.keys().next().value);
@@ -8371,15 +8383,46 @@ function linkHostFiles(root) {
     img.loading = "lazy";
     img.decoding = "async";
     const base = apiBase;
-    describeHostFile(filePath).then((file) => {
-      const src = file?.kind === "image" && base === apiBase ? codexImagePreviewSrc(file) : "";
-      if (!src) { img.replaceWith(hostFileLink(filePath, img.alt)); return; }
+    const preview = document.createElement("span");
+    preview.className = "host-file-preview";
+    img.replaceWith(preview);
+    preview.append(img);
+    let attempt = 0;
+    const fallback = () => {
+      if (base !== apiBase) return;
+      img.removeAttribute("src");
+      img.hidden = true;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "host-image-retry";
+      retry.textContent = "↻";
+      retry.setAttribute("aria-label", hostFileText("Retry image"));
+      retry.title = hostFileText("Retry image");
+      retry.addEventListener("click", () => { attempt = 0; preview.replaceChildren(img); img.hidden = false; void load(true); });
+      preview.replaceChildren(img, hostFileLink(filePath, img.alt), retry);
+    };
+    const load = async (fresh = false) => {
+      const current = ++attempt;
+      const file = await describeHostFile(filePath, { fresh });
+      if (base !== apiBase || current !== attempt) return;
+      const src = file?.kind === "image" ? codexImagePreviewSrc(file) : "";
+      if (!src) {
+        if (!file && current < 2) { setTimeout(() => { if (base === apiBase && preview.isConnected) void load(true); }, 600); return; }
+        fallback(); return;
+      }
       img.setAttribute("role", "button");
       img.tabIndex = 0;
       if (!img.alt) img.alt = String(file.name || "");
-      img.addEventListener("error", () => img.replaceWith(hostFileLink(filePath, img.alt)), { once: true });
+      img.onload = () => { preview.classList.add("loaded"); };
+      img.onerror = () => {
+        // Opaque handles expire or are invalidated when a generated image is
+        // replaced. Resolve the same Host path once more, never another host.
+        if (base !== apiBase || current !== attempt) return;
+        if (current < 2) void load(true); else fallback();
+      };
       img.src = src;
-    });
+    };
+    void load();
   }
 }
 
@@ -9593,7 +9636,10 @@ function workBlockKind(node) {
   if (node.nodeType !== Node.ELEMENT_NODE || workOwned(node)) return null;
   if (node.classList.contains("thinking-shimmer")) return "pulse";
   if (node.matches(WORK_BLOCK_SELECTOR)) {
-    return node.matches(".activity-group") && !node.querySelector(".tool-card, .thinking-wrap, .native-image-views") ? "empty" : "work";
+    if (node.matches(".thinking-wrap") && !String(node.querySelector(".thinking-block")?.textContent || "").trim()) return "empty";
+    if (node.matches(".activity-group") && !node.querySelector(".tool-card, .native-image-views")
+      && ![...node.querySelectorAll(".thinking-block")].some(block => block.textContent.trim())) return "empty";
+    return "work";
   }
   if (node.matches(WORK_NOTICE_SELECTOR)) return "notice";
   if (!String(node.textContent || "").trim() && !node.querySelector("img, svg, canvas, video")) return null;
@@ -12850,7 +12896,7 @@ function ensureMermaid() {
   })
     .then((mermaid) => {
       if (!mermaid) { mermaidLoading = null; return null; }
-      mermaid.initialize({ securityLevel: "strict", startOnLoad: false, theme: document.documentElement.dataset.theme === "dark" || (settings.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "neutral", fontFamily: "-apple-system, sans-serif" });
+      mermaid.initialize({ securityLevel: "strict", startOnLoad: false, htmlLabels: false, flowchart: { htmlLabels: false }, theme: document.documentElement.dataset.theme === "dark" || (settings.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "neutral", fontFamily: "-apple-system, sans-serif" });
       mermaidReady = true;
       return mermaid;
     })
@@ -12910,11 +12956,19 @@ function renderMarkdown(text) {
     const pre = code.parentElement;
     const box = document.createElement("div");
     box.className = "mermaid-block";
+    box.dataset.i18nIgnore = "true";
     box.textContent = "⏳ 圖表渲染中…";
     pre.replaceWith(box);
     ensureMermaid().then((mm) => {
       if (!mm) { box.textContent = src; box.classList.add("mermaid-error"); return; }
-      mm.render("mmd" + Math.random().toString(36).slice(2), src).then(({ svg }) => {
+      // Mermaid measures a temporary SVG in the document. Keep that stage
+      // outside the UI translator too, before the final SVG reaches the reply.
+      const stage = document.createElement("div");
+      stage.dataset.i18nIgnore = "true";
+      stage.setAttribute("aria-hidden", "true");
+      stage.style.cssText = "position:absolute;left:-100000px;top:0;pointer-events:none";
+      document.body.appendChild(stage);
+      mm.render("mmd" + Math.random().toString(36).slice(2), src, stage).then(({ svg }) => {
         box.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true } });
       }).catch((e) => {
         box.innerHTML = "";
@@ -12922,7 +12976,7 @@ function renderMarkdown(text) {
         err.className = "mermaid-error";
         err.textContent = "圖表語法錯誤：\n" + src;
         box.appendChild(err);
-      });
+      }).finally(() => stage.remove());
     });
   }
   enhanceTables(d);

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Stepsemble · Limits &amp; usage</title>
+  <link rel="stylesheet" href="/modules/menubar.css?v=3.8.54">
+</head>
+<body>
+  <header><img src="/stepsemble-mark.svg" width="25" height="25" alt=""><strong>Stepsemble</strong><button id="refresh" type="button" aria-label="Refresh">↻</button></header>
+  <main>
+    <select id="hosts" aria-label="Host"></select>
+    <div class="section-title"><h1 id="limits-title">Limits</h1><div id="quota-mode" role="group" aria-label="Quota display"></div></div>
+    <section id="limits" aria-labelledby="limits-title"></section>
+    <div class="section-title"><h2 id="today-title">Today</h2><span id="updated" role="status"></span></div>
+    <section class="totals" aria-labelledby="today-title"><div><span id="token-label">Tokens</span><strong id="tokens">—</strong></div><div><span id="cost-label">Estimated cost</span><strong id="cost">—</strong></div></section>
+    <div id="agents"></div>
+    <p id="notice" role="status"></p>
+    <p id="estimate-note">USD estimate · not a bill</p>
+  </main>
+  <footer><label id="metric-label" for="metric">Menu bar</label><select id="metric"><option value="limits">Limits</option><option value="tokens">Today’s tokens</option><option value="cost">Estimated cost</option></select><button id="open" type="button">Open usage ↗</button></footer>
+  <script src="/modules/workspace-i18n.js?v=3.8.54"></script>
+  <script src="/modules/usage-data.js?v=3.8.54"></script>
+  <script src="/modules/menubar-data.js?v=3.8.54"></script>
+  <script src="/modules/menubar.js?v=3.8.54"></script>
+</body>
+</html>

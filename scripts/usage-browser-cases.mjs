@@ -244,10 +244,49 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
     } catch (error) { throw new Error(`Usage overview ${mobile ? "phone" : "desktop"} at ${stage}: ${error.message}`, { cause: error }); }
     finally { await context.close(); await fixture.close(); }
   }
+  await runMenubarBrowserCase(browser);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const runtime = process.argv[2]; if (!runtime || !path.isAbsolute(runtime)) throw new Error("Provide an isolated Playwright runtime");
   const { chromium } = await import(pathToFileURL(path.join(runtime, "node_modules/playwright/index.mjs")));
   const browser = await chromium.launch({ headless: true, env: cleanEnvironment(runtime), args: ["--disable-background-networking"] });
   try { await runUsageBrowserCases(browser, { screenshotDirectory: process.argv[3] }); } finally { await browser.close(); }
+}
+
+async function runMenubarBrowserCase(browser) {
+  const fixture = await createUsagePreview();
+  const context = await browser.newContext({ viewport: { width: 380, height: 550 }, locale: "en-US", serviceWorkers: "block" });
+  try {
+    await context.addInitScript(() => {
+      localStorage.setItem("stepsemble.onboarding.v1", "complete");
+      localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
+      localStorage.setItem("stepsemble.selected.v1", "mini");
+    });
+    await context.request.post(fixture.origin + "/api/login", { data: { token: fixture.token } });
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.goto(fixture.origin + "/menubar.html");
+    const ready = () => page.waitForFunction(() => document.querySelector("#updated")?.textContent && !document.querySelector("#refresh").disabled);
+    await ready();
+    assert.equal(await page.locator("#hosts").inputValue(), "mini");
+    assert.equal(await page.locator(".quota").count(), 2);
+    assert.match(await page.locator("#limits").innerText(), /72%/);
+    await page.getByRole("button", { name: "Used", exact: true }).click();
+    assert.match(await page.locator("#limits").innerText(), /28%/);
+    assert.equal(await page.locator("#open").isVisible(), true);
+    const footer = await page.locator("footer").boundingBox(); assert.ok(footer.y + footer.height <= 551);
+    await page.locator("#hosts").selectOption("mbp"); await ready();
+    assert.match(await page.locator("#limits").innerText(), /62%/);
+    fixture.setOffline(true); await page.locator("#refresh").click(); await ready();
+    assert.equal(await page.locator("#tokens").textContent(), "—");
+    assert.equal(await page.locator(".quota").count(), 0);
+    fixture.setOffline(false); await page.locator("#hosts").selectOption(""); await ready();
+    assert.equal(await page.locator(".quota").count(), 4);
+    const opened = context.waitForEvent("page");
+    await page.locator("#open").click(); const full = await opened;
+    await full.locator('.usage-panel[open][data-tab="usage"]').waitFor();
+    assert.equal(await full.locator(".usage-controls select").inputValue(), "");
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "Menu bar panel", result: "passed", hostSwitch: true, usedRemaining: true, offline: true, allHosts: true, opensUsage: true, footerVisible: true }));
+  } finally { await context.close(); await fixture.close(); }
 }

@@ -1186,7 +1186,7 @@
   setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 120000);
   // A Workspace opened while its host cannot be reached keeps trying, so it
   // connects by itself once the host answers instead of needing a reload.
-  let booted = false, booting = false, bootTimer = 0, bootAttempt = 0;
+  let booted = false, booting = false, bootTimer = 0, bootAttempt = 0, pendingUsage = null;
   function retryBoot() { clearTimeout(bootTimer); bootTimer = 0; void boot(); }
   async function boot() {
     if (booted || booting) return;
@@ -1197,7 +1197,7 @@
       catch { throw new Error(t("hostsFailed")); }
       if (res.status === 401) {
         const login = new URL("/index.html", location.origin); login.searchParams.set("returnWorkspace", "1");
-        for (const key of ["window", "ack", "source", "host", "entry"]) if (params.has(key)) login.searchParams.set(key, params.get(key));
+        for (const key of ["window", "ack", "source", "host", "entry", "usageTab", "usageAgent"]) if (params.has(key)) login.searchParams.set(key, params.get(key));
         location.replace(login.href); return;
       }
       if (!res.ok) throw new Error(t("hostsFailed"));
@@ -1213,6 +1213,8 @@
       await refresh(); render(); void refreshUsage();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);
+      if (pendingUsage) { openUsageIntent(pendingUsage); pendingUsage = null; }
+      else if (params.get("usageTab") === "usage") openUsageIntent({ host: params.has("host") ? params.get("host") : host, agent: params.get("usageAgent") });
       if (params.get("ack") && params.get("source")) { save(); channel?.postMessage({ type: "window-ready", source: params.get("source"), target: windowId, token: params.get("ack") }); }
     } catch (error) {
       setConnection(false, error.message);
@@ -1223,6 +1225,17 @@
     if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".wf-panel[open], .usage-panel[open]")) return [];
     return [...frames.values()].filter(item => !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
   }
+  function openUsageIntent(value) {
+    const target = typeof value.host === "string" && machines.some(m => m.id === value.host) ? value.host : host;
+    usageUI.close();
+    void usageUI.open(target, undefined, { tab: "usage", agent: value.agent, allHosts: value.host === "" }).catch(error => toast(error.message));
+  }
+  window.addEventListener("message", event => {
+    const value = event.data;
+    if (event.source !== window || event.origin !== location.origin || value?.type !== "stepsemble-open-usage") return;
+    if (!booted) { pendingUsage = { host: value.host, agent: value.agent }; return; }
+    openUsageIntent(value);
+  });
   function notificationPresence(worker = null, requestId = null) {
     const sessions = visibleSessions(), data = { type: "STEPSEMBLE_NOTIFICATION_PRESENCE", sessions, visible: sessions.length > 0, requestId };
     if (worker) worker.postMessage(data);

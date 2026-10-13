@@ -64,6 +64,9 @@ function estimate(row, models) {
     const field = RATE_FIELDS[i];
     let rate = rates[field];
     const thresholds = Object.keys(rates).map(key => key.match(new RegExp(`^${field}_above_(\\d+)k_tokens$`))?.[1]).filter(Boolean).map(Number).sort((a, b) => a - b);
+    // A session aggregate is not one enormous model context. When tiered
+    // pricing could apply, only its reported estimate can price it reliably.
+    if (row.aggregate && thresholds.some(threshold => context > threshold * 1000)) return null;
     for (const threshold of thresholds) if (context > threshold * 1000) rate = rates[`${field}_above_${threshold}k_tokens`];
     if (rate === undefined) return null; // Missing cache prices never mean free.
     usd += count * rate;

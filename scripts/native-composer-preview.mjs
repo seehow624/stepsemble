@@ -298,7 +298,14 @@ function codexItems() {
       changes: [{ path: "/tmp/stepsemble-native-composer/app.js" }], summary: "Synthetic file edit; no file was changed." } },
     { turnId: "fixture-turn-0", item: { id: "fixture-image-0", type: "imageView", path: "/tmp/stepsemble-native-composer/crop.png",
       preview: { url: `/api/codex/image?token=${CODEX_IMAGE_TOKEN}`, mimeType: "image/png", name: "crop.png" } } },
-    { turnId: "fixture-turn-0", item: { id: "fixture-assistant-0", type: "agentMessage", text: "Synthetic Codex response. No provider was called." } },
+    { turnId: "fixture-turn-0", item: { id: "fixture-assistant-0", type: "agentMessage", text: state.richContent ? [
+      "A short progress update, followed by the finished workspace.",
+      "![Agent workspace](/synthetic-project/agent-workspace.png)",
+      "![Expired preview](/synthetic-project/expired.png)",
+      "![Unavailable preview](/synthetic-project/missing.png)",
+      "The Mini keeps the shared work. The laptop opens the same conversation.",
+      "```mermaid\nflowchart LR\n subgraph Mini[Mac mini 主機]\n A[Agent 工作台] --> B[工作清單]\n end\n C[MacBook Pro] --> A\n```",
+    ].join("\n\n") : "Synthetic Codex response. No provider was called." } },
   ];
   for (const [index, turn] of state.codexTurns.entries()) {
     base.push({ turnId: turn.turnId || `fixture-turn-${index + 1}`, item: { id: `fixture-user-${index + 1}`, type: "userMessage", content: [
@@ -361,13 +368,15 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
   state.codexFailure = codexFailure;
+  state.richContent = richContent;
+  const imageLookups = new Map();
   state.codexControlUnavailable = false;
-  if (codexFailure) { state.codexTurns.length = 0; state.codexModel = codexModels[0].id; }
+  state.codexTurns.length = 0; state.codexModel = codexModels[0].id;
   if (workflows) {
     state.goals = workflows.runs || [];
     state.schedules = workflows.schedules || [];
@@ -462,10 +471,19 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       });
       if (pathname === "/api/codex/turns" && req.method === "GET") return json(res, 200, { data: codexTurns(), nextCursor: null });
       if (pathname === "/api/codex/items" && req.method === "GET") return json(res, 200, { data: codexItems(), nextCursor: null });
+      if (pathname === "/api/host-files/open" && req.method === "POST") {
+        const body = await parseJsonBody(req);
+        const file = body.path, count = (imageLookups.get(file) || 0) + 1;
+        imageLookups.set(file, count);
+        if (file === "/synthetic-project/missing.png" || file === "/synthetic-project/agent-workspace.png" && count === 1) return json(res, 503, { error: "fixture_temporarily_unavailable" });
+        if (!["/synthetic-project/agent-workspace.png", "/synthetic-project/expired.png"].includes(file)) return json(res, 404, { error: "not_found" });
+        return json(res, 200, { kind: "image", name: "Agent workspace.png", url: `/api/codex/image?token=${file.endsWith("expired.png") && count === 1 ? "expired-image-token-000000000000" : CODEX_IMAGE_TOKEN}` });
+      }
       if (pathname === "/api/codex/image" && req.method === "GET") {
         if (requestUrl.searchParams.get("token") !== CODEX_IMAGE_TOKEN) return json(res, 404, { error: "preview_not_found" });
-        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-store", "Content-Length": CODEX_IMAGE.length });
-        return res.end(CODEX_IMAGE);
+        const bytes = richContent ? await fs.readFile(path.join(publicRoot, "icon-512.png")) : CODEX_IMAGE;
+        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-store", "Content-Length": bytes.length });
+        return res.end(bytes);
       }
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());

@@ -17,6 +17,7 @@ const TEXT_FILES = [
   "public/index.html",
   "public/history.html",
   "public/workspace.html",
+  "public/menubar.html",
   "public/manifest.webmanifest",
   "public/sw.js",
   "public/style.css",
@@ -49,6 +50,7 @@ function currentVersionValues(version) {
   addMatches("public/app.js", /\/\* stepsemble v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "client release comment");
   addMatches("public/index.html", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "HTML asset query");
   addMatches("public/workspace.html", /[?&]v=([^"\s&>]+)/g, "workspace asset query");
+  addMatches("public/menubar.html", /[?&]v=([^"\s&>]+)/g, "menu bar asset query");
   addMatches("public/history.html", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "history asset query");
   addMatches("public/index.html", /id="set-app-version">v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)</g, "HTML app version");
   addMatches("public/manifest.webmanifest", /[?&]v=(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/g, "manifest asset query");
@@ -82,6 +84,7 @@ function replaceTextVersions(file, version) {
   }
   if (file === "public/manifest.webmanifest") text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);
   if (file === "public/workspace.html") text = text.replace(/([?&]v=)[^"\s&>]+/g, `$1${version}`);
+  if (file === "public/menubar.html") text = text.replace(/([?&]v=)[^"\s&>]+/g, `$1${version}`);
   if (file === "public/history.html") text = text.replace(/([?&]v=)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g, `$1${version}`);
   if (file === "public/sw.js") {
     text = text.replace(/(const CACHE_NAME\s*=\s*["'][^"']*-v)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/, `$1${version}`);
