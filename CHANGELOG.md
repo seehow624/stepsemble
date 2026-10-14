@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.61
+
+- Conversations use thin gray scrollbars with transparent tracks in both dark and light themes, including embedded Workspace panes. macOS users who keep scrollbars always visible no longer get a contrasting white gutter.
+- Verified native Mac and browser scrolling in both themes and at desktop and phone widths, including horizontal tables and keyboard navigation.
+
 ## 3.8.60
 
 - Restrict every Agent's update checks and manual, bulk and automatic upgrades to confirmed stable releases. Reject prerelease, nightly, canary and development versions, including candidates saved by older Hosts.
