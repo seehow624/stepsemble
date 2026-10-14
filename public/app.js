@@ -1,7 +1,7 @@
-/* stepsemble v3.8.57 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.58 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.57";
+const CLIENT_APP_VERSION = "3.8.58";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -126,6 +126,7 @@ const el = {
   btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
   changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesCommit: $("changes-commit"), changesClose: $("changes-close"),
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
+  changesFooter: $("changes-footer"), changesStagingCopy: $("changes-staging-copy"),
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
@@ -4161,6 +4162,13 @@ function changeKindText(kind) {
   return changesText(CHANGE_STATUS_LETTERS[kind] ? kind : "modified");
 }
 
+function projectFileIcon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("icon"); svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(svg.namespaceURI, "use");
+  use.setAttribute("href", `#i-${name}`); svg.append(use); return svg;
+}
+
 function renderProjectChangesChrome() {
   if (!el.btnChanges) return;
   const openLabel = changesText("open");
@@ -4183,7 +4191,12 @@ function renderProjectChangesChrome() {
     // at least one file is staged.
     el.changesCommit.disabled = changesMutationInFlight || stagedCount === 0;
     el.changesCommit.classList.toggle("hidden", !projectChangesState?.data?.repository);
+    el.changesFooter?.classList.toggle("hidden", !projectChangesState?.data?.repository);
+    if (el.changesStagingCopy) el.changesStagingCopy.textContent = stagedCount
+      ? changesText("stagedCount", { count: stagedCount })
+      : changesText(projectChangesState?.data?.files?.length ? "stageHint" : "cleanDetail");
   }
+  for (const button of el.changesList.querySelectorAll(".changes-file-stage")) button.disabled = changesMutationInFlight;
   el.changesClose.title = closeLabel;
   el.changesClose.setAttribute("aria-label", closeLabel);
   el.changesFilesPane.setAttribute("aria-label", changesText("changedFiles"));
@@ -4209,11 +4222,17 @@ function renderChangesSummary(data) {
   }
   const summary = data.summary || {};
   const items = [
-    ["", changesText("fileCount", { count: Math.max(0, Number(summary.files) || 0) })],
+    ["changes-summary-count", changesText("fileCount", { count: Math.max(0, Number(summary.files) || 0) })],
     ["changes-additions", `+${Math.max(0, Number(summary.additions) || 0)}`],
     ["changes-deletions", `−${Math.max(0, Number(summary.deletions) || 0)}`],
   ];
-  if (data.branch) items.unshift(["", changesText("branch", { branch: data.branch })]);
+  if (data.branch) {
+    const branch = document.createElement("span"); branch.className = "changes-branch";
+    branch.title = changesText("branch", { branch: data.branch });
+    branch.setAttribute("aria-label", branch.title);
+    const name = document.createElement("span"); name.textContent = data.branch;
+    branch.append(projectFileIcon("branch"), name); el.changesSummary.append(branch);
+  }
   for (const [className, copy] of items) {
     const span = document.createElement("span");
     if (className) span.className = className;
@@ -4252,13 +4271,14 @@ function renderChangesList(files) {
     button.type = "button";
     button.className = "changes-file-row" + (filePath === selectedChangePath ? " selected" : "");
     button.dataset.path = filePath;
+    if (filePath === selectedChangePath) button.setAttribute("aria-current", "true");
     button.setAttribute("aria-label", `${changeKindText(file.kind)}: ${filePath}`);
     button.title = filePath;
 
     const status = document.createElement("span");
     status.className = "changes-file-status";
     status.dataset.kind = file.kind;
-    status.textContent = CHANGE_STATUS_LETTERS[file.kind] || "M";
+    status.append(projectFileIcon("file")); status.setAttribute("aria-hidden", "true");
 
     const copy = document.createElement("span");
     copy.className = "changes-file-copy";
@@ -4291,16 +4311,18 @@ function renderChangesList(files) {
     // The file button fills the row, so the stage control is a sibling rather
     // than a nested button, which is invalid and breaks keyboard navigation.
     const row = document.createElement("div");
-    row.className = "changes-file-entry" + (file.staged ? " staged" : "");
+    row.className = "changes-file-entry" + (file.staged ? " staged" : "") + (filePath === selectedChangePath ? " selected" : "");
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "changes-file-stage";
     toggle.dataset.path = filePath;
-    toggle.textContent = file.staged ? "−" : "+";
+    if (file.staged) toggle.append(projectFileIcon("check"));
+    else { const plus = document.createElement("span"); plus.textContent = "+"; plus.setAttribute("aria-hidden", "true"); toggle.append(plus); }
     const toggleLabel = changesText(file.staged ? "unstageFile" : "stageFile", { file: filePath });
     toggle.title = toggleLabel;
     toggle.setAttribute("aria-label", toggleLabel);
     toggle.setAttribute("aria-pressed", String(!!file.staged));
+    toggle.disabled = changesMutationInFlight;
     toggle.addEventListener("click", (event) => {
       event.stopPropagation();
       void setChangeStaged(filePath, !file.staged, toggle);
@@ -4317,6 +4339,7 @@ async function setChangeStaged(filePath, staged, button) {
   const cwd = projectChangesState?.cwd || currentSessionCwd;
   if (!cwd || !filePath || changesMutationInFlight) return;
   changesMutationInFlight = true;
+  renderProjectChangesChrome();
   if (button) button.disabled = true;
   try {
     const data = await post("/api/project-changes/stage", { cwd, paths: [filePath], staged });
@@ -4328,6 +4351,7 @@ async function setChangeStaged(filePath, staged, button) {
     if (button) button.disabled = false;
   } finally {
     changesMutationInFlight = false;
+    renderProjectChangesChrome();
   }
 }
 
@@ -4370,7 +4394,10 @@ function renderProjectChanges() {
   if (projectBrowser?.active) { renderChangesBadge(); return; }
   const state = projectChangesState;
   const data = state?.data || null;
-  el.changesRepository.textContent = data?.root || currentSessionCwd || "";
+  const projectRoot = data?.root || currentSessionCwd || "";
+  el.changesRepository.textContent = projectRoot.replace(/\\/g, "/").split("/").filter(Boolean).pop() || projectRoot;
+  el.changesRepository.title = projectRoot;
+  el.changesLayer.classList.toggle("changes-empty", !data?.files?.length);
   el.changesRefresh.disabled = state?.status === "loading" || state?.status === "refreshing";
   renderChangesSummary(data);
   renderChangesBadge(data);
@@ -4393,6 +4420,8 @@ function renderProjectChanges() {
   }
   const files = Array.isArray(data.files) ? data.files : [];
   if (!files.length) {
+    selectedChangePath = "";
+    el.changesLayer.classList.remove("show-detail");
     setChangesState(changesText("clean"), changesText("cleanDetail"));
     resetRenderedDiff();
     return;

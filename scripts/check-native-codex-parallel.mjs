@@ -6,7 +6,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
 import { createCodexNativePool } from "../server/codex-native-pool.js";
+import { createCodexAppServerTransport } from "../server/codex-app-server-transport.js";
 import { probeEnvironment } from "./check-native-codex-schema.mjs";
 
 const binary = process.argv[2];
@@ -17,6 +19,7 @@ const NATIVE_VERSION = process.env.STEPSEMBLE_ORACLE_CODEX_VERSION || "0.154.0";
 const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-codex-parallel-owned-")));
 let pool, server;
 const responses = new Map();
+const nativeProcesses = [];
 let requests = 0;
 async function until(check, label, timeout = 20000) {
   const end = Date.now() + timeout;
@@ -66,6 +69,11 @@ memories = false
 shell_tool = false
 `, { flag: "wx", mode: 0o600 });
   pool = createCodexNativePool({ adapterOptions: { env, executable, cwd: home, enabled: true, mutationEnabled: true,
+    launch: ({ executable, cwd, env, ...options }) => {
+      const child = spawn(executable, ["app-server", "--listen", "stdio://"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+      nativeProcesses.push(child);
+      return createCodexAppServerTransport({ child, ...options });
+    },
     includeKnownPaths: false, journalFile: path.join(home, "journal", "history.json") },
   journalRoot: path.join(home, "journal", "threads"), maxChildren: 2 });
   const status = await pool.refresh();
@@ -83,6 +91,18 @@ shell_tool = false
   assert.equal(pool.nativeState(a.threadId).state, "turn_running");
   assert.equal(pool.nativeState(b.threadId).state, "turn_running");
   assert.equal(pool.hasActiveWork(), true);
+  // The shared reader is idle while both thread-scoped workers are running.
+  // Losing it must change health immediately and permit a fresh reader,
+  // without replaying either prompt or stopping either worker.
+  const reader = nativeProcesses[0];
+  reader.kill("SIGTERM");
+  await until(() => pool.status().ready === false, "idle_reader_exit_not_detected");
+  assert.equal(pool.status().lastError, "native_transport_ended");
+  assert.equal((await pool.refresh()).ready, true);
+  assert.equal(nativeProcesses.length, 4, "only the shared reader is replaced");
+  assert.equal(pool.nativeState(a.threadId).state, "turn_running");
+  assert.equal(pool.nativeState(b.threadId).state, "turn_running");
+  assert.equal((await pool.listThreads({ limit: 10 })).data.length, 2);
   const stopped = await pool.interruptTurn(a.threadId);
   assert(["requested", "completed"].includes(stopped.kind), JSON.stringify(stopped));
   await until(() => !pool.nativeState(a.threadId).turnId, "first_turn_not_interrupted");
@@ -97,7 +117,7 @@ shell_tool = false
   const close = await pool.close();
   assert.equal(close.cleanupConfirmed, true, JSON.stringify(close));
   console.log(JSON.stringify({ result: "passed", nativeVersion: NATIVE_VERSION, concurrentThreads: 2, interruptIsolated: true,
-    contextIsolated: true, localModelRequests: requests, paidModelRequests: 0, cleanupConfirmed: true }));
+    contextIsolated: true, idleReaderRecovery: true, localModelRequests: requests, paidModelRequests: 0, cleanupConfirmed: true }));
 } finally {
   if (pool) await pool.close();
   for (const response of responses.values()) response.destroy();

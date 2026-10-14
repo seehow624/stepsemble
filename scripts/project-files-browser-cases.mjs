@@ -6,7 +6,7 @@ import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs
 
 export async function runProjectFilesBrowserCases(browser, { screenshots } = {}) {
   for (const width of [1440, 390, 320]) {
-    const preview = await createProjectFilesPreview();
+    const preview = await createProjectFilesPreview({ allowMutations: true });
     let context, stage = "open";
     try {
       context = await browser.newContext({ viewport: { width, height: 900 }, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
@@ -97,10 +97,34 @@ export async function runProjectFilesBrowserCases(browser, { screenshots } = {})
       await pane.locator("#changes-close").click(); await pane.locator("#btn-changes").click();
       await pane.getByText("No local changes", { exact: true }).waitFor();
       await fs.appendFile(path.join(preview.root, "src/workspace.js"), "// Live worktree change\n");
+      await fs.appendFile(path.join(preview.root, "README.md"), "\nNot selected for commit.\n");
       await pane.locator("#changes-refresh").click();
       await pane.locator('.changes-file-row[data-path="src/workspace.js"]').click();
       await pane.waitForFunction(() => document.querySelector("#changes-diff")?.textContent.includes("Live worktree change"));
       assert.equal(await pane.locator("#changes-commit").isVisible(), true);
+      assert.deepEqual(mutations, [], "browsing files and recorded edits never writes to Git");
+      stage = "staging enables commit immediately and commit preserves unselected changes";
+      if (width < 979) await pane.locator("#changes-detail-back").click();
+      await pane.getByRole("button", { name: "Stage src/workspace.js", exact: true }).click();
+      await pane.waitForFunction(() => !document.querySelector("#changes-commit").disabled);
+      await pane.getByText("Staged · 1", { exact: true }).waitFor();
+      if (screenshots) await page.screenshot({ path: path.join(screenshots, `staged-${width}.png`) });
+      page.once("dialog", dialog => dialog.accept("Synthetic browser commit"));
+      await pane.locator("#changes-commit").click();
+      await pane.waitForFunction(() => !document.querySelector('.changes-file-row[data-path="src/workspace.js"]') && document.querySelector("#changes-commit").disabled);
+      assert.equal(await pane.locator('.changes-file-row[data-path="README.md"]').count(), 1, "commit leaves unselected edits alone");
+      stage = "unstaging disables commit and file mode hides the commit footer";
+      await pane.getByRole("button", { name: "Stage README.md", exact: true }).click();
+      await pane.waitForFunction(() => !document.querySelector("#changes-commit").disabled);
+      await pane.getByRole("button", { name: "Unstage README.md", exact: true }).click();
+      await pane.waitForFunction(() => document.querySelector("#changes-commit").disabled && !document.querySelector('.changes-file-stage[aria-pressed="true"]'));
+      await pane.getByRole("tab", { name: "Modified", exact: true }).press("End");
+      await pane.locator('.project-directory-row[data-path="README.md"]').waitFor();
+      assert.equal(await pane.locator("#changes-footer").isVisible(), false);
+      if (screenshots) await page.screenshot({ path: path.join(screenshots, `all-files-${width}.png`) });
+      await pane.getByRole("tab", { name: "All Files", exact: true }).press("Home");
+      await pane.locator('.changes-file-row[data-path="README.md"]').waitFor();
+      assert.equal(await pane.locator("#changes-footer").isVisible(), true);
       stage = "non-Git browsing";
       await fs.rename(path.join(preview.root, ".git"), path.join(preview.root, "git-snapshot"));
       await pane.locator("#changes-refresh").click();
@@ -111,8 +135,9 @@ export async function runProjectFilesBrowserCases(browser, { screenshots } = {})
       assert.equal(await pane.locator("#changes-commit").isVisible(), false);
       const overflow = await pane.evaluate(() => document.documentElement.scrollWidth > innerWidth);
       assert.equal(overflow, false, "code scrolls inside the preview, not the whole page");
-      assert.deepEqual(errors, []); assert.deepEqual(foreign, []); assert.deepEqual(mutations, []);
-      console.log(JSON.stringify({ case: "project-files", width, result: "passed", committedDiff: true, codePreview: true, nonGit: true, readOnly: true }));
+      assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
+      assert.deepEqual(mutations, ["/api/project-changes/stage", "/api/project-changes/commit", "/api/project-changes/stage", "/api/project-changes/stage"]);
+      console.log(JSON.stringify({ case: "project-files", width, result: "passed", committedDiff: true, codePreview: true, nonGit: true, browseReadOnly: true, stagingAndCommit: true }));
     } catch (error) { throw new Error(`project-files ${width} at ${stage}: ${error.message}`, { cause: error }); }
     finally { await context?.close(); await preview.close(); }
   }

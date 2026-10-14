@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.58
+
+- Recover the shared Codex history reader when it exits between requests. Clear stale readiness, preserve the actual transport error and rebuild the reader through the existing bounded retry without resending prompts or interrupting independent session workers.
+- Protect reader recovery from delayed callbacks and health-check races, with isolated real-CLI coverage while two sessions continue working.
+- Redesign Changes and All Files with quieter dark headers, underlined tabs, clearer file names and paths, and full-row selection without a bright left border.
+- Move Commit to a bottom action bar with the staged-file count. Update its enabled state immediately after staging or unstaging, and hide submission controls while browsing files or recorded edits.
+- Refine folder navigation, search, hidden-file controls and read-only code previews on desktop and phones, with file type, line count, syntax highlighting and safe-area spacing.
+
 ## 3.8.57
 
 - Add a compact changed-files summary that opens the edits recorded for that turn, including changes already committed. Keep the current working-tree review separate.

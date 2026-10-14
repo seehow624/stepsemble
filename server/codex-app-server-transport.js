@@ -636,11 +636,11 @@ function createCodexAppServerTransport({
     if (failure || closed) return;
     failure = new Error(code);
     failure.code = code;
-    report({ type: "transport.failed", threadId, turnId });
     for (const row of pending.values()) { clearTimeout(row.timer); row.reject(failure); }
     pending.clear();
     approvals.clear();
     rejectWrites(code);
+    report({ type: "transport.failed", threadId, turnId, code });
     terminate();
   };
   const ensureOpen = () => { if (closed || failure) throw failure || new Error("native_transport_closed"); };
@@ -700,7 +700,13 @@ function createCodexAppServerTransport({
     });
   };
 
-  const ensureInitialized = () => initialized && !closed && !failure && ["ready", "thread_started", "turn_running", "reconciliation_required"].includes(state);
+  const ensureInitialized = () => {
+    // An idle process can die with no request pending. Preserve that failure
+    // on the next read so the adapter can retire it, rather than returning a
+    // lifecycle reject which looks like an invalid history response.
+    ensureOpen();
+    return initialized && ["ready", "thread_started", "turn_running", "reconciliation_required"].includes(state);
+  };
 
   async function listThreads(params = {}) {
     if (!ensureInitialized()) return reject("native_lifecycle_conflict");

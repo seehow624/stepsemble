@@ -6,12 +6,13 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
-export async function createProjectFilesPreview({ port = 0 } = {}) {
+export async function createProjectFilesPreview({ port = 0, allowMutations = false } = {}) {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-file-preview-"));
-  const root = await fs.realpath(temp);
+  const root = path.join(await fs.realpath(temp), "Stepsemble");
   const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
   let preview;
   try {
+    await fs.mkdir(root);
     await fs.mkdir(path.join(root, "src")); await fs.mkdir(path.join(root, "docs")); await fs.mkdir(path.join(root, "empty"));
     const source = '// A calm workspace, on every device.\nexport function greeting(name) {\n  return `Hello, ${name}`;\n}\n';
     const files = { "src/workspace.js": source, "src/panel.css": ".panel {\n  gap: 12px;\n}\n", "docs/使用說明.md": "# Project files\n\nBrowse your project and read source code.\n", "README.md": "# Stepsemble\n\nA calm workspace.\n", "settings.json": '{\n  "theme": "dark",\n  "preview": true\n}\n' };
@@ -34,7 +35,7 @@ export async function createProjectFilesPreview({ port = 0 } = {}) {
     await fs.writeFile(path.join(root, "large.txt"), "Large file preview\n".repeat(20000));
     // Hide those fixture extras from Git without hiding them from All Files.
     await fs.writeFile(path.join(root, ".git/info/exclude"), ".hidden-config\nimage.bin\nlarge.txt\n");
-    preview = await createNativeComposerPreview({ port, projectReview: { root, changes } });
+    preview = await createNativeComposerPreview({ port, projectReview: { root, changes, allowMutations } });
     return { ...preview, root, close: async () => { await preview.close(); await fs.rm(temp, { recursive: true, force: true }); } };
   } catch (error) { await preview?.close(); await fs.rm(temp, { recursive: true, force: true }); throw error; }
 }

@@ -6,16 +6,16 @@
 <title>Stepsemble</title>
 <meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="/manifest.webmanifest?v=3.8.57">
-<link rel="icon" href="/icon-16.png?v=3.8.57" sizes="16x16" type="image/png">
-<link rel="icon" href="/icon-32.png?v=3.8.57" sizes="32x32" type="image/png">
-<link rel="icon" href="/icon-512.png?v=3.8.57" sizes="512x512" type="image/png">
-<link rel="apple-touch-icon" href="/icon-180.png?v=3.8.57">
-  <link rel="stylesheet" href="/style.css?v=3.8.57">
-  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.8.57">
-  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.8.57">
-<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.8.57">
-<link rel="stylesheet" href="/modules/workflows.css?v=3.8.57">
+<link rel="manifest" href="/manifest.webmanifest?v=3.8.58">
+<link rel="icon" href="/icon-16.png?v=3.8.58" sizes="16x16" type="image/png">
+<link rel="icon" href="/icon-32.png?v=3.8.58" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-512.png?v=3.8.58" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png?v=3.8.58">
+  <link rel="stylesheet" href="/style.css?v=3.8.58">
+  <link rel="stylesheet" href="/modules/agent-identity.css?v=3.8.58">
+  <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.8.58">
+<link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.8.58">
+<link rel="stylesheet" href="/modules/workflows.css?v=3.8.58">
 </head>
 <body>
 <div class="ios-status-strip" aria-hidden="true"></div>
@@ -34,6 +34,7 @@
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
   <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 4.4-1 10-10a2.2 2.2 0 0 0-3.1-3.1l-10 10zM13.8 7.2l3 3"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5h6l2 2h9v8.75A2.25 2.25 0 0 1 18.25 20h-12A2.25 2.25 0 0 1 4 18.25zM3.5 7.5V5.75A1.75 1.75 0 0 1 5.25 4h4l2 2h7.5A2.25 2.25 0 0 1 21 8.25v1.25"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M13.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9.5zM13 3v7h7M8 14h8M8 17h5"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a2 2 0 0 1 2 2v15a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 20.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H13v15a2 2 0 0 1 2-2h2.5A2.5 2.5 0 0 1 20 18.5z"/></symbol>
   <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M12.5 15H17"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
@@ -555,7 +556,7 @@
           <section class="settings-group settings-about-group" data-settings-category="about" data-settings-target="about">
             <div class="settings-row">
               <span><strong>Stepsemble</strong><small data-i18n-key="agentHub.workspace">A workspace for local coding agents</small></span>
-              <span class="settings-value" id="set-app-version">v3.8.57</span>
+              <span class="settings-value" id="set-app-version">v3.8.58</span>
             </div>
             <button id="btn-open-onboarding" class="settings-row settings-button-row" type="button">
               <span><strong id="setup-guide-title">Setup guide</strong><small id="setup-guide-subtitle">Review the essentials for this device</small></span>
@@ -870,9 +871,8 @@
         <div class="changes-heading-copy">
           <p class="eyebrow">PROJECT</p>
           <h2 id="changes-title">Changes</h2>
-          <p id="changes-repository" class="changes-repository"></p>
+          <p class="changes-project"><svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg><span id="changes-repository" class="changes-repository"></span></p>
         </div>
-        <button id="changes-commit" class="btn ghost changes-commit" type="button" title="Commit staged files" aria-label="Commit staged files">Commit</button>
         <button id="changes-refresh" class="btn ghost icon-btn" type="button" title="Refresh changes" aria-label="Refresh changes"><svg class="icon"><use href="#i-refresh"></use></svg></button>
         <button id="changes-close" class="btn ghost icon-btn" type="button" title="Close" aria-label="Close"><svg class="icon"><use href="#i-x"></use></svg></button>
       </header>
@@ -899,6 +899,10 @@
           <div id="changes-diff" class="changes-diff hidden" data-i18n-ignore></div>
         </section>
       </div>
+      <footer id="changes-footer" class="changes-footer hidden">
+        <span id="changes-staging-copy" class="changes-staging-copy" aria-live="polite"></span>
+        <button id="changes-commit" class="btn primary changes-commit" type="button" title="Commit staged files" aria-label="Commit staged files">Commit</button>
+      </footer>
     </section>
   </div>
 
@@ -1063,30 +1067,30 @@
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/vendor/purify.min.js"></script>
-<script src="/i18n.js?v=3.8.57"></script>
-<script src="/modules/app-foundation.js?v=3.8.57"></script>
-<script src="/modules/agent-identity.js?v=3.8.57"></script>
-<script src="/modules/session-utils.js?v=3.8.57"></script>
-<script src="/modules/project-file-view.js?v=3.8.57"></script>
-<script src="/modules/project-browser.js?v=3.8.57"></script>
-<script src="/modules/pi-session.js?v=3.8.57"></script>
-<script src="/modules/conversation-catalog.js?v=3.8.57"></script>
-<script src="/modules/context-usage.js?v=3.8.57"></script>
-<script src="/modules/output-rate.js?v=3.8.57"></script>
-<script src="/modules/opencode-context.js?v=3.8.57"></script>
-<script src="/modules/model-presentation.js?v=3.8.57"></script>
-<script src="/modules/agent-terminal.js?v=3.8.57"></script>
-<script src="/modules/claude-structured-rendering.js?v=3.8.57"></script>
-<script src="/modules/agent-transcript-presentation.js?v=3.8.57"></script>
-<script src="/modules/codex-approvals.js?v=3.8.57"></script>
-<script src="/modules/protocol-contracts.js?v=3.8.57"></script>
-<script src="/modules/client-sdk.js?v=3.8.57"></script>
-<script src="/modules/notifications.js?v=3.8.57"></script>
-<script src="/modules/native-dialogs.js?v=3.8.57"></script>
-<script src="/modules/composer-ime.js?v=3.8.57"></script>
-<script src="/modules/workflow-text.js?v=3.8.57"></script>
-<script src="/modules/goal-composer.js?v=3.8.57"></script>
-<script src="/modules/workflows-i18n.js?v=3.8.57"></script><script src="/modules/workflows-ui.js?v=3.8.57"></script>
-<script src="/app.js?v=3.8.57"></script>
+<script src="/i18n.js?v=3.8.58"></script>
+<script src="/modules/app-foundation.js?v=3.8.58"></script>
+<script src="/modules/agent-identity.js?v=3.8.58"></script>
+<script src="/modules/session-utils.js?v=3.8.58"></script>
+<script src="/modules/project-file-view.js?v=3.8.58"></script>
+<script src="/modules/project-browser.js?v=3.8.58"></script>
+<script src="/modules/pi-session.js?v=3.8.58"></script>
+<script src="/modules/conversation-catalog.js?v=3.8.58"></script>
+<script src="/modules/context-usage.js?v=3.8.58"></script>
+<script src="/modules/output-rate.js?v=3.8.58"></script>
+<script src="/modules/opencode-context.js?v=3.8.58"></script>
+<script src="/modules/model-presentation.js?v=3.8.58"></script>
+<script src="/modules/agent-terminal.js?v=3.8.58"></script>
+<script src="/modules/claude-structured-rendering.js?v=3.8.58"></script>
+<script src="/modules/agent-transcript-presentation.js?v=3.8.58"></script>
+<script src="/modules/codex-approvals.js?v=3.8.58"></script>
+<script src="/modules/protocol-contracts.js?v=3.8.58"></script>
+<script src="/modules/client-sdk.js?v=3.8.58"></script>
+<script src="/modules/notifications.js?v=3.8.58"></script>
+<script src="/modules/native-dialogs.js?v=3.8.58"></script>
+<script src="/modules/composer-ime.js?v=3.8.58"></script>
+<script src="/modules/workflow-text.js?v=3.8.58"></script>
+<script src="/modules/goal-composer.js?v=3.8.58"></script>
+<script src="/modules/workflows-i18n.js?v=3.8.58"></script><script src="/modules/workflows-ui.js?v=3.8.58"></script>
+<script src="/app.js?v=3.8.58"></script>
 </body>
 </html>

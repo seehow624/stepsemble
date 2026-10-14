@@ -465,6 +465,68 @@ test("Codex native history retires a broken JSONL process instead of polling a d
   assert.equal(closed, 1);
 });
 
+test("Codex native history recovers an idle reader exit and ignores the retired reader's late events", async t => {
+  const instances = [];
+  const adapter = createCodexNativeHistoryAdapter({
+    enabled: true, executable: process.execPath, cwd: process.cwd(),
+    transportFactory: async options => {
+      const instance = { options, closed: 0,
+        async initialize() {},
+        async listThreads() { return { kind: "threads", data: [thread()] }; },
+        async readThread() { return { kind: "thread", thread: thread() }; },
+        async close() { this.closed++; return { kind: "closed", cleanupConfirmed: true }; },
+      };
+      instances.push(instance); return instance;
+    },
+  });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+  const first = instances[0];
+  let rejectOldRead;
+  first.readThread = () => new Promise((_resolve, reject) => { rejectOldRead = reject; });
+  const oldRead = adapter.readThread("thread-1", { includeTurns: false });
+  const oldReadFailed = assert.rejects(oldRead, error => error.code === "native_transport_ended");
+  first.options.onEvent({ type: "transport.failed", code: "native_transport_ended", threadId: null, turnId: null });
+  assert.equal(adapter.status().ready, false, "idle failure must activate the Host retry timer");
+  assert.equal(adapter.status().lastError, "native_transport_ended");
+  assert.equal(first.closed, 1);
+  assert.equal((await adapter.refresh()).ready, true);
+  assert.equal(instances.length, 2);
+  rejectOldRead(Object.assign(new Error("native_transport_ended"), { code: "native_transport_ended" }));
+  await oldReadFailed;
+  first.options.onEvent({ type: "transport.failed", code: "native_transport_ended", threadId: null, turnId: null });
+  assert.equal(adapter.status().ready, true);
+  assert.equal(instances[1].closed, 0);
+  assert.equal((await adapter.readThread("thread-1", { includeTurns: false })).thread.id, "thread-1");
+});
+
+test("Codex native history retries a failed health check with a fresh process", async t => {
+  for (const duringProbe of ["exit", "requestFailure"]) await t.test(duringProbe, async t => {
+    const instances = [];
+    const adapter = createCodexNativeHistoryAdapter({
+      enabled: true, executable: process.execPath, cwd: process.cwd(),
+      transportFactory: async options => {
+        const first = instances.length === 0;
+        const instance = { closed: 0,
+          async initialize() {},
+          async listThreads() {
+            if (first && duringProbe === "exit") options.onEvent({ type: "transport.failed", code: "native_transport_ended" });
+            if (first && duringProbe === "requestFailure") throw Object.assign(new Error("native_request_timeout"), { code: "native_request_timeout" });
+            return { kind: "threads", data: [] };
+          },
+          async close() { this.closed++; return { kind: "closed", cleanupConfirmed: true }; },
+        };
+        instances.push(instance); return instance;
+      },
+    });
+    t.after(() => adapter.close());
+    assert.equal((await adapter.refresh()).ready, false, "a successful reply followed by exit is not a healthy reader");
+    assert.equal(instances[0].closed, 1);
+    assert.equal((await adapter.refresh()).ready, true);
+    assert.equal(instances.length, 2, "a probe failure must not keep reusing a dead process");
+  });
+});
+
 test("Codex native history reads a thread with no first message as empty", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-new-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));

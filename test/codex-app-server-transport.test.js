@@ -209,6 +209,23 @@ test("Codex native transport correlates lifecycle and approval JSON-RPC without 
   assert.equal(events.filter(event => event.type === "thread.status").length, 5000);
 });
 
+test("Codex native transport reports idle exit and preserves its cause on later reads", async t => {
+  const child = new FakeNativeProcess(), writes = readFrames(child), events = [];
+  const transport = createCodexAppServerTransport({ child, onEvent: event => events.push(event) });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  const request = await writes.next();
+  frame(child, { id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing;
+  assert.equal((await writes.next()).method, "initialized");
+  child.kill();
+  assert.equal(events.find(event => event.type === "transport.failed")?.code, "native_transport_ended");
+  for (const method of ["listThreads", "readThread", "listThreadTurns", "listThreadItems", "getThreadGoal", "listModels", "rateLimits"]) {
+    await assert.rejects(() => transport[method]({ threadId: "thread-1" }), error => error.code === "native_transport_ended", method);
+  }
+  assert.equal(writes.rows.length, 0, "no request can be written to the dead process");
+});
+
 test("Codex native transport reads bounded thread history through the official app-server methods", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

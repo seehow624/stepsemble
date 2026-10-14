@@ -854,11 +854,13 @@ function createCodexNativeHistoryAdapter({
     if (turnOutputCache.size > MAX_CONTEXT_SNAPSHOTS) turnOutputCache.delete(turnOutputCache.keys().next().value);
   }
 
-  function retireBrokenTransport(error) {
+  function retireBrokenTransport(error, instance = transport) {
     const code = String(error?.code || "");
-    if (!transport || !["native_frame_invalid", "native_transport_ended", "native_transport_read_failed",
-      "native_transport_write_failed", "native_request_timeout", "native_response_invalid"].includes(code)) return;
-    const instance = transport;
+    if (!instance || transport !== instance) return;
+    const reportedFailure = typeof instance.state === "function" && instance.state()?.failure === code;
+    if (!reportedFailure && !["native_frame_invalid", "native_transport_ended", "native_transport_read_failed",
+      "native_transport_write_failed", "native_transport_closed", "native_transport_write_timeout",
+      "native_transport_write_backpressure", "native_request_timeout", "native_response_invalid"].includes(code)) return;
     transport = null;
     usageCache.clear();
     usageObservationCache.clear();
@@ -911,7 +913,13 @@ function createCodexNativeHistoryAdapter({
       try {
         const compatibility = await verifyExecutableVersion();
         const options = { executable: config.executable, cwd: config.cwd, env: { ...env }, nativeVersion: compatibility.nativeVersion,
-          onEvent: observeNativeEvent,
+          onEvent: event => {
+            // A shared history reader may exit between requests. Stop
+            // advertising it as ready so the Host's bounded retry can replace
+            // it. A late event from an old process must not retire its successor.
+            if (event?.type === "transport.failed") retireBrokenTransport(event, instance);
+            if (transport === instance || !transport) observeNativeEvent(event);
+          },
           ...(config.mutationEnabled ? { authorizeNative, onApprovalRequest } : {}) };
         if (typeof transportFactory === "function") instance = await transportFactory(options);
         else instance = launch(options);
@@ -933,10 +941,12 @@ function createCodexNativeHistoryAdapter({
     refreshPromise = (async () => {
       state = { ...state, checkedAt: clock(), state: config.configured ? "probing" : config.enabled ? "unavailable" : "disabled", ready: false, sessionReady: false, lastError: config.error };
       if (!config.configured) return status();
+      let api;
       try {
-        const api = await ensureTransport();
+        api = await ensureTransport();
         const probe = await api.listThreads({ limit: 1, sortKey: "updated_at", sortDirection: "desc", useStateDbOnly: true });
-        if (!probe || probe.kind !== "threads" || !Array.isArray(probe.data)) throw new Error("native_response_invalid");
+        if (transport !== api) throw new CodexNativeHistoryError(state.lastError || "native_transport_ended", "Codex reader ended during its health check");
+        if (!probe || probe.kind !== "threads" || !Array.isArray(probe.data)) throw new CodexNativeHistoryError("native_response_invalid", "Codex history probe was invalid", 502);
         const capabilities = verifiedCompatibility?.capabilities || {};
         const mutationAllowed = verifiedCompatibility?.verification === "injected-transport"
           || capabilities.mutations === true;
@@ -945,6 +955,7 @@ function createCodexNativeHistoryAdapter({
           approvalReady: config.mutationEnabled && mutationAllowed && capabilities.approvals !== false && !mutationWriteError,
           lastError: null, checkedAt: clock() };
       } catch (error) {
+        retireBrokenTransport(error, api);
         state = { ...state, state: "degraded", ready: false, sessionReady: false, mutationReady: false, approvalReady: false,
           lastError: cleanText(error?.code || "probe_failed", 128), checkedAt: clock() };
       }
@@ -956,9 +967,10 @@ function createCodexNativeHistoryAdapter({
 
   async function listThreads(params = {}) {
     requireReady();
+    const instance = transport;
     let result;
     try {
-      result = await transport.listThreads({
+      result = await instance.listThreads({
         limit: MAX_THREADS,
         sortKey: "updated_at",
         sortDirection: "desc",
@@ -966,7 +978,7 @@ function createCodexNativeHistoryAdapter({
         ...params,
         limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : MAX_THREADS),
       });
-    } catch (error) { retireBrokenTransport(error); throw error; }
+    } catch (error) { retireBrokenTransport(error, instance); throw error; }
     if (!result || result.kind !== "threads") throw new CodexNativeHistoryError("native_response_invalid", "Codex thread list was invalid", 502);
     const threads = result.data.map(publicThread).filter(Boolean).slice(0, MAX_PAGE);
     for (const thread of threads) cacheThread(thread);
@@ -976,9 +988,10 @@ function createCodexNativeHistoryAdapter({
   async function readThread(threadId, { includeTurns = true } = {}) {
     requireReady();
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    const instance = transport;
     let result;
-    try { result = await transport.readThread({ threadId, includeTurns: includeTurns === true }); }
-    catch (error) { retireBrokenTransport(error); throw error; }
+    try { result = await instance.readThread({ threadId, includeTurns: includeTurns === true }); }
+    catch (error) { retireBrokenTransport(error, instance); throw error; }
     const thread = publicThread(result?.thread);
     if (!thread) throw new CodexNativeHistoryError("native_response_invalid", "Codex thread response was invalid", 502);
     cacheThread(thread);
@@ -988,13 +1001,14 @@ function createCodexNativeHistoryAdapter({
   async function listThreadTurns(threadId, params = {}) {
     requireReady();
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    const instance = transport;
     let result;
-    try { result = await transport.listThreadTurns({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_TURN_PAGE) }); }
+    try { result = await instance.listThreadTurns({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_TURN_PAGE) }); }
     catch (error) {
       if (error?.threadUnmaterialized === true || error?.code === "native_request_rejected" && firstTurnPending(threadId)) {
         return { kind: "thread_turns", ...emptyHistoryPage(), threadId };
       }
-      retireBrokenTransport(error); throw error;
+      retireBrokenTransport(error, instance); throw error;
     }
     if (!result || result.kind !== "thread_turns") throw new CodexNativeHistoryError("native_response_invalid", "Codex turn page was invalid", 502);
     return { ...result, threadId };
@@ -1003,15 +1017,16 @@ function createCodexNativeHistoryAdapter({
   async function listThreadItems(threadId, params = {}) {
     requireReady();
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    const instance = transport;
     let result;
-    try { result = await transport.listThreadItems({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_ITEM_PAGE) }); }
+    try { result = await instance.listThreadItems({ ...params, threadId, limit: Math.min(MAX_PAGE, Number.isSafeInteger(params.limit) ? params.limit : DEFAULT_ITEM_PAGE) }); }
     catch (error) {
       // items/list gives no reason for a new thread ("not supported yet"),
       // so ask turns/list, which names the unmaterialized state.
       if (error?.code === "native_request_rejected" && (firstTurnPending(threadId) || await threadUnmaterialized(threadId))) {
         return { kind: "thread_items", ...emptyHistoryPage(), threadId, turnId: params.turnId ?? null };
       }
-      retireBrokenTransport(error); throw error;
+      retireBrokenTransport(error, instance); throw error;
     }
     if (!result || result.kind !== "thread_items") throw new CodexNativeHistoryError("native_response_invalid", "Codex item page was invalid", 502);
     return { ...result, threadId };
@@ -1038,9 +1053,10 @@ function createCodexNativeHistoryAdapter({
     if (typeof transport?.getThreadGoal !== "function") {
       throw new CodexNativeHistoryError("native_goal_unavailable", "Codex goal state is unavailable", 503);
     }
+    const instance = transport;
     let result;
-    try { result = await transport.getThreadGoal({ threadId }); }
-    catch (error) { retireBrokenTransport(error); throw error; }
+    try { result = await instance.getThreadGoal({ threadId }); }
+    catch (error) { retireBrokenTransport(error, instance); throw error; }
     if (!result || result.kind !== "thread_goal" || result.goal && result.goal.threadId !== threadId) {
       throw new CodexNativeHistoryError("native_response_invalid", "Codex goal response was invalid", 502);
     }
@@ -1059,9 +1075,10 @@ function createCodexNativeHistoryAdapter({
       }
       request.limit = Math.min(MAX_PAGE, request.limit);
     } else request.limit = MAX_PAGE;
+    const instance = transport;
     let result;
-    try { result = await transport.listModels(request); }
-    catch (error) { retireBrokenTransport(error); throw error; }
+    try { result = await instance.listModels(request); }
+    catch (error) { retireBrokenTransport(error, instance); throw error; }
     if (!result || !Array.isArray(result.data)) throw new CodexNativeHistoryError("native_response_invalid", "Codex model list was invalid", 502);
     const normalized = normalizeModelListResponse({ data: result.data, nextCursor: result.nextCursor ?? null });
     if (!normalized) throw new CodexNativeHistoryError("native_response_invalid", "Codex model list was invalid", 502);
@@ -1071,20 +1088,21 @@ function createCodexNativeHistoryAdapter({
   async function contextUsage(threadId) {
     requireReady();
     if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    const instance = transport;
     let snapshot = usageCache.get(threadId) || null;
     let metadata = usageObservationCache.get(threadId) || null;
-    if (!snapshot && !usageInvalidated.has(threadId) && typeof transport?.tokenUsage === "function") {
-      try { snapshot = await transport.tokenUsage(threadId); }
-      catch (error) { retireBrokenTransport(error); throw error; }
+    if (!snapshot && !usageInvalidated.has(threadId) && typeof instance?.tokenUsage === "function") {
+      try { snapshot = await instance.tokenUsage(threadId); }
+      catch (error) { retireBrokenTransport(error, instance); throw error; }
       if (snapshot) {
         snapshot = scopedNativeUsageSnapshot(threadId, snapshot);
         const observedAt = Number(clock());
         metadata = { source: "live", observedAt: validSnapshotTime(observedAt) ? observedAt : null };
       }
     }
-    if (!snapshot && !usageInvalidated.has(threadId) && typeof transport?.contextUsage === "function") {
-      try { snapshot = await transport.contextUsage(threadId); }
-      catch (error) { retireBrokenTransport(error); throw error; }
+    if (!snapshot && !usageInvalidated.has(threadId) && typeof instance?.contextUsage === "function") {
+      try { snapshot = await instance.contextUsage(threadId); }
+      catch (error) { retireBrokenTransport(error, instance); throw error; }
       if (snapshot) {
         snapshot = scopedNativeUsageSnapshot(threadId, snapshot);
         const observedAt = Number(clock());
@@ -1093,12 +1111,12 @@ function createCodexNativeHistoryAdapter({
     }
     let restored = !snapshot && !usageInvalidated.has(threadId) ? loadContextSnapshot(threadId) : null;
     let cached = threadCache.get(threadId);
-    const needsFreshMetadata = typeof transport?.readThread === "function"
+    const needsFreshMetadata = typeof instance?.readThread === "function"
       && (!!restored || metadata?.source === "live");
     const requiresFreshRestoreMetadata = !!restored;
-    if ((!cached || needsFreshMetadata) && typeof transport?.readThread === "function") {
+    if ((!cached || needsFreshMetadata) && typeof instance?.readThread === "function") {
       try {
-        const result = await transport.readThread({ threadId, includeTurns: false });
+        const result = await instance.readThread({ threadId, includeTurns: false });
         cached = publicThread(result?.thread);
         if (cached) cacheThread(cached);
       } catch (error) {

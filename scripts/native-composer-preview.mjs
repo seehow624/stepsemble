@@ -466,6 +466,16 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: "3.0.43" });
       if (pathname === "/api/rpcs" && req.method === "GET") return json(res, 200, { rpcs: [] });
+      // Opt-in mutations target only the disposable project-review repository.
+      if (projectReview?.allowMutations && req.method === "POST" && ["/api/project-changes/stage", "/api/project-changes/commit"].includes(pathname)) {
+        try {
+          if (req.headers.origin && req.headers.origin !== origin) return json(res, 403, { error: "preview_origin_rejected" });
+          const body = await parseJsonBody(req);
+          if (body.cwd !== projectReview.root) return json(res, 403, { error: "projectUnavailable" });
+          const result = pathname.endsWith("/stage") ? await gitChanges.stage(body.cwd, body.paths, { staged: body.staged }) : await gitChanges.commit(body.cwd, body.message);
+          return json(res, 200, result);
+        } catch (error) { return json(res, error.statusCode || 400, { error: error.message }); }
+      }
       if (projectReview && req.method === "GET" && ["/api/project-files", "/api/project-file", "/api/project-changes", "/api/project-diff"].includes(pathname)) {
         const cwd = requestUrl.searchParams.get("cwd"), relative = requestUrl.searchParams.get("path") || "";
         try {

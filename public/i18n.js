@@ -5397,6 +5397,11 @@
     WORK_LOG_LOCALE_ORDER.forEach((id, index) => { KEYED_TRANSLATIONS[id][key] = values[index]; });
   }
   const PROJECT_FILES_KEYED = {
+    stageHint: ["Choose files with + to commit", "点 + 选择要提交的文件", "點 + 選擇要提交的檔案", "+ でコミットするファイルを選択", "+ 로 커밋할 파일 선택", "İşlemek için + ile dosya seçin", "Choisissez les fichiers avec +", "Dateien mit + für den Commit auswählen", "Elige archivos con + para confirmar", "Escolha arquivos com + para commit", "Scegli i file con + per il commit"],
+    stagedCount: ["Staged · {count}", "已暂存 · {count}", "已暫存 · {count}", "ステージ済み · {count}", "스테이지됨 · {count}", "Hazırlandı · {count}", "Indexés · {count}", "Vorgemerkt · {count}", "Preparados · {count}", "Preparados · {count}", "In staging · {count}"],
+    selectPreview: ["Select a file", "选择一个文件", "選擇一個檔案", "ファイルを選択", "파일 선택", "Bir dosya seçin", "Sélectionnez un fichier", "Datei auswählen", "Selecciona un archivo", "Selecione um arquivo", "Seleziona un file"],
+    previewHelp: ["Browse your project and read the code here.", "浏览项目，在这里查看代码。", "瀏覽專案，在這裡查看程式碼。", "プロジェクトを参照し、ここでコードを確認。", "프로젝트를 탐색하고 여기서 코드를 읽으세요.", "Projeye göz atın ve kodu burada okuyun.", "Parcourez le projet et lisez le code ici.", "Projekt durchsuchen und Code hier lesen.", "Explora el proyecto y lee el código aquí.", "Explore o projeto e leia o código aqui.", "Esplora il progetto e leggi il codice qui."],
+    lineCount: ["{count} lines", "{count} 行", "{count} 行", "{count} 行", "{count}줄", "{count} satır", "{count} lignes", "{count} Zeilen", "{count} líneas", "{count} linhas", "{count} righe"],
     allFiles: ["All Files", "所有文件", "所有檔案", "すべてのファイル", "모든 파일", "Tüm dosyalar", "Tous les fichiers", "Alle Dateien", "Todos los archivos", "Todos os arquivos", "Tutti i file"],
     modifiedTab: ["Modified", "已修改", "已修改", "変更済み", "수정됨", "Değiştirilen", "Modifiés", "Geändert", "Modificados", "Modificados", "Modificati"],
     projectFiles: ["Project files", "项目文件", "專案檔案", "プロジェクトファイル", "프로젝트 파일", "Proje dosyaları", "Fichiers du projet", "Projektdateien", "Archivos del proyecto", "Arquivos do projeto", "File del progetto"],

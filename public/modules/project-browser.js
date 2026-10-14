@@ -21,6 +21,7 @@
       element.addEventListener("click", action); return element;
     }
     function notice(copy) { const element = node("p", "project-file-notice", copy); element.setAttribute("role", "status"); return element; }
+    const fileType = path => /\.([a-z\d]{1,8})$/i.exec(path)?.[1]?.toUpperCase() || "";
     function errorText(error) {
       const key = String(error?.message || "");
       return text(["fileMissing", "permissionDenied", "outsideProject", "projectUnavailable", "fileChanged", "notTextFile"].includes(key) ? key : "fileUnavailable");
@@ -45,7 +46,10 @@
       }
       if (active) {
         $("changes-commit").classList.add("hidden"); $("changes-summary").classList.add("hidden");
-        $("changes-repository").textContent = context().cwd || "";
+        $("changes-footer")?.classList.add("hidden");
+        const root = context().cwd || "";
+        $("changes-repository").textContent = root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || root;
+        $("changes-repository").title = root;
         $("changes-title").textContent = mode === "files" ? text("projectFiles") : text("fileCount", { count: turn.length });
         $("changes-title").previousElementSibling.textContent = text(mode === "files" ? "readOnly" : "thisTurn");
       }
@@ -100,8 +104,10 @@
           else void loadFile(entry.path);
         });
         row.dataset.path = entry.path; row.dataset.kind = entry.kind;
-        row.replaceChildren(icon(entry.kind === "directory" ? "folder" : entry.link ? "link" : "book"), node("span", "project-entry-name", entry.name));
+        row.replaceChildren(icon(entry.kind === "directory" ? "folder" : entry.link ? "link" : "file"), node("span", "project-entry-name", entry.name));
         if (entry.kind === "directory") row.append(icon("chevron-right"));
+        else if (fileType(entry.name)) row.append(node("span", "project-entry-type", fileType(entry.name)));
+        if (entry.path === selected) row.setAttribute("aria-current", "true");
         if (entry.blocked) { row.disabled = true; row.title = text(entry.kind === "unsupported" ? "notTextFile" : "outsideProject"); }
         row.setAttribute("aria-label", `${entry.name}${entry.kind === "directory" ? "/" : ""}`); list.append(row);
       }
@@ -110,11 +116,22 @@
     function renderPreview() {
       const pane = body.querySelector(".project-file-preview"); if (!pane) return;
       pane.replaceChildren();
-      const back = button("project-files-back", text("allFiles"), () => { layer.classList.remove("file-detail-open"); body.querySelector(".project-directory-row.selected")?.focus(); });
-      back.prepend(icon("arrow-left")); pane.append(back);
-      if (!selected) { pane.append(notice(text("selectFile"))); return; }
+      if (!selected) {
+        const empty = node("div", "project-preview-empty");
+        empty.append(icon("file"), node("strong", "", text("selectPreview")), node("p", "", text("previewHelp")));
+        pane.append(empty); return;
+      }
       const heading = node("div", "project-preview-heading");
-      heading.append(node("strong", "", selected.split("/").pop()), node("small", "", selected)); pane.append(heading);
+      const back = button("project-files-back", text("allFiles"), () => { layer.classList.remove("file-detail-open"); body.querySelector(".project-directory-row.selected")?.focus(); }, "arrow-left");
+      const copy = node("div", "project-preview-copy");
+      copy.append(node("strong", "", selected.split("/").pop())); copy.title = selected;
+      const meta = [fileType(selected)];
+      if (preview && !preview.binary) {
+        const count = view.lineCount(preview.content || ""), limited = preview.truncated || count > view.MAX_LINES;
+        meta.push(text("lineCount", { count: `${limited ? "≥ " : ""}${Math.min(count, view.MAX_LINES)}` }));
+      }
+      copy.append(node("small", "", meta.filter(Boolean).join(" · ")));
+      heading.append(back, icon("file"), copy, node("span", "project-read-only", text("readOnly"))); pane.append(heading);
       if (fileRequest) { pane.append(notice(text("diffLoading"))); return; }
       if (previewError) { pane.append(notice(errorText(previewError))); return; }
       if (preview?.binary) { pane.append(notice(text("binary"))); return; }
@@ -128,17 +145,22 @@
       const sidebar = node("section", "project-directory");
       const crumbs = node("nav", "project-breadcrumbs"); crumbs.setAttribute("aria-label", text("projectFiles"));
       const paths = folder.split("/").filter(Boolean);
-      const root = button("project-breadcrumb", (context().cwd || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || text("project"), () => void loadDirectory("")); crumbs.append(root);
+      const root = button("project-breadcrumb project-breadcrumb-root", (context().cwd || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || text("project"), () => void loadDirectory(""));
+      const rootName = root.textContent; root.replaceChildren(icon("folder"), node("span", "", rootName)); crumbs.append(root);
       for (const [index, name] of paths.entries()) {
         crumbs.append(node("span", "project-breadcrumb-separator", "/"), button("project-breadcrumb", name, () => void loadDirectory(paths.slice(0, index + 1).join("/"))));
       }
       crumbs.lastElementChild?.setAttribute("aria-current", "location");
       const input = node("input", "project-file-filter"); input.type = "search"; input.placeholder = text("filterFolder"); input.setAttribute("aria-label", text("filterFolder")); input.value = filter;
       input.addEventListener("input", () => { filter = input.value; renderListing(); });
-      const option = node("label", "project-hidden-option"); const check = node("input"); check.type = "checkbox"; check.checked = hidden;
-      check.addEventListener("change", () => { hidden = check.checked; renderListing(); }); option.append(check, document.createTextNode(text("showHidden")));
+      const search = node("div", "project-file-search"); search.append(icon("search"), input);
+      const option = node("label", "project-hidden-option"); option.title = text("showHidden");
+      const check = node("input"); check.type = "checkbox"; check.checked = hidden; check.setAttribute("aria-label", text("showHidden"));
+      const eye = icon("eye");
+      check.addEventListener("change", () => { hidden = check.checked; renderListing(); }); option.append(check, eye);
+      const tools = node("div", "project-directory-tools"); tools.append(search, option);
       const list = node("div", "project-directory-list"); list.setAttribute("aria-label", text("allFiles"));
-      sidebar.append(crumbs, input, option, list); body.append(sidebar, node("section", "project-file-preview")); renderListing(); renderPreview();
+      sidebar.append(crumbs, tools, list); body.append(sidebar, node("section", "project-file-preview")); renderListing(); renderPreview();
     }
     async function loadDirectory(path = "", { keepFile = false } = {}) {
       directoryRequest?.controller.abort();
