@@ -28,7 +28,7 @@ test("harness update service checks allow-listed commands and persists owner-onl
     runner: async (command, args) => {
       calls.push([command, args]);
       if (args[0] === "--version") return { code: 0, stdout: "fake 1.2.3", stderr: "" };
-      return { code: 0, stdout: "update available", stderr: "" };
+      return { code: 0, stdout: "update available\n1.2.4", stderr: "" };
     },
     busy: () => false,
   });
@@ -123,7 +123,10 @@ test("updates require confirmation and are blocked while an agent is active", as
   const service = createHarnessUpdateService({
     registry: registry(), stateFile: file, env: { PATH: "/fake", HOME: root },
     resolve: name => name === "fake" ? "/fake/fake" : null,
-    runner: async (command, args) => { calls.push([command, args]); return { code: 0, stdout: "ok", stderr: "" }; },
+    runner: async (command, args) => {
+      calls.push([command, args]);
+      return { code: 0, stdout: args[0] === "check" ? "update available\n1.2.4" : "fake 1.2.3", stderr: "" };
+    },
     busy: () => active ? { busy: true } : { busy: false },
   });
   await assert.rejects(() => service.update({ id: "fake" }), error => error.code === "confirmation_required");
@@ -216,6 +219,7 @@ test("update all skips host-managed entries and continues after a failed harness
     resolve: name => name === "fake" ? "/fake/fake" : null,
     runner: async (command, args) => args[0] === "--version"
       ? { code: 0, stdout: "fake 1.0.0", stderr: "" }
+      : args[0] === "check" ? { code: 0, stdout: "update available\n1.1.0", stderr: "" }
       : { code: 1, stdout: "", stderr: "failed" },
     busy: () => false,
   });
@@ -379,7 +383,7 @@ test("an agent CLI in an npm folder of its own is checked against npm and update
   assert.deepEqual([row.source, row.currentVersion, row.latestVersion, row.status], ["npm-prefix", "7.7.9", "7.8.1", "available"]);
   row = (await service.update({ id: "kilo", confirm: true })).harnesses[0];
   assert.deepEqual(calls.find(call => call[1][0] === "install"),
-    ["/fake/npm", ["install", "--prefix", fs.realpathSync(prefix), "--no-audit", "--no-fund", "@kilocode/cli@latest"]]);
+    ["/fake/npm", ["install", "--prefix", fs.realpathSync(prefix), "--no-audit", "--no-fund", "@kilocode/cli@7.8.1"]]);
   assert.equal(row.currentVersion, "7.8.1");
   // Anywhere else nothing proves who installed it, and it is not updated.
   fs.rmSync(path.join(prefix, "package.json"));
@@ -387,27 +391,30 @@ test("an agent CLI in an npm folder of its own is checked against npm and update
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("Hermes reads its version and gets the time its update check needs", async () => {
+test("Hermes reads its installed version and checks only the official published release", async () => {
   assert.equal(parseVersion("Hermes Agent v0.21.5 (2026.9.24) · upstream 7728574a\nInstall directory: /x"), "0.21.5");
   assert.equal(parseVersion("something went wrong: 1.2.3"), null);
   const { root, file } = tempState();
-  const timeouts = {};
+  const calls = [];
   const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
   const service = createHarnessUpdateService({
     registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "hermes") },
     stateFile: file, env: { PATH: "/fake", HOME: root },
     resolve: name => name === "hermes" ? "/fake/hermes" : null,
+    fetchText: async url => {
+      assert.equal(url, "https://api.github.com/repos/NousResearch/hermes-agent/releases/latest");
+      return JSON.stringify({ tag_name: "v0.22.0", draft: false, prerelease: false });
+    },
     runner: async (command, args, options) => {
-      timeouts[args.join(" ")] = options.timeout;
+      calls.push([args, options.timeout]);
       if (args[0] === "--version") return { code: 0, stdout: "Hermes Agent v0.21.5 (2026.9.24) · upstream 7728574a", stderr: "" };
-      return { code: 0, stdout: "→ Fetching from origin...\n☤ Update available: 12 commits behind origin/main.", stderr: "" };
+      throw new Error("A release check must not run the branch updater");
     },
     busy: () => false,
   });
   const row = (await service.check({ id: "hermes" })).harnesses[0];
-  assert.deepEqual([row.currentVersion, row.status], ["0.21.5", "available"]);
-  assert.equal(timeouts["update --check"], 55_000);
-  assert.equal(timeouts["--version"], 20_000);
+  assert.deepEqual([row.currentVersion, row.latestVersion, row.status], ["0.21.5", "0.22.0", "available"]);
+  assert.deepEqual(calls, [[["--version"], 20_000]]);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -473,9 +480,11 @@ test("Codex standalone updates use the official updater and verify the resulting
         update: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex", args: ["update"], verify: true } },
     ] },
     stateFile: file, env: { PATH: "/fake", HOME: root },
-    resolve: name => name === "codex" ? executable : null,
+    resolve: name => name === "codex" ? executable : name === "npm" ? "/fake/npm" : null,
     runner: async (command, args) => {
       calls.push([command, args]);
+      if (command === "/fake/npm" && args[0] === "view") return { code: 0, stdout: "0.147.0", stderr: "" };
+      if (command === "/fake/npm" && args[0] === "root") return { code: 0, stdout: "", stderr: "" };
       if (args[0] === "--version") return { code: 0, stdout: `codex-cli ${version}`, stderr: "" };
       if (args[0] === "update") { version = "0.147.0"; return { code: 0, stdout: "updated", stderr: "" }; }
       throw new Error(`unexpected ${command} ${args.join(" ")}`);
@@ -484,7 +493,8 @@ test("Codex standalone updates use the official updater and verify the resulting
   });
   const checked = await service.check({ id: "codex" });
   assert.equal(checked.harnesses[0].source, "official-standalone");
-  assert.equal(checked.harnesses[0].updateAvailable, "unknown");
+  assert.equal(checked.harnesses[0].updateAvailable, true);
+  assert.equal(checked.harnesses[0].latestVersion, "0.147.0");
   const updated = await service.update({ id: "codex", confirm: true });
   assert.equal(updated.updated.success, true);
   assert.equal(updated.updated.source, "official-standalone");
@@ -526,7 +536,7 @@ test("Codex npm and Homebrew installations keep their package-manager source", a
   assert.equal(npmChecked.harnesses[0].source, "npm");
   assert.equal(npmChecked.harnesses[0].updateAvailable, true);
   await npmService.update({ id: "codex", confirm: true });
-  assert.deepEqual(npmCalls.find(item => item[1][0] === "install"), ["/npm/prefix/bin/npm", ["install", "--global", "@openai/codex@latest"]]);
+  assert.deepEqual(npmCalls.find(item => item[1][0] === "install"), ["/npm/prefix/bin/npm", ["install", "--global", "@openai/codex@0.147.0"]]);
   npmCalls.length = 0;
   fs.rmSync(npmState.root, { recursive: true, force: true });
 
@@ -704,18 +714,21 @@ test("Codex source detection rejects lookalike npm packages and local shims", as
 test("post-update verification fails closed when --version cannot be read", async () => {
   const { root, file } = tempState();
   const executable = path.join(root, ".codex", "packages", "standalone", "current", "bin", "codex");
-  let versionReads = 0;
+  let updated = false;
   const service = createHarnessUpdateService({
     registry: { registryVersion: 1, harnesses: [
       { id: "codex", label: "Codex CLI", commands: ["codex"], package: "@openai/codex",
         check: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex" },
         update: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex", args: ["update"], verify: true } },
     ] },
-    stateFile: file, env: { PATH: "/synthetic", HOME: root }, resolve: name => name === "codex" ? executable : null,
+    stateFile: file, env: { PATH: "/synthetic", HOME: root }, resolve: name => name === "codex" ? executable : name === "npm" ? "/fake/npm" : null,
     runner: async (command, args) => {
-      if (args[0] === "--version") return ++versionReads === 1
+      if (command === "/fake/npm" && args[0] === "view") return { code: 0, stdout: "0.1.1", stderr: "" };
+      if (command === "/fake/npm" && args[0] === "root") return { code: 0, stdout: "", stderr: "" };
+      if (args[0] === "--version") return !updated
         ? { code: 0, stdout: "codex-cli 0.1.0", stderr: "" }
         : { code: 1, stdout: "", stderr: "version unavailable" };
+      updated = true;
       return { code: 0, stdout: "already current", stderr: "" };
     }, busy: () => false,
   });
@@ -736,8 +749,10 @@ test("unchanged post-update versions are reported as up-to-date, not updated", a
         check: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex" },
         update: { kind: "source-aware", package: "@openai/codex", brewPackage: "codex", args: ["update"], verify: true } },
     ] },
-    stateFile: file, env: { PATH: "/synthetic", HOME: root }, resolve: name => name === "codex" ? executable : null,
-    runner: async (command, args) => args[0] === "--version"
+    stateFile: file, env: { PATH: "/synthetic", HOME: root }, resolve: name => name === "codex" ? executable : name === "npm" ? "/fake/npm" : null,
+    runner: async (command, args) => command === "/fake/npm" && args[0] === "view"
+      ? { code: 0, stdout: "0.1.0", stderr: "" }
+      : args[0] === "--version"
       ? { code: 0, stdout: "codex-cli 0.1.0", stderr: "" }
       : { code: 0, stdout: "already current", stderr: "" },
     busy: () => false,

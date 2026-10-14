@@ -7,6 +7,8 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 
 - 所有可執行檢查與升級命令都固定在 `protocol/harness-updates.json`，瀏覽器不能提交任意 command 或 shell 字串。
 - 檢查會移除常見 API key／登入環境變數；不會讀取或匯出 Claude、Codex、Pi、OpenCode、Hermes 的 credential 檔案。
+- 所有 Agent（包含 Hermes）的檢查、手動升級、批次升級與自動升級共用正式穩定版限制。候選版本必須是完整的三段版本號；`-beta`、`-rc`、`-nightly`、`-dev`、`+canary`、git distance／dirty 等尾碼都不接受。不會把尾碼截掉後當成穩定版，也不把分支的新提交當成正式發布。
+- 無法確認正式穩定版時顯示「無法確認正式穩定版」，不提供 Upgrade；舊快取中的預覽版或無版本號的分支更新也不會被重新列為可升級。查詢失敗會清除候選版本，升級 API 必須確認穩定版本才能執行安裝。
 - 升級前必須由 UI 明確確認；後端再次驗證 allow-list、安裝路徑與目前是否仍有 Pi RPC／Agent Hub 任務。
 - 任何活動中的 session 或 task 都會讓升級回傳 `409 agent_busy`，不會強行殺掉程序。
 - 更新結果只保存版本、狀態、時間與錯誤 code，不保存 stdout/stderr；狀態檔位於 `~/.config/stepsemble/harness-updates.json`，權限為 `0600`。
@@ -19,13 +21,13 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 
 | Harness | 檢查來源 | 升級方式 | 備註 |
 | --- | --- | --- | --- |
-| Codex CLI | 依已安裝來源檢查 Homebrew／npm；官方 standalone 只讀版本 | 保留來源：Homebrew `brew upgrade codex`、npm `npm install --global @openai/codex@latest`、官方 standalone `codex update` | OpenAI 官方安裝器的更新命令是同一個 standalone installer；Codex CLI 目前沒有穩定的 `update --check`，所以 standalone 狀態顯示 unknown。升級後會重新讀取 `codex --version`；未知來源不會執行更新 |
+| Codex CLI | 依已安裝來源檢查 Homebrew／npm；官方 standalone 透過 npm 讀正式版本 | 保留來源：Homebrew `brew upgrade codex`、npm `npm install --global @openai/codex@<版本>`、官方 standalone `codex update` | standalone 不執行 updater 來檢查；無法取得正式版本時保持 unknown 並拒絕升級。升級後重新讀 `codex --version`；未知來源不更新 |
 | Claude Code | `npm view @anthropic-ai/claude-code dist-tags.stable`（Anthropic 的穩定版通道，只讀發佈版本） | `claude install <版本>`，裝的正是檢查過的那一版 | 不用 `latest`／`next`；`claude update` 會照 Claude 自己的通道設定裝最新版，所以不用。升級後重新讀取版本 |
 | OpenCode | Homebrew `brew outdated --json=v2 opencode`（讀 `current_version`、接受 tap 全名如 `anomalyco/tap/opencode`、有新版時 exit 1 仍是正常回答）；非 Homebrew 安裝時比對 npm `opencode-ai` 的發佈版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade <版本>` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
 | Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@<版本>` | 只更新明確的 Pi package |
 | Oh My Pi | `npm view @oh-my-pi/pi-coding-agent version`（只讀發佈版本） | `omp update` | 照 omp 原本的安裝方式（Bun 或 standalone）更新；裝到的版本和檢查過的不同時，會再確認支援 |
-| Hermes Agent | `hermes update --check`（會 git fetch，時間上限 55 秒） | `hermes update --yes --backup` | Hermes 自己的備份旗標會保留 rollback 資料；版本從「Hermes Agent v0.21.5」這種多字名稱讀出 |
-| Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@latest` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
+| Hermes Agent | 官方 GitHub `/repos/NousResearch/hermes-agent/releases/latest`；確認不是 draft／prerelease，且 tag 為完整穩定版 | `hermes update --yes --backup --channel stable` | 檢查不執行 git fetch，不比較 main 分支提交；完整 JSON 有 1 MiB／20 秒上限。更新通道是本次操作的暫時覆寫，不改使用者持久設定。舊 Hermes 不支援 `--channel` 時拒絕更新，不退回 main；保留原生備份並驗證升級後版本 |
+| Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@<版本>` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
 | Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
 | Antigravity | 讀 Antigravity 更新服務的首頁（`https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/`，內容像「Stable Version: 1.3.2. Rolled out to 100%」）；只有推送到 100% 才算有新版 | `agy update`，並在前後讀 `agy --version` 確認版本有變 | `agy update` 沒有只檢查的選項，會直接安裝，所以檢查只讀那個頁面、不執行它。它約 5 秒完成、不需要回答問題；舊程式留成 `agy.<數字>.old`，下次執行 agy 時自己清掉。2026-10-09 在暫存複本實測 1.2.14 → 1.3.2 |
 

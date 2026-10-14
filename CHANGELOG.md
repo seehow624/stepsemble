@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.60
+
+- Restrict every Agent's update checks and manual, bulk and automatic upgrades to confirmed stable releases. Reject prerelease, nightly, canary and development versions, including candidates saved by older Hosts.
+- Check Hermes against its official published GitHub release instead of development-branch commits. Upgrade through Hermes's transient stable channel with its existing backup and verify the resulting version; keep Hermes upgrades manual.
+- Pin version-selecting installers to the checked release, clear stale candidates after failed checks, prevent downgrades and recheck active work immediately before installation.
+- Show when a stable release cannot be confirmed and offer Upgrade only for an installed Agent with a valid stable candidate, known installation source and supported compatibility.
+- Read complete Hermes release metadata with bounded streaming so larger release notes do not make update checks fail. Add regressions for unstable releases, cached candidates, older Hermes CLIs, failed checks, installation verification and work starting during a check.
+
 ## 3.8.59
 
 - Restore Claude Code's OpenCodex model picker for current ocx-claude- and ocx-claude2- IDs while retaining persisted claude-ocx- and claude-ocx2- aliases. Preserve the exact model ID, context window and supported effort levels when listing and switching models, and remove retired aliases after an authoritative refresh.

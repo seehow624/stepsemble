@@ -2,8 +2,8 @@
 
 // Explicit, allow-listed update orchestration for local agent harnesses.
 // This service is intentionally separate from Stepsemble's own updater:
-// harnesses own their accounts, sessions, credentials, and release channels.
-// A status check can observe those channels; an update always needs an
+// harnesses own their accounts, sessions and credentials. Stepsemble offers
+// only their published stable releases; an update always needs an
 // explicit caller confirmation and is blocked while agent work is active.
 
 const fs = require("node:fs");
@@ -67,8 +67,12 @@ function validateRegistry(registry) {
       }
       if (strategy.kind === "command" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
       if (strategy.kind === "command-json" && !Array.isArray(strategy.args)) throw new Error(`Missing command arguments for ${entry.id}`);
-      if (!["manual", "version-only", "official-check", "command", "command-json", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", "web-version", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
+      if (!["manual", "version-only", "official-check", "command", "command-json", "npm-outdated", "npm-global", "registry-version", "brew-or-official", "brew-or-command", "web-version", "github-release", SOURCE_AWARE_STRATEGY].includes(strategy.kind)) {
         throw new Error(`Unsupported update strategy for ${entry.id}`);
+      }
+      if (strategy.kind === "github-release" && (typeof strategy.url !== "string"
+        || !/^https:\/\/api\.github\.com\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/releases\/latest$/.test(strategy.url))) {
+        throw new Error(`Invalid GitHub release source for ${entry.id}`);
       }
       if (strategy.kind === "web-version") {
         // A fixed https page the vendor publishes its release on, and the
@@ -308,6 +312,21 @@ function parseSemver(value) {
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
 }
 
+function isStableVersion(value) {
+  return typeof value === "string" && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value);
+}
+
+function stableObservation(observed) {
+  // Apply the same policy to every probe and persisted status. In particular,
+  // a branch's newer commits (with no published version) are not a release.
+  if ((observed.latestVersion && !isStableVersion(observed.latestVersion))
+    || (observed.updateAvailable === true && !isStableVersion(observed.latestVersion))) {
+    return { ...observed, latestVersion: null, updateAvailable: "unknown", status: "unknown",
+      compatibility: null, error: "stable_release_unavailable", lastUpdateUnchanged: false };
+  }
+  return observed;
+}
+
 function isNewer(latest, current) {
   const a = parseSemver(latest), b = parseSemver(current);
   if (!a || !b) return false;
@@ -343,10 +362,28 @@ function brewOutdated(result, packageName) {
 
 // Reads the page a vendor publishes its newest release on (a "web-version"
 // check). Bounded in time and size; no credentials are sent.
-async function fetchReleaseText(url, { timeout = CHECK_TIMEOUT_MS } = {}) {
+async function fetchReleaseText(url, { timeout = CHECK_TIMEOUT_MS, maxBytes = 64 * 1024 } = {}) {
   const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(timeout) });
   if (!response.ok) throw Object.assign(new Error("Release page unavailable"), { code: "release_page_unavailable" });
-  return (await response.text()).slice(0, 64 * 1024);
+  const tooLarge = () => Object.assign(new Error("Release data exceeds the size limit"), { code: "release_page_too_large" });
+  if (Number(response.headers.get("content-length")) > maxBytes) {
+    await response.body?.cancel();
+    throw tooLarge();
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) { await reader.cancel(); throw tooLarge(); }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks, bytes).toString("utf8");
+  } finally { reader.releaseLock(); }
 }
 
 function createHarnessUpdateService({
@@ -442,6 +479,7 @@ function createHarnessUpdateService({
   const errorStatus = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 
   function publicEntry(definition, observed = {}) {
+    observed = stableObservation(observed);
     // A harness that has never been checked has no observation yet. Reporting it
     // as `installed: false` is a claim we have not verified, and it disables the
     // control that would perform the first check. Report the unknown state.
@@ -513,7 +551,7 @@ function createHarnessUpdateService({
   }
 
   async function observe(definition) {
-    const observed = await observeInstalled(definition);
+    const observed = stableObservation(await observeInstalled(definition));
     // Once a check no longer finds a newer release, the note about an
     // earlier upgrade that left the version unchanged is obsolete.
     if (observed.updateAvailable !== true) observed.lastUpdateUnchanged = false;
@@ -555,7 +593,8 @@ function createHarnessUpdateService({
     const previous = stateById(definition.id) || {};
     const executable = definition.executableEnv && env[definition.executableEnv]
       ? resolve(env[definition.executableEnv], env) : (definition.commands || []).map(name => resolve(name, env)).find(Boolean);
-    const observed = { ...previous, id: definition.id, checkedAt: now(clock), executable: executable || null };
+    const observed = { ...previous, id: definition.id, checkedAt: now(clock), executable: executable || null,
+      latestVersion: null, updateAvailable: "unknown", compatibility: null, error: null };
     if (!executable) {
       observed.installed = false;
       observed.currentVersion = null;
@@ -646,6 +685,27 @@ function createHarnessUpdateService({
       // never treated as evidence that npm owns this executable, so the
       // configured update strategy is unaffected.
       return observeRegistryVersion(observed, check.package, check.distTag || null);
+    }
+    if (check.kind === "github-release") {
+      // Read the official release, never git branch movement. Check both the
+      // release flags and the entire tag; a regex must not trim '-rc' away.
+      let release = null;
+      // Release notes can exceed the small HTML probe's limit. Bound the
+      // complete JSON rather than truncating it into an unreadable document.
+      try { release = JSON.parse(await fetchText(check.url, { timeout: checkTimeout(check), maxBytes: 1024 * 1024 })); } catch {}
+      const latest = release?.draft === false && release?.prerelease === false
+        && typeof release.tag_name === "string" ? release.tag_name.replace(/^v/, "") : null;
+      observed.latestVersion = isStableVersion(latest) ? latest : null;
+      if (!observed.latestVersion) {
+        observed.status = "unknown";
+        observed.updateAvailable = "unknown";
+        observed.error = "stable_release_unavailable";
+        return observed;
+      }
+      observed.updateAvailable = isNewer(latest, observed.currentVersion);
+      observed.status = observed.updateAvailable ? "available" : "up-to-date";
+      observed.error = null;
+      return observed;
     }
     if (check.kind === "npm-outdated") {
       const npm = resolve("npm", env);
@@ -743,6 +803,12 @@ function createHarnessUpdateService({
         observed.error = checked.code !== 0 ? resultError(checked, "json_check_failed") : "json_check_unreadable";
         return observed;
       }
+      if (parsed.channel != null && parsed.channel !== "stable") {
+        observed.status = "unknown";
+        observed.updateAvailable = "unknown";
+        observed.error = "stable_release_unavailable";
+        return observed;
+      }
       observed.latestVersion = latest || (available ? null : observed.currentVersion || null);
       observed.updateAvailable = available;
       observed.status = available ? "available" : "up-to-date";
@@ -765,6 +831,7 @@ function createHarnessUpdateService({
         observed.error = unsupported ? null : resultError(checked, "official_check_unavailable");
       } else {
         observed.status = /available|outdated|behind|upgrade available/i.test(output) ? "available" : "up-to-date";
+        observed.latestVersion = parseVersion(checked.stdout) || parseVersion(checked.stderr);
         observed.updateAvailable = observed.status === "available";
         observed.error = null;
       }
@@ -797,6 +864,7 @@ function createHarnessUpdateService({
         catch (error) {
           const previous = stateById(definition.id) || { id: definition.id };
           previous.status = "error"; previous.error = String(error.code || error.message || "check_failed").slice(0, 120);
+          previous.latestVersion = null; previous.updateAvailable = "unknown"; previous.compatibility = null;
           previous.checkedAt = now(clock); state.entries = [...state.entries.filter(item => item.id !== definition.id), previous];
           output.push(publicEntry(definition, previous));
         }
@@ -829,12 +897,12 @@ function createHarnessUpdateService({
       }
       if (source.kind === "npm" && source.manager && source.npmPackage) {
         // npm can install exactly the release that was checked.
-        return { executable: source.manager, args: ["install", "--global", `${source.npmPackage}@${target || "latest"}`], source };
+        return { executable: source.manager, args: ["install", "--global", `${source.npmPackage}@${target}`], source };
       }
       if (source.kind === "npm-prefix" && source.manager && source.npmPackage && source.prefix) {
         // Updated where it is installed; a global install would leave the
         // copy in use as it was.
-        return { executable: source.manager, args: ["install", "--prefix", source.prefix, "--no-audit", "--no-fund", `${source.npmPackage}@${target || "latest"}`], source };
+        return { executable: source.manager, args: ["install", "--prefix", source.prefix, "--no-audit", "--no-fund", `${source.npmPackage}@${target}`], source };
       }
       if (source.kind === "official-standalone") {
         // Through a wrapper, the saved launcher is the installation itself.
@@ -846,7 +914,7 @@ function createHarnessUpdateService({
     if (strategy.kind === "npm-global") {
       const npm = resolve("npm", env);
       if (!npm || !definition.package) return null;
-      return { executable: npm, args: ["install", "--global", `${definition.package}@${target || "latest"}`] };
+      return { executable: npm, args: ["install", "--global", `${definition.package}@${target}`] };
     }
     if (strategy.kind === "brew-or-command") {
       const brew = resolve("brew", env);
@@ -876,8 +944,7 @@ function createHarnessUpdateService({
     return { version: version || null, status: "failed", error: resultError(result, "version_failed") };
   }
 
-  async function updateOne(definition, { confirm = false } = {}) {
-    if (!confirm) throw errorStatus("confirmation_required", "Explicit confirmation is required", 400);
+  async function assertIdle(definition) {
     let busyState;
     try { busyState = busy(); } catch { throw errorStatus("agent_busy", "Agent state is unavailable; try again when idle", 409); }
     if (busyState?.busy ?? busyState) throw errorStatus("agent_busy", "Wait for active agent work to finish", 409);
@@ -887,21 +954,34 @@ function createHarnessUpdateService({
       catch { throw errorStatus("agent_busy", "Agent state is unavailable; try again when idle", 409); }
       if (liveState?.busy ?? liveState) throw errorStatus("agent_busy", "Wait for active agent work to finish", 409);
     }
+  }
+
+  async function updateOne(definition, { confirm = false } = {}) {
+    if (!confirm) throw errorStatus("confirmation_required", "Explicit confirmation is required", 400);
+    await assertIdle(definition);
     const executable = definition.executableEnv && env[definition.executableEnv]
       ? resolve(env[definition.executableEnv], env) : (definition.commands || []).map(name => resolve(name, env)).find(Boolean);
     if (!executable) throw errorStatus("not_installed", `${definition.label} is not installed`, 422);
+    // Manual, bulk and automatic upgrades share a stable-release gate, even
+    // when this harness has no separate adapter compatibility check (Hermes).
+    let known = stateById(definition.id) || {};
+    if (!isStableVersion(known.latestVersion) || known.updateAvailable !== true || known.status !== "available") {
+      known = await observe(definition);
+      state.entries = [...state.entries.filter(item => item.id !== definition.id), known];
+      save();
+    }
+    if (definition.update.kind === SOURCE_AWARE_STRATEGY && known.source === "unknown") {
+      throw errorStatus("source_unknown", `${definition.label} installation source is unknown`, 422);
+    }
+    const target = isStableVersion(known.latestVersion) && ["available", "up-to-date"].includes(known.status)
+      && typeof known.updateAvailable === "boolean" ? known.latestVersion : null;
+    if (!target) throw errorStatus("release_unknown", `A published stable ${definition.label} release could not be confirmed; check again`, 422);
+    if (isNewer(known.currentVersion, target)) {
+      throw errorStatus("release_not_newer", `The stable ${definition.label} release is older than the installed version; it was not downgraded`, 422);
+    }
     // A harness Stepsemble only runs in releases it supports is updated only
     // to a release reported as supported.
-    let target = null;
     if (typeof releaseChecks?.[definition.id] === "function") {
-      let known = stateById(definition.id) || {};
-      if (!known.latestVersion || known.updateAvailable !== true) {
-        known = await observe(definition);
-        state.entries = [...state.entries.filter(item => item.id !== definition.id), known];
-        save();
-      }
-      target = known.updateAvailable === true ? known.latestVersion || null : null;
-      if (!target) throw errorStatus("release_unknown", `The ${definition.label} release to install is not known; check again`, 422);
       const verdict = await releaseVerdict(definition, target);
       const previous = stateById(definition.id) || { id: definition.id };
       previous.compatibility = verdict;
@@ -917,6 +997,9 @@ function createHarnessUpdateService({
     if (!command) throw errorStatus("manual_update", definition.update.reason || `${definition.label} must be updated by its host`, 422);
     const verify = definition.update?.verify === true || definition.update?.kind === SOURCE_AWARE_STRATEGY;
     const beforeVersion = verify ? await readHarnessVersion(executable) : null;
+    // The metadata / compatibility checks can take time. Work that started
+    // meanwhile must block the actual install too.
+    await assertIdle(definition);
     const startedAt = now(clock);
     const result = await runner(command.executable, command.args, {
       shell: false, cwd: home, env: updateEnvironment(env), timeout: UPDATE_TIMEOUT_MS, maxBuffer: 512 * 1024,
@@ -931,6 +1014,13 @@ function createHarnessUpdateService({
     let verification = verify ? (result.code === 0 ? afterVersion?.status || "unavailable" : "not-run") : null;
     let verificationError = verify && result.code === 0 ? afterVersion?.error || null : null;
     let unchanged = false;
+    const installedVersion = afterVersion?.version || observedAfter?.version;
+    if (successful && installedVersion && !isStableVersion(installedVersion)) {
+      successful = false;
+      error = "release_not_stable";
+      verification = "failed";
+      verificationError = "release_not_stable";
+    }
     if (verify && successful && afterVersion?.status !== "verified") {
       // A zero exit status only says that the updater process exited cleanly;
       // it does not prove that the installed harness is still runnable.  Do
@@ -958,6 +1048,7 @@ function createHarnessUpdateService({
     state.lastUpdate = record;
     const previous = stateById(definition.id) || { id: definition.id };
     previous.updatedAt = record.finishedAt;
+    if (installedVersion) previous.currentVersion = installedVersion;
     if (successful) {
       previous.error = null;
       if (command.source) previous.source = command.source.kind;
@@ -978,7 +1069,7 @@ function createHarnessUpdateService({
       if (target && afterVersion?.version && afterVersion.version !== target) previous.compatibility = await releaseVerdict(definition, afterVersion.version);
       else if (target && !stillBehind) delete previous.compatibility;
     }
-    else { previous.status = "error"; previous.error = record.error; }
+    else { previous.status = "error"; previous.error = record.error; previous.updateAvailable = "unknown"; }
     state.entries = [...state.entries.filter(item => item.id !== definition.id), previous];
     save();
     if (!successful) throw Object.assign(new Error(record.error || "Harness update failed"), { statusCode: 502, code: record.error, result: record });
@@ -1033,4 +1124,4 @@ function loadHarnessUpdateRegistry(file) {
   return validateRegistry(readJson(file));
 }
 
-module.exports = { createHarnessUpdateService, loadHarnessUpdateRegistry, validateRegistry, cleanEnvironment, parseVersion, isNewer, AGENT_SELF_UPDATE_OFF };
+module.exports = { createHarnessUpdateService, loadHarnessUpdateRegistry, validateRegistry, cleanEnvironment, parseVersion, isStableVersion, isNewer, fetchReleaseText, AGENT_SELF_UPDATE_OFF };

@@ -9,7 +9,7 @@
       "package": "@openai/codex",
       "check": { "kind": "source-aware", "package": "@openai/codex", "brewPackage": "codex" },
       "update": { "kind": "source-aware", "package": "@openai/codex", "brewPackage": "codex", "args": ["update"], "verify": true },
-      "note": "Codex updates must preserve a proven installed source: Homebrew uses brew upgrade, npm uses npm install --global only when the selected executable belongs to @openai/codex, and the official standalone package uses codex update. Standalone releases have no non-mutating update check, so the status remains unknown until the user confirms an update; unknown shims fail closed."
+      "note": "Codex updates preserve a proven installed source: Homebrew uses brew upgrade, npm installs the checked stable version only when the selected executable belongs to @openai/codex, and the official standalone package uses codex update. Standalone checks read the published npm version without invoking the updater; an unconfirmed stable release or unknown shim refuses the update."
     },
     {
       "id": "claude-code",
@@ -26,7 +26,7 @@
       "commands": ["opencode"],
       "executableEnv": "STEPSEMBLE_OPENCODE_BIN",
       "check": { "kind": "brew-or-official", "package": "opencode", "registryPackage": "opencode-ai" },
-      "update": { "kind": "brew-or-command", "package": "opencode", "args": ["upgrade", "{version}"] }
+      "update": { "kind": "brew-or-command", "package": "opencode", "args": ["upgrade", "{version}"], "verify": true }
     },
     {
       "id": "pi",
@@ -35,15 +35,16 @@
       "executableEnv": "STEPSEMBLE_PI_BIN",
       "package": "@earendil-works/pi-coding-agent",
       "check": { "kind": "npm-outdated" },
-      "update": { "kind": "npm-global" }
+      "update": { "kind": "npm-global", "verify": true }
     },
     {
       "id": "hermes",
       "label": "Hermes Agent",
       "commands": ["hermes"],
       "executableEnv": "STEPSEMBLE_HERMES_BIN",
-      "check": { "kind": "command", "args": ["update", "--check"], "timeoutMs": 55000 },
-      "update": { "kind": "command", "args": ["update", "--yes", "--backup"] }
+      "check": { "kind": "github-release", "url": "https://api.github.com/repos/NousResearch/hermes-agent/releases/latest" },
+      "update": { "kind": "command", "args": ["update", "--yes", "--backup", "--channel", "stable"], "verify": true },
+      "note": "Only published stable Hermes releases are offered. The check reads the official GitHub release without fetching a development branch; Upgrade uses Hermes's transient stable channel and keeps its backup. Older Hermes versions that do not support --channel refuse the update rather than falling back to main."
     },
     {
       "id": "omp",
@@ -51,7 +52,7 @@
       "commands": ["omp"],
       "executableEnv": "STEPSEMBLE_OMP_BIN",
       "check": { "kind": "registry-version", "package": "@oh-my-pi/pi-coding-agent" },
-      "update": { "kind": "command", "args": ["update"] },
+      "update": { "kind": "command", "args": ["update"], "verify": true },
       "note": "Oh My Pi's release is read from its npm package without touching the installation, and \"omp update\" installs it the way omp was installed (Bun or its standalone binary)."
     },
     {

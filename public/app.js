@@ -1,7 +1,7 @@
-/* stepsemble v3.8.59 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.60 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.59";
+const CLIENT_APP_VERSION = "3.8.60";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15389,12 +15389,20 @@ function harnessVersionIsNewer(latest, current) {
 
 // Absence and host ownership are decided before freshness: a harness that is
 // missing or updated elsewhere must never read as "Up to date".
+function harnessStableRelease(item) {
+  return typeof item?.latestVersion === "string"
+    && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(item.latestVersion);
+}
+
 function harnessUpdateKind(item) {
   if (!item) return "unchecked";
   if (item.installed === false || item.status === "not-installed") return "missing";
   if (item.updateMode === "manual" || item.status === "manual") return "manual";
-  if (item.status === "available" || item.updateAvailable === true || harnessVersionIsNewer(item.latestVersion, item.currentVersion)) return "available";
   if (item.status === "error") return "error";
+  if (item.latestVersion && !harnessStableRelease(item)) return "unknown";
+  if (item.status === "available" || item.updateAvailable === true || harnessVersionIsNewer(item.latestVersion, item.currentVersion)) {
+    return harnessStableRelease(item) ? "available" : "unknown";
+  }
   if (item.status === "up-to-date" || item.status === "updated" || item.updateAvailable === false) return "current";
   if (item.status === "not-checked" || item.installed == null) return "unchecked";
   return "unknown";
@@ -15402,6 +15410,7 @@ function harnessUpdateKind(item) {
 
 function harnessUpdateStatusText(item) {
   if (harnessUpgradeBlocked(item)) return updateText("Update it where it was installed");
+  if (item?.error === "stable_release_unavailable") return updateText("Stable release not confirmed");
   const support = harnessReleaseSupport(item);
   if (support === "unsupported") return updateText("Waiting for Stepsemble");
   if (support === "unknown") return updateText("Support not checked");
@@ -15434,8 +15443,8 @@ function harnessUpgradeable(item) {
   const kind = harnessUpdateKind(item);
   const support = harnessReleaseSupport(item);
   if (support === "unsupported" || support === "unknown") return false;
-  return item?.installed !== false && item?.updateMode !== "manual" && !harnessUpgradeBlocked(item)
-    && (kind === "available" || kind === "unknown");
+  return item?.installed === true && item?.updateMode !== "manual" && !harnessUpgradeBlocked(item)
+    && kind === "available" && harnessStableRelease(item);
 }
 
 function formatUpdateAge(value) {
@@ -15454,7 +15463,7 @@ function renderHarnessUpdates(data) {
   const machine = currentMachine();
   const device = updateDeviceName(machine);
   if (el.harnessUpdateTitle) el.harnessUpdateTitle.textContent = updateText("Coding agents");
-  if (el.harnessUpdateNote) el.harnessUpdateNote.textContent = updateText("On {device}. Upgrades run only while no agent is working.", { device });
+  if (el.harnessUpdateNote) el.harnessUpdateNote.textContent = updateText("On {device}. Upgrades run only while no agent is working.", { device }) + " " + updateText("Stable releases only.");
   el.harnessUpdateCheckAll.textContent = harnessCheckRunning ? updateText("Checking…") : updateText("Check now");
   el.harnessUpdateList.innerHTML = "";
   el.harnessUpdateMissing?.classList.add("hidden");
@@ -15515,7 +15524,7 @@ function renderHarnessUpdates(data) {
     detail.className = "harness-update-version";
     const currentVersion = item.currentVersion ? updateVersionText(item.currentVersion) : "";
     if (kind === "available" && currentVersion && item.latestVersion) detail.textContent = currentVersion + " → " + updateVersionText(item.latestVersion);
-    else if (kind === "unknown") detail.textContent = [currentVersion, updateText("Can't check automatically")].filter(Boolean).join(" · ");
+    else if (kind === "unknown") detail.textContent = [currentVersion, harnessUpdateStatusText(item)].filter(Boolean).join(" · ");
     else if (kind !== "unchecked") detail.textContent = currentVersion || updateText("Version unavailable");
     copy.append(name);
     if (detail.textContent) copy.appendChild(detail);
