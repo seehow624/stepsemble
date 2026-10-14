@@ -299,7 +299,7 @@ function gatewayModelOptions(env = process.env) {
   const options = rows.map(row => {
     if (!row || typeof row !== "object") return null;
     const id = modelId(row.id);
-    if (!id || !/^claude-ocx-/i.test(id)) return null;
+    if (!id || !/^(?:claude-ocx|ocx-claude)2?-/i.test(id)) return null;
     const contextWindow = positiveFinite(row.contextWindow);
     const supportedEffortLevels = Array.isArray(row.supportedEffortLevels)
       ? row.supportedEffortLevels.map(level => String(level).toLowerCase()).filter(level => ["low", "medium", "high", "xhigh", "max"].includes(level))
@@ -325,7 +325,7 @@ function gatewayModelOptions(env = process.env) {
     if (cache?.baseUrl !== env.ANTHROPIC_BASE_URL) return [];
     return (Array.isArray(cache?.models) ? cache.models : []).map(row => {
       const id = modelId(row?.id);
-      if (!id || !/^claude-ocx-/i.test(id)) return null;
+      if (!id || !/^(?:claude-ocx|ocx-claude)2?-/i.test(id)) return null;
       return { id, name: safeText(row.display_name || id, 256) || id, description: "OpenCodex gateway", gateway: "opencodex" };
     }).filter(Boolean).slice(0, MAX_MODELS);
   } catch { return []; }
@@ -722,7 +722,7 @@ function createClaudeStructuredSession({
         const catalog = JSON.parse(fs.readFileSync(gatewayCatalogPath(home), "utf8"));
         authoritative = !!env.ANTHROPIC_BASE_URL && catalog.baseUrl === env.ANTHROPIC_BASE_URL && Array.isArray(catalog.models);
       } catch {}
-      const enrichedNativeModels = nativeModels.filter(model => !authoritative || !/^claude-ocx-/i.test(model.id) || gatewayById.has(model.id)).map(model => {
+      const enrichedNativeModels = nativeModels.filter(model => !authoritative || !/^(?:claude-ocx|ocx-claude)2?-/i.test(model.id) || gatewayById.has(model.id)).map(model => {
         const gateway = gatewayById.get(model.id);
         if (!gateway) return model;
         return {

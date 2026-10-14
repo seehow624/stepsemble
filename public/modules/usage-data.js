@@ -14,7 +14,7 @@
   function modelIdentity(provider = "", model = "") {
     // OpenCodex's reversible Claude Code picker aliases. Decode v2 escapes once:
     // ~ts is a literal ~s, not a slash.
-    const alias = canonicalProvider(provider) === "anthropic" && model.match(/^claude-ocx(2?)-([^/]+?)--(.+)$/);
+    const alias = canonicalProvider(provider) === "anthropic" && model.match(/^(?:claude-ocx|ocx-claude)(2?)-([^/]+?)--(.+)$/);
     if (alias) {
       const decoded = alias[1] === "2" ? alias[3].replace(/~[st]/g, value => value === "~s" ? "/" : "~") : alias[3];
       provider = alias[2] === "native" ? "openai" : "opencodex";

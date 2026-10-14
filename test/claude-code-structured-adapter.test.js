@@ -12,6 +12,7 @@ const {
   normalizeClaudeEvent,
   createClaudeStructuredParser,
   createClaudeStructuredSession,
+  gatewayModelOptions,
 } = require("../server/claude-code-structured-adapter");
 
 function childFixture() {
@@ -179,6 +180,45 @@ test("Claude gateway aliases keep the gateway's own effort levels", async t => {
   assert.equal(refreshed.currentModel, catalog.currentModel, "catalog reload never changes the selected model");
   fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, baseUrl: "http://127.0.0.1:10100", models: [] }));
   assert.deepEqual((await session.models()).models.map(model => model.id), ["haiku"]);
+});
+
+test("Claude accepts current and persisted OpenCodex aliases, switches exact IDs and removes retired aliases", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-gateway-aliases-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const baseUrl = "http://127.0.0.1:10100";
+  const env = { HOME: home, ANTHROPIC_BASE_URL: baseUrl };
+  const dir = path.join(home, ".config", "stepsemble");
+  fs.mkdirSync(dir, { recursive: true });
+  const ids = ["ocx-claude-native--gpt-6.1-sol", "ocx-claude2-openrouter--anthropic~sclaude-test~ts",
+    "claude-ocx-minimax--MiniMax-M3", "claude-ocx2-openrouter--anthropic~sclaude-test~ts"];
+  const file = path.join(dir, "claude-gateway-catalog.json");
+  const write = models => fs.writeFileSync(file, JSON.stringify({ baseUrl, models }));
+  write(ids.map(id => ({ id, name: id, contextWindow: 1000000, supportedEffortLevels: ["low", "high"] })));
+  const child = childFixture(), switches = [];
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    const request = message.request;
+    if (request.subtype === "set_model") switches.push(request.model);
+    const response = request.subtype === "initialize"
+      ? { model: "haiku", models: [{ value: "haiku" }, ...ids.map(value => ({ value })), { value: "ocx-claude-native--retired" }] }
+      : request.subtype === "set_model" ? { model: request.model } : {};
+    child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: home, env, spawnImpl: () => child });
+  t.after(() => session.close());
+  const catalog = await session.models();
+  assert.deepEqual(catalog.models.map(row => row.id), ["haiku", ...ids]);
+  for (const id of ids) {
+    assert.deepEqual(catalog.models.find(row => row.id === id).supportedEffortLevels, ["low", "high"]);
+    assert.equal((await session.setModel(id)).model, id);
+  }
+  assert.deepEqual(switches, ids, "aliases reach Claude unchanged");
+  write([]);
+  assert.deepEqual((await session.models()).models.map(row => row.id), ["haiku"]);
+  fs.rmSync(file);
+  fs.mkdirSync(path.join(home, ".claude", "cache"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "cache", "gateway-models.json"), JSON.stringify({ baseUrl, models: ids.map(id => ({ id })) }));
+  assert.deepEqual(gatewayModelOptions(env).map(row => row.id), ids, "older public caches retain both alias generations");
 });
 
 test("Claude structured parser locks the native session and preserves subagent correlation", () => {

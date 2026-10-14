@@ -19,6 +19,9 @@ const cases = [
     [{ id: "claude-ocx-native--claude-fable-5-1[1m]", name: "claude-fable-5-1 (anthropic) · 1M", provider: "claude-code", description: "OpenCodex gateway · claude-fable-5-1 (anthropic) · 1M", contextWindow: 1e6 }, "claude-fable-5-1 · 1M", "OpenCodex · Anthropic"],
     [{ id: "claude-ocx-native--gpt-6-astra--fast", name: "gpt-6-astra (native) · Fast", provider: "claude-code", description: "OpenCodex gateway · gpt-6-astra (native) · Fast" }, "gpt-6-astra · Fast", "OpenCodex · ChatGPT"],
     [{ id: "claude-ocx-minimax--MiniMax-M3", name: "MiniMax-M3 (minimax)", provider: "claude-code", description: "OpenCodex gateway · MiniMax-M3 (minimax)" }, "MiniMax-M3", "OpenCodex · MiniMax"],
+    [{ id: "ocx-claude-native--claude-fable-5-1[1m]", name: "claude-fable-5-1 (anthropic) · 1M", provider: "claude-code", description: "OpenCodex gateway", contextWindow: 1e6 }, "claude-fable-5-1 · 1M", "OpenCodex · Anthropic"],
+    [{ id: "ocx-claude-native--gpt-6-astra--fast", name: "gpt-6-astra (native) · Fast", provider: "claude-code", description: "OpenCodex gateway" }, "gpt-6-astra · Fast", "OpenCodex · ChatGPT"],
+    [{ id: "ocx-claude-minimax--MiniMax-M3", name: "MiniMax-M3 (minimax)", provider: "claude-code", description: "OpenCodex gateway" }, "MiniMax-M3", "OpenCodex · MiniMax"],
   ]),
   ...rows("codex", [
     [{ id: "gpt-6-luna", name: "GPT-6-Luna", provider: "codex", description: "GPT-6 Luna Codex model." }, "GPT-6-Luna", "OpenAI"],

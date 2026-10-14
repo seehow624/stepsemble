@@ -16,6 +16,7 @@ const CHECKS = {
   "claude-code": ["check-claude-release.mjs"], "grok-build": ["check-grok-release.mjs"], pi: ["check-pi-release.mjs"],
   antigravity: ["check-antigravity-release.mjs"], opencode: ["check-opencode-release.mjs"],
   cline: ["check-acp-release.mjs", "cline"], kilo: ["check-acp-release.mjs", "kilo"], omp: ["check-acp-release.mjs", "omp"],
+  opencodex: ["check-opencodex-release.mjs"],
 };
 const args = process.argv.slice(2);
 const force = args.includes("--force");

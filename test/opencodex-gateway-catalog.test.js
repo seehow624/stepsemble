@@ -73,3 +73,27 @@ test("Claude companion cache refreshes and clears retired aliases without touchi
   assert.equal(fs.existsSync(path.join(f.home, ".claude", "settings.json")), false);
   assert.equal(first.source, "opencodex");
 });
+
+test("Claude caches retain both OpenCodex alias generations and their context/effort metadata", async t => {
+  const f = fixture(t);
+  const ids = ["ocx-claude-native--gpt-6.1-sol", "ocx-claude2-openrouter--anthropic~sclaude-test",
+    "claude-ocx-minimax--MiniMax-M3", "claude-ocx2-openrouter--anthropic~sclaude-test"];
+  f.rows([...ids.map(id => ({ id, display_name: id, max_input_tokens: 1000000,
+    capabilities: { effort: { high: { supported: true } } } })), { id: "claude-sonnet-5" }, { id: "unrelated-model" }]);
+  const before = fs.readFileSync(f.config, "utf8");
+  const result = await f.service.refreshClaudeGatewayCache();
+  assert.equal(result.catalogCount, ids.length);
+  const publicCache = JSON.parse(fs.readFileSync(result.file, "utf8"));
+  assert.deepEqual(publicCache.models.map(row => row.id), [...ids, "claude-sonnet-5"]);
+  const catalog = JSON.parse(fs.readFileSync(result.catalogFile, "utf8"));
+  assert.deepEqual(catalog.models.map(row => row.id), ids);
+  for (const row of catalog.models) {
+    assert.equal(row.contextWindow, 1000000);
+    assert.deepEqual(row.supportedEffortLevels, ["high"]);
+  }
+  const settings = JSON.parse(fs.readFileSync(result.settingsFile, "utf8"));
+  assert.deepEqual(settings.modelPicker.options.map(row => row.model), ids);
+  assert(settings.modelPicker.options.every(row => row.behavesAs === "claude-sonnet-5[1m]"));
+  assert.equal(fs.readFileSync(f.config, "utf8"), before);
+  assert.equal(fs.existsSync(path.join(f.home, ".claude", "settings.json")), false);
+});

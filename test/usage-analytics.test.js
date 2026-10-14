@@ -186,6 +186,32 @@ test("model identity distinguishes vendors from routed connections without depen
   assert.deepEqual(Data.modelIdentity("openai", "anthropic/gpt-usage-test"), { provider: "anthropic", model: "gpt-usage-test" });
   assert.deepEqual(Data.modelIdentity("openai", "anthropic/openai/gpt-usage-test"), { provider: "anthropic", model: "openai/gpt-usage-test" });
 });
+test("current and persisted Claude OpenCodex aliases share vendor groups and exact prices", () => {
+  const catalog = sanitize({ "gpt-6.1-sol": { provider: "openai", input_cost_per_token: 2e-6, output_cost_per_token: 10e-6 },
+    "MiniMax-M3": { provider: "minimax", input_cost_per_token: .3e-6, output_cost_per_token: 1.2e-6 },
+    "claude-test~s": { provider: "anthropic", input_cost_per_token: 4e-6, output_cost_per_token: 20e-6 } });
+  const tokens = { input: 100, output: 20, cacheRead: 0, cacheWrite: 0 };
+  for (const prefix of ["claude-ocx", "ocx-claude"]) {
+    for (const [suffix, provider, model, usd] of [["-native--gpt-6.1-sol", "openai", "gpt-6.1-sol", .0004],
+      ["-minimax--MiniMax-M3", "minimax", "MiniMax-M3", .000054],
+      ["2-openrouter--anthropic~sclaude-test~ts", "anthropic", "claude-test~s", .0008]]) {
+      const alias = prefix + suffix;
+      const parser = createUsageParser("claude-code", UUID);
+      parser.consume({ type: "assistant", sessionId: UUID, timestamp: new Date(AT).toISOString(), message: {
+        id: alias, model: alias, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      } });
+      const row = parser.result().rows[0];
+      assert.deepEqual(row.tokens, tokens);
+      assert.deepEqual(Data.modelIdentity(row.provider, row.model), { provider, model });
+      assert.equal(Data.modelGroup({ provider: row.provider, name: row.model }).id, JSON.stringify([provider, model]));
+      assert.ok(Math.abs(estimate(row, catalog).usd - usd) < 1e-12, alias);
+    }
+    assert.deepEqual(Data.modelIdentity("anthropic", prefix + "-openrouter--anthropic~sclaude-test~ts"),
+      { provider: "opencodex", model: "anthropic~sclaude-test~ts" }, "plain aliases never decode escapes");
+  }
+  assert.deepEqual(Data.modelIdentity("custom-unknown", "ocx-claude-native--gpt-6.1-sol"),
+    { provider: "custom-unknown", model: "ocx-claude-native--gpt-6.1-sol" });
+});
 test("Google aliases and verified routers match vendor prices without borrowing a conflicting vendor's price", () => {
   const catalog = sanitize({ "gemini-usage-test": { provider: "gemini", input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },
     "gpt-usage-test": { provider: "openai", input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 },

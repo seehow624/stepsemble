@@ -305,14 +305,14 @@ function createOpenCodexGatewayService({
         const id = row.id.trim().slice(0, 256);
         if (!id) continue;
         const first = id.slice(0, 7).toLowerCase();
-        if (first !== "claude-" && first !== "anthrop") continue;
+        if (first !== "claude-" && first !== "anthrop" && !/^ocx-claude2?-/i.test(id)) continue;
         const displayName = typeof row.display_name === "string" ? row.display_name.slice(0, 200) : null;
         usable.push(displayName ? { id, display_name: displayName } : { id });
         // The public Claude cache intentionally stays byte-for-byte compatible
         // with OpenCodex.  Stepsemble keeps richer, non-secret metadata in its
         // own catalog so the model sheet can expose context and reasoning
         // capabilities without asking Claude to parse unknown cache fields.
-        if (/^claude-ocx-/i.test(id)) {
+        if (/^(?:claude-ocx|ocx-claude)2?-/i.test(id)) {
           const maxInputTokens = Number(row.max_input_tokens);
           const contextWindow = Number.isSafeInteger(maxInputTokens) && maxInputTokens > 0 ? maxInputTokens : null;
           const effort = row.capabilities?.effort;

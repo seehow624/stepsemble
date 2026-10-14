@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.59
+
+- Restore Claude Code's OpenCodex model picker for current ocx-claude- and ocx-claude2- IDs while retaining persisted claude-ocx- and claude-ocx2- aliases. Preserve the exact model ID, context window and supported effort levels when listing and switching models, and remove retired aliases after an authoritative refresh.
+- Decode both alias generations for Usage vendor grouping and reference pricing, preserving literal legacy IDs and escaping semantics instead of classifying routed GPT and MiniMax models as Anthropic.
+- Add a stable OpenCodex release check to the daily agent checks. Run the real gateway and Claude Code in an isolated HOME against a localhost fake provider to verify health, complete model catalogs, Codex pagination and live model switching without accounts or paid requests.
+- Add regressions for both alias generations, cache fallback, retirement, model presentation and native usage pricing. Verify Claude Code's stable release and OpenCodex 2.84.0 through the Host adapters; keep upgrade settings, credentials, routing and catalog refresh intervals unchanged.
+
 ## 3.8.58
 
 - Recover the shared Codex history reader when it exits between requests. Clear stale readiness, preserve the actual transport error and rebuild the reader through the existing bounded retry without resending prompts or interrupting independent session workers.
