@@ -16,4 +16,5 @@ products and are not relicensed by this distribution.
 
 The spinning menu-bar cat frames come from TokenBar / tokcat (MIT), tracing
 back to RunCat by Takuto Nakamura. Attribution and license are bundled in
-macos/Stepsemble/MenuBarCat/LICENSE.txt and the app’s MenuBarCat resources.
+macos/Stepsemble/MenuBarCat/LICENSE.txt and the app’s MenuBarCat resources;
+public/menubar-cat.png is the first of those frames, used in the menu preview.

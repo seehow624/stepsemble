@@ -17,9 +17,8 @@ function parseQuery(params, now = Date.now()) {
   }
   return query;
 }
-function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = path.join(home, ".config", "stepsemble", "usage-index"), now = Date.now } = {}) {
-  let worker = null, cache = new Map(), flights = new Map(), serial = 0, pending = new Map(), closed = false, idle;
-  let activity = null, activityAt = -Infinity;
+function createWorkerReader() {
+  let worker = null, serial = 0, pending = new Map(), closed = false, idle;
   function fail() {
     for (const { reject, timer } of pending.values()) { clearTimeout(timer); reject(Object.assign(new Error("usage_unavailable"), { statusCode: 503 })); }
     pending.clear(); worker = null;
@@ -46,6 +45,13 @@ function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = p
       pending.set(id, { resolve, reject, timer }); worker.postMessage({ id, input });
     });
   }
+  async function shutdown() { closed = true; clearTimeout(idle); const prior = worker; worker = null; fail(); await prior?.terminate(); }
+  return { execute, shutdown };
+}
+function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = path.join(home, ".config", "stepsemble", "usage-index"), now = Date.now } = {}) {
+  const reports = createWorkerReader(), activityReader = createWorkerReader();
+  const cache = new Map(), flights = new Map();
+  let closed = false, activity = null, activityAt = -Infinity, activityFlight = null;
   async function read(query, { fresh = false } = {}) {
     const selected = entries();
     const signature = crypto.createHash("sha256").update(JSON.stringify(selected)).digest("hex");
@@ -58,25 +64,21 @@ function createUsageAnalytics({ home, entries, pricing, roots = {}, indexDir = p
     const flight = (async () => {
       await Promise.allSettled([...flights.values()]);
       const prices = await pricing.read();
-      const report = await execute({ home, roots, indexDir, entries: selected, query, prices: prices.models, priceUpdatedAt: prices.updatedAt });
+      const report = await reports.execute({ home, roots, indexDir, entries: selected, query, prices: prices.models, priceUpdatedAt: prices.updatedAt });
       cache.set(key, { at: now(), report });
       while (cache.size > 8) cache.delete(cache.keys().next().value);
       return report;
     })().finally(() => flights.delete(key));
     flights.set(key, flight); return flight;
   }
-  async function shutdown() { closed = true; clearTimeout(idle); cache.clear(); const prior = worker; worker = null; fail(); await prior?.terminate(); return { cleanupConfirmed: true }; }
-  // Cheap polling endpoint: return a bounded-age snapshot immediately. The
-  // shared worker serializes a read-only history refresh at most every 15s.
+  async function shutdown() { closed = true; cache.clear(); await Promise.all([reports.shutdown(), activityReader.shutdown()]); return { cleanupConfirmed: true }; }
+  // A separate bounded reader follows recently written logs across the whole
+  // machine. A large date-range report or slow price request cannot block it.
   function recent() {
-    if (!closed && !flights.has("activity") && now() - activityAt >= 15000 && flights.size < 8) {
+    if (!closed && !activityFlight && now() - activityAt >= 5000) {
       activityAt = now();
-      const waiting = [...flights.values()];
-      const flight = (async () => {
-        await Promise.allSettled(waiting);
-        activity = await execute({ home, roots, indexDir, entries: entries(), kind: "activity", at: now(), query: {} });
-      })().catch(() => { activity = null; }).finally(() => flights.delete("activity"));
-      flights.set("activity", flight);
+      activityFlight = activityReader.execute({ home, roots, entries: [], kind: "activity", at: now(), query: {} })
+        .then(value => { activity = value; }).catch(() => { activity = null; }).finally(() => { activityFlight = null; });
     }
     return activity && now() - activity.at < 45000 ? activity : null;
   }

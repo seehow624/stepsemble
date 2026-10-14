@@ -5,26 +5,45 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>Stepsemble · Limits &amp; usage</title>
-  <link rel="stylesheet" href="/modules/menubar.css?v=3.8.61">
+  <link rel="stylesheet" href="/modules/menubar.css?v=3.8.62">
 </head>
 <body>
-  <header><img src="/stepsemble-mark.svg" width="25" height="25" alt=""><strong>Stepsemble</strong><button id="refresh" type="button" aria-label="Refresh">↻</button></header>
+  <header>
+    <img src="/stepsemble-mark.svg" width="22" height="22" alt=""><strong>Stepsemble</strong>
+    <span id="updated" role="status"></span>
+    <button id="refresh" class="icon-button" type="button" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M19.3 12a7.3 7.3 0 1 0-2 5.1M20 12l-2.3-4.2"/></svg></button>
+  </header>
   <main>
-    <select id="hosts" aria-label="Host"></select>
-    <section id="activity" aria-label="Token activity"><div><span id="activity-label">Output speed</span><strong><span id="rate">—</span> <small>tok/s</small></strong></div><span id="activity-note">Reading activity…</span></section>
-    <div class="section-title"><h1 id="limits-title">Limits</h1><div id="quota-mode" role="group" aria-label="Quota display"></div></div>
-    <section id="limits" aria-labelledby="limits-title"></section>
-    <div class="section-title"><h2 id="today-title">Today</h2><span id="updated" role="status"></span></div>
-    <section class="totals" aria-labelledby="today-title"><div><span id="token-label">Tokens</span><strong id="tokens">—</strong></div><div><span id="cost-label">Estimated cost</span><strong id="cost">—</strong></div></section>
-    <div id="agents"></div>
-    <p id="notice" role="status"></p>
-    <details id="data-details" hidden><summary id="data-details-label">Data details</summary><p id="data-details-text"></p></details>
-    <p id="estimate-note">USD estimate · not a bill</p>
+    <div id="overview">
+      <div class="host-control"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg><select id="hosts" aria-label="Host"></select></div>
+      <section id="activity" aria-label="Token activity">
+        <div class="activity-heading"><span class="activity-dot"></span><span id="scope-label">Whole computer</span><span id="activity-status">Reading activity…</span></div>
+        <div class="activity-numbers"><div><strong id="burn">—</strong><span class="unit">tok/min</span></div><div class="output-speed"><strong><span id="rate">—</span><small>tok/s</small></strong><span id="activity-label">Output speed</span></div></div>
+        <div id="activity-agents"></div>
+        <span id="activity-note">Input, output &amp; cache · last 60s</span>
+      </section>
+      <div class="section-title"><h1 id="limits-title">Limits</h1><div id="quota-mode" role="group" aria-label="Quota display"></div></div>
+      <section id="limits" aria-labelledby="limits-title"></section>
+      <div class="section-title"><h2 id="today-title">Today</h2><span id="estimate-note">USD estimate · not a bill</span></div>
+      <section class="totals" aria-labelledby="today-title"><div><span id="token-label">Tokens</span><strong id="tokens">—</strong></div><div><span id="cost-label">Estimated cost</span><strong id="cost">—</strong></div></section>
+      <details id="agent-details"><summary id="agent-details-label">Usage by agent</summary><div id="agents"></div></details>
+      <p id="notice" role="status"></p>
+      <details id="data-details" hidden><summary id="data-details-label">Data details</summary><p id="data-details-text"></p></details>
+    </div>
+    <section id="preferences" hidden aria-labelledby="preferences-title">
+      <h1 id="preferences-title" tabindex="-1">Menu bar appearance</h1><p id="preferences-note">Choose what appears beside the cat.</p>
+      <div class="menu-preview" aria-label="Menu bar preview"><img src="/menubar-cat.png" width="22" height="22" alt=""><strong id="preview-value"></strong></div>
+      <label class="preference-label" id="metric-label" for="metric">Beside the cat</label>
+      <select id="metric"><option value="rate">Output tok/s</option><option value="burn">Usage tok/min</option><option value="limits">Limits</option><option value="tokens">Today’s tokens</option><option value="cost">Estimated cost</option><option value="hidden">Cat only</option></select>
+      <div class="preference-row"><div><label for="animate" id="animate-label">Animate cat</label><p id="animate-note">Follows this Host’s total usage. Turns slowly when idle.</p></div><input id="animate" class="switch" type="checkbox" checked></div>
+      <p id="motion-note"></p>
+      <p id="scope-note">Includes supported agents running outside Stepsemble.</p>
+    </section>
   </main>
-  <footer><div class="menu-options"><label id="metric-label" for="metric">Menu bar</label><select id="metric"><option value="rate">Output tok/s</option><option value="burn">Usage tok/min</option><option value="limits">Limits</option><option value="tokens">Today’s tokens</option><option value="cost">Estimated cost</option><option value="hidden">Icon only</option></select><label><input id="animate" type="checkbox" checked><span id="animate-label">Animate cat</span></label></div><button id="open" type="button">Open usage ↗</button></footer>
-  <script src="/modules/workspace-i18n.js?v=3.8.61"></script>
-  <script src="/modules/usage-data.js?v=3.8.61"></script>
-  <script src="/modules/menubar-data.js?v=3.8.61"></script>
-  <script src="/modules/menubar.js?v=3.8.61"></script>
+  <footer><button id="settings" type="button" aria-controls="preferences" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg><span id="settings-label">Appearance</span></button><button id="open" type="button">Open usage ↗</button></footer>
+  <script src="/modules/workspace-i18n.js?v=3.8.62"></script>
+  <script src="/modules/usage-data.js?v=3.8.62"></script>
+  <script src="/modules/menubar-data.js?v=3.8.62"></script>
+  <script src="/modules/menubar.js?v=3.8.62"></script>
 </body>
 </html>

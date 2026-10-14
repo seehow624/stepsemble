@@ -275,6 +275,21 @@ The panel refreshes on opening and every minute while the App is running; all
 requests reuse its authenticated Host connections. Closing workspace windows
 leaves the panel available; quitting Stepsemble closes it.
 
+### Whole-computer activity and the cat (3.8.62)
+
+The activity card follows each selected computer, including supported agents
+running outside Stepsemble. A separate worker rereads only histories written in
+the last five minutes (checking linked archive targets and SQLite WAL files)
+every five seconds, so a long Usage report cannot delay it. It reports total
+usage per minute (input, output and cache) and observed output tok/s. A session
+waiting inside Stepsemble no longer hides output from other agents or Hosts.
+
+The cat follows total machine usage: it turns slowly when idle, faster with
+more usage, and reaches 40 frames per second under heavy load; Reduce Motion or
+the Animate cat switch keeps it still. Appearance chooses what appears beside
+the cat: output tok/s, usage tok/min, limits, today's tokens, estimated cost or
+the cat alone.
+
 The additional readers retain numeric usage and bounded metadata only. They
 never launch agents or export prompt text. SQLite opens read-only, rejects
 views and unsafe companion files, and invalidates cached readings when the WAL

@@ -107,7 +107,7 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
                 guard let self = self, self.activityEpoch == epoch else { return }
                 self.activitySample = MenuBarActivityReader.summarize(values)
                 self.activityResults = values
-                self.cat?.update(rate: self.activitySample.rate ?? 0, enabled: self.animate)
+                self.cat?.update(rate: self.activitySample.motionRate, enabled: self.animate)
                 self.updateActivityTitle()
                 self.renderNativeActivity()
             }
@@ -126,7 +126,9 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
         let value = metric == "rate" ? activitySample.rate : activitySample.burn
         let formatter = NumberFormatter(); formatter.locale = Locale(identifier: locale); formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = metric == "rate" && (value ?? 0) < 10 ? 1 : 0
-        let number = value.flatMap { formatter.string(from: NSNumber(value: $0)) } ?? "—"
+        let scale = metric == "burn" && (value ?? 0) >= 1_000_000 ? 1_000_000.0 : metric == "burn" && (value ?? 0) >= 1_000 ? 1_000.0 : 1
+        if scale > 1 { formatter.maximumFractionDigits = 1 }
+        let number = (value.flatMap { formatter.string(from: NSNumber(value: $0 / scale)) } ?? "—") + (scale == 1_000_000 ? "M" : scale == 1_000 ? "K" : "")
         let text = (metric == "rate" && activitySample.estimated && value != nil ? "≈ " : "") + number + (metric == "rate" ? " tok/s" : " tok/min")
         item?.button?.title = " " + text
         item?.button?.toolTip = "Stepsemble · \(metricLabel) · \(text)"
@@ -195,7 +197,7 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
             metric = body["metric"] as? String ?? "limits"; metricLabel = label
             if let value = body["locale"] as? String, value.count <= 40 { locale = value }
             let enabled = body["animate"] as? Bool ?? true
-            if animate != enabled { animate = enabled; cat?.update(rate: activitySample.rate ?? 0, enabled: enabled) }
+            if animate != enabled { animate = enabled; cat?.update(rate: activitySample.motionRate, enabled: enabled) }
             if let hosts = body["activityHosts"] as? [String], hosts.count <= 32,
                hosts.allSatisfy({ $0.isEmpty || $0.range(of: "^[a-zA-Z0-9_-]{1,128}$", options: .regularExpression) != nil }) {
                 let unique = Array(Set(hosts)).sorted()
@@ -209,7 +211,7 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
                 // bridge while the App and Host are updated independently.
                 let rate = body["rate"] as? Double ?? 0
                 activitySample = MenuBarActivityReader.Sample(rate: rate.isFinite ? max(0, rate) : nil)
-                cat?.update(rate: activitySample.rate ?? 0, enabled: animate)
+                cat?.update(rate: activitySample.motionRate, enabled: animate)
             }
             updateActivityTitle()
         } else if type == "menubar-open", let host = body["host"] as? String,

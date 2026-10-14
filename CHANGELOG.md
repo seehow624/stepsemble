@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.62
+
+- Redesign the macOS menu-bar panel around three clear areas: whole-computer activity, shared limits and today's usage. Show reset times beside each allowance, group computers sharing one account, and replace the text refresh glyph with a proper icon that spins while refreshing.
+- Follow the whole computer, including supported agents running outside Stepsemble. A session waiting inside Stepsemble no longer hides output from other agents or Hosts, and a separate five-second reader of recently written histories keeps activity current while long Usage reports run.
+- Spin the cat with total machine usage, including cached input: slowly when idle, faster with more usage and up to 40 frames per second under heavy load. Reduce Motion and the Animate cat switch still keep it still.
+- Add an Appearance page to choose what appears beside the cat: output tok/s, usage tok/min, limits, today's tokens, estimated cost or the cat alone, with a live preview.
+- Read linked archive targets and SQLite WAL changes when sampling recent activity, and skip cold histories so a sample takes milliseconds after warm-up.
+
 ## 3.8.61
 
 - Conversations use thin gray scrollbars with transparent tracks in both dark and light themes, including embedded Workspace panes. macOS users who keep scrollbars always visible no longer get a contrasting white gutter.

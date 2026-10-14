@@ -273,12 +273,14 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await page.waitForFunction(() => document.querySelector("#rate")?.textContent === "≈ 12");
     assert.equal(await page.locator("#refresh").isDisabled(), true, "live output does not wait for a slow history scan");
     await releaseAnalytics(); await page.unroute("**/api/workspace/analytics?*"); await ready();
+    await page.locator("#settings").click();
     await page.locator("#metric").selectOption("rate");
     fixture.setActivity({ live: { active: 1, tokensPerSecond: 120, estimated: true }, history: null });
     await page.waitForFunction(() => document.querySelector("#rate")?.textContent === "≈ 120");
     await page.locator("#animate").uncheck();
     assert.equal(await page.locator("#animate").isChecked(), false);
     await page.locator("#metric").selectOption("hidden");
+    await page.locator("#settings").click();
     fixture.setActivity({ live: { active: 0, tokensPerSecond: 0 }, history: { available: true, tokensPerSecond: 2, tokensPerMinute: 900, partial: false }, historyAgeMs: 0 });
     await page.waitForFunction(() => document.querySelector("#activity-label")?.textContent === "Output · past 60s");
     assert.equal(await page.locator("#hosts").inputValue(), "mini");
@@ -299,7 +301,7 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     fixture.setQuotas({ mini: { updatedAt: 1, providers: [provider(20, 1)] }, mbp: { updatedAt: 2, providers: [provider(22, 2)] } });
     await page.locator("#refresh").click(); await ready();
     assert.equal(await page.locator(".quota").count(), 1, "one shared account");
-    assert.match(await page.locator("#limits").innerText(), /Mac Mini · MacBook Pro/);
+    assert.equal(await page.locator(".quota-hosts").getAttribute("title"), "Mac Mini · MacBook Pro");
     assert.match(await page.locator("#limits").innerText(), /22%/);
     assert.equal(await page.locator("#data-details").isVisible(), true);
     assert.equal(await page.locator("#data-details-text").isVisible(), false);

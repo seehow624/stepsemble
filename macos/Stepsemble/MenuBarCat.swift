@@ -1,7 +1,7 @@
 import AppKit
 
 /// Five template frames from TokenBar/tokcat (MIT; bundled notice). Frame
-/// timing follows fresh output measurements, never a busy flag alone.
+/// timing follows whole-machine usage; a quiet machine makes one slow rotation.
 final class MenuBarCat {
     private weak var button: NSStatusBarButton?
     private let frames: [NSImage]
@@ -14,9 +14,11 @@ final class MenuBarCat {
     private var motionObserver: NSObjectProtocol?
 
     static func frameInterval(rate: Double, enabled: Bool, reducedMotion: Bool) -> TimeInterval? {
-        guard enabled, !reducedMotion, rate.isFinite, rate > 0 else { return nil }
-        // 5 frames per rotation: 1 tok/s is relaxed, 100 tok/s is lively.
-        return max(0.05, 0.5 / (1 + sqrt(min(rate, 10000)) / 2))
+        guard enabled, !reducedMotion else { return nil }
+        guard rate.isFinite, rate > 0 else { return 2 } // one rotation per 10s
+        // 5 frames per rotation; output and total-token load share a bounded scale.
+        // Heavy machine-wide use reaches TokenBar's 40 fps ceiling.
+        return max(0.025, 0.5 / (1 + sqrt(min(rate, 10000)) / 2))
     }
     init(button: NSStatusBarButton) {
         self.button = button
@@ -26,6 +28,7 @@ final class MenuBarCat {
             image.size = NSSize(width: 18, height: 18); image.isTemplate = true; return image
         }
         if let first = frames.first { button.image = first }
+        update(rate: 0, enabled: true)
         motionObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.reschedule() }
     }
     func update(rate: Double, enabled: Bool) {
@@ -38,8 +41,10 @@ final class MenuBarCat {
         guard let next = next, !frames.isEmpty else { index = 0; if let first = frames.first { button?.image = first }; return }
         let timer = Timer(timeInterval: next, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            // Stop on a stalled WebView/network instead of spinning forever.
-            guard Date().timeIntervalSince(self.updated) < 10 else { self.rate = 0; self.reschedule(); return }
+            // Lost samples settle back to idle, never keep the last high speed.
+            if Date().timeIntervalSince(self.updated) >= 10 && self.rate > 0 {
+                self.rate = 0; self.reschedule(); return
+            }
             self.index = (self.index + 1) % self.frames.count; self.button?.image = self.frames[self.index]
         }
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)

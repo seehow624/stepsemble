@@ -1,6 +1,6 @@
 "use strict";
 const { parentPort } = require("node:worker_threads");
-const path = require("node:path");
+const path = require("node:path"), fs = require("node:fs/promises");
 const { estimate } = require("./usage-pricing");
 const { discoverUsageFiles, readUsageFile } = require("./usage-history");
 const { empty, addCall, modelIdentity } = require("../public/modules/usage-data");
@@ -9,9 +9,25 @@ function nativeId(record) { return record.agentId === "codex" ? record.nativeThr
   : record.agentId === "claude-code" ? record.nativeSessionId || record.nativeHistorySessionId || String(record.id || record.taskId || "").replace(/^(claude-history|claude-code):/, "")
   // Pi's sid identifies the RPC process, not the id in the persisted file.
   : record.nativeConversationId || record.nativeSessionId || record.nativeHistorySessionId || (record.file ? "" : record.sid || String(record.id || record.taskId || "").replace(/^[a-z-]+:/, "")); }
-async function machineUsage({ home, roots, entries, indexDir, workspaceOnly = false }) {
+async function machineUsage({ home, roots, entries, indexDir, workspaceOnly = false, recentAt = null }) {
   const budget = { deadline: Date.now() + 16000, maxBytes: 16 * 1024 * 1024 * 1024, bytes: 0, visited: 0, limited: false };
-  const { files, sources } = await discoverUsageFiles(home, roots, budget);
+  const discovered = await discoverUsageFiles(home, roots, budget);
+  // A link's mtime does not follow its archive, and SQLite can append only to
+  // the WAL for a long time. Check both before excluding cold histories.
+  const files = [];
+  for (const file of discovered.files) {
+    let modified = file.modified;
+    if (recentAt !== null && file.linked) {
+      try { modified = (await fs.stat(file.file)).mtimeMs; }
+      catch { modified = Infinity; } // normal reader reports the actual failure
+    }
+    if (recentAt !== null && file.format?.endsWith("-db")) {
+      try { modified = Math.max(modified || 0, (await fs.stat(file.file + "-wal")).mtimeMs); }
+      catch { /* No WAL; use the main database's modification time. */ }
+    }
+    if (recentAt === null || !Number.isFinite(modified) || modified >= recentAt - 300000) files.push(file);
+  }
+  const sources = discovered.sources;
   const registry = entries.slice(0, 2000).sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
   const groups = new Map(), seen = new Map(), matched = new Set(), issues = [];
   const coverage = { covered: 0, missing: 0, unsupported: registry.filter(item => !SUPPORTED.has(item.record.agentId)).length, partial: entries.length > 2000 ? 1 : 0, indexing: 0, scope: "history", issuesOmitted: 0 };
@@ -95,7 +111,7 @@ async function machineUsage({ home, roots, entries, indexDir, workspaceOnly = fa
 async function report(input) {
   const { home, roots = {}, entries = [], query, prices = {}, priceUpdatedAt } = input;
   const scope = query.scope === "workspace" ? "workspace" : "machine";
-  const { seen, coverage, sources, issues } = await machineUsage({ home, roots, entries, indexDir: input.indexDir, workspaceOnly: scope === "workspace" });
+  const { seen, coverage, sources, issues } = await machineUsage({ home, roots, entries, indexDir: input.indexDir, workspaceOnly: scope === "workspace", recentAt: input.kind === "activity" ? input.at : null });
   if (input.kind === "activity") return { ...require("./recent-usage").summarizeRecent(seen.values(), input.at), coverage,
     available: coverage.covered > 0 || !(coverage.indexing || coverage.missing || coverage.partial || coverage.unsupported),
     partial: !!(coverage.indexing || coverage.partial || coverage.missing || coverage.unsupported) };
