@@ -284,47 +284,49 @@
       const duration = minutes => minutes % 1440 === 0 ? minutes / 1440 + "d" : minutes % 60 === 0 ? minutes / 60 + "h" : minutes + "m";
       for (const host of quotas) {
         if (host.unavailable) { const notice = node("p", host.name + " · " + label("offline") + (host.quota ? " · " + label("cachedLimits") : ""), "usage-notice"); notice.setAttribute("role", "status"); body.append(notice); }
-        const providers = [...(host.quota?.providers || [])].sort((a, b) => {
-          const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => quotaRemaining(w) ?? 101));
-          return tightest(a) - tightest(b);
-        });
-        if (!providers.length) {
+        if (!host.quota?.providers?.length) {
           const empty = node("div", "", "usage-quota-empty"); empty.append(node("strong", host.name), node("p", label("quotaUnknown"))); section.append(empty);
         }
-        for (const provider of providers) {
-          const cached = host.unavailable || provider.status === "cached";
-          const card = node("article", "", "usage-quota-card"); card.dataset.cached = String(!!cached);
-          const heading = node("header", "", "usage-quota-heading"), identity = node("div", "", "usage-quota-identity");
-          identity.append(node("strong", provider.provider), node("small", host.name)); heading.append(providerLogo(provider.provider), identity);
-          if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
-          card.append(heading);
-          const readings = node("div", "", "usage-quota-windows");
-          const windows = [...(provider.windows || [])].sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
-          readings.style.setProperty("--quota-columns", String(Math.min(3, Math.max(2, windows.length))));
-          if (!windows.length) readings.append(node("p", label("quotaUnknown"), "usage-quota-unknown usage-muted"));
-          for (const window of windows) {
-            const remaining = quotaRemaining(window), percent = quotaPercent(window);
-            const row = node("div", "", "usage-quota-window"); row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining <= 10 ? "critical" : "low";
-            const minutes = window.windowDurationMins, period = Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || "";
-            const bucket = window.bucket && ![provider.provider, provider.service].some(name => String(name || "").toLowerCase() === String(window.bucket).toLowerCase()) ? window.bucket : "";
-            const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = quotaLabel(window);
-            const line = node("div", "", "usage-quota-line"), amount = node("strong", percent === null ? "—" : percent + "%");
-            amount.setAttribute("aria-label", value); amount.title = value;
-            line.append(node("span", name), amount);
-            const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + value);
-            bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (percent !== null) { bar.setAttribute("aria-valuenow", String(percent)); bar.setAttribute("aria-valuetext", value); }
-            const fill = node("span"); fill.style.width = (percent ?? 0) + "%"; bar.append(fill); row.append(line, bar);
-            if (window.resetsAt) {
-              const left = Math.max(0, Math.ceil((window.resetsAt - Date.now()) / 60000)), days = Math.floor(left / 1440), hours = Math.floor(left % 1440 / 60);
-              const reset = node("small", left ? label("resetsIn", { time: days ? `${days}d ${hours}h` : hours ? `${hours}h ${left % 60}m` : `${left}m` }) : label("awaitingReset"));
-              reset.title = label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf()) }); row.append(reset);
-            }
-            readings.append(row);
+      }
+      const providers = root.StepsembleUsageData.combineQuotas(quotas).sort((a, b) => {
+        const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => quotaRemaining(w) ?? 101));
+        return tightest(a) - tightest(b);
+      });
+      for (const provider of providers) {
+        const cached = provider.cached;
+        const card = node("article", "", "usage-quota-card"); card.dataset.cached = String(!!cached);
+        const heading = node("header", "", "usage-quota-heading"), identity = node("div", "", "usage-quota-identity");
+        identity.append(node("strong", provider.provider), node("small", provider.hosts.map(host => host.name).join(" · "))); heading.append(providerLogo(provider.provider), identity);
+        if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
+        card.append(heading);
+        const readings = node("div", "", "usage-quota-windows");
+        const windows = [...(provider.windows || [])].sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
+        readings.style.setProperty("--quota-columns", String(Math.min(3, Math.max(2, windows.length))));
+        if (!windows.length) readings.append(node("p", label("quotaUnknown"), "usage-quota-unknown usage-muted"));
+        for (const window of windows) {
+          const remaining = quotaRemaining(window), percent = quotaPercent(window);
+          const row = node("div", "", "usage-quota-window"); row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining <= 10 ? "critical" : "low";
+          const minutes = window.windowDurationMins, period = Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || "";
+          const bucket = window.bucket && ![provider.provider, provider.service].some(name => String(name || "").toLowerCase() === String(window.bucket).toLowerCase()) ? window.bucket : "";
+          const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = quotaLabel(window);
+          const line = node("div", "", "usage-quota-line"), amount = node("strong", percent === null ? "—" : percent + "%");
+          amount.setAttribute("aria-label", value); amount.title = value;
+          line.append(node("span", name), amount);
+          const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + value);
+          bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (percent !== null) { bar.setAttribute("aria-valuenow", String(percent)); bar.setAttribute("aria-valuetext", value); }
+          const fill = node("span"); fill.style.width = (percent ?? 0) + "%"; bar.append(fill); row.append(line, bar);
+          if (window.resetsAt) {
+            const left = Math.max(0, Math.ceil((window.resetsAt - Date.now()) / 60000)), days = Math.floor(left / 1440), hours = Math.floor(left % 1440 / 60);
+            const reset = node("small", left ? label("resetsIn", { time: days ? `${days}d ${hours}h` : hours ? `${hours}h ${left % 60}m` : `${left}m` }) : label("awaitingReset"));
+            reset.title = label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf()) }); row.append(reset);
           }
-          if (cached && provider.observedAt) readings.append(node("small", label("updated", { time: new Date(provider.observedAt).toLocaleString(localeOf()) }), "usage-quota-observed usage-muted"));
-          card.append(readings);
-          grid.append(card);
+          readings.append(row);
         }
+        if (cached && provider.observedAt) readings.append(node("small", label("updated", { time: new Date(provider.observedAt).toLocaleString(localeOf()) }), "usage-quota-observed usage-muted"));
+        card.append(readings);
+        grid.append(card);
+      }
+      for (const host of quotas) {
         const sources = button(label("sources") + (!selectedHost ? " · " + host.name : ""), () => { close(); openQuotaSources(host.host); }, "usage-quota-sources");
         sources.dataset.quotaSource = host.host; section.append(sources);
       }

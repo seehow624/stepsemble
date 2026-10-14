@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.8.57
+
+- Add a compact changed-files summary that opens the edits recorded for that turn, including changes already committed. Keep the current working-tree review separate.
+- Add Modified and All Files views for browsing project folders and reading code with line numbers and basic syntax highlighting, on desktop and phones. Respect project boundaries and handle missing, binary and oversized files explicitly.
+- Keep the macOS menu-bar cat and output rate updated through native background polling while the popover is closed. Begin activity updates before slower usage scans finish, and preserve compatibility during App and Host upgrades.
+- Merge shared subscription limits across Hosts only when the account identity is confirmed. Show the computers beneath one card, select the latest complete reading and never add shared quota percentages together.
+- Move verbose menu-bar history and pricing coverage notices into collapsed Data details, while keeping unavailable Hosts and approximate costs visible.
+- Add native activity transport, account identity, desktop and mobile browser regressions; preserve existing conversations, histories and credentials.
+
 ## 3.8.56
 
 - Show a compact working spinner beside each Session's menu, followed by a green dot when a completed response has not been viewed. Failed, stopped and blocked work uses a distinct amber marker.

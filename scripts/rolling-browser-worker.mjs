@@ -22,6 +22,7 @@ import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.m
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
 import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
+import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
@@ -181,6 +182,7 @@ try {
     await runConversationUxBrowserCases(browser);
   }
   else if (suite === "workspace") {
+    await runProjectFilesBrowserCases(browser);
     await runWorkspaceReorderBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);

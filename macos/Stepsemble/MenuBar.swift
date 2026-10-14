@@ -18,6 +18,16 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
     private var timer: Timer?
     private var activityTimer: Timer?
     private var cat: MenuBarCat?
+    private let activityReader = MenuBarActivityReader()
+    private var activityHosts: [String] = []
+    private var activityEpoch = 0
+    private var activitySample = MenuBarActivityReader.Sample()
+    private var activityResults: [[String: Any]?] = []
+    private var animate = true
+    private var metric = "limits"
+    private var metricLabel = ""
+    private var locale = "en"
+    private var cookieReading = false
     private var escapeMonitor: Any?
     private var connecting = false
     private var loaded = false
@@ -42,6 +52,7 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
         configuration.websiteDataStore = .default()
         configuration.applicationNameForUserAgent = "Stepsemble/\(appVersion)"
         configuration.userContentController.add(relay, name: "stepsemble")
+        configuration.userContentController.addUserScript(WKUserScript(source: "window.StepsembleMenubarNativePolling = true", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 380, height: 550), configuration: configuration)
         webView.navigationDelegate = self
         let controller = NSViewController(); controller.view = webView
@@ -49,8 +60,10 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
         popover.behavior = .transient; popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
         let heartbeat = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
-            guard let self = self, self.loaded else { return }
-            self.webView.evaluateJavaScript("window.StepsembleMenubarActivity?.()", completionHandler: nil)
+            guard let self = self else { return }
+            if self.activityHosts.isEmpty && self.loaded {
+                self.webView.evaluateJavaScript("window.StepsembleMenubarActivity?.()", completionHandler: nil)
+            } else { self.refreshActivity() }
         }
         activityTimer = heartbeat; RunLoop.main.add(heartbeat, forMode: .common)
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -67,13 +80,57 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         webView.window?.setAccessibilityLabel("Stepsemble · Limits & usage")
-        webView.window?.makeKey(); refresh()
+        webView.window?.makeKey(); renderNativeActivity(); refresh()
     }
     func stop() {
-        timer?.invalidate(); activityTimer?.invalidate(); cat?.stop()
+        timer?.invalidate(); activityTimer?.invalidate(); cat?.stop(); activityReader.stop(); activityEpoch += 1
         if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor); escapeMonitor = nil }
         popover.performClose(nil)
         if let item = item { NSStatusBar.system.removeStatusItem(item) }; item = nil
+    }
+    private func refreshActivity() {
+        guard let port = port, !activityHosts.isEmpty, !cookieReading else { return }
+        let epoch = activityEpoch
+        cookieReading = true
+        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
+            guard let self = self else { return }
+            self.cookieReading = false
+            guard self.activityEpoch == epoch else { return }
+            let local = cookies.filter { $0.name == "stepsemble" && $0.domain == "127.0.0.1" && ($0.expiresDate ?? .distantFuture) > Date() }
+            let cookie = HTTPCookie.requestHeaderFields(with: local)["Cookie"] ?? ""
+            guard !cookie.isEmpty else {
+                self.activityEpoch += 1; self.activityReader.cancel()
+                self.activitySample = MenuBarActivityReader.Sample(); self.activityResults = [nil]
+                self.cat?.update(rate: 0, enabled: self.animate); self.updateActivityTitle(); self.renderNativeActivity(); return
+            }
+            self.activityReader.poll(port: port, hosts: self.activityHosts, cookie: cookie) { [weak self] values in
+                guard let self = self, self.activityEpoch == epoch else { return }
+                self.activitySample = MenuBarActivityReader.summarize(values)
+                self.activityResults = values
+                self.cat?.update(rate: self.activitySample.rate ?? 0, enabled: self.animate)
+                self.updateActivityTitle()
+                self.renderNativeActivity()
+            }
+        }
+    }
+    private func renderNativeActivity() {
+        // Never queue work into a suspended, invisible WebKit process.
+        guard popover.isShown, !activityResults.isEmpty else { return }
+        let values: [Any] = activityResults.map { $0 as Any? ?? NSNull() }
+        if let data = try? JSONSerialization.data(withJSONObject: values), let json = String(data: data, encoding: .utf8) {
+            webView.evaluateJavaScript("window.StepsembleMenubarNativeActivity?.(\(json))", completionHandler: nil)
+        }
+    }
+    private func updateActivityTitle() {
+        guard metric == "rate" || metric == "burn" else { return }
+        let value = metric == "rate" ? activitySample.rate : activitySample.burn
+        let formatter = NumberFormatter(); formatter.locale = Locale(identifier: locale); formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = metric == "rate" && (value ?? 0) < 10 ? 1 : 0
+        let number = value.flatMap { formatter.string(from: NSNumber(value: $0)) } ?? "—"
+        let text = (metric == "rate" && activitySample.estimated && value != nil ? "≈ " : "") + number + (metric == "rate" ? " tok/s" : " tok/min")
+        item?.button?.title = " " + text
+        item?.button?.toolTip = "Stepsemble · \(metricLabel) · \(text)"
+        item?.button?.setAccessibilityLabel("Stepsemble · \(metricLabel) · \(text)")
     }
     private func refresh() {
         if loaded { webView.evaluateJavaScript("window.StepsembleMenubarRefresh?.()", completionHandler: nil) }
@@ -91,6 +148,7 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
                     self.webView.loadHTMLString("<html><body style='background:#151515;color:#aaa;font:14px -apple-system;padding:24px'>Stepsemble<br><br>Waiting for this computer’s Host…</body></html>", baseURL: nil)
                     return
                 }
+                if self.port != port { self.activityEpoch += 1; self.activityReader.cancel() }
                 self.port = port
                 signIn(port: port, into: self.webView.configuration.websiteDataStore.httpCookieStore) {
                     guard self.port == port else { self.connecting = false; return }
@@ -134,8 +192,26 @@ final class MenuBarPanel: NSObject, WKNavigationDelegate {
             item?.button?.imagePosition = text.isEmpty ? .imageOnly : .imageLeading
             item?.button?.toolTip = "Stepsemble · \(label) · \(text)"
             item?.button?.setAccessibilityLabel("Stepsemble · \(label) · \(text)")
-            let rate = body["rate"] as? Double ?? 0
-            cat?.update(rate: min(max(0, rate.isFinite ? rate : 0), 100000), enabled: body["animate"] as? Bool ?? true)
+            metric = body["metric"] as? String ?? "limits"; metricLabel = label
+            if let value = body["locale"] as? String, value.count <= 40 { locale = value }
+            let enabled = body["animate"] as? Bool ?? true
+            if animate != enabled { animate = enabled; cat?.update(rate: activitySample.rate ?? 0, enabled: enabled) }
+            if let hosts = body["activityHosts"] as? [String], hosts.count <= 32,
+               hosts.allSatisfy({ $0.isEmpty || $0.range(of: "^[a-zA-Z0-9_-]{1,128}$", options: .regularExpression) != nil }) {
+                let unique = Array(Set(hosts)).sorted()
+                if unique != activityHosts {
+                    activityHosts = unique; activityEpoch += 1; activityReader.cancel()
+                    activitySample = MenuBarActivityReader.Sample(); activityResults = []; cat?.update(rate: 0, enabled: animate)
+                    refreshActivity()
+                }
+            } else if body["activityHosts"] == nil && activityHosts.isEmpty {
+                // Older Host pages still supply their measured rate over the
+                // bridge while the App and Host are updated independently.
+                let rate = body["rate"] as? Double ?? 0
+                activitySample = MenuBarActivityReader.Sample(rate: rate.isFinite ? max(0, rate) : nil)
+                cat?.update(rate: activitySample.rate ?? 0, enabled: animate)
+            }
+            updateActivityTitle()
         } else if type == "menubar-open", let host = body["host"] as? String,
                   host.isEmpty || host.range(of: "^[a-zA-Z0-9_-]{1,128}$", options: .regularExpression) != nil {
             let agent = body["agent"] as? String ?? ""

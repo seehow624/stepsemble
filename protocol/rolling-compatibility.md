@@ -2,8 +2,8 @@
 
 `npm run test:rolling` runs actual browser code and actual Node Hosts from the
 two immutable releases in `rolling-releases.json`, paired in both directions
-with the current development tree. At this pre-release point these are v3.8.55
-and v3.8.54, the latest two **shipped** versions before 3.8.56. Tags are verified against
+with the current development tree. At this pre-release point these are v3.8.56
+and v3.8.55, the latest two **shipped** versions before 3.8.57. Tags are verified against
 full commit IDs, then Git archives are extracted into disposable local folders.
 Nothing is checked out over the worktree. Update the pins explicitly at release
 time; do not float tags or substitute current sources for a historical Client.
@@ -53,7 +53,9 @@ used. No runtime dependency or build output is installed onto the project volume
 
 Compatibility/conversation, workspace, and optional native history groups each
 run in a fresh worker with a five-minute process budget. Deliberate workspace
-polling waits do not consume the conversation group's budget. Each case retains
+polling waits do not consume the conversation group's budget. The workspace
+group also checks recorded, already-committed file diffs and read-only project
+browsing/code previews at 1440, 390 and 320 px, using disposable local files. Each case retains
 its own timeout; a failed or timed-out group stops the run without retries.
 
 The separate `Rolling browser compatibility` workflow runs macOS 14 arm64 and

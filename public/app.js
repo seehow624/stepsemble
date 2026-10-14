@@ -1,7 +1,7 @@
-/* stepsemble v3.8.56 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.57 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.56";
+const CLIENT_APP_VERSION = "3.8.57";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -420,6 +420,8 @@ const LEGACY_ONBOARDING_KEYS = Object.freeze(["piharbor.onboarding.v1", "piweb.o
 let onboardingStep = 0;
 const ACTIVITY_STALE_MS = 45_000;
 let projectChangesState = null;
+let projectBrowser = null;
+let projectChangesReturnFocus = null;
 let projectChangesRequest = null;
 let projectDiffRequest = null;
 let selectedChangePath = "";
@@ -4187,6 +4189,7 @@ function renderProjectChangesChrome() {
   el.changesFilesPane.setAttribute("aria-label", changesText("changedFiles"));
   const backCopy = el.changesDetailBack?.querySelector("span");
   if (backCopy) backCopy.textContent = changesText("changedFiles");
+  projectBrowser?.sync();
 }
 
 function setChangesState(title, detail = "") {
@@ -4364,6 +4367,7 @@ function resetRenderedDiff(message = changesText("selectFile")) {
 function renderProjectChanges() {
   if (!el.changesLayer) return;
   renderProjectChangesChrome();
+  if (projectBrowser?.active) { renderChangesBadge(); return; }
   const state = projectChangesState;
   const data = state?.data || null;
   el.changesRepository.textContent = data?.root || currentSessionCwd || "";
@@ -4407,14 +4411,6 @@ function renderProjectChanges() {
   if (!selectedChangePath) resetRenderedDiff();
 }
 
-function diffLineClass(line) {
-  if (line.startsWith("@@")) return "hunk";
-  if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++") || line.startsWith("\\ No newline")) return "meta";
-  if (line.startsWith("+")) return "add";
-  if (line.startsWith("-")) return "del";
-  return "";
-}
-
 function appendChangesNotice(copy) {
   const notice = document.createElement("div");
   notice.className = "changes-diff-notice";
@@ -4440,16 +4436,9 @@ function renderProjectDiff(data) {
     const label = document.createElement("div");
     label.className = "changes-diff-section-label";
     label.textContent = changesText(item.kind === "staged" ? "staged" : item.kind === "untracked" ? "untracked" : "worktree");
-    const pre = document.createElement("pre");
-    const lines = String(item.diff).split("\n");
-    for (const line of lines.slice(0, MAX_RENDERED_DIFF_LINES - renderedLines)) {
-      const span = document.createElement("span");
-      const tone = diffLineClass(line);
-      span.className = `changes-diff-line${tone ? ` ${tone}` : ""}`;
-      span.textContent = line || " ";
-      pre.appendChild(span);
-      renderedLines += 1;
-    }
+    const lines = String(item.diff).split("\n").slice(0, MAX_RENDERED_DIFF_LINES - renderedLines);
+    const pre = window.stepsembleProjectFileView.codeBlock(document, lines.join("\n"), file.path || selectedChangePath, { diff: true });
+    renderedLines += lines.length;
     section.append(label, pre);
     el.changesDiff.appendChild(section);
   }
@@ -4471,7 +4460,7 @@ async function refreshProjectChanges({ background = false } = {}) {
     if (projectChangesRequest !== request || request.cwd !== currentSessionCwd || request.generation !== viewGeneration || request.base !== apiBase) return;
     projectChangesState = { status: "ready", cwd, data };
     renderProjectChanges();
-    if (selectedChangePath && data.files?.some((file) => file.path === selectedChangePath) && projectChangesOpen()) {
+    if (!projectBrowser?.active && selectedChangePath && data.files?.some((file) => file.path === selectedChangePath) && projectChangesOpen()) {
       void loadProjectDiff(selectedChangePath);
     }
   } catch (error) {
@@ -4517,6 +4506,8 @@ async function loadProjectDiff(filePath) {
 
 function openProjectChanges() {
   if (!currentSessionCwd || !el.changesLayer) return;
+  projectChangesReturnFocus = document.activeElement;
+  projectBrowser?.reset();
   el.changesLayer.classList.remove("hidden");
   el.changesLayer.classList.remove("show-detail");
   renderProjectChanges();
@@ -4531,6 +4522,9 @@ function closeProjectChanges() {
   el.changesLayer.classList.remove("show-detail");
   if (projectDiffRequest) projectDiffRequest.controller.abort();
   projectDiffRequest = null;
+  projectBrowser?.close();
+  if (projectChangesReturnFocus) (projectChangesReturnFocus.isConnected ? projectChangesReturnFocus : el.btnChanges)?.focus({ preventScroll: true });
+  projectChangesReturnFocus = null;
 }
 
 function resetProjectChanges() {
@@ -4539,6 +4533,7 @@ function resetProjectChanges() {
   projectChangesRequest = null;
   projectDiffRequest = null;
   projectChangesState = null;
+  projectBrowser?.reset();
   selectedChangePath = "";
   projectChangesShouldResetScroll = true;
   if (el.changesList) el.changesList.scrollTop = 0;
@@ -4550,13 +4545,28 @@ function resetProjectChanges() {
   renderChangesBadge(null);
 }
 
+projectBrowser = window.stepsembleProjectBrowser.create({ api, context: () => ({ cwd: currentSessionCwd, base: apiBase, generation: viewGeneration }), text: changesText,
+  onModeChange: () => {
+    if (projectBrowser?.active && projectDiffRequest) { projectDiffRequest.controller.abort(); projectDiffRequest = null; }
+    renderProjectChanges();
+    if (!projectBrowser?.active && projectChangesOpen()) void refreshProjectChanges({ background: true });
+  },
+});
 el.btnChanges?.addEventListener("click", openProjectChanges);
-el.changesRefresh?.addEventListener("click", () => void refreshProjectChanges());
+el.changesRefresh?.addEventListener("click", () => projectBrowser?.active ? projectBrowser.refresh() : void refreshProjectChanges());
 el.changesCommit?.addEventListener("click", () => void commitProjectChanges());
 el.changesClose?.addEventListener("click", closeProjectChanges);
 el.changesDetailBack?.addEventListener("click", () => el.changesLayer.classList.remove("show-detail"));
 el.changesLayer?.addEventListener("click", (event) => {
   if (event.target === el.changesLayer) closeProjectChanges();
+});
+el.changesLayer?.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab" || !projectChangesOpen()) return;
+  const targets = [...el.changesLayer.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')]
+    .filter(node => node.tabIndex >= 0 && node.getClientRects().length);
+  const first = targets[0], last = targets.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 });
 
 function removeHistoryLoadButton() {
@@ -9797,14 +9807,27 @@ function workStat(className, text) {
 }
 function workTurnFiles(turn) {
   const files = new Map();
+  let budget = 2 * 1024 * 1024;
   for (const node of turn.nodes) {
     if (!node.classList.contains("msg")) continue;
     for (const card of node.querySelectorAll(".tool-card")) {
       if (card.classList.contains("err") || card.classList.contains("running")) continue;
-      for (const change of window.stepsembleSessionUtils.toolEditChanges(card.__tool?.name, card.__tool?.args)) {
-        const entry = files.get(change.path) || { path: change.path, added: 0, removed: 0 };
+      if (card.__fileReviewTool !== card.__tool) {
+        const stats = window.stepsembleSessionUtils.toolEditChanges(card.__tool?.name, card.__tool?.args);
+        card.__fileReview = window.stepsembleProjectFileView.editDetails(card.__tool?.args, stats);
+        card.__fileReviewTool = card.__tool;
+      }
+      for (const change of card.__fileReview || []) {
+        const entry = files.get(change.path) || { path: change.path, added: 0, removed: 0, sections: [] };
         entry.added += change.added;
         entry.removed += change.removed;
+        entry.truncated ||= change.truncated;
+        for (const section of change.sections) {
+          if (budget <= 0 || entry.sections.length >= 32) { entry.truncated = true; continue; }
+          const diff = section.diff.slice(0, budget);
+          entry.truncated ||= diff.length < section.diff.length;
+          entry.sections.push({ ...section, diff }); budget -= diff.length;
+        }
         files.set(change.path, entry);
       }
     }
@@ -9818,59 +9841,47 @@ function workFileParts(path) {
   const cut = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"));
   return { dir: cut >= 0 ? value.slice(0, cut + 1) : "", name: cut >= 0 ? value.slice(cut + 1) : value, relative: value };
 }
-async function openWorkFile(path) {
+function openWorkFile(files, path) {
   if (!currentSessionCwd) return;
-  const cwd = currentSessionCwd;
-  const { relative } = workFileParts(path);
-  await openProjectChanges();
-  if (cwd !== currentSessionCwd || !projectChangesOpen()) return;
-  const match = (projectChangesState?.data?.files || []).find(file => file.path === relative
-    || relative.endsWith("/" + file.path) || file.path.endsWith("/" + relative));
-  if (match) void loadProjectDiff(match.path);
+  projectChangesReturnFocus = document.activeElement;
+  el.changesLayer.classList.remove("hidden");
+  projectBrowser.openTurn(files, path);
+  requestAnimationFrame(() => el.changesClose?.focus());
 }
 function updateWorkFiles(card, files, state, turnKey) {
-  const expanded = state.filesExpanded === true;
-  const signature = JSON.stringify([files, expanded, turnKey, window.stepsembleI18n?.getLocale?.() || "en", !!currentSessionCwd]);
-  if (card.dataset.signature === signature) return;
-  card.dataset.signature = signature;
+  const signature = JSON.stringify([files, turnKey, window.stepsembleI18n?.getLocale?.() || "en", currentSessionCwd]);
+  if (card.__filesSignature === signature) return;
+  card.__filesSignature = signature;
   const totals = files.reduce((sum, file) => ({ added: sum.added + file.added, removed: sum.removed + file.removed }), { added: 0, removed: 0 });
-  const head = document.createElement("div");
+  const head = document.createElement("button");
+  head.type = "button";
   head.className = "wl-files-head";
-  const icon = document.createElement("span");
-  icon.className = "wl-files-icon";
-  setWorkIcon(icon, "#i-diff");
+  head.addEventListener("click", () => openWorkFile(files));
+  head.disabled = !currentSessionCwd;
   const copy = document.createElement("div");
   copy.className = "wl-files-copy";
   const title = document.createElement("strong");
-  title.textContent = tKey(files.length === 1 ? "work.files.one" : "work.files.many", { count: files.length });
+  title.textContent = changesText("fileCount", { count: files.length });
   const stat = document.createElement("span");
   stat.className = "wl-files-stat";
   stat.append(workStat("wl-add", "+" + totals.added), workStat("wl-del", "-" + totals.removed));
   copy.append(title, stat);
-  head.append(icon, copy);
-  if (currentSessionCwd) {
-    const review = document.createElement("button");
-    review.type = "button";
-    review.className = "btn wl-files-review";
-    review.textContent = tKey("work.files.review");
-    review.addEventListener("click", () => openProjectChanges());
-    head.appendChild(review);
-  }
+  head.append(copy, workChevron("#i-chevron-right"));
   const list = document.createElement("ul");
   list.className = "wl-files-list";
-  for (const file of expanded ? files : files.slice(0, WORK_FILES_PREVIEW)) {
+  for (const file of files.slice(0, WORK_FILES_PREVIEW)) {
     const item = document.createElement("li");
     const row = document.createElement(currentSessionCwd ? "button" : "div");
     row.className = "wl-file";
     row.title = file.path;
     if (currentSessionCwd) {
       row.type = "button";
-      row.addEventListener("click", () => openWorkFile(file.path));
+      row.addEventListener("click", () => openWorkFile(files, file.path));
     }
     const parts = workFileParts(file.path);
     const name = document.createElement("span");
     name.className = "wl-file-path";
-    name.append(workStat("wl-file-dir", parts.dir), workStat("wl-file-name", parts.name));
+    name.textContent = parts.relative;
     const fileStat = document.createElement("span");
     fileStat.className = "wl-file-stat";
     fileStat.append(workStat("wl-add", "+" + file.added), workStat("wl-del", "-" + file.removed));
@@ -9884,15 +9895,10 @@ function updateWorkFiles(card, files, state, turnKey) {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "wl-files-more";
-    more.setAttribute("aria-expanded", String(expanded));
     const label = document.createElement("span");
-    label.textContent = expanded ? tKey("work.files.less")
-      : tKey(hidden === 1 ? "work.files.more.one" : "work.files.more.many", { count: hidden });
-    more.append(label, workChevron("#i-chevron-down"));
-    more.addEventListener("click", () => {
-      state.filesExpanded = !expanded;
-      layoutWorkLogAround(more);
-    });
+    label.textContent = tKey(hidden === 1 ? "work.files.more.one" : "work.files.more.many", { count: hidden });
+    more.append(label, workChevron("#i-chevron-right"));
+    more.addEventListener("click", () => openWorkFile(files));
     card.appendChild(more);
   }
 }
@@ -9908,7 +9914,7 @@ function workSetHidden(block, hide) {
 
 function layoutWorkTurn(turn, key, { running = false, startedAt = null, around = null } = {}) {
   let state = workLogState.turns.get(key);
-  if (!state) { state = { expanded: false, filesExpanded: false }; workLogState.turns.set(key, state); }
+  if (!state) { state = { expanded: false }; workLogState.turns.set(key, state); }
   const shells = turn.nodes.filter(node => node.classList.contains("msg") && directMessageBubble(node));
   const owned = [];
   for (const shell of shells) for (const node of directMessageBubble(shell).childNodes) if (workOwned(node)) owned.push(node);
@@ -10153,7 +10159,7 @@ function relabelWorkLog() {
     title.title = toolTitle(meta.name, meta.args, false, { compact: false });
   }
   for (const toggle of el.messages?.querySelectorAll?.(".thinking-toggle") || []) toggle.textContent = tKey("work.item.thinking");
-  for (const card of el.messages?.querySelectorAll?.(".wl-files") || []) delete card.dataset.signature;
+  for (const card of el.messages?.querySelectorAll?.(".wl-files") || []) delete card.__filesSignature;
   layoutWorkLog({ keepScroll: true });
 }
 function observeWorkLog() {

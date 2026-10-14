@@ -1,5 +1,6 @@
 "use strict";
 const { normalizeQuotaConfig } = require("./quota-sources");
+const { accountKey, boundAnthropicKey, createClaudeIdentityReader } = require("./quota-identity");
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { execFile } = require("node:child_process");
 // opencodex already probes every provider it routes and publishes the results on
@@ -127,7 +128,7 @@ async function configuredProviderQuotas({ home, fetchImpl = fetch, osHome = os.h
       });
       if (!res.ok) return null;
       const windows = probe.parse(await res.json());
-      return windows.length ? { provider: probe.name, ids: probe.ids, status: "ready", observedAt: null, source: "provider", windows } : null;
+      return windows.length ? { provider: probe.name, ids: probe.ids, status: "ready", observedAt: null, source: "provider", accountKey: accountKey(probe.ids[0], credential.key, "api-key"), windows } : null;
     } catch { return null; }
   }));
   // Probe order, not completion order, so rows keep their place between polls.
@@ -257,7 +258,29 @@ async function opencodexQuotas({ home, fetchImpl = fetch, osHome = os.homedir(),
   });
   if (!res.ok) throw new Error("unavailable");
   const reports = (await res.json())?.reports;
-  return Array.isArray(reports) ? reports : [];
+  if (!Array.isArray(reports)) return [];
+  // Provider reports do not identify their owner. For Claude, read the quota
+  // attached to the active slot and match its bearer-bound local identity.
+  // Never attach a local default account to an aggregate/provider-only report.
+  if (reports.some(row => row.provider === "anthropic")) {
+    try {
+      const response = await fetchImpl(`http://127.0.0.1:${port}/api/oauth/accounts?provider=anthropic&quota=1`, {
+        headers: { Accept: "application/json", Authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(8000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const active = data.accounts?.find(row => row.id === data.activeAccountId);
+        const saved = JSON.parse(await fs.readFile(path.join(directory, "auth.json"), "utf8"))?.anthropic;
+        const credential = saved?.accounts?.find(row => row.id === active?.id)?.credential;
+        const identity = boundAnthropicKey(credential);
+        if (identity && active?.quota && !active.quotaUnavailable && !active.needsReauth && !active.paused) {
+          return reports.map(row => row.provider === "anthropic"
+            ? { ...row, quota: active.quota, updatedAt: active.quota.updatedAt, accountKey: identity } : row);
+        }
+      }
+    } catch { /* Legacy OpenCodex versions remain usable, without deduplication. */ }
+  }
+  return reports;
 }
 // One row per provider opencodex knows about that Stepsemble cannot read itself.
 function opencodexProviders(reports, now, skip = new Set()) {
@@ -281,6 +304,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   readProviderQuotas = () => configuredProviderQuotas({ home, fetchImpl, readSignIn }),
   readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null, now = Date.now }) {
   let cached = null, expires = 0;
+  const readClaudeIdentity = createClaudeIdentityReader({ fetchImpl, now });
   function providerRow(provider, settled) {
     const value = settled.status === "fulfilled" ? settled.value : null;
     const windows = value?.windows || [];
@@ -314,12 +338,12 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   async function chatgptReading(read, source) {
     const credential = await signIn(read);
     if (!liveToken(credential, now())) return null;
-    try { const windows = await chatgptUsage(credential); return windows.length ? { windows, observedAt: null, source } : null; } catch { return null; }
+    try { const windows = await chatgptUsage(credential); return windows.length ? { windows, observedAt: null, source, accountKey: accountKey("codex", credential.accountId || chatgptAccountId(credential.secret)) } : null; } catch { return null; }
   }
   async function claudeTokenReading(read, source) {
     const credential = await signIn(read);
     if (!liveToken(credential, now())) return null;
-    try { const windows = await claudeUsage(credential.secret); return windows.length ? { windows, observedAt: null, source } : null; } catch { return null; }
+    try { const windows = await claudeUsage(credential.secret); return windows.length ? { windows, observedAt: null, source, accountKey: await readClaudeIdentity(credential.secret) } : null; } catch { return null; }
   }
   // Codex: its own app-server when this release has reviewed the installed
   // CLI's schema, otherwise ChatGPT with the account the Codex CLI is signed in
@@ -329,8 +353,12 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     if (service === "codex") {
       if (sourceId === "pi") return chatgptReading(() => readSignIn("openai-codex"), "signin");
       try {
+        const before = await signIn(readCodexSignIn);
         const windows = codexWindows(await codex());
-        if (windows.length) return { windows, observedAt: null, source: "native" };
+        const after = await signIn(readCodexSignIn);
+        const identity = before?.secret && before.secret === after?.secret
+          ? accountKey("codex", before.accountId || chatgptAccountId(before.secret)) : null;
+        if (windows.length) return { windows, observedAt: null, source: "native", accountKey: identity };
       } catch {}
       return chatgptReading(readCodexSignIn, "account");
     }
@@ -353,7 +381,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     for (const row of probed.status === "fulfilled" && Array.isArray(probed.value) ? probed.value : []) {
       const service = Array.isArray(row?.ids) && typeof row.ids[0] === "string" ? row.ids[0] : null;
       if (!service || !row.windows?.length) continue;
-      readings.pi.set(service, { windows: row.windows, observedAt: row.observedAt ?? null, source: row.source || "signin" });
+      readings.pi.set(service, { windows: row.windows, observedAt: row.observedAt ?? null, source: row.source || "signin", accountKey: row.accountKey || null });
       labels.set(service, row.provider);
     }
     for (const report of borrowed.status === "fulfilled" && Array.isArray(borrowed.value) ? borrowed.value : []) {
@@ -364,7 +392,9 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
         .map(([key, minutes]) => windowUsage(quota[`${key}Percent`], asSecondsValue(quota[`${key}ResetAt`]), null, minutes, null))
         .filter(Boolean), now());
       if (!windows.length) continue;
-      readings.opencodex.set(service, { windows, observedAt: null, source: "opencodex" });
+      const sampledAt = report.updatedAt || quota.updatedAt;
+      readings.opencodex.set(service, { windows, observedAt: Number.isFinite(sampledAt) && now() - sampledAt > USAGE_TTL_MS ? sampledAt : null,
+        sampledAt: Number.isFinite(sampledAt) ? sampledAt : now(), source: "opencodex", accountKey: report.accountKey || null });
       if (!labels.has(service)) labels.set(service, OPENCODEX_NAMES[id] || report.label || id);
     }
     const codexbar = bar.status === "fulfilled" ? bar.value : null;
@@ -407,7 +437,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       const windows = reading?.windows || [];
       const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
       providers.push({ provider: label(service), service, sourceId, status: !windows.length ? "unavailable" : observed ? "cached" : "ready",
-        observedAt: windows.length ? observed : null, source: windows.length ? reading.source || null : null, windows });
+        observedAt: windows.length ? observed : null, source: windows.length ? reading.source || null : null,
+        accountKey: windows.length ? reading.accountKey || null : null, sampledAt: reading?.sampledAt ?? observed ?? now(), windows });
     }
     const sources = {};
     for (const id of DEFAULT_ORDER) {

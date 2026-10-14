@@ -76,6 +76,16 @@ function loadLocaleLayerWithKeyedAttribute() {
   };
 }
 
+test("project file browsing and recorded review errors are localized in every language", () => {
+  const i18n = loadLocaleLayer();
+  for (const locale of ["en", "zh-Hans", "zh-Hant", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it"]) {
+    i18n.setLocale(locale);
+    for (const key of ["allFiles", "modifiedTab", "projectFiles", "thisTurn", "readOnly", "filterFolder", "showHidden", "missingDiff", "fileMissing", "permissionDenied", "outsideProject", "fileChanged", "listTruncated", "previewTruncated"]) {
+      assert.notEqual(i18n.tKey(`changes.${key}`), `changes.${key}`, `${locale}: ${key}`);
+    }
+  }
+});
+
 test("keyed accessibility attributes are idempotent under mutation observation", () => {
   const layer = loadLocaleLayerWithKeyedAttribute();
   const writesAfterInitialTranslation = layer.attributeWrites;

@@ -1,4 +1,4 @@
-/* stepsemble v3.8.56 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.57 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -5678,25 +5678,24 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 #view-chat .wl-files-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-}
-#view-chat .wl-files-icon {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 40px;
-  border-radius: 11px;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 0;
+  color: var(--ink);
   background: var(--bubble-user);
-  color: var(--pine-soft);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
 }
-#view-chat .wl-files-icon .icon { width: 20px; height: 20px; }
 #view-chat .wl-files-copy {
   min-width: 0;
   flex: 1 1 auto;
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 #view-chat .wl-files-copy strong { color: var(--ink); font-size: .95rem; font-weight: 600; }
 #view-chat .wl-files-stat,
@@ -5706,16 +5705,9 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   font: 500 .84rem/1.2 var(--mono);
   white-space: nowrap;
 }
-#view-chat .wl-files-review {
-  flex: 0 0 auto;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 12px;
-  font-size: .86rem;
-}
 #view-chat .wl-files-list {
   margin: 0;
-  padding: 0 0 4px;
+  padding: 0;
   list-style: none;
   border-top: .5px solid var(--line);
 }
@@ -5724,8 +5716,8 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 42px;
-  padding: 8px 14px;
+  min-height: 40px;
+  padding: 9px 14px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -5734,6 +5726,8 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   text-align: left;
 }
 #view-chat button.wl-file { cursor: pointer; }
+#view-chat .wl-files-list li + li { border-top: .5px solid var(--line); }
+#view-chat .wl-files-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 #view-chat button.wl-file:hover,
 #view-chat button.wl-file:focus-visible { background: var(--bubble-user); outline: none; }
 #view-chat .wl-file-path {
@@ -5742,8 +5736,9 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
-#view-chat .wl-file-dir { color: var(--pine-soft); }
 #view-chat .wl-files-more {
   display: flex;
   align-items: center;
@@ -5760,15 +5755,95 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   text-align: left;
   cursor: pointer;
 }
-#view-chat .wl-files-more[aria-expanded="true"] .wl-chev { transform: rotate(180deg); }
+#view-chat .wl-files-more .wl-chev { margin-left: auto; }
 
 @media (max-width: 600px) {
   #view-chat .wl-head { font-size: .84rem; }
   #view-chat .wl-row { font-size: .86rem; }
   #view-chat .wl-files-head { padding: 11px 12px; gap: 10px; }
-  #view-chat .wl-files-icon { width: 36px; height: 36px; flex-basis: 36px; }
   #view-chat .wl-file { padding: 8px 12px; }
   #view-chat .wl-files-more { padding: 8px 12px; }
+}
+
+/* One file inspector: recorded turn edits and the current project tree share
+   stable navigation, without turning a recorded edit into a Git worktree diff. */
+.changes-panel { width: min(1000px, calc(100% - 48px)); }
+.project-file-tabs { flex: 0 0 auto; display: flex; padding: 3px; margin: 0 18px 12px; border-radius: 12px; background: var(--milk); border: 1px solid var(--line); }
+.project-file-tabs button { flex: 1; min-width: 0; min-height: 36px; border: 0; border-radius: 9px; background: transparent; color: var(--pine-soft); font: inherit; font-size: .85rem; font-weight: 550; cursor: pointer; }
+.project-file-tabs button[aria-selected="true"] { color: var(--ink); background: var(--bubble-user); box-shadow: 0 1px 3px #0002; }
+.project-file-tabs button:focus-visible, .project-browser button:focus-visible, .project-turn-file > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.project-browser { min-width: 0; min-height: 0; flex: 1; }
+.project-turn-files { overflow: auto; overscroll-behavior: contain; padding: 0 18px max(24px, var(--safe-bottom)); }
+.project-turn-summary { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 2px 0 12px; color: var(--pine-soft); font-size: .78rem; }
+.project-file-counts { flex: 0 0 auto; display: inline-flex; gap: 6px; white-space: nowrap; font: 500 .75rem/1.3 var(--mono); }
+.project-browser .changes-additions { color: var(--ok); }
+.project-browser .changes-deletions { color: var(--err); }
+.project-turn-file { position: relative; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--milk); }
+.project-turn-file-head { display: flex; gap: 10px; align-items: center; min-height: 58px; padding: 10px 50px 10px 12px; list-style: none; cursor: pointer; }
+.project-turn-file-head::-webkit-details-marker { display: none; }
+.project-turn-file-head > .icon { flex: 0 0 16px; width: 16px; height: 16px; color: var(--pine-soft); }
+.project-turn-file[open] > summary > .icon { transform: rotate(90deg); }
+.project-turn-file-copy { min-width: 0; flex: 1; }
+.project-turn-file-copy strong, .project-turn-file-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-turn-file-copy strong { font-size: .85rem; font-weight: 600; }
+.project-turn-file-copy small { margin-top: 3px; color: var(--pine-soft); font-size: .7rem; direction: rtl; text-align: left; }
+.project-turn-diff { border-top: 1px solid var(--line); background: var(--paper); }
+.project-current-file { position: absolute; top: 7px; right: 6px; display: grid; place-items: center; width: 40px; height: 44px; border: 0; border-radius: 8px; color: var(--pine-soft); background: transparent; font: inherit; font-size: 1.2rem; cursor: pointer; }
+.project-current-file:hover { color: var(--ink); }
+.project-excerpt-label { padding: 6px 12px; color: var(--pine-soft); background: var(--milk); font-size: .7rem; }
+.project-file-notice { margin: 0; padding: 24px 18px; color: var(--pine-soft); font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+.project-code, .changes-diff pre.project-code { margin: 0; padding: 8px 0; min-width: 0; max-width: 100%; overflow: auto; overscroll-behavior: contain; font: 12px/1.6 var(--mono); color: var(--ink); white-space: pre; tab-size: 2; text-align: left; }
+.project-code-line { display: flex; width: max-content; min-width: 100%; min-height: 1.6em; }
+.project-code-line code { flex: 1; padding-right: 16px; font: inherit; white-space: inherit; }
+.project-code-number { flex: 0 0 4.5ch; padding: 0 1ch 0 .4ch; box-sizing: content-box; color: var(--pine-soft); text-align: right; opacity: .7; user-select: none; }
+.project-code-sign { flex: 0 0 2ch; user-select: none; opacity: .8; }
+.project-code-line.add { background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.project-code-line.del { background: color-mix(in srgb, var(--err) 16%, transparent); }
+.project-code-line.add .project-code-sign { color: var(--ok); }
+.project-code-line.del .project-code-sign { color: var(--err); }
+.project-code-line.hunk { color: var(--accent); background: var(--milk); }
+.project-code-line.meta { color: var(--pine-soft); }
+.syntax-keyword { color: light-dark(#7748ab, #c9a1dd); }
+.syntax-string { color: light-dark(#527334, #becba2); }
+.syntax-number { color: light-dark(#946633, #d9be8c); }
+.syntax-comment { color: var(--pine-soft); font-style: italic; }
+.project-all-files { display: grid; grid-template-columns: minmax(230px, 280px) minmax(0, 1fr); border-top: 1px solid var(--line); }
+.project-directory { min-height: 0; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.project-breadcrumbs { display: flex; flex: 0 0 auto; align-items: center; overflow-x: auto; white-space: nowrap; padding: 4px 10px; min-height: 44px; }
+.project-breadcrumb { padding: 6px 4px; min-height: 36px; border: 0; background: transparent; color: var(--pine-soft); font: inherit; font-size: .78rem; cursor: pointer; }
+.project-breadcrumb[aria-current] { color: var(--ink); }
+.project-breadcrumb-separator { color: var(--pine-soft); padding: 0 3px; }
+.project-directory .project-file-filter { flex: 0 0 auto; min-width: 0; width: calc(100% - 24px); box-sizing: border-box; margin: 0 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--milk); color: var(--ink); font: inherit; font-size: .8rem; }
+.project-hidden-option { display: flex; align-items: center; gap: 7px; margin: 0 12px; min-height: 40px; color: var(--pine-soft); font-size: .74rem; cursor: pointer; }
+.project-hidden-option input { accent-color: var(--accent); }
+.project-directory-list { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; padding: 0 6px 16px; }
+.project-directory-row { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 8px; color: var(--ink); background: transparent; text-align: left; font: inherit; font-size: .8rem; cursor: pointer; }
+.project-directory-row .icon { flex: 0 0 17px; width: 17px; height: 17px; color: var(--pine-soft); }
+.project-entry-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-directory-row:hover, .project-directory-row.selected { background: var(--bubble-user); }
+.project-directory-row:disabled { opacity: .45; cursor: default; }
+.project-file-preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.project-preview-heading { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.project-preview-heading strong, .project-preview-heading small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-preview-heading strong { font-size: .85rem; }
+.project-preview-heading small { color: var(--pine-soft); margin-top: 3px; font-size: .7rem; }
+.project-preview-code { overflow: auto; min-height: 0; flex: 1; overscroll-behavior: contain; }
+.project-preview-code .project-code { min-height: 100%; }
+.project-files-back { display: none; }
+@media (max-width: 979px) {
+  .changes-panel { width: 100%; }
+  .project-all-files { display: flex; }
+  .project-directory, .project-file-preview { width: 100%; border-right: 0; }
+  .project-file-preview { display: none; }
+  .file-detail-open .project-directory { display: none; }
+  .file-detail-open .project-file-preview { display: flex; }
+  .project-files-back { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 44px; padding: 8px 16px; border: 0; background: transparent; color: var(--pine-soft); font: inherit; font-size: .85rem; text-align: left; cursor: pointer; }
+  .project-directory-row { min-height: 44px; }
+  .project-file-tabs { margin: 0 14px 12px; }
+  .project-turn-files { padding-left: 14px; padding-right: 14px; }
+  .project-code, .changes-diff pre.project-code { font-size: 12px; }
+  .project-turn-diff .project-code-line, .changes-diff .project-code-line { width: 100%; }
+  .project-turn-diff .project-code-line code, .changes-diff .project-code-line code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 
 /* Composer thumbnails open the image viewer. The remove badge sits on the

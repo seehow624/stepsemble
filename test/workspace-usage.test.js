@@ -209,7 +209,7 @@ test("Claude's allowance can come from the Claude account signed in under Settin
     readSignIn: async id => id === "anthropic" ? { type: "oauth", secret: "settings-claude", expiresAt: 2000 } : null }).read();
   assert.deepEqual([signedIn.providers[1].status, signedIn.providers[1].source], ["ready", "signin"]);
   assert.deepEqual(signedIn.providers[1].windows.map(w => w.remainingPercent), [70, 95]);
-  assert.deepEqual(calls, [["https://api.anthropic.com/api/oauth/usage", "Bearer settings-claude"]]);
+  assert.deepEqual(calls, [["https://api.anthropic.com/api/oauth/usage", "Bearer settings-claude"], ["https://api.anthropic.com/api/oauth/profile", "Bearer settings-claude"]]);
   // An Anthropic API key cannot read subscription usage and is never sent there.
   calls.length = 0;
   const keyOnly = await createWorkspaceUsage({ ...quiet, readClaudeCache: async () => null,

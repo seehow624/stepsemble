@@ -11,6 +11,8 @@ import { once } from "node:events";
 import { createRequire } from "node:module";
 
 const { definition, scheduleSpec, nextOccurrence } = createRequire(import.meta.url)("../server/workflows.js");
+const { createProjectFilesService } = createRequire(import.meta.url)("../server/project-files.js");
+const { createGitChangesService } = createRequire(import.meta.url)("../server/git-changes.js");
 
 const publicRoot = path.resolve(fileURLToPath(new URL("../public/", import.meta.url)));
 const TOKEN = "native-composer-preview";
@@ -283,7 +285,7 @@ function codexThreadPayload() {
     cwd: tasks[0].cwd,
     updatedAt: Date.now(),
     model: state.codexModel,
-    status: { type: state.codexFailure ? (!latest || latest.status === "failed" ? "systemError" : "idle") : "active", activeFlags: [] },
+    status: { type: state.projectReview ? "idle" : state.codexFailure ? (!latest || latest.status === "failed" ? "systemError" : "idle") : "active", activeFlags: [] },
   };
 }
 
@@ -295,7 +297,7 @@ function codexItems() {
       command: "/bin/zsh -lc 'cat /tmp/stepsemble-native-composer/SKILL.md'", status: "completed", exitCode: 0,
       aggregatedOutput: "# Synthetic skill output\n" + "Long tool content remains available only after expanding the tool row.\n".repeat(40) } },
     { turnId: "fixture-turn-0", item: { id: "fixture-file-0", type: "fileChange", status: "completed",
-      changes: [{ path: "/tmp/stepsemble-native-composer/app.js" }], summary: "Synthetic file edit; no file was changed." } },
+      changes: state.projectReview?.changes || [{ path: "/tmp/stepsemble-native-composer/app.js" }], summary: "Synthetic file edit; no file was changed." } },
     { turnId: "fixture-turn-0", item: { id: "fixture-image-0", type: "imageView", path: "/tmp/stepsemble-native-composer/crop.png",
       preview: { url: `/api/codex/image?token=${CODEX_IMAGE_TOKEN}`, mimeType: "image/png", name: "crop.png" } } },
     { turnId: "fixture-turn-0", item: { id: "fixture-assistant-0", type: "agentMessage", text: state.richContent ? [
@@ -323,8 +325,8 @@ function codexTurns() {
       startedAt: turn.receivedAt, completedAt: turn.receivedAt + 100, items: [] });
   }
   rows.reverse();
-  rows.push({ id: "fixture-turn-0", status: state.codexFailure ? "failed" : "inProgress", startedAt,
-    completedAt: state.codexFailure ? startedAt + 100 : null, error: state.codexFailure ? {
+  rows.push({ id: "fixture-turn-0", status: state.projectReview ? "completed" : state.codexFailure ? "failed" : "inProgress", startedAt,
+    completedAt: state.codexFailure || state.projectReview ? startedAt + 100 : null, error: state.codexFailure ? {
       message: "Selected model is at capacity. Please try a different model.", codexErrorInfo: "serverOverloaded",
     } : null, items: [] });
   return rows;
@@ -368,12 +370,17 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
   state.codexFailure = codexFailure;
   state.richContent = richContent;
+  state.projectReview = projectReview;
+  tasks[0].cwd = projectReview?.root || "/tmp/stepsemble-native-composer";
+  tasks[0].status = projectReview ? "completed" : "running";
+  const projectFiles = projectReview ? createProjectFilesService({ validateProject: cwd => cwd === projectReview.root ? cwd : null }) : null;
+  const gitChanges = projectReview ? createGitChangesService({ validateRepository: cwd => cwd === projectReview.root ? cwd : null }) : null;
   const imageLookups = new Map();
   state.codexControlUnavailable = false;
   state.codexTurns.length = 0; state.codexModel = codexModels[0].id;
@@ -459,6 +466,16 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: "3.0.43" });
       if (pathname === "/api/rpcs" && req.method === "GET") return json(res, 200, { rpcs: [] });
+      if (projectReview && req.method === "GET" && ["/api/project-files", "/api/project-file", "/api/project-changes", "/api/project-diff"].includes(pathname)) {
+        const cwd = requestUrl.searchParams.get("cwd"), relative = requestUrl.searchParams.get("path") || "";
+        try {
+          if (cwd !== projectReview.root) return json(res, 403, { error: "projectUnavailable" });
+          const result = pathname === "/api/project-files" ? await projectFiles.list(cwd, relative)
+            : pathname === "/api/project-file" ? await projectFiles.read(cwd, relative)
+            : pathname === "/api/project-diff" ? await gitChanges.diff(cwd, relative) : await gitChanges.overview(cwd);
+          return json(res, 200, result);
+        } catch (error) { return json(res, error.statusCode || 404, { error: error.code === "ENOENT" ? "fileMissing" : error.code || "fileUnavailable" }); }
+      }
       if (pathname === "/api/project-changes" && req.method === "GET") return json(res, 200, { cwd: requestUrl.searchParams.get("cwd") || "", files: [], additions: 0, deletions: 0, changed: 0 });
       if (pathname === "/api/provider-catalog" && req.method === "GET") return json(res, 200, { providers: [] });
       if (pathname === "/api/access-tokens" && req.method === "GET") return json(res, 200, { tokens: [] });
@@ -487,7 +504,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
-      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { adapter: { mutationReady: !state.codexControlUnavailable }, pendingApprovals: state.codexFailure ? [] : [{
+      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { adapter: { mutationReady: !state.codexControlUnavailable }, pendingApprovals: state.codexFailure || state.projectReview ? [] : [{
         requestId: 7, threadId: CODEX_THREAD, method: "item/commandExecution/requestApproval",
         params: { cwd: "/synthetic-project", command: "echo synthetic-fixture-only" },
         summary: "Synthetic permission card — no command will run.", authority: { sourceAuthenticated: true }, responseWritten: !!state.codexApproval,

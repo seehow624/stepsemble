@@ -197,6 +197,15 @@ test("blank browse starts at the first allowed root when HOME is outside narrow 
   assert.equal(outside.status, 403);
   const projectChanges = await host.get(`/api/project-changes?cwd=${encodeURIComponent(sibling)}`);
   assert.equal(projectChanges.status, 400, "non-browse consumers keep the same root fence");
+  for (const route of ["project-files", "project-file"]) {
+    assert.equal((await host.get(`/api/${route}?cwd=${encodeURIComponent(sibling)}`)).status, 403);
+    assert.equal((await host.get(`/api/${route}?cwd=${encodeURIComponent(second)}&path=../sibling`)).status, 403);
+  }
+  await fs.promises.writeFile(path.join(second, "project/hello.js"), 'export const hello = "world";\n');
+  const files = await host.get(`/api/project-files?cwd=${encodeURIComponent(second)}&path=project`);
+  assert.equal(files.status, 200); assert.equal((await files.json()).entries[0].path, "project/hello.js");
+  const source = await host.get(`/api/project-file?cwd=${encodeURIComponent(second)}&path=project/hello.js`);
+  assert.equal(source.status, 200); assert.equal((await source.json()).content, 'export const hello = "world";\n');
 
   const picker = await host.browse(`?path=${encodeURIComponent(path.parse(realSecond).root)}`);
   assert.equal(picker.status, 200);

@@ -61,6 +61,7 @@ const { createOfficialCatalogSource, POLICIES: OFFICIAL_CATALOG_POLICIES } = req
 const piSession = require("./public/modules/pi-session");
 const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
+const { createProjectFilesService } = require("./server/project-files");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
 const { createAgentAuthService } = require("./server/agent-auth");
@@ -118,7 +119,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.8.56";
+const APP_VERSION = "3.8.57";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -2064,6 +2065,7 @@ function openCodeDirectory(cwd) {
 }
 
 const gitChanges = createGitChangesService({ validateRepository: projectDirectory });
+const projectFiles = createProjectFilesService({ validateProject: projectDirectory });
 const piResources = createPiResourcesService({ home: APP_HOME });
 // A connector task is deliberately separate from Pi's JSON-RPC session map:
 // Pi retains its rich session/history protocol, while well-known local CLI
@@ -7000,6 +7002,19 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, await gitChanges.commit(cwd, body?.message));
         } catch (error) {
           sendJSON(res, error.statusCode || 409, { error: error.message || "could not create the commit" });
+        }
+        return;
+      }
+
+      if ((p === "/api/project-files" || p === "/api/project-file") && req.method === "GET") {
+        try {
+          const cwd = projectDirectory(url.searchParams.get("cwd") || "");
+          if (!cwd) { sendJSON(res, 403, { error: "projectUnavailable" }); return; }
+          const relative = url.searchParams.get("path") || "";
+          sendJSON(res, 200, await projectFiles[p === "/api/project-files" ? "list" : "read"](cwd, relative));
+        } catch (error) {
+          const code = error.code === "ENOENT" ? "fileMissing" : ["EACCES", "EPERM"].includes(error.code) ? "permissionDenied" : error.statusCode ? error.code : "fileUnavailable";
+          sendJSON(res, error.statusCode || (code === "fileMissing" ? 404 : code === "permissionDenied" ? 403 : 409), { error: code });
         }
         return;
       }

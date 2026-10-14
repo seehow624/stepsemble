@@ -346,8 +346,13 @@ from other apps** has a switch to show them.
 - Responsive PWA with English as the default and ten additional locales.
 - Project grouping, pinned sessions, archives, search, and three-session
   previews with Show more / Show less controls.
-- Read-only project changes with changed-file counts and staged or working-tree
-  diffs, optimized for both split-screen desktops and small phones.
+- Compact changed-file summaries open the recorded edits from that turn, even
+  after a commit. When an old record contains only counts, the missing diff is
+  stated explicitly. Project changes remain a separate live Git view.
+- **All Files** browses project folders and previews code with line numbers and
+  syntax colors, including projects without Git. Desktop uses a split view;
+  phones have a file list and a back button. Previews are read-only and bounded;
+  links outside the project are blocked.
 - Resilient same-origin SSE streaming and visible failure states.
 - Collapsed tool summaries with per-tool details, token use, and cost.
 - Image paste/upload, inline preview, and lightbox viewing.

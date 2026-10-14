@@ -39,8 +39,8 @@ test("Codex file changes carry paths and line totals into the review card", () =
     { path: "/project/src/b.js", kind: "add", diff: "first\nsecond\n" },
   ] });
   assert.deepEqual(result.tool.args.changes, [
-    { path: "/project/src/a.js", added: 1, removed: 1 },
-    { path: "/project/src/b.js", added: 2, removed: 0 },
+    { path: "/project/src/a.js", added: 1, removed: 1, kind: "update", diff: "--- a/src/a.js\n+++ b/src/a.js\n@@\n-old\n+new\n context", diffTruncated: false },
+    { path: "/project/src/b.js", added: 2, removed: 0, kind: "add", diff: "first\nsecond\n", diffTruncated: false },
   ]);
   assert.match(result.tool.output, /src\/a\.js/);
 });

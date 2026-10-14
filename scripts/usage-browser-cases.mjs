@@ -253,8 +253,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   try { await runUsageBrowserCases(browser, { screenshotDirectory: process.argv[3] }); } finally { await browser.close(); }
 }
 
-async function runMenubarBrowserCase(browser) {
-  const fixture = await createUsagePreview();
+export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {}) {
+  const fixture = await createUsagePreview(0, { unpriced: true });
   fixture.setActivity({ live: { active: 1, tokensPerSecond: 12, estimated: true }, history: null });
   const context = await browser.newContext({ viewport: { width: 380, height: 550 }, locale: "en-US", serviceWorkers: "block" });
   try {
@@ -266,10 +266,13 @@ async function runMenubarBrowserCase(browser) {
     await context.request.post(fixture.origin + "/api/login", { data: { token: fixture.token } });
     const page = await context.newPage(), errors = [];
     page.on("pageerror", e => errors.push(e.message));
+    let releaseAnalytics;
+    await page.route("**/api/workspace/analytics?*", route => new Promise(resolve => { releaseAnalytics = async () => { await route.continue(); resolve(); }; }));
     await page.goto(fixture.origin + "/menubar.html");
     const ready = () => page.waitForFunction(() => document.querySelector("#updated")?.textContent && !document.querySelector("#refresh").disabled);
-    await ready();
     await page.waitForFunction(() => document.querySelector("#rate")?.textContent === "≈ 12");
+    assert.equal(await page.locator("#refresh").isDisabled(), true, "live output does not wait for a slow history scan");
+    await releaseAnalytics(); await page.unroute("**/api/workspace/analytics?*"); await ready();
     await page.locator("#metric").selectOption("rate");
     fixture.setActivity({ live: { active: 1, tokensPerSecond: 120, estimated: true }, history: null });
     await page.waitForFunction(() => document.querySelector("#rate")?.textContent === "≈ 120");
@@ -291,11 +294,38 @@ async function runMenubarBrowserCase(browser) {
     assert.equal(await page.locator("#tokens").textContent(), "—");
     assert.equal(await page.locator(".quota").count(), 0);
     fixture.setOffline(false); await page.locator("#hosts").selectOption(""); await ready();
-    assert.equal(await page.locator(".quota").count(), 4);
+    assert.equal(await page.locator(".quota").count(), 4, "unknown accounts remain separate");
+    const key = "v1:" + "a".repeat(64), provider = (used, at) => ({ provider: "Codex", service: "codex", accountKey: key, sampledAt: at, status: "ready", windows: [{ usedPercent: used, windowDurationMins: 300 }] });
+    fixture.setQuotas({ mini: { updatedAt: 1, providers: [provider(20, 1)] }, mbp: { updatedAt: 2, providers: [provider(22, 2)] } });
+    await page.locator("#refresh").click(); await ready();
+    assert.equal(await page.locator(".quota").count(), 1, "one shared account");
+    assert.match(await page.locator("#limits").innerText(), /Mac Mini · MacBook Pro/);
+    assert.match(await page.locator("#limits").innerText(), /22%/);
+    assert.equal(await page.locator("#data-details").isVisible(), true);
+    assert.equal(await page.locator("#data-details-text").isVisible(), false);
+    assert.equal(await page.locator("#notice").textContent(), "");
+    await page.locator("#data-details-label").click(); assert.equal(await page.locator("#data-details-text").isVisible(), true);
+    await page.locator("#data-details-label").click();
+    if (screenshotDirectory) { await fs.mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, "menubar-shared-account.png") }); }
     const opened = context.waitForEvent("page");
     await page.locator("#open").click(); const full = await opened;
     await full.locator('.usage-panel[open][data-tab="usage"]').waitFor();
     assert.equal(await full.locator(".usage-controls select").inputValue(), "");
+    await full.locator("[data-overview-tab=limits]").click();
+    await full.waitForFunction(() => document.querySelector(".usage-panel")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 1);
+    assert.match(await full.locator(".usage-quota-card").innerText(), /Mac Mini · MacBook Pro/);
+    if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-shared-account.png") });
+    // The new native reader owns activity polling; an older native shell still
+    // gets its existing JS heartbeat so rolling updates stay compatible.
+    await page.evaluate(() => { window.webkit = { messageHandlers: { stepsemble: { postMessage(body) { window.lastSummary = body; } } } }; window.StepsembleMenubarNativePolling = true; });
+    fixture.setActivity({ live: { active: 1, tokensPerSecond: 999 }, history: null });
+    await page.evaluate(() => window.StepsembleMenubarActivity());
+    assert.notEqual(await page.locator("#rate").textContent(), "999");
+    await page.evaluate(() => window.StepsembleMenubarNativeActivity([{ live: { active: 1, tokensPerSecond: 37 } }]));
+    assert.equal(await page.locator("#rate").textContent(), "37");
+    assert.deepEqual(await page.evaluate(() => window.lastSummary.activityHosts), ["", "mbp"]);
+    await page.evaluate(() => { window.StepsembleMenubarNativePolling = false; return window.StepsembleMenubarActivity(); });
+    assert.equal(await page.locator("#rate").textContent(), "1,998");
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ case: "Menu bar panel", result: "passed", hostSwitch: true, usedRemaining: true, offline: true, allHosts: true, opensUsage: true, footerVisible: true }));
   } finally { await context.close(); await fixture.close(); }

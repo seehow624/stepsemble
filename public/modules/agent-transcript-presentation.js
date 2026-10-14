@@ -140,9 +140,16 @@
 
   function codexFileChanges(item) {
     const changes = Array.isArray(item?.changes) ? item.changes.slice(0, 200) : [];
+    let budget = MAX_TEXT;
     return changes.map(change => {
       const path = text(change?.path || change?.filePath || "", 4096);
-      return path ? { path, ...codexChangeCounts(change) } : null;
+      const limit = Math.min(budget, 128 * 1024);
+      const diff = typeof change?.diff === "string" ? change.diff.slice(0, limit) : null;
+      budget -= diff?.length || 0;
+      return path ? { path, ...codexChangeCounts(change),
+        ...(diff !== null ? { diff, diffTruncated: change.diff.length > limit } : {}),
+        ...(change.kind ? { kind: typeof change.kind === "string" ? change.kind : change.kind.type } : {}),
+      } : null;
     }).filter(Boolean);
   }
 

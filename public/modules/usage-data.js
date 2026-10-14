@@ -140,5 +140,29 @@
     return { total, ...Object.fromEntries(Object.entries(maps).map(([key, map]) => [key, sorted(key, [...map.values()])])),
       hosts, issues, coverage: { covered, missing, unsupported, partial, indexing, issuesOmitted, scope: historyCoverage ? "history" : "unknown" }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine", dateApproximateRecords };
   }
-  return { empty, add, addCall, combine, modelIdentity, canonicalProvider, modelGroup, readReport };
+  function combineQuotas(results) {
+    const groups = new Map();
+    for (const result of results || []) for (const [index, provider] of (result.quota?.providers || []).entries()) {
+      const service = provider.service || provider.provider || provider.id;
+      const identity = /^v1:[a-f0-9]{64}$/.test(provider.accountKey || "") ? provider.accountKey : null;
+      const key = JSON.stringify(identity ? [service, identity] : [result.host, service, index]);
+      const cached = !!result.unavailable || provider.status === "cached";
+      const quality = provider.windows?.length ? cached ? 1 : 2 : 0;
+      const at = provider.sampledAt ?? provider.observedAt ?? result.quota.updatedAt ?? 0;
+      let group = groups.get(key);
+      const host = { id: result.host, name: result.name || result.host };
+      if (!group) {
+        group = { ...provider, cached, quality, at, hosts: [host] }; groups.set(key, group);
+      } else {
+        if (!group.hosts.some(row => row.id === host.id)) group.hosts.push(host);
+        // An account's quota is shared, not additive. Keep one complete reading
+        // so windows from different reset cycles are never mixed together.
+        if (quality > group.quality || quality === group.quality && at > group.at) {
+          groups.set(key, { ...provider, cached, quality, at, hosts: group.hosts });
+        }
+      }
+    }
+    return [...groups.values()];
+  }
+  return { empty, add, addCall, combine, combineQuotas, modelIdentity, canonicalProvider, modelGroup, readReport };
 });
