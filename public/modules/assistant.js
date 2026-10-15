@@ -14,7 +14,11 @@
   const prefs = WI.preferences(localStorage, { prefersDark: matchMedia("(prefers-color-scheme: dark)").matches });
   const coarse = matchMedia("(pointer: coarse)").matches;
   const t = (key, vars) => AI.t(key, vars, prefs.locale);
-  const main = document.getElementById("assistant-main");
+  // Two panes: the list of Bots and groups, and whatever is open. On a phone
+  // only one shows at a time; from 900 px wide both stay side by side.
+  const shell = document.getElementById("assistant-main");
+  const listPane = document.getElementById("assistant-list");
+  const main = document.getElementById("assistant-view");
   const machineSelect = document.getElementById("assistant-machine");
   const clientId = (() => {
     try { const saved = sessionStorage.getItem("stepsemble.assistant.client"); if (saved) return saved; } catch {}
@@ -26,7 +30,7 @@
   const listing = { query: "", rows: [], hasMore: false };
   let api = null, machine = null, bots = [], stream = null, chat = null, tab = "chat", screen = "";
   let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null, groupsView = null;
-  let groupData = { supported: false, rooms: [] }, allBots = [], manageView = null, consoleView = null, showHidden = false;
+  let groupData = { supported: false, rooms: [] }, allBots = [], manageView = null, consoleView = null, showHidden = false, currentRoom = null;
   const avatars = new Map();
 
   function el(tag, className = "", text) {
@@ -41,7 +45,36 @@
     if (onClick) node.addEventListener("click", onClick);
     return node;
   }
-  const render = node => main.replaceChildren(node);
+  function layout() {
+    shell.classList.toggle("has-list", !listPane.hidden);
+    shell.classList.toggle("at-list", screen === "roster");
+  }
+  const render = node => { main.replaceChildren(node); main.scrollTop = 0; layout(); };
+  function showList(on) { listPane.hidden = !on; if (!on) listPane.replaceChildren(); layout(); }
+  const SVG = "http://www.w3.org/2000/svg";
+  const ICONS = {
+    back: "M15 18l-6-6 6-6", plus: "M12 5v14M5 12h14", send: "M12 19V5M5 12l7-7 7 7",
+    attach: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
+    clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2",
+    stop: "M6.5 6.5h11v11h-11z", spark: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
+  };
+  function icon(name) {
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(SVG, "path");
+    path.setAttribute("d", ICONS[name]);
+    svg.append(path);
+    return svg;
+  }
+  // An icon-only button; its label is what screen readers and tooltips use.
+  function iconButton(name, label, className, onClick, type = "button") {
+    const node = button("", `assistant-icon-btn ${className}`, onClick, type);
+    node.append(icon(name));
+    node.setAttribute("aria-label", label);
+    node.title = label;
+    return node;
+  }
   function toast(text) {
     const note = el("p", "assistant-toast", text);
     note.setAttribute("role", "status");
@@ -79,13 +112,20 @@
 
   function messageView(title, body, { retry, home } = {}) {
     const box = el("section", "assistant-message");
-    box.append(el("h1", "", title));
+    const mark = el("span", "assistant-mark");
+    mark.append(icon("spark"));
+    box.append(mark, el("h1", "", title));
     if (body) box.append(el("p", "", body));
     if (retry) box.append(button(t("retry"), "btn primary", retry));
     if (home) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
     return box;
   }
-  const loadingView = () => messageView(t("loading"), "");
+  function loadingView() {
+    const box = el("section", "assistant-loading");
+    box.setAttribute("role", "status");
+    box.append(el("span", "assistant-spinner"), el("span", "", t("loading")));
+    return box;
+  }
   const errorView = (error, retry) => messageView(t("failed", { message: error?.message || "" }), "", { retry });
 
   // A Bot's picture when Hermes has one (fetched once per page), else its initials.
@@ -134,6 +174,7 @@
 
   async function start(next) {
     machine = next;
+    showList(false);
     stream?.close();
     stream = null;
     chat = null;
@@ -146,11 +187,11 @@
     manageView = window.StepsembleAssistantManage.create({ api, t, el, button, toast, M, machineName: () => machine?.name || "", bots: () => bots,
       onCreated: profile => void loadBots().catch(() => {}).finally(() => void openBot(profile, null, { tab: "settings" })),
       onDeleted: () => void loadBots().catch(() => {}).finally(showRoster),
-      onChanged: profile => { avatars.delete(profile); void loadBots().then(() => refreshBotHead(profile)).catch(() => {}); } });
-    consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, toast, locale: prefs.locale,
+      onChanged: profile => { avatars.delete(profile); void loadBots().then(() => { refreshBotHead(profile); renderRoster(); }).catch(() => {}); } });
+    consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, iconButton, toast, locale: prefs.locale,
       onBack: () => { if (history.length > 1) history.back(); else location.assign("/index.html?settings=1&section=connection"); } });
     groupsView?.close();
-    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, toast, avatar, markdown, bots: () => bots,
+    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots,
       onBack: () => void loadGroups().finally(showRoster) });
     render(loadingView());
     let status;
@@ -164,7 +205,8 @@
       await loadBots();
       await loadGroups();
     } catch (error) { render(errorView(error, () => start(next))); return; }
-    if (params.get("view") === "console") { screen = "console"; await consoleView.show(main); return; }
+    if (params.get("view") === "console") { screen = "console"; layout(); await consoleView.show(main); return; }
+    showList(true);
     const bot = params.get("bot");
     if (bot) await openBot(bot, params.get("session") || null);
     else showRoster();
@@ -183,7 +225,9 @@
     };
     const username = field(t("username"), "text", "username"), password = field(t("password"), "password", "current-password");
     const submit = button(t("signIn"), "btn primary", null, "submit");
-    form.append(el("h1", "", t("signInTitle")), el("p", "", t("signInBody", { computer: machine.name })), username.wrap, password.wrap, error, submit);
+    const mark = el("span", "assistant-mark");
+    mark.append(icon("spark"));
+    form.append(mark, el("h1", "", t("signInTitle")), el("p", "", t("signInBody", { computer: machine.name })), username.wrap, password.wrap, error, submit);
     form.addEventListener("submit", async event => {
       event.preventDefault();
       submit.disabled = true;
@@ -212,8 +256,18 @@
   }
 
   async function loadGroups() { try { groupData = await groupsView.load(); } catch { groupData = { supported: false, rooms: [] }; } }
-  function openGroup(room) { chat = null; screen = "group"; setUrl(null, null); watchNow(); groupsView.view(main, room); }
-  function newGroup() { chat = null; screen = "group"; groupsView.picker(main, openGroup); }
+  function openGroup(room) {
+    chat = null;
+    currentRoom = room.id;
+    screen = "group";
+    setUrl(null, null);
+    watchNow();
+    groupsView.view(main, room);
+    layout();
+    if (groupData.rooms.some(row => row.id === room.id)) renderRoster();
+    else void loadGroups().then(renderRoster);
+  }
+  function newGroup() { chat = null; currentRoom = null; screen = "group"; groupsView.picker(main, openGroup); layout(); renderRoster(); }
 
   function waitingFor(profile) { return [...asks.values()].filter(ask => ask.profile === profile).length; }
 
@@ -222,32 +276,51 @@
     if (!node) return;
     node.hidden = asks.size === 0;
     node.textContent = t("pending", { count: asks.size });
+    for (const row of listPane.querySelectorAll(".assistant-bot-row[data-profile]")) {
+      const waiting = waitingFor(row.dataset.profile), badge = row.querySelector(".assistant-badge");
+      if (badge) { badge.hidden = !waiting; badge.textContent = String(waiting); }
+    }
   }
 
+  // Back to the list: on a phone the list replaces the open view; on a wide
+  // screen the list is already there and the view shows a quiet placeholder.
   function showRoster() {
     groupsView?.close();
     chat = null;
+    currentRoom = null;
     screen = "roster";
     setUrl(null, null);
     watchNow();
+    renderRoster();
+    const empty = el("section", "assistant-placeholder");
+    empty.append(icon("spark"), el("p", "", bots.length ? t("pickBot") : t("noBots")));
+    render(empty);
+  }
+
+  function pageHead(title, back = showRoster) {
+    const head = el("header", "assistant-page-head");
+    head.append(iconButton("back", t("back"), "assistant-back", back), el("h1", "", title));
+    return head;
+  }
+
+  function renderRoster() {
+    if (listPane.hidden) return;
     const wrap = el("section", "assistant-roster");
-    const head = el("div", "assistant-section-head");
+    const head = el("div", "assistant-section-head assistant-list-head");
     const pending = button("", "assistant-pending", () => { screen = "pending"; render(pendingView()); });
     pending.id = "assistant-pending";
-    const all = button(t("allRoutines"), "btn ghost assistant-all-routines", () => {
+    const all = iconButton("clock", t("allRoutines"), "assistant-all-routines", () => {
       screen = "routines";
-      const box = el("section", "assistant-roster");
-      const top = el("div", "assistant-section-head");
-      const back = button("‹", "btn ghost assistant-back", showRoster);
-      back.setAttribute("aria-label", t("back"));
-      top.append(back, el("h1", "", t("allRoutines")));
+      const box = el("section", "assistant-roster assistant-page-body");
       const body = el("div");
-      box.append(top, body);
+      box.append(pageHead(t("allRoutines")), body);
       render(box);
       void routinesView.list(body, null);
     });
-    const add = button(t("newBot"), "btn ghost assistant-new-bot", () => { screen = "newbot"; chat = null; manageView.creator(main, showRoster); });
-    head.append(el("h1", "", t("bots")), pending, all, add);
+    const add = iconButton("plus", t("newBot"), "assistant-new-bot", () => { screen = "newbot"; chat = null; manageView.creator(main, showRoster); layout(); renderRoster(); });
+    const actions = el("div", "assistant-head-actions");
+    actions.append(pending, all, add);
+    head.append(el("h1", "", t("bots")), actions);
     wrap.append(head);
     if (!bots.length) wrap.append(el("p", "assistant-empty", t("noBots")));
     const list = el("ul", "assistant-bot-list");
@@ -257,40 +330,42 @@
       const row = button("", "assistant-bot-row", () => void openBot(bot.name, null));
       row.dataset.profile = bot.name;
       if (bot.hidden) row.classList.add("is-hidden");
+      if (chat?.profile === bot.name) row.setAttribute("aria-current", "true");
       const copy = el("span", "assistant-bot-copy");
       copy.append(el("strong", "", bot.displayName), el("small", "", bot.botChat?.preview || bot.description || ""));
       const meta = el("span", "assistant-bot-meta");
       meta.append(el("time", "", M.formatWhen(bot.botChat?.lastActive, Date.now(), prefs.locale)));
       const waiting = waitingFor(bot.name);
-      if (waiting) meta.append(el("span", "assistant-badge", String(waiting)));
+      const badge = el("span", "assistant-badge", String(waiting));
+      badge.hidden = !waiting;
+      meta.append(badge);
       row.append(avatar(bot), copy, meta);
       const item = el("li");
       item.append(row);
       list.append(item);
     }
     if (hiddenBots.length) {
-      const toggle = button(t("hiddenBots", { count: hiddenBots.length }), "btn ghost assistant-hidden-bots", () => { showHidden = !showHidden; showRoster(); });
+      const toggle = button(t("hiddenBots", { count: hiddenBots.length }), "assistant-link assistant-hidden-bots", () => { showHidden = !showHidden; renderRoster(); });
       toggle.setAttribute("aria-pressed", String(showHidden));
       wrap.append(list, toggle);
     } else wrap.append(list);
-    wrap.append(groupsView.section(groupData, openGroup, newGroup));
-    wrap.append(button(t("signOut"), "btn ghost assistant-sign-out", async () => {
+    wrap.append(groupsView.section(groupData, openGroup, newGroup, currentRoom));
+    wrap.append(button(t("signOut"), "assistant-link assistant-sign-out", async () => {
       await api.logout().catch(() => {});
       stream?.close();
       stream = null;
+      showList(false);
       render(signInView());
     }));
-    render(wrap);
+    const keep = listPane.scrollTop;
+    listPane.replaceChildren(wrap);
+    listPane.scrollTop = keep;
     updatePending();
   }
 
   function pendingView() {
-    const wrap = el("section", "assistant-roster");
-    const head = el("div", "assistant-section-head");
-    const back = button("‹", "btn ghost assistant-back", showRoster);
-    back.setAttribute("aria-label", t("back"));
-    head.append(back, el("h1", "", t("pendingTitle")));
-    wrap.append(head);
+    const wrap = el("section", "assistant-roster assistant-page-body");
+    wrap.append(pageHead(t("pendingTitle")));
     if (!asks.size) wrap.append(el("p", "assistant-empty", t("nothingPending")));
     const list = el("ul", "assistant-bot-list");
     for (const ask of asks.values()) {
@@ -311,6 +386,7 @@
 
   async function openBot(profile, sessionId, { title = "", tab: startTab = "chat" } = {}) {
     groupsView?.close();
+    currentRoom = null;
     const bot = allBots.find(row => row.name === profile) || { name: profile, displayName: profile, color: null, model: "", botChat: null };
     tab = startTab;
     screen = "bot";
@@ -323,6 +399,7 @@
       for (const ask of view.asks || []) asks.set(ask.id, ask);
       setUrl(profile, botChat ? null : chat.sessionId);
       render(botView());
+      renderRoster();
       watchNow();
       void api.read(chat.sessionId, profile).catch(() => {});
     } catch (error) { render(errorView(error, () => openBot(profile, sessionId, { title }))); }
@@ -350,11 +427,10 @@
   function botView() {
     const wrap = el("section", "assistant-bot");
     const head = el("header", "assistant-bot-head");
-    const back = button("‹", "btn ghost assistant-back", () => {
+    const back = iconButton("back", t("back"), `assistant-back${chat.botChat ? " to-list" : ""}`, () => {
       if (chat && !chat.botChat) { void openBot(chat.profile, null); return; }
       void loadBots().catch(() => {}).finally(showRoster);
     });
-    back.setAttribute("aria-label", t("back"));
     head.id = "assistant-bot-head";
     head.append(back, ...botHead());
     const tabs = el("div", "assistant-tabs");
@@ -411,19 +487,23 @@
       node.append(bubble);
     } else if (item.role === "system") node.textContent = item.text;
     else {
+      const body = el("div", "assistant-reply");
+      const steps = el("div", "assistant-steps");
       if (item.thinking) {
         const details = el("details", "assistant-thinking");
         details.append(el("summary", "", t("thinking")), el("pre", "", item.thinking));
-        node.append(details);
+        steps.append(details);
       }
       for (const tool of item.tools) {
-        const details = el("details", "assistant-tool");
-        details.append(el("summary", "", `${t("tool")} · ${tool.name}${tool.done ? "" : " …"}`));
+        const details = el("details", `assistant-tool${tool.done ? "" : " running"}`);
+        details.append(el("summary", "", `${t("tool")} · ${tool.name}`));
         if (tool.detail || tool.result) details.append(el("pre", "", [tool.detail, tool.result].filter(Boolean).join("\n\n")));
-        node.append(details);
+        steps.append(details);
       }
-      if (item.text) node.append(markdown(item.text));
-      if (item.streaming && !item.text) node.append(el("p", "assistant-working", t("working")));
+      if (steps.childElementCount) body.append(steps);
+      if (item.text) body.append(markdown(item.text));
+      if (item.streaming && !item.text) body.append(el("p", "assistant-working", t("working")));
+      node.append(avatar(chat.bot), body);
     }
     chat.nodes.set(item.id, { rev: item.rev, node });
     return node;
@@ -450,7 +530,8 @@
       card.append(el("h3", "", t("approvalTitle", { bot: ask.bot })));
       if (ask.command) card.append(el("pre", "assistant-ask-command", ask.command));
       if (ask.description) card.append(el("p", "", ask.description));
-      card.append(actions(...ask.choices.map(choice => button(t(choice), choice === "deny" ? "btn ghost" : "btn primary", () => send({ choice })))));
+      // The narrowest permission is the obvious one; the wider ones stay quiet.
+      card.append(actions(...ask.choices.map((choice, index) => button(t(choice), index === 0 && choice !== "deny" ? "btn primary" : choice === "deny" ? "btn ghost assistant-danger" : "btn ghost", () => send({ choice })))));
     } else if (ask.kind === "clarify") {
       card.append(el("h3", "", t("clarifyTitle", { bot: ask.bot })));
       const answers = {};
@@ -538,11 +619,10 @@
     input.setAttribute("aria-label", input.placeholder);
     const file = el("input");
     file.type = "file"; file.multiple = true; file.hidden = true;
-    const attach = button("+", "btn ghost assistant-attach", () => file.click());
-    attach.setAttribute("aria-label", t("attach"));
+    const attach = iconButton("attach", t("attach"), "assistant-attach", () => file.click());
     const hint = el("p", "assistant-hint", t("interruptHint"));
-    const send = button(t("send"), "btn primary assistant-send", null, "submit");
-    const stop = button(t("stop"), "btn ghost assistant-stop", () => void api.interrupt(chat.sessionId).catch(error => toast(t("failed", { message: error.message }))));
+    const send = iconButton("send", t("send"), "assistant-send", null, "submit");
+    const stop = iconButton("stop", t("stop"), "assistant-stop", () => void api.interrupt(chat.sessionId).catch(error => toast(t("failed", { message: error.message }))));
     const renderChips = () => chips.replaceChildren(...chat.attachments.map((item, index) => {
       const chip = el("span", "assistant-chip", item.name);
       const remove = button("×", "assistant-chip-remove", () => { chat.attachments.splice(index, 1); renderChips(); sync(); });
@@ -600,7 +680,7 @@
     chat.sync = sync;
     const row = el("div", "assistant-composer-row");
     row.append(attach, input, stop, send);
-    form.append(chips, hint, row, file);
+    form.append(hint, chips, row, file);
     queueMicrotask(sync);
     return form;
   }
@@ -702,7 +782,7 @@
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(async () => {
       try { await loadBots(); } catch { return; }
-      if (screen === "roster") showRoster();
+      renderRoster();
     }, 600);
   }
 

@@ -377,8 +377,15 @@
       "Usa come predefinito", "Predefinito", "Utilizzo", "{days} giorni", "Token in ingresso", "Token in uscita", "Costo", "Conversazioni", "Per modello",
       "Nessun utilizzo in questo periodo.", "Gli aggiornamenti di Hermes sono in Impostazioni → Aggiornamenti."],
   };
+  const LAYOUT_KEYS = ["pickBot"];
+  const layoutRows = {
+    "en": ["Choose a Bot or a group to start."], "zh-Hant": ["選一個 Bot 或群組開始聊天。"], "zh-Hans": ["选一个 Bot 或群组开始聊天。"],
+    "ja": ["Bot かグループを選んで始めましょう。"], "ko": ["Bot이나 그룹을 골라 시작하세요."], "tr": ["Başlamak için bir Bot veya grup seçin."],
+    "fr": ["Choisissez un Bot ou un groupe pour commencer."], "de": ["Wähle einen Bot oder eine Gruppe, um zu beginnen."],
+    "es": ["Elige un Bot o un grupo para empezar."], "pt-BR": ["Escolha um Bot ou um grupo para começar."], "it": ["Scegli un Bot o un gruppo per iniziare."],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

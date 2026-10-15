@@ -9,7 +9,7 @@
 
   const REASONING = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-  function create({ api, t, el, button, toast, locale, onBack }) {
+  function create({ api, t, el, button, iconButton, toast, locale, onBack }) {
     const failed = error => toast(t("failed", { message: error.message }));
     const number = value => new Intl.NumberFormat(locale, { notation: value >= 100_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
     const money = value => new Intl.NumberFormat(locale, { style: "currency", currency: "USD", maximumFractionDigits: value < 1 ? 3 : 2 }).format(value);
@@ -71,8 +71,7 @@
       }
       const page = el("section", "assistant-roster assistant-console");
       const head = el("div", "assistant-section-head");
-      const back = button("‹", "btn ghost assistant-back", onBack);
-      back.setAttribute("aria-label", t("back"));
+      const back = iconButton("back", t("back"), "assistant-back", onBack);
       head.append(back, el("h1", "", t("consoleTitle")));
       page.append(head, el("p", "assistant-empty assistant-console-note", t("updatesElsewhere")));
       const reload = () => void show(container);

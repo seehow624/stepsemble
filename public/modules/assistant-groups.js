@@ -6,22 +6,23 @@
   // answers the approvals a member raises. While a room is open and visible
   // it reads new events every 1.5 s and the room state every 3 s.
 
-  function create({ api, t, el, button, toast, avatar, markdown, bots, onBack }) {
+  function create({ api, t, el, button, iconButton, toast, avatar, markdown, bots, onBack }) {
     let open = null;
     const colorOf = profile => bots().find(bot => bot.name === profile)?.color;
     const failed = error => toast(t("failed", { message: error.message }));
 
-    function section(data, onOpen, onNew) {
+    function section(data, onOpen, onNew, current = null) {
       const wrap = el("section", "assistant-groups");
       const head = el("div", "assistant-section-head");
       head.append(el("h2", "", t("groups")));
-      if (data.supported) head.append(button(t("newGroup"), "btn ghost assistant-new-group", onNew));
+      if (data.supported) head.append(iconButton("plus", t("newGroup"), "assistant-new-group", onNew));
       wrap.append(head);
       if (!data.supported) { wrap.append(el("p", "assistant-empty", t("groupsUnsupported"))); return wrap; }
       if (!data.rooms.length) wrap.append(el("p", "assistant-empty", t("noGroups")));
       const list = el("ul", "assistant-bot-list");
       for (const room of data.rooms) {
         const row = button("", "assistant-bot-row assistant-group-row", () => onOpen(room));
+        if (room.id === current) row.setAttribute("aria-current", "true");
         const faces = el("span", "assistant-group-faces");
         for (const member of room.members.slice(0, 3)) faces.append(avatar({ name: member.profile, displayName: member.displayName, color: colorOf(member.profile) }));
         const copy = el("span", "assistant-bot-copy");
@@ -94,9 +95,9 @@
       }
       if (event.kind === "message.member") {
         const node = el("div", "assistant-msg assistant assistant-group-message");
-        const label = el("div", "assistant-group-author");
-        label.append(avatar({ name: member?.profile || who, displayName: who, color: colorOf(member?.profile) }), el("strong", "", who));
-        node.append(label, markdown(event.text));
+        const body = el("div", "assistant-reply");
+        body.append(el("strong", "assistant-group-author", who), markdown(event.text));
+        node.append(avatar({ name: member?.profile || who, displayName: who, color: colorOf(member?.profile) }), body);
         return node;
       }
       const note = { "turn.failed": t("turnFailed", { name: who }), "member.unavailable": t("memberUnavailable", { name: who }),
@@ -110,12 +111,13 @@
       open = state;
       const wrap = el("section", "assistant-bot assistant-group");
       const head = el("header", "assistant-bot-head");
-      const back = button("‹", "btn ghost assistant-back", () => { close(); onBack(); });
-      back.setAttribute("aria-label", t("back"));
+      const back = iconButton("back", t("back"), "assistant-back to-list", () => { close(); onBack(); });
       const title = el("div", "assistant-bot-title");
       const name = el("strong", "", room.name);
-      title.append(name, el("small", "", room.members.map(member => `@${member.handle}`).join(" ")));
-      const rename = button(t("rename"), "btn ghost", () => {
+      title.append(name, el("small", "", room.members.map(member => member.displayName).join(", ")));
+      const faces = el("span", "assistant-group-faces");
+      for (const member of room.members.slice(0, 3)) faces.append(avatar({ name: member.profile, displayName: member.displayName, color: colorOf(member.profile) }));
+      const rename = button(t("rename"), "btn ghost small", () => {
         const input = el("input", "assistant-rename");
         input.value = state.room.name;
         input.setAttribute("aria-label", t("rename"));
@@ -136,7 +138,7 @@
         input.focus();
       });
       let armed = false;
-      const disband = button(t("disband"), "btn ghost assistant-danger", async () => {
+      const disband = button(t("disband"), "btn ghost small assistant-danger", async () => {
         if (!armed) {
           armed = true;
           disband.textContent = t("confirmDisband");
@@ -148,7 +150,7 @@
       });
       const tools = el("div", "assistant-group-tools");
       tools.append(rename, disband);
-      head.append(back, title, tools);
+      head.append(back, faces, title, tools);
       const transcript = el("div", "assistant-transcript");
       const live = el("div", "assistant-group-live");
       const form = el("form", "assistant-composer");
@@ -164,11 +166,11 @@
           input.focus();
         }));
       }
-      const stop = button(t("stop"), "btn ghost assistant-stop", async () => { try { await api.groupStop(room.id); await pollState(); } catch (error) { failed(error); } });
-      const send = button(t("send"), "btn primary assistant-send", null, "submit");
+      const stop = iconButton("stop", t("stop"), "assistant-stop", async () => { try { await api.groupStop(room.id); await pollState(); } catch (error) { failed(error); } });
+      const send = iconButton("send", t("send"), "assistant-send", null, "submit");
       const row = el("div", "assistant-composer-row");
       row.append(input, stop, send);
-      form.append(mentions, el("p", "assistant-group-hint", t("mentionHint")), row);
+      form.append(mentions, row, el("p", "assistant-group-hint", t("mentionHint")));
       form.addEventListener("submit", async event => {
         event.preventDefault();
         const text = input.value.trim();

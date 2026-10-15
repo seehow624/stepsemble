@@ -30,6 +30,10 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
         await page.screenshot({ path: path.join(screenshots, `assistant-${name}-${viewport.width}.png`) });
       };
       const send = () => page.getByRole("button", { name: "Send", exact: true }).click();
+      // On a phone Back returns to the list; on a wide screen the list stays
+      // beside the conversation and there is no Back to the list.
+      const wide = viewport.width >= 900;
+      const toList = async () => { if (!wide) await page.locator(".assistant-back.to-list").click(); };
 
       stage = "Stepsemble sign-in returns to the assistant";
       const keyCheck = page.waitForResponse(response => new URL(response.url()).pathname === "/api/onboarding/key");
@@ -63,7 +67,10 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await shot("chat");
 
       stage = "roster";
-      await page.getByRole("button", { name: "Back", exact: true }).click();
+      assert.equal(await page.locator(".assistant-list").isVisible(), wide, "the list stays beside the conversation only on a wide screen");
+      assert.equal(await page.locator(".assistant-back.to-list").isVisible(), !wide);
+      if (wide) assert.deepEqual(await page.locator("[aria-current=true].assistant-bot-row").evaluateAll(rows => rows.map(row => row.dataset.profile || row.textContent)), ["default"], "only the open Bot is marked in the list");
+      await toList();
       await page.locator(".assistant-bot-row", { hasText: "Luna" }).waitFor();
       assert.equal(await page.locator(".assistant-bot-row", { hasText: "QA Reviewer" }).count(), 1);
       assert.equal(await page.locator(".assistant-bot-row", { hasText: "Image Artist" }).count(), 0, "hidden Bots stay hidden");
@@ -122,7 +129,7 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await shot("routines");
 
       stage = "group chat";
-      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await toList();
       await page.getByRole("button", { name: "New group", exact: true }).click();
       await page.getByLabel("Group name").fill("Production");
       await page.getByLabel("Luna", { exact: true }).check();
@@ -141,7 +148,7 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       for (let tries = 0; tries < 50 && preview.fake.state.groupCalls.at(-1)?.method !== "approve"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
       assert.equal(preview.fake.state.groupCalls.at(-1).choice, "once");
       await shot("group");
-      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await toList();
       await page.locator(".assistant-group-row", { hasText: "Production" }).waitFor();
       await shot("roster");
 
@@ -156,6 +163,7 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       assert.deepEqual([research.description, research.ui_meta["hermes-bots"].title], ["Finds papers", "Research Buddy"]);
 
       stage = "Bot settings";
+      if (wide) assert.deepEqual(await page.locator("[aria-current=true].assistant-bot-row").evaluateAll(rows => rows.map(row => row.dataset.profile || row.textContent)), ["research-buddy"], "a group opened earlier is no longer marked");
       await page.locator(".assistant-manage-section input[type=file]").setInputFiles({ name: "face.png", mimeType: "image/png",
         buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64") });
       for (let tries = 0; tries < 50 && !preview.fake.state.avatars.has("research-buddy"); tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
@@ -204,7 +212,7 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       for (let tries = 0; tries < 50 && preview.fake.state.profiles.find(row => row.name === "research-buddy").ui_meta["hermes-bots"].hidden !== true; tries += 1) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
-      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await toList();
       await page.getByRole("button", { name: "Hidden Bots (2)", exact: true }).click();
       await page.locator(".assistant-bot-row.is-hidden[data-profile='research-buddy'] .assistant-avatar.has-picture").waitFor();
       await page.locator(".assistant-bot-row[data-profile='research-buddy']").click();
