@@ -79,6 +79,16 @@ function defaultHub() {
   ];
 }
 
+function defaultConfig() {
+  return {
+    model: { provider: "openai-codex", default: "gpt-6-luna", api_key: "sk-config-secret-never-leaves" },
+    agent: { reasoning_effort: "medium" },
+    fallback_model: [{ provider: "ollama", model: "deepseek-v4-pro:cloud" }],
+    auxiliary: { vision: { provider: "auto", model: "" }, compression: { provider: "ollama", model: "deepseek-v4-pro:cloud", reasoning_effort: "low" } },
+    providers: { "local-llm": { name: "Local LLM", base_url: "http://127.0.0.1:1234/v1", model: "qwen3", api_key: "sk-endpoint-secret" } },
+  };
+}
+
 function cookie(req, name) {
   for (const part of String(req.headers.cookie || "").split(";")) {
     const index = part.indexOf("=");
@@ -105,6 +115,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
     rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
     bots: new Map(), avatars: new Map(), hubCatalog: defaultHub(), actions: new Map(), botCalls: [],
+    consoleCalls: [], gatewayRunning: true, config: defaultConfig(), env: { OPENAI_API_KEY: "sk-live-abcdef123456", TELEGRAM_BOT_TOKEN: "123:abc" },
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
   const preview = row => row.messages.at(-1)?.text?.slice(0, 80) || "";
@@ -354,6 +365,13 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         return reply({ model: "gpt-6-luna", provider: "openai-codex", providers: [
           { slug: "openai-codex", name: "OpenAI Codex", is_current: true, models: ["gpt-6-luna", "gpt-6-mini"], total_models: 2 },
           { slug: "ollama", name: "Ollama", is_current: false, models: ["deepseek-v4-pro:cloud", "expensive-model"], total_models: 2 }] });
+      case "config.set": {
+        state.consoleCalls.push({ method: "config.set", key: p.key, value: p.value, scope: p.scope });
+        if (p.key !== "reasoning") return fail(4002, `unknown config key: ${p.key}`);
+        if (!["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(p.value)) return fail(4002, `unknown reasoning value: ${p.value}`);
+        state.config.agent.reasoning_effort = p.value;
+        return reply({ key: "reasoning", value: p.value });
+      }
       case "groups.capabilities":
         return reply({ protocol_version: 1, driver: state.groupDriver, persistent_process: true, authority_gateway_id: installId,
           room_link: { enabled: false, reason: "disabled" }, features: ["discussion"], methods: ["groups.create", "groups.send"], max_log_limit: 500 });
@@ -444,7 +462,9 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     const send = (status, body, headers = {}) => { res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(body)); };
     try {
       if (url.pathname === "/api/status" && req.method === "GET") {
-        return send(200, { version, auth_required: authRequired, auth_providers: authRequired ? providers : [], install_id: installId, gateway_running: true });
+        return send(200, { version, auth_required: authRequired, auth_providers: authRequired ? providers : [], install_id: installId, gateway_running: state.gatewayRunning,
+          gateway_state: state.gatewayRunning ? "running" : "stopped", gateway_pid: state.gatewayRunning ? 5150 : null, active_sessions: 1,
+          gateway_platforms: { telegram: { state: "connected", error_message: null }, discord: { state: "fatal", error_message: "token rejected" } } });
       }
       if (url.pathname === "/" && req.method === "GET") {
         res.writeHead(200, { "content-type": "text/html" });
@@ -551,6 +571,75 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
           runs.push({ id: `cron_output:${job.id}:latest`, title: "Script output", preview: null, source: "cron_output", started_at: 1_760_400_000 });
           return send(200, { runs, limit: 20 }, rotated);
         }
+      }
+      if (url.pathname === "/api/config" && req.method === "GET") return send(200, JSON.parse(JSON.stringify(state.config)), rotated);
+      if (url.pathname === "/api/config" && req.method === "PUT") {
+        const body = await readJson(req);
+        state.consoleCalls.push({ method: "config.put", config: body.config });
+        for (const [key, value] of Object.entries(body.config || {})) state.config[key] = value;
+        return send(200, { ok: true }, rotated);
+      }
+      if (url.pathname === "/api/model/auxiliary" && req.method === "GET") {
+        return send(200, { tasks: Object.entries(state.config.auxiliary).map(([task, slot]) => ({ task, provider: slot.provider, model: slot.model, base_url: "",
+          reasoning_effort: slot.reasoning_effort || null, local_endpoint: false })), main: { provider: state.config.model.provider, model: state.config.model.default } }, rotated);
+      }
+      if (url.pathname === "/api/model/set" && req.method === "POST") {
+        const body = await readJson(req);
+        state.consoleCalls.push({ method: "model.set", ...body });
+        if (/expensive/.test(body.model) && body.confirm_expensive_model !== true) {
+          return send(200, { ok: false, scope: body.scope, provider: body.provider, model: body.model, confirm_required: true, confirm_message: `${body.model} costs more than usual` }, rotated);
+        }
+        if (body.scope === "main") Object.assign(state.config.model, { provider: body.provider, default: body.model });
+        else state.config.auxiliary[body.task] = { provider: body.provider, model: body.model, ...(body.reasoning_effort ? { reasoning_effort: body.reasoning_effort } : {}) };
+        return send(200, { ok: true, scope: body.scope }, rotated);
+      }
+      if (url.pathname === "/api/env" && req.method === "GET") {
+        const rows = { OPENAI_API_KEY: { description: "OpenAI API key", provider: "openai", provider_label: "OpenAI", category: "provider" },
+          ANTHROPIC_API_KEY: { description: "Anthropic API key", provider: "anthropic", provider_label: "Anthropic", category: "provider" },
+          TELEGRAM_BOT_TOKEN: { description: "Telegram bot token", provider: "", provider_label: "", category: "messaging" } };
+        return send(200, Object.fromEntries(Object.entries(rows).map(([key, meta]) => [key, { is_set: !!state.env[key],
+          redacted_value: state.env[key] ? `«redacted:${state.env[key].slice(0, 3)}...${state.env[key].slice(-4)}»` : null, url: null, is_password: true,
+          tools: [], advanced: false, channel_managed: key === "TELEGRAM_BOT_TOKEN", provider_profiles: [], provider_primary: true, custom: false, ...meta }])), rotated);
+      }
+      if (url.pathname === "/api/env" && (req.method === "PUT" || req.method === "DELETE")) {
+        const body = await readJson(req);
+        state.consoleCalls.push({ method: `env.${req.method.toLowerCase()}`, key: body.key, length: typeof body.value === "string" ? body.value.length : null });
+        if (req.method === "PUT") state.env[body.key] = body.value;
+        else if (!(body.key in state.env)) return send(404, { detail: `${body.key} not found in .env` });
+        else delete state.env[body.key];
+        return send(200, { ok: true, key: body.key }, rotated);
+      }
+      const endpointRows = () => ({ endpoints: Object.entries(state.config.providers).map(([id, row]) => ({ id, name: row.name, base_url: row.base_url, model: row.model,
+        models: [row.model], context_length: null, discover_models: true, has_api_key: !!row.api_key, api_key: row.api_key, active: state.config.model.provider === `custom:${id}`, source: "providers" })) });
+      if (url.pathname === "/api/providers/custom-endpoints" && req.method === "GET") return send(200, endpointRows(), rotated);
+      if (url.pathname === "/api/providers/custom-endpoints" && req.method === "POST") {
+        const body = await readJson(req);
+        const id = body.id || body.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        state.consoleCalls.push({ method: "endpoint.save", id, name: body.name, base_url: body.base_url, model: body.model, hasKey: !!body.api_key });
+        state.config.providers[id] = { name: body.name, base_url: body.base_url, model: body.model, ...(body.api_key ? { api_key: body.api_key } : {}) };
+        return send(200, { ...endpointRows(), ok: true, id }, rotated);
+      }
+      const endpointMatch = /^\/api\/providers\/custom-endpoints\/([^/]+)(\/activate)?$/.exec(url.pathname);
+      if (endpointMatch) {
+        const id = decodeURIComponent(endpointMatch[1]);
+        if (!state.config.providers[id]) return send(404, { detail: "Custom endpoint not found" });
+        state.consoleCalls.push({ method: endpointMatch[2] ? "endpoint.activate" : "endpoint.delete", id });
+        if (endpointMatch[2] && req.method === "POST") { Object.assign(state.config.model, { provider: `custom:${id}`, default: state.config.providers[id].model }); return send(200, { ...endpointRows(), ok: true }, rotated); }
+        if (!endpointMatch[2] && req.method === "DELETE") { delete state.config.providers[id]; return send(200, { ...endpointRows(), ok: true }, rotated); }
+      }
+      if (url.pathname === "/api/analytics/usage" && req.method === "GET") {
+        const days = Number(url.searchParams.get("days"));
+        state.consoleCalls.push({ method: "usage", days });
+        return send(200, { period_days: days, daily: [{ day: "2026-10-14", input_tokens: 1200, output_tokens: 300, cache_read_tokens: 0, reasoning_tokens: 50, estimated_cost: 0.12,
+          actual_cost: 0, sessions: 3, api_calls: 9 }, { day: "2026-10-15", input_tokens: 800, output_tokens: 200, cache_read_tokens: 0, reasoning_tokens: 0, estimated_cost: 0.08,
+          actual_cost: 0, sessions: 2, api_calls: 4 }], by_model: [{ model: "gpt-6-luna", provider: "openai-codex", input_tokens: 2000, output_tokens: 500, estimated_cost: 0.2,
+          sessions: 5, api_calls: 13 }], totals: { total_input: 2000 * days / 7, total_output: 500, total_cache_read: 0, total_reasoning: 50, total_estimated_cost: 0.2,
+          total_actual_cost: 0, total_sessions: 5, total_api_calls: 13 }, by_task: [], skills: {}, tools: {} }, rotated);
+      }
+      if (url.pathname === "/api/gateway/restart" && req.method === "POST") {
+        state.consoleCalls.push({ method: "gateway.restart" });
+        state.actions.set("gateway-restart", { name: "gateway-restart", running: false, exit_code: 0, pid: 5151, lines: ["Gateway restarted"] });
+        return send(200, { ok: true, pid: 5151, name: "gateway-restart" }, rotated);
       }
       const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(url.pathname);
       if (profileMatch && req.method === "DELETE") {
