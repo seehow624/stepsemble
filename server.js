@@ -3640,6 +3640,17 @@ function reusableRpc(file) {
   return null;
 }
 
+// The workspace owns the durable file; a Pi RPC sid belongs only to this
+// process. Reopening/reusing a saved conversation must refresh that sid before
+// its next lifecycle event, without adopting history or replacing metadata.
+function bindWorkspacePiRpc(file, sid) {
+  if (typeof file !== "string" || !file) return;
+  try {
+    const entry = workspaceRegistry.list().entries.find(row => row.record.agentId === "pi" && row.record.file === file);
+    if (entry && entry.record.sid !== sid) workspaceRegistry.update(entry.key, { sid });
+  } catch { console.warn("[stepsemble] Could not reconnect the Pi session's workspace status; the session is still available"); }
+}
+
 async function openRpc({ file, cwd, name }) {
   let validatedNewCwd = null;
   if (!file) {
@@ -3651,7 +3662,7 @@ async function openRpc({ file, cwd, name }) {
     }
   }
   const reused = reusableRpc(file);
-  if (reused) return reused;
+  if (reused) { bindWorkspacePiRpc(file, reused.sid); return reused; }
   const activeRpcCount = [...rpcSessions.values()].filter((session) => !session.exited).length;
   if (activeRpcCount >= MAX_RPC_SESSIONS) {
     const err = new Error(`too many rpc sessions (limit ${MAX_RPC_SESSIONS})`);
@@ -3679,7 +3690,7 @@ async function openRpc({ file, cwd, name }) {
   // File metadata is asynchronous. Recheck identity and capacity at the effect
   // boundary so two simultaneous opens cannot spawn two writers for one file.
   const concurrentlyOpened = reusableRpc(file);
-  if (concurrentlyOpened) return concurrentlyOpened;
+  if (concurrentlyOpened) { bindWorkspacePiRpc(file, concurrentlyOpened.sid); return concurrentlyOpened; }
   if (!file) {
     const recheckedCwd = projectDirectory(spawnCwd);
     if (!recheckedCwd || recheckedCwd !== spawnCwd) {
@@ -3809,6 +3820,7 @@ async function openRpc({ file, cwd, name }) {
   // A new conversation starts with the model and level chosen last; one opened
   // again has its own back from Pi's session file.
   if (!file) await piChoice.applyLast(sid);
+  bindWorkspacePiRpc(file, sid);
   rpcWrite(sid, { type: "get_state" });
   scheduleRpcCleanup(sid);
   return { sid, pid: proc.pid, cwd: spawnCwd, reused: false, isStreaming: false, replayAfter: -1 };
