@@ -155,3 +155,37 @@ test("Bot and skill routes reach the managers with the page's fields", async t =
     ["search", "qa", "pdf"], ["preview", "qa", "official/pdf"], ["scan", "qa", "official/pdf"], ["action", "skills-install-x-12345678"],
     ["toggle", "qa", "daily", false], ["save", "qa", "daily", "x"], ["install", "qa", "official/pdf", { acknowledged: true }], ["uninstall", "qa", "pdf"]]);
 });
+
+test("console routes reach Hermes settings and never echo a key value back", async t => {
+  const calls = [];
+  const record = name => async (...args) => { calls.push([name, ...args]); return { ok: true }; };
+  const hermesConsole = { overview: record("overview"), usage: record("usage"), restartStatus: record("restartStatus"), setMain: record("setMain"),
+    setAuxiliary: record("setAuxiliary"), setReasoning: record("setReasoning"), setFallback: record("setFallback"), setKey: record("setKey"),
+    removeKey: record("removeKey"), saveEndpoint: record("saveEndpoint"), activateEndpoint: record("activateEndpoint"), removeEndpoint: record("removeEndpoint"),
+    restartGateway: record("restartGateway") };
+  const { readJSON, sendJSON, sseFrame, trySseWrite } = createHttpUtils();
+  const handle = createHermesAssistantRoutes({ service: {}, console: hermesConsole, readJSON, sendJSON, sseFrame, trySseWrite });
+  const server = http.createServer(async (req, res) => { if (!await handle(req, res, new URL(req.url, "http://localhost"))) sendJSON(res, 404, {}); });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  await fetch(base + "/api/assistant/console");
+  await fetch(base + "/api/assistant/console/usage?days=30");
+  await fetch(base + "/api/assistant/console/restart-status");
+  await post(base, "/api/assistant/console/main", { provider: "p", model: "m", confirmExpensive: true });
+  await post(base, "/api/assistant/console/auxiliary", { task: "vision", provider: "auto" });
+  await post(base, "/api/assistant/console/reasoning", { level: "high" });
+  await post(base, "/api/assistant/console/fallback", { chain: [{ provider: "p", model: "m" }] });
+  const saved = await post(base, "/api/assistant/console/key", { key: "OPENAI_API_KEY", value: "sk-secret" });
+  assert.equal((await saved.text()).includes("sk-secret"), false);
+  await post(base, "/api/assistant/console/key/remove", { key: "OPENAI_API_KEY" });
+  await post(base, "/api/assistant/console/endpoint", { fields: { name: "S", baseUrl: "http://x/v1", model: "m" } });
+  await post(base, "/api/assistant/console/endpoint/activate", { id: "s" });
+  await post(base, "/api/assistant/console/endpoint/remove", { id: "s" });
+  await post(base, "/api/assistant/console/restart", {});
+  assert.deepEqual(calls, [["overview"], ["usage", "30"], ["restartStatus"], ["setMain", { provider: "p", model: "m", confirmExpensive: true }],
+    ["setAuxiliary", { task: "vision", provider: "auto" }], ["setReasoning", "high"], ["setFallback", [{ provider: "p", model: "m" }]],
+    ["setKey", "OPENAI_API_KEY", "sk-secret"], ["removeKey", "OPENAI_API_KEY"], ["saveEndpoint", { name: "S", baseUrl: "http://x/v1", model: "m" }],
+    ["activateEndpoint", "s"], ["removeEndpoint", "s"], ["restartGateway"]]);
+});

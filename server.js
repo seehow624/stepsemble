@@ -51,6 +51,7 @@ const { createHermesRoutines } = require("./server/hermes-routines");
 const { createHermesGroups } = require("./server/hermes-groups");
 const { createHermesBots } = require("./server/hermes-bots");
 const { createHermesSkills } = require("./server/hermes-skills");
+const { createHermesConsole } = require("./server/hermes-console");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
@@ -5355,6 +5356,7 @@ const hermesAssistant = createHermesAssistantService({
 });
 const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, routines: createHermesRoutines({ client: hermesClient }),
   groups: createHermesGroups({ client: hermesClient }), bots: createHermesBots({ client: hermesClient }), skills: createHermesSkills({ client: hermesClient }),
+  console: createHermesConsole({ client: hermesClient }),
   readJSON, sendJSON, sseFrame, trySseWrite });
 
 // A mode chosen earlier is put back when an ACP conversation is loaded again;

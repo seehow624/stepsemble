@@ -7,7 +7,7 @@
 
 const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024, AVATAR = 4 * 1024 * 1024, SKILL = 1024 * 1024;
 
-function createHermesAssistantRoutes({ service, routines, groups, bots, skills, readJSON, sendJSON, sseFrame, trySseWrite }) {
+function createHermesAssistantRoutes({ service, routines, groups, bots, skills, console: hermesConsole, readJSON, sendJSON, sseFrame, trySseWrite }) {
   function fail(res, error) {
     const status = Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
     sendJSON(res, status, { error: typeof error?.code === "string" ? error.code : "assistant_failed",
@@ -69,6 +69,27 @@ function createHermesAssistantRoutes({ service, routines, groups, bots, skills, 
     sendJSON(res, 404, { error: "assistant_route_not_found" });
   }
 
+  // The Hermes console (Settings → Agents & models → Hermes).
+  async function consoleRoute(req, res, url, p, get, post) {
+    if (get && p === "/api/assistant/console") { sendJSON(res, 200, await hermesConsole.overview()); return; }
+    if (get && p === "/api/assistant/console/usage") { sendJSON(res, 200, await hermesConsole.usage(url.searchParams.get("days"))); return; }
+    if (get && p === "/api/assistant/console/restart-status") { sendJSON(res, 200, await hermesConsole.restartStatus()); return; }
+    const writes = {
+      "/api/assistant/console/main": body => hermesConsole.setMain(body),
+      "/api/assistant/console/auxiliary": body => hermesConsole.setAuxiliary(body),
+      "/api/assistant/console/reasoning": body => hermesConsole.setReasoning(body.level),
+      "/api/assistant/console/fallback": body => hermesConsole.setFallback(body.chain),
+      "/api/assistant/console/key": body => hermesConsole.setKey(body.key, body.value),
+      "/api/assistant/console/key/remove": body => hermesConsole.removeKey(body.key),
+      "/api/assistant/console/endpoint": body => hermesConsole.saveEndpoint(body.fields || {}),
+      "/api/assistant/console/endpoint/activate": body => hermesConsole.activateEndpoint(body.id),
+      "/api/assistant/console/endpoint/remove": body => hermesConsole.removeEndpoint(body.id),
+      "/api/assistant/console/restart": () => hermesConsole.restartGateway(),
+    };
+    if (post && writes[p]) { sendJSON(res, 200, await writes[p](await readJSON(req, SMALL))); return; }
+    sendJSON(res, 404, { error: "assistant_route_not_found" });
+  }
+
   return async function handle(req, res, url) {
     const p = url.pathname;
     if (!p.startsWith("/api/assistant/")) return false;
@@ -118,6 +139,8 @@ function createHermesAssistantRoutes({ service, routines, groups, bots, skills, 
         const extra = { send: body.text, retry: body.taskId, rename: body.name,
           approve: { memberId: body.memberId, taskId: body.taskId, executionGeneration: body.executionGeneration, requestId: body.requestId, choice: body.choice } }[verb];
         sendJSON(res, 200, extra === undefined ? await groups[verb](body.room) : await groups[verb](body.room, extra));
+      } else if (p === "/api/assistant/console" || p.startsWith("/api/assistant/console/")) {
+        await consoleRoute(req, res, url, p, get, post);
       } else if (p.startsWith("/api/assistant/bot/") || p === "/api/assistant/skills" || p.startsWith("/api/assistant/skills/")) {
         await manage(req, res, url, p, get, post);
       } else if (p === "/api/assistant/watch" && post) {
