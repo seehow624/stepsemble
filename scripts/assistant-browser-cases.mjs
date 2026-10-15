@@ -6,8 +6,8 @@ import { createAssistantPreview } from "./assistant-preview.mjs";
 
 // The assistant page end to end against a fake Hermes: the Stepsemble sign-in
 // round trip, Hermes sign-in, a streamed Bot Chat reply, the roster, an
-// approval, a sudo question whose value never stays in the page, and older
-// Telegram conversations. Phone and desktop widths.
+// approval, a sudo question whose value never stays in the page, older
+// Telegram conversations, routines and a group chat. Phone and desktop widths.
 export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
   for (const viewport of [{ width: 393, height: 852 }, { width: 1440, height: 900 }]) {
     const preview = await createAssistantPreview();
@@ -118,6 +118,29 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       const created = preview.fake.state.cron.at(-1);
       assert.deepEqual([created.name, created.schedule_display, created.deliver, created.profile], ["[bot:default] Weekly review", "0 9 * * *", "bot-chat", "default"]);
       await shot("routines");
+
+      stage = "group chat";
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await page.getByRole("button", { name: "New group", exact: true }).click();
+      await page.getByLabel("Group name").fill("Production");
+      await page.getByLabel("Luna", { exact: true }).check();
+      await page.getByLabel("QA Reviewer", { exact: true }).check();
+      await page.getByRole("button", { name: "Create group", exact: true }).click();
+      const groupInput = page.getByPlaceholder("Message the group");
+      await groupInput.waitFor();
+      await page.getByRole("button", { name: "@luna", exact: true }).click();
+      await groupInput.pressSequentially("what is next?");
+      await send();
+      await page.locator(".assistant-group-message", { hasText: "Luna heard: @luna what is next?" }).waitFor();
+      assert.equal(await page.locator(".assistant-group-message", { hasText: "QA Reviewer heard" }).count(), 0, "only the mentioned Bot answers");
+      const [roomId] = preview.fake.state.rooms.keys();
+      preview.fake.requestGroupApproval(roomId, "default");
+      await page.getByRole("button", { name: "Allow once", exact: true }).click();
+      for (let tries = 0; tries < 50 && preview.fake.state.groupCalls.at(-1)?.method !== "approve"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(preview.fake.state.groupCalls.at(-1).choice, "once");
+      await shot("group");
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await page.locator(".assistant-group-row", { hasText: "Production" }).waitFor();
 
       stage = "Workspace switch";
       await page.goto(preview.origin + "/workspace.html");
