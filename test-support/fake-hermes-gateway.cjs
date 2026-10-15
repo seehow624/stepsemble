@@ -82,7 +82,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     rotateNext: false, rejectSockets: false, keepLiveOnResume: true,
     capabilities: [], methods: [], prompts: [], attachments: [], answers: [], patches: [], deletes: [],
     profiles, stored: new Map(), live: new Map(), peers: new Map(), rings: new Map(), seqs: new Map(),
-    open: new Map(), sockets: new Set(), next: 0, turn: null,
+    open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
   const preview = row => row.messages.at(-1)?.text?.slice(0, 80) || "";
@@ -244,6 +244,19 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
   const sessionRow = row => ({ id: row.id, title: row.title, preview: preview(row), source: row.source, started_at: row.startedAt,
     last_active: row.lastActive, message_count: row.messages.length, archived: false, unread: row.unread });
 
+  function cronJob(profile, body = {}) {
+    const schedule = String(body.schedule || "");
+    const kind = /^every /i.test(schedule) ? "interval" : /^\d{4}-\d{2}-\d{2}/.test(schedule) ? "once" : "cron";
+    const minutes = kind === "interval" ? Number(/(\d+)/.exec(schedule)?.[1] || 0) * (/h$/i.test(schedule) ? 60 : 1) : undefined;
+    return { id: `job${++state.next}`, profile, is_default_profile: profile === "default", name: String(body.name || ""), prompt: String(body.prompt || ""),
+      schedule: { kind, ...(kind === "cron" ? { expr: schedule } : {}), ...(kind === "interval" ? { minutes } : {}), ...(kind === "once" ? { run_at: schedule } : {}), display: schedule },
+      schedule_display: schedule, deliver: String(body.deliver || "local"), enabled: body.paused !== true, state: body.paused ? "paused" : "scheduled",
+      next_run_at: body.paused ? null : "2026-10-16T07:00:00+08:00", last_run_at: null, last_status: null, last_error: null, last_delivery_error: null,
+      model: body.model || null, provider: body.provider || null, skills: Array.isArray(body.skills) ? body.skills : [], no_agent: body.no_agent === true,
+      script: body.script || null, repeat: { times: null, completed: 0 } };
+  }
+  const findJob = id => state.cron.find(job => job.id === id);
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://fake");
     const send = (status, body, headers = {}) => { res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(body)); };
@@ -302,6 +315,60 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         const rows = [...state.stored.values()].filter(row => row.profile === profile
           && (row.title.toLowerCase().includes(q) || row.messages.some(item => item.text.toLowerCase().includes(q))));
         return send(200, { results: rows.map(row => ({ ...sessionRow(row), snippet: preview(row) })) }, rotated);
+      }
+      if (url.pathname === "/api/cron/delivery-targets" && req.method === "GET") {
+        return send(200, { targets: [{ id: "local", name: "Local (save only)", home_target_set: true, home_env_var: null },
+          { id: "telegram", name: "Telegram", home_target_set: true, home_env_var: "TELEGRAM_HOME_CHANNEL" }] }, rotated);
+      }
+      if (url.pathname === "/api/cron/jobs" && req.method === "GET") {
+        const profile = url.searchParams.get("profile") || "all";
+        return send(200, state.cron.filter(job => profile === "all" || job.profile === profile), rotated);
+      }
+      if (url.pathname === "/api/cron/jobs" && req.method === "POST") {
+        const body = await readJson(req);
+        if (!String(body.schedule || "").trim()) return send(400, { detail: "schedule required" });
+        const job = cronJob(url.searchParams.get("profile") || "default", body);
+        state.cron.push(job);
+        broadcast("cron.changed", {});
+        return send(200, job, rotated);
+      }
+      const cronMatch = /^\/api\/cron\/jobs\/([^/]+)(?:\/(pause|resume|trigger|runs))?$/.exec(url.pathname);
+      if (cronMatch) {
+        const job = findJob(decodeURIComponent(cronMatch[1]));
+        if (!job) return send(404, { detail: "Job not found" });
+        const verb = cronMatch[2];
+        if (!verb && req.method === "GET") return send(200, job, rotated);
+        if (!verb && req.method === "PUT") {
+          const { updates = {} } = await readJson(req);
+          for (const key of ["name", "prompt", "deliver", "model", "provider", "skills"]) if (updates[key] !== undefined) job[key] = updates[key];
+          if (updates.schedule !== undefined) Object.assign(job, { schedule: cronJob(job.profile, { schedule: updates.schedule }).schedule, schedule_display: updates.schedule });
+          broadcast("cron.changed", {});
+          return send(200, job, rotated);
+        }
+        if (!verb && req.method === "DELETE") {
+          state.cron = state.cron.filter(other => other !== job);
+          broadcast("cron.changed", {});
+          return send(200, { ok: true }, rotated);
+        }
+        if (verb === "pause" || verb === "resume") {
+          Object.assign(job, { enabled: verb === "resume", state: verb === "resume" ? "scheduled" : "paused" });
+          broadcast("cron.changed", {});
+          return send(200, job, rotated);
+        }
+        if (verb === "trigger") {
+          const row = { id: `cron_${job.id}_20261015_070000`, profile: job.profile, title: job.name, hidden: false, source: "cron",
+            messages: [{ role: "assistant", text: `Ran ${job.name}` }], startedAt: 1_760_500_000, lastActive: 1_760_500_000, unread: true, running: false, inflight: null };
+          state.stored.set(row.id, row);
+          Object.assign(job, { last_run_at: "2026-10-15T07:00:00+08:00", last_status: "ok" });
+          broadcast("cron.changed", {});
+          return send(200, job, rotated);
+        }
+        if (verb === "runs") {
+          const runs = [...state.stored.values()].filter(row => row.id.startsWith(`cron_${job.id}_`))
+            .map(row => ({ id: row.id, title: row.title, preview: preview(row), source: "cron", started_at: row.startedAt }));
+          runs.push({ id: `cron_output:${job.id}:latest`, title: "Script output", preview: null, source: "cron_output", started_at: 1_760_400_000 });
+          return send(200, { runs, limit: 20 }, rotated);
+        }
       }
       const match = /^\/api\/sessions\/([^/]+)$/.exec(url.pathname);
       if (match && req.method === "PATCH") {
@@ -376,6 +443,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     },
     liveOf(storedId) { for (const [liveId, owner] of state.live) if (owner === storedId) return liveId; return null; },
     addSession(profile, title, options) { return newStored(profile, title, options); },
+    addRoutine(profile, body) { const job = cronJob(profile, body); state.cron.push(job); return job; },
     storedSessions: () => [...state.stored.values()],
     cancelRequests, emit, broadcast, serverRequest,
   };
