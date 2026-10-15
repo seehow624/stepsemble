@@ -25,7 +25,7 @@
   const asks = new Map();
   const listing = { query: "", rows: [], hasMore: false };
   let api = null, machine = null, bots = [], stream = null, chat = null, tab = "chat", screen = "";
-  let renderQueued = false, watchTimer = 0, reloadTimer = 0;
+  let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null;
 
   function el(tag, className = "", text) {
     const node = document.createElement(tag);
@@ -126,6 +126,9 @@
     chat = null;
     asks.clear();
     api = Api.create({ base: next.base, onSignedOut: signInToStepsemble });
+    routinesView = window.StepsembleAssistantRoutines.create({ api, t, el, button, toast, M, locale: prefs.locale,
+      botName: profile => bots.find(bot => bot.name === profile)?.displayName || profile,
+      openSession: (profile, sessionId, title) => void openBot(profile, sessionId, { title }) });
     render(loadingView());
     let status;
     try { status = await api.status(); } catch (error) { render(errorView(error, () => start(next))); return; }
@@ -198,7 +201,19 @@
     const head = el("div", "assistant-section-head");
     const pending = button("", "assistant-pending", () => { screen = "pending"; render(pendingView()); });
     pending.id = "assistant-pending";
-    head.append(el("h1", "", t("bots")), pending);
+    const all = button(t("allRoutines"), "btn ghost assistant-all-routines", () => {
+      screen = "routines";
+      const box = el("section", "assistant-roster");
+      const top = el("div", "assistant-section-head");
+      const back = button("‹", "btn ghost assistant-back", showRoster);
+      back.setAttribute("aria-label", t("back"));
+      top.append(back, el("h1", "", t("allRoutines")));
+      const body = el("div");
+      box.append(top, body);
+      render(box);
+      void routinesView.list(body, null);
+    });
+    head.append(el("h1", "", t("bots")), pending, all);
     wrap.append(head);
     if (!bots.length) wrap.append(el("p", "assistant-empty", t("noBots")));
     const list = el("ul", "assistant-bot-list");
@@ -289,7 +304,7 @@
     head.append(back, avatar(chat.bot), title);
     const tabs = el("div", "assistant-tabs");
     tabs.setAttribute("role", "tablist");
-    for (const [key, label] of [["chat", t("chat")], ["other", t("otherChats")]]) {
+    for (const [key, label] of [["chat", t("chat")], ["other", t("otherChats")], ["routines", t("routines")]]) {
       const node = button(label, "assistant-tab", () => {
         tab = key;
         render(botView());
@@ -301,6 +316,12 @@
     }
     wrap.append(head, tabs);
     if (tab === "other") { wrap.append(sessionsView()); return wrap; }
+    if (tab === "routines") {
+      const body = el("div", "assistant-sessions");
+      wrap.append(body);
+      void routinesView.list(body, chat.profile);
+      return wrap;
+    }
     const transcript = el("div", "assistant-transcript");
     transcript.id = "assistant-transcript";
     wrap.append(transcript, composer());

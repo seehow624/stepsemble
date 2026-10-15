@@ -86,3 +86,25 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-danger { color: var(--err); }
 .assistant-toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 20; max-width: 90vw; margin: 0; padding: 8px 14px;
   transform: translateX(-50%); border-radius: 10px; background: var(--ink); color: var(--paper); font-size: .85rem; }
+
+.assistant-all-routines { margin-left: auto; }
+.assistant-routines { display: grid; gap: 10px; }
+.assistant-new-routine { justify-self: start; }
+.assistant-routine-group { margin: 12px 0 0; font-size: .95rem; color: var(--pine-soft); }
+.assistant-routine { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--milk); }
+.assistant-routine.paused { opacity: .7; }
+.assistant-routine-head { display: flex; align-items: center; gap: 8px; }
+.assistant-routine-tag { padding: 0 8px; border-radius: 999px; background: var(--bubble-user); color: var(--pine-soft); font-size: .75rem; }
+.assistant-routine-facts { display: block; margin: 4px 0 8px; color: var(--pine-soft); font-size: .8rem; }
+.assistant-routine-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.assistant-check { display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+.assistant-runs { margin: 8px 0 0; padding: 0; list-style: none; }
+.assistant-runs li { padding: 6px 0; border-top: 1px solid var(--line); }
+.assistant-runs small { display: block; color: var(--pine-soft); }
+.assistant-run-open { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; text-align: left; cursor: pointer; }
+.assistant-routine-form { display: grid; gap: 12px; }
+.assistant-routine-form h2 { margin: 0; font-size: 1.05rem; }
+.assistant-routine-form fieldset { display: grid; gap: 8px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.assistant-routine-form input, .assistant-routine-form textarea, .assistant-routine-form select { width: 100%; box-sizing: border-box; padding: 9px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; }
+.assistant-routine-form .assistant-check input { width: auto; }

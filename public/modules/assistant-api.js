@@ -81,6 +81,15 @@
       asks: () => call("/api/assistant/asks"),
       respond: (id, answer) => post("/api/assistant/respond", { id, answer }),
       watch: (clientId, sessionId) => post("/api/assistant/watch", { clientId, sessionId }),
+      routines: profile => call(`/api/assistant/routines${profile ? `?${new URLSearchParams({ profile })}` : ""}`),
+      routineTargets: profile => call(`/api/assistant/routines/targets?${new URLSearchParams({ profile })}`),
+      routineRuns: (id, profile) => call(`/api/assistant/routines/runs?${new URLSearchParams({ id, profile })}`),
+      createRoutine: (profile, fields) => post("/api/assistant/routines/create", { profile, fields }),
+      updateRoutine: (id, profile, fields) => post("/api/assistant/routines/update", { id, profile, fields }),
+      pauseRoutine: (id, profile) => post("/api/assistant/routines/pause", { id, profile }),
+      resumeRoutine: (id, profile) => post("/api/assistant/routines/resume", { id, profile }),
+      runRoutine: (id, profile) => post("/api/assistant/routines/run", { id, profile }),
+      deleteRoutine: (id, profile) => post("/api/assistant/routines/delete", { id, profile }),
     });
   }
 
