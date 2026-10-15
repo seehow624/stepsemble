@@ -25,7 +25,8 @@
   const asks = new Map();
   const listing = { query: "", rows: [], hasMore: false };
   let api = null, machine = null, bots = [], stream = null, chat = null, tab = "chat", screen = "";
-  let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null;
+  let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null, groupsView = null;
+  let groupData = { supported: false, rooms: [] };
 
   function el(tag, className = "", text) {
     const node = document.createElement(tag);
@@ -129,6 +130,9 @@
     routinesView = window.StepsembleAssistantRoutines.create({ api, t, el, button, toast, M, locale: prefs.locale,
       botName: profile => bots.find(bot => bot.name === profile)?.displayName || profile,
       openSession: (profile, sessionId, title) => void openBot(profile, sessionId, { title }) });
+    groupsView?.close();
+    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, toast, avatar, markdown, bots: () => bots,
+      onBack: () => void loadGroups().finally(showRoster) });
     render(loadingView());
     let status;
     try { status = await api.status(); } catch (error) { render(errorView(error, () => start(next))); return; }
@@ -139,6 +143,7 @@
     try {
       for (const ask of (await api.asks()).asks || []) asks.set(ask.id, ask);
       await loadBots();
+      await loadGroups();
     } catch (error) { render(errorView(error, () => start(next))); return; }
     const bot = params.get("bot");
     if (bot) await openBot(bot, params.get("session") || null);
@@ -183,6 +188,10 @@
 
   async function loadBots() { bots = ((await api.bots()).bots || []).filter(bot => !bot.hidden); }
 
+  async function loadGroups() { try { groupData = await groupsView.load(); } catch { groupData = { supported: false, rooms: [] }; } }
+  function openGroup(room) { chat = null; screen = "group"; setUrl(null, null); watchNow(); groupsView.view(main, room); }
+  function newGroup() { chat = null; screen = "group"; groupsView.picker(main, openGroup); }
+
   function waitingFor(profile) { return [...asks.values()].filter(ask => ask.profile === profile).length; }
 
   function updatePending() {
@@ -193,6 +202,7 @@
   }
 
   function showRoster() {
+    groupsView?.close();
     chat = null;
     screen = "roster";
     setUrl(null, null);
@@ -232,7 +242,8 @@
       item.append(row);
       list.append(item);
     }
-    wrap.append(list, button(t("signOut"), "btn ghost assistant-sign-out", async () => {
+    wrap.append(list, groupsView.section(groupData, openGroup, newGroup));
+    wrap.append(button(t("signOut"), "btn ghost assistant-sign-out", async () => {
       await api.logout().catch(() => {});
       stream?.close();
       stream = null;
@@ -268,6 +279,7 @@
   // ---- a conversation -----------------------------------------------------
 
   async function openBot(profile, sessionId, { title = "" } = {}) {
+    groupsView?.close();
     const bot = bots.find(row => row.name === profile) || { name: profile, displayName: profile, color: null, model: "", botChat: null };
     tab = "chat";
     screen = "bot";

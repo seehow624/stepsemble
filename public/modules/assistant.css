@@ -108,3 +108,14 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-routine-form input, .assistant-routine-form textarea, .assistant-routine-form select { width: 100%; box-sizing: border-box; padding: 9px 10px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit; font-size: 16px; }
 .assistant-routine-form .assistant-check input { width: auto; }
+
+.assistant-groups { margin-top: 24px; }
+.assistant-groups h2 { margin: 0; font-size: 1rem; }
+.assistant-group-faces { display: flex; flex: 0 0 auto; padding-right: 8px; }
+.assistant-group-faces .assistant-avatar { width: 30px; height: 30px; flex-basis: 30px; margin-right: -8px; border: 2px solid var(--paper); font-size: .75rem; }
+.assistant-group-tools { display: flex; gap: 4px; margin-left: auto; }
+.assistant-group-author { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.assistant-group-author .assistant-avatar { width: 22px; height: 22px; flex-basis: 22px; font-size: .7rem; }
+.assistant-group-live { max-height: 45vh; padding: 0 16px; overflow-y: auto; overscroll-behavior: contain; }
+.assistant-group-mentions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.assistant-group-hint { margin: 0 0 6px; color: var(--pine-soft); font-size: .8rem; }

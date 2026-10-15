@@ -90,6 +90,16 @@
       resumeRoutine: (id, profile) => post("/api/assistant/routines/resume", { id, profile }),
       runRoutine: (id, profile) => post("/api/assistant/routines/run", { id, profile }),
       deleteRoutine: (id, profile) => post("/api/assistant/routines/delete", { id, profile }),
+      groups: () => call("/api/assistant/groups"),
+      createGroup: (name, members) => post("/api/assistant/groups/create", { name, members }),
+      groupLog: (room, since) => call(`/api/assistant/groups/log?${new URLSearchParams({ room, since: String(since) })}`),
+      groupState: room => call(`/api/assistant/groups/state?${new URLSearchParams({ room })}`),
+      groupSend: (room, text) => post("/api/assistant/groups/send", { room, text }),
+      groupApprove: (room, approval, choice) => post("/api/assistant/groups/approve", { room, ...approval, choice }),
+      groupRetry: (room, taskId) => post("/api/assistant/groups/retry", { room, taskId }),
+      groupRename: (room, name) => post("/api/assistant/groups/rename", { room, name }),
+      groupStop: room => post("/api/assistant/groups/stop", { room }),
+      groupDisband: room => post("/api/assistant/groups/disband", { room }),
     });
   }
 
