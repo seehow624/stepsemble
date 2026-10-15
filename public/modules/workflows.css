@@ -108,7 +108,7 @@
 .wf-editor-layout {display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);flex:1;min-height:min-content;}
 .wf-editor-main {display:flex;flex-direction:column;gap:22px;padding:30px;}
 .wf-editor-settings {display:flex;flex-direction:column;gap:20px;padding:30px;background:var(--bubble-ai);border-left:1px solid var(--line);}
-.wf-editor-settings h2 {font-size:.92rem;font-weight:600;margin:0;}
+.wf-editor-settings h2 {flex:none;font-size:.92rem;font-weight:600;margin:0;}
 .wf-field {display:flex;flex-direction:column;gap:8px;font-size:.77rem;min-width:0;}
 .wf-field>span {font-weight:550;}
 .wf-field :is(input,select,textarea) {box-sizing:border-box;width:100%;max-width:none;min-width:0;min-height:42px;background:var(--milk);color:var(--ink);font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:9px;}

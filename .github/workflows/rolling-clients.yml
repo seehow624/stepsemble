@@ -105,7 +105,8 @@ permissions:
 
 jobs:
   browser:
-    timeout-minutes: 12
+    # Four separately bounded browser suites plus cold native-reader setup.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       # Historical Hosts use Unix native launch; Windows is not silently skipped

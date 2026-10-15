@@ -1,4 +1,4 @@
-/* stepsemble v3.9.0 — Ink & Ivory / English-first localization */
+/* stepsemble v3.9.1 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -604,6 +604,18 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 }
 .toast-action:active { transform: scale(0.96); }
 .toast.err { background: var(--err); color: #fff; }
+.toast.quiet {
+  gap: 6px;
+  padding: 5px 11px 5px 8px;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: .01em;
+  background: color-mix(in srgb, var(--pine) 84%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .14);
+}
+.toast.quiet svg { width: 13px; height: 13px; flex: 0 0 auto; opacity: .85; }
 @keyframes toastIn { from { transform: translateY(12px); opacity: 0; } }
 .toast.out { transition: opacity 0.3s; opacity: 0; }
 

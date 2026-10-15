@@ -18,7 +18,14 @@
     next: "Next run", history: "Run history", schedule: "When to run", once: "Once", daily: "Every day",
     weekly: "Every week", interval: "At an interval", every: "Interval (min)", time: "Time", timeZone: "Time zone", date: "Date and time", days: "Days of the week",
     hostNote: "Runs on this Host. Keep the computer awake and Stepsemble running.",
-    modelNote: "Uses the agent’s saved model. Approvals stay in the conversation.",
+    modelNote: "Applies to each new conversation. Approvals stay in the conversation.",
+    conversationNote: "Keeps this conversation’s model and permission mode. Approvals stay in the conversation.",
+    model: "Model", reasoning: "Reasoning", permission: "Permission mode", agentDefault: "Agent default",
+    modelsUnavailable: "The model list is unavailable right now. The agent default will be used.",
+    approvalMinutes: "Approval wait (min)", approvalHint: "An unanswered approval pauses the run after this wait. Waiting does not use the time budget.",
+    projectBusy: "Waiting for another task in this project", retrying: "Retrying after a temporary error at {time}",
+    usageReset: "Waiting for the usage limit to reset · {time}",
+    hostNoteAwake: "Runs on this Host. Stepsemble keeps the computer awake while tasks run, but cannot wake it from sleep.",
     emptyGoals: "A clear goal. A place to follow its progress.", emptySchedules: "Make room for work that runs itself.",
     emptyGoalsHint: "Start here, or type /goal in any supported conversation.", emptySchedulesHint: "Choose a task and a time. Each run opens its own conversation.",
     elapsed: "Time worked", workingFor: "Working for", live: "Current activity", unavailable: "Goals and schedules are unavailable on this Host.",
@@ -56,8 +63,23 @@
     const s = Math.floor(Math.max(0, Number(ms) || 0) / 1000);
     return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ""}${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   }
+  // The Host stops a run's clock while an approval or a retry waits; older
+  // Hosts without the flag clock every active status.
+  const clocked = row => typeof row.clockRunning === "boolean" ? row.clockRunning : CLOCKED.includes(row.status);
   function elapsed(row, receivedAt, now = Date.now()) {
-    return Math.max(0, Number(row.elapsedMs) || 0) + (CLOCKED.includes(row.status) ? Math.max(0, now - receivedAt) : 0);
+    return Math.max(0, Number(row.elapsedMs) || 0) + (clocked(row) ? Math.max(0, now - receivedAt) : 0);
+  }
+  // Codex and Claude Code modes use Stepsemble's translated names; OpenCode
+  // and the ACP agents name their own modes.
+  const MODE_KEYS = { codex: { "read-only": "modeCodexReadOnly", workspace: "modeCodexWorkspace", "full-access": "modeCodexFullAccess" },
+    "claude-code": { default: "modeClaudeManual", acceptEdits: "modeClaudeAcceptEdits", plan: "modeClaudePlan", auto: "modeClaudeAuto", dontAsk: "modeClaudeDontAsk", bypassPermissions: "modeClaudeBypass" },
+    "grok-build": { default: "modeClaudeManual", plan: "modeClaudePlan" } };
+  function modeLabel(agentId, mode) {
+    const keys = MODE_KEYS[agentId] || {}, key = Object.prototype.hasOwnProperty.call(keys, mode.id) ? keys[mode.id] : null;
+    const translated = key ? t(key) : null;
+    if (translated && translated !== key) return translated;
+    const label = String(mode.label || mode.id || "");
+    return label.charAt(0).toUpperCase() + label.slice(1);
   }
   function stamp(value, timeZone, options = {}) {
     if (!value) return "—";
@@ -91,7 +113,7 @@
   function validate(input, now = Date.now()) {
     if (typeof input.objective === "string" && !input.objective.trim()) return "workflows.objectiveRequired";
     const limits = input.limits;
-    if (!limits || ![[limits.minutes,1,1440],[limits.turns,1,100],[limits.outputTokens,100,10000000]].every(([n,min,max]) => Number.isSafeInteger(n) && n >= min && n <= max)) return "goalComposer.limitsError";
+    if (!limits || ![[limits.minutes,1,1440],[limits.turns,1,100],[limits.outputTokens,100,10000000],[limits.approvalMinutes ?? 30,1,1440]].every(([n,min,max]) => Number.isSafeInteger(n) && n >= min && n <= max)) return "goalComposer.limitsError";
     if (input.schedule?.kind === "once" && !(Date.parse(input.schedule.at) > now)) return "workflows.futureDate";
     if (input.schedule?.kind === "weekly" && !input.schedule.days.length) return "workflows.chooseDays";
     if (["daily", "weekly"].includes(input.schedule?.kind)) {
@@ -213,7 +235,7 @@
       const filters = el("nav", "", "wf-filters"), list = el("ul", "", "wf-list");
       rail.append(search, filters, list); const detail = el("section", "", "wf-detail"); detail.setAttribute("aria-label", t("selectTask"));
       body.append(rail, detail);
-      const note = el("footer", t("hostNote"), "wf-note wf-footer");
+      const note = el("footer", t(data?.keepsAwake ? "hostNoteAwake" : "hostNote"), "wf-note wf-footer");
       modal.replaceChildren(header, heading, errorBox, body, note);
       shell = { header, tabs, add, title, subtitle, stats, error: errorBox, search, filters, list, detail };
       listSignature = ""; detailSignature = ""; error(errorText); render(true);
@@ -249,7 +271,7 @@
       shell.add.textContent = "+ " + t("new");
       shell.add.setAttribute("aria-label", t(view === "goals" ? "newGoal" : "newSchedule"));
       shell.search.placeholder = t("filter"); shell.search.setAttribute("aria-label", t("filter"));
-      modal.querySelector(".wf-footer").textContent = t("hostNote");
+      modal.querySelector(".wf-footer").textContent = t(data?.keepsAwake ? "hostNoteAwake" : "hostNote");
       modal.setAttribute("aria-label", t(view));
       for (const tab of shell.tabs.children) { const chosen = tab.dataset.view === view; tab.textContent = t(tab.dataset.view); tab.setAttribute("aria-current", chosen ? "page" : "false"); }
       summary();
@@ -305,10 +327,10 @@
     function section(title, child, cls = "") { const node = el("section", "", "wf-section " + cls); node.append(el("h3", title), child); return node; }
     function runProgress(row) {
       const box = el("div", "", "wf-progress"); box.append(badge(row.status));
-      const caption = el("span", t(CLOCKED.includes(row.status) ? "workingFor" : "elapsed"), "wf-caption");
+      const caption = el("span", t(clocked(row) ? "workingFor" : "elapsed"), "wf-caption");
       const time = el("strong", "", "wf-timer"); time.dataset.clock = row.id; box.append(caption,time);
       if (active(row) || resumable(row)) {
-        const activity = el("div", "", "wf-activity"); activity.append(el("span", t("live"), "wf-caption"),el("p", t(row.activity || row.status))); box.append(activity);
+        const activity = el("div", "", "wf-activity"); activity.append(el("span", t("live"), "wf-caption"),el("p", activityText(row))); box.append(activity);
       }
       const metrics = el("div", "", "wf-metrics");
       for (const [label,value,limit] of [["turnsUsed",row.turns,row.limits?.turns],["outputTokens",row.outputTokens,row.limits?.outputTokens]]) {
@@ -322,6 +344,12 @@
       if (row.error) { const message=el("p",row.error,"wf-run-error"); message.setAttribute("role","status"); box.append(message); }
       if (row.scheduledAt && row.startedAt-row.scheduledAt>60000) box.append(el("small",t("late"),"wf-caption"));
       box.append(controls(row)); return box;
+    }
+    function activityText(row) {
+      if (row.activity === "project_busy") return t("projectBusy");
+      if (row.activity === "retrying") return t("retrying", { time: row.retryAt ? stamp(row.retryAt, null, { month: undefined, day: undefined }) : "—" });
+      if (row.activity === "usage_reset") return t("usageReset", { time: row.notBefore ? stamp(row.notBefore) : "—" });
+      return t(row.activity || row.status);
     }
     function result(row) { return section(t("result"), row.result ? el("pre",row.result,"wf-result") : el("p",t("resultEmpty"),"wf-muted")); }
     function goalDetail(row) {
@@ -359,7 +387,8 @@
       node.append(section(t("history"),historyBox));
       const runRow=history.find(item=>item.id===historyId); if(runRow)node.append(runProgress(runRow),result(runRow));
       const meta=el("details","","wf-project-details");meta.dataset.key="settings:"+row.id;
-      meta.append(el("summary",t("limits")),el("p",t(row.mode==="goal"?"goal":"task")),el("p",`${t("minutes")}: ${row.limits.minutes} · ${t("turns")}: ${row.limits.turns} · ${t("tokens")}: ${row.limits.outputTokens.toLocaleString(locale())}`),el("code",row.cwd));node.append(meta);
+      const pinned=`${t("model")}: ${row.choice?.model?row.choice.model+(row.choice.effort?" · "+row.choice.effort:""):t("agentDefault")} · ${t("permission")}: ${row.permission?modeLabel(row.agentId,{id:row.permission}):t("agentDefault")}`;
+      meta.append(el("summary",t("limits")),el("p",t(row.mode==="goal"?"goal":"task")),el("p",`${t("minutes")}: ${row.limits.minutes} · ${t("turns")}: ${row.limits.turns} · ${t("tokens")}: ${row.limits.outputTokens.toLocaleString(locale())} · ${t("approvalMinutes")}: ${row.limits.approvalMinutes ?? 30}`),el("p",pinned),el("code",row.cwd));node.append(meta);
       node.append(mutateButton(row,"delete","remove","ghost wf-delete"));return node;
     }
     function updateClock() {
@@ -405,7 +434,16 @@
       const projectPath=el("small",cwd.value,"wf-path");main.append(projectPath);cwd.onchange=()=>{projectPath.textContent=cwd.value;};
       const agent=field(pair,"agent","text",row?.agentId||entry?.record.agentId,[["",t("loading")]]);
       if(entry){cwd.disabled=true;agent.disabled=true;}
-      const note=el("p",t("modelNote"),"wf-muted");main.append(note);
+      // A new conversation can pin a model and permission mode; an existing one keeps its own.
+      let model=null,reasoning=null,permission=null,modelHint=null,catalog=[],optionsTicket=0;
+      if(!entry){
+        const picks=el("div","","wf-grid wf-picks");main.append(picks);
+        model=field(picks,"model","text","",[["",t("agentDefault")]]);reasoning=field(picks,"reasoning","text","",[["",t("agentDefault")]]);permission=field(picks,"permission","text","",[["",t("agentDefault")]]);
+        for(const control of [model,reasoning,permission])control.required=false;
+        reasoning.parentElement.hidden=true;reasoning.disabled=true;
+        modelHint=el("small","","wf-caption");modelHint.hidden=true;main.append(modelHint);
+      }
+      const note=el("p",t(entry?"conversationNote":"modelNote"),"wf-muted");main.append(note);
       let mode,repeat,at,time,zone,interval,dayInputs=[],days,preview;
       if(scheduling){
         settings.append(el("h2",t("schedule")));
@@ -437,28 +475,56 @@
       const advanced=el("details","","wf-advanced");advanced.append(el("summary",t("limits")));const advancedFields=el("div","","wf-grid");advanced.append(advancedFields);limitBox.append(advanced);
       const turns=field(advancedFields,"turns","number",row?.limits.turns||20);turns.min=1;turns.max=100;turns.step=1;
       const tokens=field(advancedFields,"tokens","number",row?.limits.outputTokens||100000);tokens.min=100;tokens.max=10000000;tokens.step=1;
-      advanced.append(el("p",t("limitsHint"),"wf-muted"));
+      const approval=field(advancedFields,"approvalMinutes","number",row?.limits.approvalMinutes||30);approval.min=1;approval.max=1440;approval.step=1;
+      advanced.append(el("p",t("limitsHint"),"wf-muted"),el("p",t("approvalHint"),"wf-muted"));
       const footer=el("div","","wf-editor-footer"),errorBox=el("p","","wf-error");errorBox.setAttribute("role","alert");errorBox.hidden=true;
       const submit=el("button",t(scheduling?"save":"start"),"btn primary");submit.type="submit";submit.disabled=true;
       const retry=button(t("retry"),()=>void loadAgents(),"ghost");retry.hidden=true;
-      footer.append(errorBox,el("p",t("hostNote"),"wf-muted"),retry,submit);f.append(footer);modal.replaceChildren(header,f);shell={error:errorBox};error("");(row?back:prompt).focus();
+      footer.append(errorBox,el("p",t(data?.keepsAwake?"hostNoteAwake":"hostNote"),"wf-muted"),retry,submit);f.append(footer);modal.replaceChildren(header,f);shell={error:errorBox};error("");(row?back:prompt).focus();
       let id=requestId(), catalogReady=false, sending=false;f.addEventListener("input",()=>{if(!sending)id=requestId();});
       function ready(){submit.disabled=sending||!catalogReady||!agent.value||!cwd.value||data?.available===false;}
       agent.addEventListener("change",ready);cwd.addEventListener("change",ready);
+      const option=(value,label)=>{const node=el("option",label);node.value=value;return node;};
+      const baseChoice=choice=>({model:choice.model,...(choice.provider?{provider:choice.provider}:{})});
+      function syncReasoning(value=""){
+        if(!reasoning)return;const efforts=catalog.find(item=>JSON.stringify(baseChoice(item.choice))===model.value)?.efforts||[];
+        reasoning.replaceChildren(option("",t("agentDefault")),...efforts.map(effort=>option(effort,effort)));reasoning.value=value;
+        reasoning.parentElement.hidden=!efforts.length;reasoning.disabled=!efforts.length;
+      }
+      // keep: the folder changed, so current picks stay if the agent still offers them.
+      async function loadOptions(keep=false){
+        if(!model)return;const ticket=++optionsTicket,agentId=agent.value;
+        const own=row&&row.agentId===agentId?row:null;
+        const wanted=keep?{choice:model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null,permission:permission.value||null}:{choice:own?.choice||null,permission:own?.permission||null};
+        let result={models:[],modes:[]};
+        if(agentId){try{result=await api(`/api/workflows/options?agentId=${encodeURIComponent(agentId)}&cwd=${encodeURIComponent(cwd.value||"")}`,undefined,target)||result;}catch{result={models:[],modes:[],modelsUnavailable:true};}}
+        if(ticket!==optionsTicket||token!==epoch||!modal)return;
+        catalog=(Array.isArray(result.models)?result.models:[]).filter(item=>item?.choice?.model);
+        const modes=(Array.isArray(result.modes)?result.modes:[]).filter(mode=>mode?.id);
+        // A pinned choice the catalog no longer lists stays selectable.
+        if(wanted.choice&&!catalog.some(item=>JSON.stringify(baseChoice(item.choice))===JSON.stringify(baseChoice(wanted.choice))))catalog.push({choice:baseChoice(wanted.choice),label:wanted.choice.model,efforts:wanted.choice.effort?[wanted.choice.effort]:[]});
+        if(wanted.permission&&!modes.some(mode=>mode.id===wanted.permission))modes.push({id:wanted.permission});
+        model.replaceChildren(option("",t("agentDefault")),...catalog.map(item=>option(JSON.stringify(baseChoice(item.choice)),item.label||item.choice.model)));
+        model.value=wanted.choice?JSON.stringify(baseChoice(wanted.choice)):"";syncReasoning(wanted.choice?.effort||"");
+        permission.replaceChildren(option("",t("agentDefault")),...modes.map(mode=>option(mode.id,modeLabel(agentId,mode))));permission.value=wanted.permission||"";
+        modelHint.textContent=result.modelsUnavailable?t("modelsUnavailable"):"";modelHint.hidden=!result.modelsUnavailable;
+      }
+      if(model){model.addEventListener("change",()=>syncReasoning());agent.addEventListener("change",()=>void loadOptions());cwd.addEventListener("change",()=>void loadOptions(true));}
       async function loadAgents(){
         retry.hidden=true;
         try{
           const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!modal)return;
           agent.replaceChildren();for(const item of catalog.connectors||[])if(item.installed&&AGENTS.includes(item.id)){const option=el("option",item.label||agentName(item.id));option.value=item.id;agent.append(option);}
           agent.value=row?.agentId||entry?.record.agentId||agent.options[0]?.value||"";catalogReady=true;
-          error(!agent.value?t("noAgents"):!cwd.value?t("noProjects"):"");ready();
+          error(!agent.value?t("noAgents"):!cwd.value?t("noProjects"):"");ready();await loadOptions();
         }catch(e){if(token===epoch){error(e.message);retry.hidden=false;}}
       }
       f.onsubmit=async event=>{
         event.preventDefault();if(sending||!catalogReady||!agent.value||!cwd.value)return;
-        if(!turns.checkValidity()||!tokens.checkValidity())advanced.open=true;
+        if(!turns.checkValidity()||!tokens.checkValidity()||!approval.checkValidity())advanced.open=true;
         if(!f.reportValidity())return;
-        const input={requestId:id,kind:scheduling?"schedule":"goal",title:title.value.trim()||prompt.value.trim().split("\n")[0].slice(0,120),objective:prompt.value.trim(),cwd:cwd.value,agentId:agent.value,mode:mode?.value||"goal",limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value)},...(entry?{entry:entry.key}:{})};
+        const input={requestId:id,kind:scheduling?"schedule":"goal",title:title.value.trim()||prompt.value.trim().split("\n")[0].slice(0,120),objective:prompt.value.trim(),cwd:cwd.value,agentId:agent.value,mode:mode?.value||"goal",limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value),approvalMinutes:Number(approval.value)},...(entry?{entry:entry.key}:{})};
+        if(model){input.choice=model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null;input.permission=permission.value||null;}
         if(scheduling){const date=new Date(at.value);input.schedule={kind:repeat.value,at:repeat.value==="once"&&Number.isFinite(date.getTime())?date.toISOString():null,time:time.value,timeZone:zone.value.trim(),minutes:Number(interval.value),days:dayInputs.filter(day=>day.checked).map(day=>Number(day.value))};}
         if(row)Object.assign(input,{id:row.id,action:"edit",enabled:row.enabled});
         const invalid=validate(input);if(invalid){error(t(invalid.slice(invalid.indexOf(".")+1)));return;}

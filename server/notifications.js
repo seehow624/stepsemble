@@ -1,5 +1,27 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
+const path = require("node:path");
+const AgentIdentity = require("../public/modules/agent-identity.js");
+
+const line = (value, limit) => String(value || "").replace(/[\r\n]+/g, " ").trim().slice(0, limit);
+function agentLabel(agentId) {
+  const identity = AgentIdentity.lookup(agentId);
+  return identity.id === agentId ? identity.label : line(agentId, 60);
+}
+function projectName(cwd) {
+  const value = line(cwd, 4096).replace(/[\\/]+$/, "");
+  return value ? line(path.basename(value), 80) || null : null;
+}
+// An alert reads: what happened; computer · agent; project · session.
+function noticeLines(notice, hostName) {
+  const join = (...parts) => [...new Set(parts.filter(Boolean))].join(" · ");
+  return { subtitle: join(line(hostName, 80), line(notice?.agent, 80)), body: join(line(notice?.project, 80), line(notice?.title, 120)) };
+}
+// Browsers show a title and a body only, so both detail lines go in the body.
+function pushBody(notice, hostName) {
+  const { subtitle, body } = noticeLines(notice, hostName);
+  return [subtitle, body].filter(Boolean).join("\n");
+}
 
 // Recent lifecycle facts, not transcripts. Only explicit workspace members
 // can cause an alert; a replay or subagent must not repeat a root task's alert.
@@ -14,7 +36,8 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
   function send(agent, id, kind, requestId = null) {
     const entry = entryFor(agent, id); if (!entry) return;
     const event = { id: `${boot}:${++sequence}`, host: host(), key: entry.key, agentId: agent, kind,
-      title: String(entry.record.name || agent).replace(/[\r\n]/g, " ").slice(0, 120), at: now(), requestId };
+      title: String(entry.record.name || agent).replace(/[\r\n]/g, " ").slice(0, 120),
+      agent: agentLabel(agent), project: projectName(entry.record.cwd), at: now(), requestId };
     recent.push(event); if (recent.length > 128) recent.shift();
     try { publish(structuredClone(event)); } catch {}
     return event;
@@ -82,4 +105,4 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
   }
   return { observe, settled, finished, working, read: snapshot };
 }
-module.exports = { createNotifications };
+module.exports = { createNotifications, noticeLines, pushBody };

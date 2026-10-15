@@ -1098,6 +1098,24 @@ function ownedApproval(id) {
     itemId: `item-${typeof id}`, startedAtMs: now, command: "owned", cwd: "/owned", kind: "command" } };
 }
 
+test("a failed turn reports Codex's own failure reason so a Goal can tell a usage limit from an outage", async t => {
+  const events = [];
+  const { child } = await readyOwnedTransport(t, { onEvent: event => events.push(event) });
+  frame(child, { method: "turn/completed", params: { threadId: "native-typed", turn: {
+    id: "turn-typed", status: "failed", error: { message: "You've hit your usage limit.", codexErrorInfo: "usageLimitExceeded" },
+  } } });
+  const completed = events.find(event => event.type === "turn.completed");
+  assert.equal(completed.status, "failed");
+  assert.equal(completed.error, "usageLimitExceeded: You've hit your usage limit.");
+});
+test("a failed turn with a structured reason and no message keeps the reason", async t => {
+  const events = [];
+  const { child } = await readyOwnedTransport(t, { onEvent: event => events.push(event) });
+  frame(child, { method: "turn/completed", params: { threadId: "native-typed", turn: {
+    id: "turn-typed", status: "failed", error: { codexErrorInfo: { httpConnectionFailed: { statusCode: 502 } } },
+  } } });
+  assert.equal(events.find(event => event.type === "turn.completed").error, "httpConnectionFailed 502");
+});
 test("a server-overloaded turn permits a new turn on the same native thread with a different model", async t => {
   const { child, transport, writes } = await readyOwnedTransport(t);
   frame(child, { method: "turn/completed", params: { threadId: "native-typed", turn: {

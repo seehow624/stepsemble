@@ -68,3 +68,9 @@ test("browser runner distinguishes process-budget cancellation from a case failu
     else await assert.rejects(operation, /child failed \(1\)/);
   }
 });
+
+test("rolling job leaves enough time for the four bounded suites and cold macOS setup", () => {
+  const workflow = fs.readFileSync(path.resolve(".github/workflows/rolling-clients.yml"), "utf8");
+  const minutes = Number(workflow.match(/timeout-minutes:\s*(\d+)/)?.[1]);
+  assert.ok(minutes >= 20 && minutes <= 30, "the whole-job budget must allow the complete suite without becoming unbounded");
+});

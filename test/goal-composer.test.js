@@ -21,14 +21,14 @@ class Element {
   async click() { for (const fn of this.events.click || []) await fn(); }
   all() { return [this, ...this.children.flatMap(n => n.all())]; }
 }
-async function harness({ agent = "pi", connection = {}, post: postImpl, crypto } = {}) {
+async function harness({ agent = "pi", connection = {}, post: postImpl, crypto, runs = [], workflowI18n } = {}) {
   const composer = new Element("footer"), input = new Element("textarea"), inner = new Element("div"); composer.append(inner);
   const events = {}, intervals = new Map(); let nextTimer = 0, uuid = 0;
-  const h = { input, composer, connection, agent, context: "host:1", runs: [], posts: [], changed: 0, started: [], now: 10000 };
+  const h = { input, composer, connection, agent, context: "host:1", runs, posts: [], changed: 0, started: [], now: 10000 };
   const root = { document: { getElementById: () => input, querySelector: () => inner, createElement: tag => new Element(tag), documentElement: { lang: "en" }, hidden: false },
     location: { search: "?entry=fixture-entry", origin: "http://localhost" }, parent: {},
     crypto: crypto || { randomUUID: () => "request-" + ++uuid }, Event: class { constructor(type) { this.type = type; } },
-    stepsembleI18n: { tKey: (key, vars) => key + (vars ? " " + JSON.stringify(vars) : "") },
+    stepsembleI18n: { tKey: (key, vars) => key + (vars ? " " + JSON.stringify(vars) : "") }, StepsembleWorkflowI18n: workflowI18n,
     addEventListener: (k, fn) => { (events[k] ||= []).push(fn); },
     setInterval: (fn, ms) => { intervals.set(++nextTimer, { fn, ms }); return nextTimer; }, clearInterval: id => intervals.delete(id) };
   const context = { window: root, module: { exports: {} }, URLSearchParams, Date: class extends Date { static now() { return h.now; } } };
@@ -197,4 +197,17 @@ test("mobile HTTP access can create a valid idempotency ID without crypto.random
   const h = await harness({ crypto: { getRandomValues: array => require("node:crypto").randomFillSync(array) } });
   h.type("/goal phone"); await h.controller.submit(h.input.value);
   assert.match(h.posts[0].body.requestId, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/); h.close();
+});
+
+test("a Goal waiting to retry, for its project or for a usage reset says so, and its held clock does not advance", async () => {
+  const workflowI18n = require("../public/modules/workflows-i18n.js");
+  const row = { id: "g", entry: "fixture-entry", objective: "Ship", status: "running", activity: "retrying", retryAt: 70000, error: "fetch failed", elapsedMs: 5000, clockRunning: false, turns: 1 };
+  const h = await harness({ runs: [row], workflowI18n });
+  assert.match(h.find("goal-activity").textContent, /Retrying after a temporary error/);
+  const before = h.find("goal-clock").textContent; h.now += 10000; h.tick(); assert.equal(h.find("goal-clock").textContent, before);
+  h.close();
+  const busy = await harness({ runs: [{ ...row, status: "queued", activity: "project_busy", error: null }], workflowI18n });
+  assert.match(busy.find("goal-activity").textContent, /Waiting for another task in this project/); busy.close();
+  const quota = await harness({ runs: [{ ...row, status: "queued", activity: "usage_reset", notBefore: 7200000, error: "usage limit" }], workflowI18n });
+  assert.match(quota.find("goal-activity").textContent, /usage limit to reset/); quota.close();
 });

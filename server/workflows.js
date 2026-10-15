@@ -1,10 +1,17 @@
 "use strict";
 
 // Host-owned Goals and schedules. Browser lifetime never owns execution.
-const fs = require("node:fs"), path = require("node:path"), { randomUUID } = require("node:crypto");
+const fs = require("node:fs"), path = require("node:path"), { randomUUID, createHash } = require("node:crypto");
 const ACTIVE = new Set(["starting", "running", "waiting"]);
 const RESUMABLE = new Set(["paused", "blocked", "interrupted"]);
 const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build"];
+const CHOICE = /^[^\s\u0000-\u001f\u007f]{1,256}$/, PERMISSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+// A temporary failure retries the same turn; a usage limit waits for its reset.
+const RETRY_DELAYS = [30000, 120000, 480000];
+const QUOTA_RECHECK = 30 * 60000, QUOTA_WINDOW = 6 * 3600000, QUOTA_HORIZON = 12 * 3600000;
+const STALL_TURNS = 2;
+const RETRY_NOTE = "The previous attempt stopped because of a temporary error or usage limit. Check the conversation and continue without repeating completed work.";
+const STALL_MESSAGE = "The agent made no visible progress in the last three turns. Check the conversation, then resume.";
 const clone = value => JSON.parse(JSON.stringify(value));
 function invalid(message, statusCode = 400) { return Object.assign(new Error(message), { statusCode }); }
 function text(value, max, label) {
@@ -16,13 +23,68 @@ function integer(value, fallback, min, max) {
   if (!Number.isSafeInteger(n) || n < min || n > max) throw invalid("Invalid task limit");
   return n;
 }
+// A pinned model applies to each new conversation the run opens.
+function choice(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw invalid("Invalid model");
+  const out = {};
+  for (const key of ["model", "effort", "provider"]) {
+    if (value[key] === undefined || value[key] === null || value[key] === "") continue;
+    if (typeof value[key] !== "string" || !CHOICE.test(value[key])) throw invalid("Invalid model");
+    out[key] = value[key];
+  }
+  if (!out.model && Object.keys(out).length) throw invalid("Invalid model");
+  return out.model ? out : null;
+}
+function permission(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string" || !PERMISSION.test(value)) throw invalid("Invalid permission mode");
+  return value;
+}
 function definition(body) {
   const agentId = text(body.agentId, 32, "agent");
   if (!AGENTS.includes(agentId)) throw invalid("This agent does not support background Goals");
   return { title: text(body.title, 120, "title"), objective: text(body.objective, 16000, "objective"),
     agentId, cwd: text(body.cwd, 4096, "project"), mode: body.mode === "task" ? "task" : "goal",
     limits: { minutes: integer(body.limits?.minutes, 60, 1, 1440), turns: integer(body.limits?.turns, 20, 1, 100),
-      outputTokens: integer(body.limits?.outputTokens, 100000, 100, 10000000) } };
+      outputTokens: integer(body.limits?.outputTokens, 100000, 100, 10000000),
+      approvalMinutes: integer(body.limits?.approvalMinutes, 30, 1, 1440) },
+    choice: choice(body.choice), permission: permission(body.permission) };
+}
+// Usage limits are checked first: their messages often also mention a rate.
+function failureKind(message) {
+  const value = String(message || "");
+  if (/usage.?limit|quota|credit balance|hit your (?:\w+ )?limit|out of credits|insufficient.?credits|billing/i.test(value)) return "quota";
+  if (/auth_required|sign.?in|login|not signed|unauthori[sz]ed/i.test(value)) return "auth";
+  if (/\b(?:429|500|502|503|504|529)\b|rate.?limit|overloaded|too many requests|capacity|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|fetch failed|network|timed? ?out|temporarily unavailable|try again later|stream ?disconnected|httpConnectionFailed|responseStreamConnectionFailed|internalServerError|connection (?:reset|closed|error|refused)|is busy/i.test(value)) return "transient";
+  return null;
+}
+// The wait an agent states for its usage limit, plus a minute; null if none.
+function retryDelay(message, now) {
+  const value = String(message || "");
+  let at = null;
+  const epoch = value.match(/\|(\d{10})(?!\d)/);
+  const iso = value.match(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})/);
+  const relative = value.match(/\b(?:in|after)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b/i);
+  if (epoch) at = Number(epoch[1]) * 1000;
+  else if (iso) at = Date.parse(iso[0]);
+  else if (relative) at = now + Number(relative[1]) * ({ s: 1000, m: 60000, h: 3600000, d: 86400000 })[relative[2][0].toLowerCase()];
+  return Number.isFinite(at) && at > now ? at - now + 60000 : null;
+}
+function projectKey(cwd) {
+  let value = path.resolve(String(cwd || ""));
+  try { value = fs.realpathSync.native(value); } catch {}
+  return ["darwin", "win32"].includes(process.platform) ? value.toLowerCase() : value;
+}
+function sameProject(a, b) {
+  const x = projectKey(a), y = projectKey(b), within = (inner, outer) => inner.startsWith(outer.endsWith(path.sep) ? outer : outer + path.sep);
+  return x === y || within(x, y) || within(y, x);
+}
+function defaultSleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("Task paused")); }, { once: true });
+  });
 }
 function scheduleSpec(value, now) {
   if (!value || !["once", "daily", "weekly", "interval"].includes(value.kind)) throw invalid("Invalid schedule");
@@ -57,15 +119,32 @@ function goalPrompt(run) {
   const marker = status => `[[STEPSEMBLE_GOAL:${run.nonce}:${status}]]`;
   return `${run.turns ? "Continue the existing goal from the current conversation. Do not repeat completed work." : run.objective}\n\n[Stepsemble Goal]\nObjective: ${run.objective}\nWork within the user's permissions and project instructions. Never bypass approvals. Check the completion criteria and report what was verified. If the goal is complete, end your final answer with this exact line: ${marker("complete")}\nIf you need user input, credentials, approval, or an external change before you can make progress, explain the blocker and end with: ${marker("blocked")}\nOtherwise make useful progress in this turn; the Host can continue it. This is turn ${run.turns + 1} of at most ${run.limits.turns}.`;
 }
+const markerPattern = run => `\\[\\[STEPSEMBLE_GOAL:${String(run.nonce).replace(/[^A-Za-z0-9-]/g, "")}:(complete|blocked)\\]\\]`;
+// Agents often wrap the marker in Markdown or add punctuation. Anything else
+// after it, such as more prose, means the reply did not end with it.
+const DECORATION = "`*_~\"'\u201c\u201d\u2018\u2019.,;:!?\u3002\uff0c\uff0e\uff01\uff1f\u3001)\\]\uff09\u3011\u300d\u300f-";
 function outcome(run, result) {
-  const value = String(result.text || "").trim();
   if (result.error) return "failed";
   if (run.mode === "task") return "completed";
-  if (value.endsWith(`[[STEPSEMBLE_GOAL:${run.nonce}:complete]]`)) return "completed";
-  if (value.endsWith(`[[STEPSEMBLE_GOAL:${run.nonce}:blocked]]`)) return "blocked";
-  return null;
+  const value = String(result.text || "");
+  let last = null;
+  for (const match of value.matchAll(new RegExp(markerPattern(run), "g"))) last = match;
+  if (!last || !new RegExp(`^[\\s>${DECORATION}]*$`, "u").test(value.slice(last.index + last[0].length))) return null;
+  return last[1] === "complete" ? "completed" : "blocked";
 }
-function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onError = () => {}, onFinished = () => {} }) {
+function cleanResult(run, value) {
+  const marker = markerPattern(run);
+  return String(value || "")
+    .replace(new RegExp(`(^|\\n)[ \\t]*\`\`\`[\\w-]*[ \\t]*\\n[ \\t]*${marker}[ \\t]*\\n[ \\t]*\`\`\`[ \\t]*(?=\\n|$)`, "g"), "$1")
+    .replace(new RegExp(`[ \\t]*[>\`*_~"'\u201c\u201d\u2018\u2019]*[ \\t]*${marker}[${DECORATION}]*`, "gu"), "")
+    .trim().slice(-16000);
+}
+// Identical or empty replies on consecutive turns show no visible progress.
+function progressHash(run, value) {
+  const normal = String(value || "").replace(new RegExp(markerPattern(run), "g"), "").toLowerCase().replace(/\s+/g, " ").trim();
+  return normal ? createHash("sha256").update(normal).digest("hex").slice(0, 32) : "";
+}
+function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep = defaultSleep, onError = () => {}, onFinished = () => {} }) {
   let state = { version: 1, schedules: [], runs: [] }, healthy = true, closed = false, ticking = false;
   const inflight = new Map();
   try {
@@ -85,6 +164,10 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
         || !Number.isSafeInteger(row.turns) || row.turns < 0 || !Number.isFinite(row.outputTokens) || row.outputTokens < 0
         || row.resumedAt !== null && !Number.isFinite(row.resumedAt)) throw new Error("Invalid saved Goal");
     }
+    // Tasks saved before approval limits and pinned choices take the defaults.
+    for (const row of [...saved.runs,...saved.schedules]) {
+      row.limits.approvalMinutes ??= 30; row.choice ??= null; row.permission ??= null;
+    }
     state = saved;
   } catch (error) { if (error.code !== "ENOENT") { healthy = false; onError(error); } }
   function save() {
@@ -98,8 +181,10 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
       throw invalid("Could not save tasks; no further work will be started", 503); }
   }
   function elapsed(run) { return run.elapsedMs + (run.resumedAt === null ? 0 : Math.max(0, now() - run.resumedAt)); }
+  // The clock stops while an approval or a retry waits, not just on pause.
+  function holdClock(run) { run.elapsedMs = elapsed(run); run.resumedAt = null; }
   function finish(run, status, error = null) {
-    run.elapsedMs = elapsed(run); run.resumedAt = null; run.status = status; run.activity = status;
+    run.elapsedMs = elapsed(run); run.resumedAt = null; run.waitingSince = null; run.retryAt = null; run.status = status; run.activity = status;
     run.error = error; run.updatedAt = now(); run.endedAt = now(); save();
     try { onFinished(summary(run)); } catch (error) { onError(error); }
   }
@@ -108,12 +193,13 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
     let changed = false;
     for (const run of state.runs) if (ACTIVE.has(run.status) || run.status === "stopping") {
       run.elapsedMs = (run.elapsedMs || 0) + Math.max(0, (run.updatedAt || run.resumedAt || now()) - (run.resumedAt || now()));
-      run.outputTokens += run.checkpointTokens || 0; run.checkpointTokens = 0; run.turnStartedAt = null;
+      run.outputTokens += run.checkpointTokens || 0; run.checkpointTokens = 0; run.turnStartedAt = null; run.waitingSince = null; run.retryAt = null;
       run.resumedAt = null; run.status = "interrupted"; run.error = "Host restarted. Check the conversation before resuming."; changed = true;
     }
     if (changed) save();
   }
-  function summary(run) { return { ...clone(run), elapsedMs: elapsed(run), outputTokens: run.outputTokens + (ACTIVE.has(run.status) ? bridge.tokens?.(run) || 0 : 0), nonce: undefined, record: undefined }; }
+  function summary(run) { return { ...clone(run), elapsedMs: elapsed(run), clockRunning: ACTIVE.has(run.status) && run.resumedAt !== null,
+    outputTokens: run.outputTokens + (ACTIVE.has(run.status) ? bridge.tokens?.(run) || 0 : 0), nonce: undefined, record: undefined, progressHash: undefined }; }
   function hasRunCapacity() { return state.runs.length < 200 || state.runs.some(r => ["limited", "completed", "failed", "stopped"].includes(r.status)); }
   function scheduledRunPending(id) { return state.runs.some(r => r.scheduleId === id && (ACTIVE.has(r.status) || ["queued", "stopping"].includes(r.status))); }
   function list(entry = null) { return { available: healthy, runs: (entry ? state.runs.filter(r => r.entry === entry).slice(-1) : state.runs).map(summary), schedules: entry ? [] : clone(state.schedules).map(row => ({ ...row,
@@ -132,47 +218,92 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
   }
   function locked(entry) { return !!entry && state.runs.some(r => r.entry === entry && (ACTIVE.has(r.status) || r.status === "queued" || r.status === "stopping")); }
   function limit(run) { return elapsed(run) >= run.limits.minutes * 60000 || run.turns >= run.limits.turns || run.outputTokens >= run.limits.outputTokens; }
+  function projectBusy(run) {
+    return state.runs.some(other => other !== run && (inflight.has(other.id) || ACTIVE.has(other.status) || other.status === "stopping") && sameProject(other.cwd, run.cwd));
+  }
   function launch(run) {
     if (inflight.has(run.id) || closed || !healthy) return;
-    run.startedAt ??= now(); run.resumedAt = now(); run.endedAt = null; run.status = "starting"; run.activity = "starting"; run.updatedAt = now(); save();
+    run.startedAt ??= now(); run.resumedAt = now(); run.endedAt = null; run.notBefore = null; run.retryAt = null; run.waitingSince = null; run.error = null;
+    run.stopStatus = null; run.stopReason = null; run.status = "starting"; run.activity = "starting"; run.updatedAt = now(); save();
     const controller = new AbortController(); inflight.set(run.id, controller); bridge.reserve?.(true);
+    const live = () => !controller.signal.aborted && healthy && !closed;
     void (async () => {
       try {
-        const target = await bridge.open(run, controller.signal);
-        run.entry = target.entry; run.record = target.record; save();
-        if (controller.signal.aborted) return;
-        while (!controller.signal.aborted && healthy && !closed) {
-          if (limit(run)) { finish(run, "limited", "Task limit reached"); break; }
-          const prompt = run.mode === "goal" ? goalPrompt(run) : run.objective;
-          run.turnStartedAt = now(); run.turns++; run.status = "running"; run.activity = "thinking"; run.updatedAt = now(); save();
-          const result = await bridge.turn(run, prompt, controller.signal, activity => {
-            if (!ACTIVE.has(run.status)) return;
-            run.status = activity.waiting ? "waiting" : "running";
-            run.activity = String(activity.text || "thinking").slice(0, 240); run.updatedAt = now();
-          });
-          run.outputTokens += Math.max(0, Number(result.outputTokens) || 0); run.turnStartedAt = null; run.checkpointTokens = 0;
-          run.result = String(result.text || "").replace(new RegExp(`\\[\\[STEPSEMBLE_GOAL:${run.nonce}:(complete|blocked)\\]\\]`, "g"), "").trim().slice(-16000);
-          if (controller.signal.aborted || closed || !healthy) break;
-          const status = outcome(run, result);
-          if (status) { finish(run, status, result.error || null); break; }
-          if (limit(run)) { finish(run, "limited", "Task limit reached"); break; }
-          save();
-          // Yield so pause/stop and provider idle settlement win before continuation.
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        while (live()) {
+          let counted = false;
+          try {
+            const target = await bridge.open(run, controller.signal);
+            run.entry = target.entry; run.record = target.record; save();
+            if (!live()) return;
+            while (live()) {
+              if (limit(run)) { finish(run, "limited", "Task limit reached"); return; }
+              const prompt = run.mode === "goal" ? goalPrompt(run) : run.objective;
+              run.turnStartedAt = now(); run.turns++; counted = true; run.status = "running"; run.activity = "thinking"; run.updatedAt = now(); save();
+              const result = await bridge.turn(run, run.retrying ? `${RETRY_NOTE}\n\n${prompt}` : prompt, controller.signal, activity => {
+                if (!ACTIVE.has(run.status)) return;
+                const waiting = !!activity.waiting;
+                if (waiting && run.status !== "waiting") { holdClock(run); run.waitingSince = now(); }
+                else if (!waiting && run.status === "waiting") { run.resumedAt = now(); run.waitingSince = null; }
+                run.status = waiting ? "waiting" : "running";
+                run.activity = String(activity.text || "thinking").slice(0, 240); run.updatedAt = now();
+              });
+              if (run.waitingSince) { run.resumedAt = now(); run.waitingSince = null; }
+              run.outputTokens += Math.max(0, Number(result.outputTokens) || 0); run.turnStartedAt = null; run.checkpointTokens = 0;
+              run.result = cleanResult(run, result.text);
+              if (!live()) return;
+              if (result.error) throw new Error(String(result.error));
+              counted = false; run.retries = 0; run.quotaSince = null; run.retrying = false;
+              const status = outcome(run, result);
+              if (status) { finish(run, status); return; }
+              if (run.mode === "goal") {
+                const hash = progressHash(run, result.text);
+                run.stalls = !hash || hash === run.progressHash ? (run.stalls || 0) + 1 : 0; run.progressHash = hash;
+                if (run.stalls >= STALL_TURNS) { finish(run, "blocked", STALL_MESSAGE); return; }
+              }
+              if (limit(run)) { finish(run, "limited", "Task limit reached"); return; }
+              save();
+              // Yield so pause/stop and provider idle settlement win before continuation.
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          } catch (error) {
+            if (!live()) return;
+            const message = String(error.message || error).slice(0, 2000), kind = failureKind(message);
+            // A turn that failed before doing work is not charged against the turn limit.
+            const uncount = () => { if (counted) run.turns = Math.max(0, run.turns - 1); counted = false; };
+            if (kind === "transient" && (run.retries || 0) < RETRY_DELAYS.length) {
+              const delay = RETRY_DELAYS[run.retries || 0];
+              uncount(); run.retries = (run.retries || 0) + 1; run.retrying = true; holdClock(run);
+              run.retryAt = now() + delay; run.activity = "retrying"; run.error = message; run.updatedAt = now(); save();
+              try { await sleep(delay, controller.signal); } catch { return; }
+              if (!live()) return;
+              run.retryAt = null; run.resumedAt = now(); run.error = null;
+              continue;
+            }
+            if (kind === "quota") {
+              run.quotaSince ??= now();
+              const delay = retryDelay(message, now());
+              if (delay === null ? now() - run.quotaSince < QUOTA_WINDOW : delay <= QUOTA_HORIZON) {
+                // Queued work holds no slot; it starts again in the same conversation.
+                uncount(); run.retrying = true; holdClock(run);
+                run.status = "queued"; run.activity = "usage_reset"; run.notBefore = now() + (delay ?? QUOTA_RECHECK); run.error = message; run.updatedAt = now(); save();
+                return;
+              }
+              finish(run, "blocked", `Usage limit reached: ${message}`.slice(0, 2000)); return;
+            }
+            finish(run, kind === "auth" ? "blocked" : "failed", message); return;
+          }
         }
-      } catch (error) {
-        if (!controller.signal.aborted && healthy && !closed) finish(run, /auth_required|sign.?in|login|not signed/i.test(String(error.message)) ? "blocked" : "failed", String(error.message || error).slice(0, 2000));
       } finally {
         inflight.delete(run.id); bridge.reserve?.(false);
-        if (run.status === "stopping" && healthy) finish(run, run.stopStatus || "paused", run.error);
+        if (run.status === "stopping" && healthy) finish(run, run.stopStatus || "paused", run.stopReason || run.error);
       }
     })().catch(onError);
   }
-  async function stop(run, status) {
+  async function stop(run, status, reason = null) {
     if (run.status === "stopping" && !run.error) throw invalid("Task is still stopping", 409);
     const controller = inflight.get(run.id);
-    if (!controller) { finish(run, status); return; }
-    run.status = "stopping"; run.stopStatus = status; run.activity = "stopping"; run.error = null; save();
+    if (!controller) { finish(run, status, reason); return; }
+    run.status = "stopping"; run.stopStatus = status; run.stopReason = reason; run.activity = "stopping"; run.error = null; save();
     controller.abort();
     try { await bridge.stop(run); }
     catch (error) { run.error = `Stop could not be confirmed: ${error.message}`; save(); }
@@ -197,10 +328,18 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
         save();
       }
       for (const run of state.runs) if (ACTIVE.has(run.status)) {
-        if (elapsed(run) >= run.limits.minutes * 60000 || run.outputTokens + (bridge.tokens?.(run) || 0) >= run.limits.outputTokens) await stop(run, "limited");
+        const approval = run.limits.approvalMinutes ?? 30;
+        if (run.status === "waiting" && run.waitingSince && now() - run.waitingSince >= approval * 60000)
+          await stop(run, "blocked", `No one answered the approval request within ${approval} minutes. Resume the Goal to ask again.`);
+        else if (elapsed(run) >= run.limits.minutes * 60000 || run.outputTokens + (bridge.tokens?.(run) || 0) >= run.limits.outputTokens) await stop(run, "limited");
         else if (now() - (run.checkpointAt || 0) >= 5000) { run.checkpointAt = now(); run.checkpointTokens = bridge.tokens?.(run) || 0; run.updatedAt = now(); save(); }
       }
-      for (const run of state.runs) if (run.status === "queued" && inflight.size < 2) launch(run);
+      for (const run of state.runs) if (run.status === "queued" && inflight.size < 2) {
+        if (run.notBefore && run.notBefore > now()) continue;
+        // Two runs never edit the same project at once.
+        if (projectBusy(run)) { if (run.activity !== "project_busy") { run.activity = "project_busy"; save(); } continue; }
+        launch(run);
+      }
     } catch (error) { onError(error); }
     finally { ticking = false; }
   }
@@ -241,11 +380,12 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, onErr
     else if (body.action === "resume" && RESUMABLE.has(run.status)) {
       if (inflight.has(run.id) || locked(run.entry)) throw invalid("This conversation is still busy", 409);
       if (limit(run)) throw invalid("Task limit reached; create a new Goal", 409);
-      run.status = "queued"; run.error = null; save(); void tick();
+      run.status = "queued"; run.activity = "queued"; run.error = null; run.notBefore = null;
+      run.stalls = 0; run.progressHash = null; run.retries = 0; run.quotaSince = null; save(); void tick();
     } else throw invalid("This task cannot perform that action", 409);
     return summary(run);
   }
   const timer = autoStart ? setInterval(() => void tick(), 1000) : null; timer?.unref?.();
   return { list, create, action, tick, locked, close() { closed = true; clearInterval(timer); }, healthy: () => healthy };
 }
-module.exports = { createWorkflows, scheduleSpec, nextOccurrence, definition, goalPrompt, outcome, AGENTS };
+module.exports = { createWorkflows, scheduleSpec, nextOccurrence, definition, goalPrompt, outcome, failureKind, retryDelay, sameProject, AGENTS };

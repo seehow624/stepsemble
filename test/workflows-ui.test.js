@@ -53,7 +53,7 @@ function dom() {
 }
 async function harness({runs=[run()],schedules=[],mobile=false,crypto}={}) {
   const doc=dom(),timers=new Map();let timerId=0,uuid=0;
-  const h={doc,runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],now:1700000000000,available:true};
+  const h={doc,runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],optionRequests:[],now:1700000000000,available:true};
   const root={document:doc,StepsembleWorkflowI18n:i18n,crypto:crypto||{randomUUID:()=>"request-"+(++uuid)},confirm:()=>true,
     Event:class{constructor(type){this.type=type;}},dispatchEvent(){},matchMedia:()=>({matches:mobile}),
     setTimeout(fn,ms){timers.set(++timerId,{fn,ms,interval:false});return timerId;},clearTimeout(id){timers.delete(id);},
@@ -64,7 +64,8 @@ async function harness({runs=[run()],schedules=[],mobile=false,crypto}={}) {
     onChanged(){h.changed++;},openConversation(...args){h.opened.push(args);},
     api:async(route,body,target)=>{
       if(route==="/api/agents")return h.agentsImpl?h.agentsImpl():{connectors:[{id:"pi",installed:true},{id:"codex",installed:true},{id:"antigravity",installed:true},{id:"hermes",installed:false}]};
-      if(!body)return h.readImpl?h.readImpl():{available:h.available,runs:clone(h.runs),schedules:clone(h.schedules)};
+      if(route.startsWith("/api/workflows/options?")){h.optionRequests.push(route);return h.optionsImpl?h.optionsImpl(route):{current:null,models:[],modes:[]};}
+      if(!body)return h.readImpl?h.readImpl():{available:h.available,keepsAwake:h.keepsAwake,runs:clone(h.runs),schedules:clone(h.schedules)};
       h.posts.push({body:clone(body),target});if(h.postImpl)return h.postImpl(body);
       if(body.action){const row=[...h.runs,...h.schedules].find(item=>item.id===body.id);if(row.schedule){if(body.action==="pause")row.enabled=false;else if(body.action==="resume")row.enabled=true;else if(body.action==="edit")Object.assign(row,body);else if(body.action==="delete")h.schedules=h.schedules.filter(item=>item.id!==row.id);}else row.status={pause:"paused",resume:"running",stop:"stopped"}[body.action];return clone(row);}
       const row={...run("created-"+h.posts.length),...body};if(body.kind==="schedule"){row.enabled=true;h.schedules.push(row);}else h.runs.push(row);return clone(row);
@@ -239,4 +240,75 @@ test("workflow locale interpolation works in older WebKit without Object.hasOwn"
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../public/modules/workflows-i18n.js"),"utf8"),context);
   assert.equal(context.module.exports.t("ofLimit",{limit:100},"en"),"of 100");
   assert.equal(context.module.exports.t("dailyAt",{time:"09:00"},"zh-Hant"),"每天 · 09:00");
+});
+
+const codexOptions = () => ({ current:{ model:"gpt-6" }, models:[{ choice:{ model:"gpt-6" }, label:"GPT-6", efforts:["low","high"] }, { choice:{ model:"gpt-6-mini" }, label:"GPT-6 mini", efforts:[] }],
+  modes:[{ id:"read-only" }, { id:"workspace" }, { id:"full-access" }] });
+
+test("the Host's clock flag stops the displayed clock during approval and retry waits",()=>{
+  assert.equal(ui.elapsed({...run("g","waiting"),clockRunning:false},1000,4000),60000);
+  assert.equal(ui.elapsed({...run("g","running"),clockRunning:false},1000,4000),60000);
+  assert.equal(ui.elapsed({...run("g","running"),clockRunning:true},1000,4000),63000);
+  assert.equal(ui.elapsed(run("g","running"),1000,4000),63000,"older Hosts without the flag keep the status rule");
+});
+
+test("current activity explains project waits, retries and usage-limit waits",async()=>{
+  const h=await harness({runs:[{...run("busy","queued"),activity:"project_busy"}]});
+  assert.match(h.find(".wf-detail").textContent,/Waiting for another task in this project/);
+  h.runs=[{...run("retry","running"),activity:"retrying",retryAt:1700000120000,clockRunning:false}];await h.tick(4000);
+  assert.match(h.find(".wf-detail").textContent,/Retrying after a temporary error/);
+  h.runs=[{...run("quota","queued"),activity:"usage_reset",notBefore:1700007200000}];await h.tick(4000);
+  assert.match(h.find(".wf-detail").textContent,/usage limit to reset/);h.close();
+});
+
+test("a new task can pin a model, reasoning level and permission mode",async()=>{
+  const h=await harness();h.optionsImpl=codexOptions;await h.byKey("new").click();await flush();
+  h.input("agent","codex");await flush();
+  assert.ok(h.optionRequests.at(-1).includes("agentId=codex"));assert.ok(h.optionRequests.at(-1).includes("cwd=%2Fdemo%2FWebsite"));
+  assert.equal(h.field("model").options[0].value,"");assert.equal(h.field("model").options.length,3);
+  assert.deepEqual(h.field("permission").options.map(option=>option.textContent),["Agent default","Read only","Default","Full access"],"Codex modes use the names its composer shows");
+  assert.equal(h.field("reasoning").parentElement.hidden,true);
+  h.input("model",JSON.stringify({model:"gpt-6"}));assert.equal(h.field("reasoning").parentElement.hidden,false);
+  h.input("reasoning","high");h.input("permission","workspace");h.input("objectivePrompt","Ship it");await h.submit();
+  const sent=h.posts[0].body;assert.deepEqual(sent.choice,{model:"gpt-6",effort:"high"});assert.equal(sent.permission,"workspace");assert.equal(sent.limits.approvalMinutes,30);h.close();
+});
+
+test("agent defaults send no pinned choices, and changing the agent clears earlier picks",async()=>{
+  const h=await harness();h.optionsImpl=route=>route.includes("agentId=codex")?codexOptions():{current:null,models:[],modes:[]};
+  await h.byKey("new").click();await flush();h.input("agent","codex");await flush();
+  h.input("model",JSON.stringify({model:"gpt-6"}));h.input("permission","workspace");
+  h.input("agent","pi");await flush();assert.equal(h.field("model").value,"");assert.equal(h.field("permission").value,"");
+  h.input("objectivePrompt","Ship it");await h.submit();
+  assert.equal(h.posts[0].body.choice,null);assert.equal(h.posts[0].body.permission,null);h.close();
+});
+
+test("editing keeps a pinned model and mode that the catalog no longer lists",async()=>{
+  const h=await harness({schedules:[{...schedule(),agentId:"codex",choice:{model:"retired-model",effort:"low"},permission:"read-only"}]});
+  h.optionsImpl=()=>({current:null,models:[],modes:[],modelsUnavailable:true});
+  await h.byKey("tab:schedules").click();await h.byKey("schedule-1:edit").click();await flush();
+  assert.equal(JSON.parse(h.field("model").value).model,"retired-model");assert.equal(h.field("permission").value,"read-only");
+  await h.submit();assert.deepEqual(h.posts[0].body.choice,{model:"retired-model",effort:"low"});assert.equal(h.posts[0].body.permission,"read-only");h.close();
+});
+
+test("a Goal on an existing conversation keeps the conversation's own model and mode",async()=>{
+  const h=await harness();await h.controller.open("goals","host-1","entry-1","Check the existing entry");await flush();
+  assert.equal(h.field("model"),undefined);assert.equal(h.field("permission"),undefined);assert.equal(h.optionRequests.length,0);
+  assert.match(h.find("form").textContent,/Keeps this conversation/);
+  await h.submit();assert.equal(h.posts[0].body.choice,undefined);assert.equal(h.posts[0].body.permission,undefined);h.close();
+});
+
+test("the approval wait limit is editable, validated, and shown with a schedule's settings",async()=>{
+  const h=await harness();await h.byKey("new").click();await flush();h.input("objectivePrompt","Check the page");
+  h.input("approvalMinutes","0");await h.submit();assert.equal(h.posts.length,0);assert.equal(h.find("details").open,true);
+  h.input("approvalMinutes","45");await h.submit();assert.equal(h.posts[0].body.limits.approvalMinutes,45);h.close();
+  assert.equal(ui.validate({limits:{...limits,approvalMinutes:1441}}),"goalComposer.limitsError");
+  assert.equal(ui.validate({limits}),null,"older saved limits without an approval wait stay valid");
+  const s=await harness({runs:[],schedules:[{...schedule(),limits:{...limits,approvalMinutes:15},choice:{model:"gpt-6"},permission:"workspace",agentId:"codex"}]});
+  await s.byKey("tab:schedules").click();const settings=s.find(".wf-detail").textContent;
+  assert.match(settings,/Approval wait \(min\): 15/);assert.match(settings,/gpt-6/);s.close();
+});
+
+test("the footer says the Host keeps the computer awake only when it can",async()=>{
+  const h=await harness();assert.match(h.find(".wf-footer").textContent,/Keep the computer awake/);
+  h.keepsAwake=true;await h.tick(4000);assert.match(h.find(".wf-footer").textContent,/keeps the computer awake while tasks run/);h.close();
 });

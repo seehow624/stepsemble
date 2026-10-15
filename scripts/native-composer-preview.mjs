@@ -419,9 +419,19 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/workspace/usage" && req.method === "GET") return json(res, 200, { providers: [] });
       // Workflow UI fixture; never launches an agent or a model request.
+      if (pathname === "/api/workflows/options" && req.method === "GET") {
+        const agentId = requestUrl.searchParams.get("agentId");
+        const fixture = {
+          codex: { models: [["gpt-6", "GPT-6", ["low", "medium", "high"]], ["gpt-6-mini", "GPT-6 mini", ["low", "medium"]]], modes: ["read-only", "workspace", "full-access"] },
+          "claude-code": { models: [["opus", "Opus 5.5"], ["sonnet", "Sonnet 5.5"], ["fable", "Fable 5.1"]], modes: ["default", "acceptEdits", "plan", "auto"] },
+          pi: { models: [["claude-sonnet-5-5", "Sonnet 5.5", [], "anthropic"]], modes: [] },
+        }[agentId] || { models: [], modes: [] };
+        return json(res, 200, { agentId, current: null, modes: fixture.modes.map(id => ({ id })),
+          models: fixture.models.map(([model, label, efforts = [], provider]) => ({ choice: { model, ...(provider ? { provider } : {}) }, label, efforts })) });
+      }
       if (pathname === "/api/workflows") {
         const snapshot = run => ({ ...run, elapsedMs: run.elapsedMs + (run.status === "running" ? Date.now() - run.updatedAt : 0) });
-        if (req.method === "GET") return json(res, 200, { available: true, serverNow: Date.now(), schedules: requestUrl.searchParams.has("entry") ? [] : state.schedules, runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry")).map(snapshot) });
+        if (req.method === "GET") return json(res, 200, { available: true, keepsAwake: true, serverNow: Date.now(), schedules: requestUrl.searchParams.has("entry") ? [] : state.schedules, runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry")).map(snapshot) });
         const body = await parseJsonBody(req);
         state.goalRequests.push(body);
         const makeRun = (input, entry) => {
