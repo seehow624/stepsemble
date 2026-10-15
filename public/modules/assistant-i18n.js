@@ -184,8 +184,44 @@
       "Riuscita", "Non riuscita", "Impossibile consegnare", "In pausa", "Metti in pausa", "Riprendi", "Esegui ora", "Tocca di nuovo per eseguire", "Cronologia",
       "Ancora nessuna esecuzione.", "Esegue uno script senza l’IA"],
   };
-  const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows]]) {
+  const GROUP_KEYS = ["groups", "newGroup", "groupName", "pickMembers", "createGroup", "noGroups", "groupsUnsupported", "mentionHint",
+    "messageGroup", "disband", "confirmDisband", "memberUnavailable", "turnFailed", "renamedTo", "stopRequested", "retryTurn"];
+  const groupRows = {
+    "en": ["Groups", "New group", "Group name", "Choose 2 to 6 Bots", "Create group", "No groups yet.", "Group chats need a newer Hermes.",
+      "Use @name to ask one Bot, or @all for everyone.", "Message the group", "Disband", "Tap again to disband", "{name} is unavailable",
+      "{name} could not answer", "Renamed to {name}", "Stopped", "Try again"],
+    "zh-Hant": ["群組", "新增群組", "群組名稱", "選 2 到 6 個 Bot", "建立群組", "還沒有群組。", "群組聊天需要較新版本的 Hermes。",
+      "用 @名稱 指名一個 Bot，或用 @all 叫所有人。", "傳訊息給群組", "解散", "再點一次就解散", "{name} 目前無法使用", "{name} 無法回答",
+      "已改名為 {name}", "已停止", "再試一次"],
+    "zh-Hans": ["群组", "新建群组", "群组名称", "选 2 到 6 个 Bot", "创建群组", "还没有群组。", "群组聊天需要较新版本的 Hermes。",
+      "用 @名称 指定一个 Bot，或用 @all 叫所有人。", "给群组发消息", "解散", "再点一次即解散", "{name} 目前无法使用", "{name} 无法回答",
+      "已改名为 {name}", "已停止", "再试一次"],
+    "ja": ["グループ", "新しいグループ", "グループ名", "Bot を 2〜6 個選ぶ", "グループを作成", "グループはまだありません。", "グループチャットには新しい Hermes が必要です。",
+      "@名前 で 1 つの Bot を指名、@all で全員に聞けます。", "グループにメッセージ", "解散", "もう一度タップすると解散", "{name} は利用できません",
+      "{name} は回答できませんでした", "{name} に名前を変更しました", "停止しました", "もう一度試す"],
+    "ko": ["그룹", "새 그룹", "그룹 이름", "Bot을 2~6개 선택", "그룹 만들기", "아직 그룹이 없습니다.", "그룹 채팅에는 더 새로운 Hermes가 필요합니다.",
+      "@이름으로 한 Bot에게, @all로 모두에게 물어보세요.", "그룹에 메시지", "해산", "한 번 더 누르면 해산", "{name}을(를) 사용할 수 없습니다",
+      "{name}이(가) 답하지 못했습니다", "{name}(으)로 이름을 바꿨습니다", "중지됨", "다시 시도"],
+    "tr": ["Gruplar", "Yeni grup", "Grup adı", "2 ile 6 arasında Bot seçin", "Grubu oluştur", "Henüz grup yok.", "Grup sohbetleri daha yeni bir Hermes gerektirir.",
+      "Bir Bot'a sormak için @ad, herkese sormak için @all kullanın.", "Gruba mesaj", "Dağıt", "Dağıtmak için tekrar dokunun", "{name} kullanılamıyor",
+      "{name} yanıt veremedi", "Adı {name} olarak değiştirildi", "Durduruldu", "Tekrar dene"],
+    "fr": ["Groupes", "Nouveau groupe", "Nom du groupe", "Choisissez de 2 à 6 Bots", "Créer le groupe", "Aucun groupe pour l’instant.",
+      "Les discussions de groupe nécessitent un Hermes plus récent.", "Utilisez @nom pour interroger un Bot, ou @all pour tout le monde.", "Message au groupe",
+      "Dissoudre", "Touchez encore pour dissoudre", "{name} est indisponible", "{name} n’a pas pu répondre", "Renommé en {name}", "Arrêté", "Réessayer"],
+    "de": ["Gruppen", "Neue Gruppe", "Gruppenname", "Wähle 2 bis 6 Bots", "Gruppe erstellen", "Noch keine Gruppen.", "Gruppenchats brauchen ein neueres Hermes.",
+      "Mit @Name fragst du einen Bot, mit @all alle.", "Nachricht an die Gruppe", "Auflösen", "Zum Auflösen erneut tippen", "{name} ist nicht verfügbar",
+      "{name} konnte nicht antworten", "Umbenannt in {name}", "Gestoppt", "Erneut versuchen"],
+    "es": ["Grupos", "Nuevo grupo", "Nombre del grupo", "Elige de 2 a 6 Bots", "Crear grupo", "Todavía no hay grupos.", "Los chats de grupo necesitan un Hermes más reciente.",
+      "Usa @nombre para preguntar a un Bot, o @all para todos.", "Mensaje al grupo", "Disolver", "Toca otra vez para disolver", "{name} no está disponible",
+      "{name} no pudo responder", "Renombrado como {name}", "Detenido", "Reintentar"],
+    "pt-BR": ["Grupos", "Novo grupo", "Nome do grupo", "Escolha de 2 a 6 Bots", "Criar grupo", "Ainda não há grupos.", "Conversas em grupo precisam de um Hermes mais novo.",
+      "Use @nome para perguntar a um Bot, ou @all para todos.", "Mensagem para o grupo", "Desfazer", "Toque de novo para desfazer", "{name} está indisponível",
+      "{name} não conseguiu responder", "Renomeado para {name}", "Parado", "Tentar de novo"],
+    "it": ["Gruppi", "Nuovo gruppo", "Nome del gruppo", "Scegli da 2 a 6 Bot", "Crea gruppo", "Ancora nessun gruppo.", "Le chat di gruppo richiedono un Hermes più recente.",
+      "Usa @nome per chiedere a un Bot, o @all per tutti.", "Messaggio al gruppo", "Sciogli", "Tocca di nuovo per sciogliere", "{name} non è disponibile",
+      "{name} non ha potuto rispondere", "Rinominato in {name}", "Fermato", "Riprova"],
+  };  const tables = {};
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

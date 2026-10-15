@@ -30,3 +30,8 @@ test("the Workspace names the assistant in every locale", () => {
   for (const locale of LOCALES) assert.ok(W.tables[locale].assistant, locale);
   assert.equal(W.tables["zh-Hant"].assistant, "助理");
 });
+
+test("group chat strings exist in every locale", () => {
+  assert.equal(I.t("groupsUnsupported", {}, "zh-Hant"), "群組聊天需要較新版本的 Hermes。");
+  assert.equal(I.t("turnFailed", { name: "Luna" }, "en"), "Luna could not answer");
+});
