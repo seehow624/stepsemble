@@ -42,6 +42,11 @@ const { takeMacosApp, macosAppOpenArguments } = require("./server/macos-app");
 // Set when Stepsemble.app started this Host; null otherwise.
 const MACOS_APP = takeMacosApp();
 const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
+const { createHermesDiscovery } = require("./server/hermes-discovery");
+const { createHermesSessionStore } = require("./server/hermes-session-store");
+const { createHermesGatewayClient } = require("./server/hermes-gateway-client");
+const { createHermesAssistantService } = require("./server/hermes-assistant-service");
+const { createHermesAssistantRoutes } = require("./server/hermes-assistant-routes");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
@@ -1931,6 +1936,7 @@ async function deliverPushNotification(session, title, body, notice = null, endp
       body: notice ? notice.title : body,
       file: session?.meta?.file || session?.file || null,
       taskId: session?.taskId || session?.id || null,
+      url: typeof session?.url === "string" && session.url.startsWith("/assistant.html?") ? session.url : null,
       ts: Date.now(), ...(notice ? { notice } : {}),
     });
     queuePush(subscription, payload);
@@ -5330,6 +5336,20 @@ const handleAgentModeRoute = createAgentModeRoutes({
   readJSON, sendJSON,
 });
 
+// Hermes Bot Mode for the assistant page (docs/hermes-assistant.md). The
+// client connects only when the page or a running turn needs it; nothing is
+// spawned and no Hermes file is read.
+const hermesAssistant = createHermesAssistantService({
+  client: createHermesGatewayClient({
+    discovery: createHermesDiscovery(),
+    store: createHermesSessionStore({ file: path.join(CONFIG_DIR, "hermes-session.json") }),
+    log: (...args) => console.warn(...args),
+  }),
+  installed: () => !!hermesCommand,
+  notify: notice => { void deliverPushNotification({ url: notice.url }, notice.title, notice.body); },
+});
+const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, readJSON, sendJSON, sseFrame, trySseWrite });
+
 // A mode chosen earlier is put back when an ACP conversation is loaded again;
 // the agent would otherwise start it in its own default mode.
 async function restoreAcpMode(agentId, adapter, sessionId) {
@@ -6220,6 +6240,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (await handleNativeComposerRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
+      if (await handleHermesAssistantRoute(req, res, url)) return;
       // The model and level last chosen for an agent. Codex applies a choice
       // with its next message, so its page records the choice here.
       if (p === "/api/agent-choice" && (req.method === "GET" || req.method === "POST")) {

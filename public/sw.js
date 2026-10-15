@@ -160,14 +160,22 @@ self.addEventListener("push", event => {
 });
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  const { notice, file, taskId } = event.notification.data || {};
+  const { notice, file, taskId, url } = event.notification.data || {};
+  // An assistant notice opens that Bot's conversation on the assistant page.
+  const assistant = typeof url === "string" && url.startsWith("/assistant.html?") ? url : null;
   const valid = notice && /^[a-zA-Z0-9_-]{1,128}$/.test(notice.host) && /^[a-f0-9-]{36}$/i.test(notice.key);
-  const href = valid ? "/workspace.html?host=" + encodeURIComponent(notice.host) + "&entry=" + encodeURIComponent(notice.key) : "/workspace.html";
+  const href = assistant || (valid ? "/workspace.html?host=" + encodeURIComponent(notice.host) + "&entry=" + encodeURIComponent(notice.key) : "/workspace.html");
   event.waitUntil((async () => {
     const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of clients.filter(row => row.frameType !== "nested")) {
-      const url = new URL(client.url);
-      if (url.origin !== self.location.origin || !["/", "/workspace.html"].includes(url.pathname)) continue;
+      const current = new URL(client.url);
+      if (current.origin !== self.location.origin) continue;
+      if (assistant) {
+        if (current.pathname !== "/assistant.html") continue;
+        client.postMessage({ type: "STEPSEMBLE_OPEN_ASSISTANT", url: assistant });
+        return client.focus();
+      }
+      if (!["/", "/workspace.html"].includes(current.pathname)) continue;
       if (valid) client.postMessage({ type: "STEPSEMBLE_OPEN_NOTIFICATION", notice });
       else if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", product: "stepsemble", taskId });
       else if (file) client.postMessage({ type: "PI_HARBOR_OPEN_SESSION", product: "stepsemble", file });
