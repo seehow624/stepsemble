@@ -85,7 +85,7 @@ export async function runConversationUxBrowserCases(browser) {
       const wrap = (name, script) => fs.writeFile(path.join(bin, name), "#!/bin/sh\nexec " + quote(process.execPath) + " " + quote(path.join(root, script)) + " \"$@\"\n", { mode: 0o700 });
       await wrap("pi", "test-support/rolling-pi.cjs");
       await wrap("claude", "test-support/desktop-claude-structured-peer.cjs");
-      await wrap("hermes", "test-support/fake-acp-agent.cjs");
+      await wrap("kilo", "test-support/fake-acp-agent.cjs");
       const picture = path.join(home, "picture.png");
       await fs.writeFile(picture, PNG);
       const port = await freePort(), base = "http://127.0.0.1:" + port;
@@ -304,9 +304,9 @@ export async function runConversationUxBrowserCases(browser) {
       out.openFailure = "sign-in and retry";
 
       stage = "ACP agent: working at once";
-      ui = await newWorkspaceSession(page, { agentId: "hermes", name: "UX ACP" });
+      ui = await newWorkspaceSession(page, { agentId: "kilo", name: "UX ACP" });
       await ui.waitForFunction(connected, null, { timeout: 20000 });
-      await pendingTurn(page, ui, context, "**/api/hermes/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
+      await pendingTurn(page, ui, context, "**/api/kilo/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
       await ui.waitForFunction(() => document.querySelectorAll("#messages .msg.assistant").length > 0);
       // This agent does not count its tokens, so its speed is estimated; a
       // reply with nothing to fold still gets a plain line for it.
@@ -329,7 +329,7 @@ export async function runConversationUxBrowserCases(browser) {
       } else {
         const tabs = await page.evaluate(() => [...document.querySelectorAll(".workspace-tab")].map(tab => ({
           width: Math.round(tab.getBoundingClientRect().width), agent: tab.querySelector(".agent-logo")?.dataset.agentId || null })));
-        assert.deepEqual(tabs.map(tab => tab.agent), ["pi", "pi", "claude-code", "hermes"], JSON.stringify(tabs));
+        assert.deepEqual(tabs.map(tab => tab.agent), ["pi", "pi", "claude-code", "kilo"], JSON.stringify(tabs));
         assert.equal(new Set(tabs.map(tab => tab.width)).size, 1, "every tab has one width: " + JSON.stringify(tabs));
         const pane = await ui.evaluate(() => {
           const shown = selector => { const node = document.querySelector(selector); return !!node && getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0; };
