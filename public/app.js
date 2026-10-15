@@ -2476,7 +2476,8 @@ function renderNewAgentOptions() {
   if (!el.newAgent) return;
   const previous = el.newAgent.value || "pi";
   el.newAgent.replaceChildren();
-  const connectors = agentCatalog;
+  // Hermes is reached from the assistant page, not as a coding conversation.
+  const connectors = agentCatalog.filter(connector => connector.category !== "personal");
   const groups = new Map();
   for (const connector of connectors) {
     const key = connector.category === "personal" ? "personal" : "coding";

@@ -75,3 +75,10 @@ test("chat identity changes and clearing do not alter the conversation title", (
   assert.match(source, /setChatAgent\(task.agentId \|\| "agent"\)/);
   assert.match(source, /if \(snapshot.agentId\) setChatAgent\(snapshot.agentId\)/);
 });
+
+test("a personal assistant is not offered as a new coding conversation", () => {
+  assert.equal(identity.startsConversations({ id: "codex", installed: true, category: "coding" }), true);
+  assert.equal(identity.startsConversations({ id: "hermes", installed: true, category: "personal" }), false);
+  assert.equal(identity.startsConversations({ id: "kilo", installed: false, category: "coding" }), false);
+  assert.equal(identity.startsConversations(null), false);
+});

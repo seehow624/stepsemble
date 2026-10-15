@@ -45,6 +45,12 @@ var StepsembleAgentIdentity;
         return badge;
     }
     StepsembleAgentIdentity.create = create;
+    // Personal assistants (Hermes) live on the assistant page; a new
+    // conversation offers only installed coding agents.
+    function startsConversations(connector) {
+        return !!connector && connector.installed === true && connector.category !== "personal";
+    }
+    StepsembleAgentIdentity.startsConversations = startsConversations;
 })(StepsembleAgentIdentity || (StepsembleAgentIdentity = {}));
 if (typeof module !== "undefined")
     module.exports = StepsembleAgentIdentity;

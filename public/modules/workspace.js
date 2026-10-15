@@ -1055,7 +1055,7 @@
     name.addEventListener("keydown", event => { if (event.key === "Enter" && !event.isComposing && !start.disabled) { event.preventDefault(); start.click(); } });
     select.addEventListener("change", () => { if (!signInFrame) notice.hidden = true; });
     fields.append(select, name); actions.append(worktree, start); body.append(fields, actions, notice);
-    try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (agent.installed) { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); capabilities.set(agent.id, agent.capabilities); } syncWorktree(); start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
+    try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (window.StepsembleAgentIdentity?.startsConversations ? window.StepsembleAgentIdentity.startsConversations(agent) : agent.installed && agent.category !== "personal") { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); capabilities.set(agent.id, agent.capabilities); } syncWorktree(); start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
     catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }
   }
   async function history() {
