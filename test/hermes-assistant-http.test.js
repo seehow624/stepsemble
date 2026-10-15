@@ -26,6 +26,7 @@ test("the running server reaches Hermes, keeps the sign-in and streams a Bot Cha
   const bin = path.join(home, "bin");
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, "hermes"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  if (process.platform === "win32") fs.writeFileSync(path.join(bin, "hermes.cmd"), "@echo off\r\nexit /b 0\r\n");
   const port = await freePort();
   const child = spawn(process.execPath, [path.join(root, "server.js")], {
     env: isolatedEnvironment({ HOME: home, PI_HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, STEPSEMBLE_HOST: "127.0.0.1",
