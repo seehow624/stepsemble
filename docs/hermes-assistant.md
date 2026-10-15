@@ -15,11 +15,14 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
 - 每個 Bot 的「例行工作」分頁（以及名單頁的「所有例行工作」）列出 Hermes cron job：可暫停、立即執行、看執行紀錄、
   編輯、刪除。「同時送到這個 Bot 的對話」會在送達清單加入或移除 `bot-chat`。在這裡新增的例行工作依 Bot Mode 慣例
   命名為 `[bot:<profile>] <名稱>`，預設送到這個 Bot 的對話；既有工作的名稱與其他設定不會被自動修改。
+- 名單頁的「群組」區可以建立 2～6 個同一台電腦 Bot 的群組（Hermes hosted room）。`@名稱` 指名一個 Bot、`@all` 指名全體，
+  沒有指名時由 Hermes 決定誰回答。成員需要核准時卡片出現在群組裡；可停止、重試失敗的回合、改名、解散（點兩次）。
+  群組開著且畫面可見時每 1.5 秒讀新訊息、每 3 秒讀狀態。Hermes 沒有群組驅動時顯示「需要較新版本的 Hermes」。
 
 ## 架構與安全
 
 - 伺服器端模組：`server/hermes-discovery.js`、`hermes-session-store.js`、`hermes-gateway-client.js`、
-  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
+  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-groups.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
 - 瀏覽器端：`public/assistant.html` 與 `public/modules/assistant*.js`。跨機器時經由既有的
   裝置轉送 `/r/<id>/api/assistant/*`。
 - 只連本機自己的位址（`STEPSEMBLE_HERMES_URL`、`127.0.0.1:9119`、本機各網路位址的 `:9119`），
