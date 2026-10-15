@@ -1885,6 +1885,7 @@ function vapidAuthorization(endpoint) {
 
 const { encryptPushPayload, createPushQueue } = require("./server/web-push");
 const notificationCopy = require("./public/modules/notifications");
+const { pushBody } = require("./server/notifications");
 
 function readPushSubscriptions() {
   try {
@@ -1938,7 +1939,7 @@ async function deliverPushNotification(session, title, body, notice = null, endp
     if (endpoint && endpoint !== subscription.endpoint) continue;
     const payload = JSON.stringify({
       title: notice ? notificationCopy.t(notice.kind, subscription.locale) : title,
-      body: notice ? notice.title : body,
+      body: notice ? pushBody(notice, MACHINE_NAME) : body,
       file: session?.meta?.file || session?.file || null,
       taskId: session?.taskId || session?.id || null,
       url: typeof session?.url === "string" && session.url.startsWith("/assistant.html?") ? session.url : null,

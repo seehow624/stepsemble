@@ -460,6 +460,22 @@ function toast(msg, isError = false, action = null) {
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, action ? 7000 : 2400);
 }
 
+// A small confirmation for routine steps, such as adding an image: the
+// thumbnail already shows the result, so it stays brief and out of the way.
+function quietToast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast quiet";
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+  const text = document.createElement("span");
+  text.textContent = msg;
+  t.append(icon, text);
+  el.toastWrap.appendChild(t);
+  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, 1600);
+}
+
 // ===========================================================================
 // 任務進度（Pi extension widget / Plan 文字的 web 呈現）
 // ===========================================================================
@@ -11204,7 +11220,7 @@ async function addImageFiles(files) {
   }
   if (limit === "count") toast(tKey("composer.imageLimit", { count: budget.count }), true);
   else if (limit === "bytes") toast(tKey("composer.imageBytesLimit", { size: Math.round(budget.bytes / 1024 / 1024) }), true);
-  else if (added) toast(`${added} 張圖片已加入`);
+  else if (added) quietToast(tKey(added === 1 ? "composer.imageAdded" : "composer.imagesAdded", { count: added }));
 }
 
 el.btnImg.addEventListener("click", () => el.fileInput.click());

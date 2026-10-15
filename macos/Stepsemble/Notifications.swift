@@ -128,8 +128,10 @@ final class NativeNotifications: NSObject, UNUserNotificationCenterDelegate, URL
         let content = UNMutableNotificationContent()
         let locale = UserDefaults.standard.string(forKey: "notificationLocale") ?? Text.language
         content.title = NativeNoticeText.text(kind, locale: locale)
-        content.subtitle = notice["hostName"] ?? "Stepsemble"
-        content.body = String((notice["title"] ?? "Stepsemble").prefix(120)); content.sound = .default
+        // What happened; computer · agent; project · session. An older Host
+        // sends no agent or project, and the alert keeps its old two lines.
+        content.subtitle = NativeNoticeText.join([notice["hostName"] ?? "Stepsemble", notice["agent"]], limit: 80)
+        content.body = NativeNoticeText.join([notice["project"], notice["title"] ?? "Stepsemble"], limit: 120); content.sound = .default
         content.threadIdentifier = "\(host):\(key)"; content.userInfo = notice
         center.add(UNNotificationRequest(identifier: "stepsemble:\(host):\(key)", content: content, trigger: nil))
     }
@@ -147,6 +149,13 @@ final class NativeNotifications: NSObject, UNUserNotificationCenterDelegate, URL
 
 private enum NativeNoticeText {
     static let kinds = ["completed", "failed", "stopped", "approval", "test", "blockedGoal"]
+    static func join(_ parts: [String?], limit: Int) -> String {
+        var seen = Set<String>()
+        return parts.compactMap { part -> String? in
+            let value = String((part ?? "").components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces).prefix(limit))
+            return value.isEmpty || !seen.insert(value).inserted ? nil : value
+        }.joined(separator: " · ")
+    }
     static let tables: [String: [String]] = [
         "en": ["Work completed","Work failed","Work stopped","Approval needed","Notifications are ready","Work needs your attention"],
         "zh-Hant": ["工作已完成","工作失敗","工作已停止","需要你的核准","通知已準備就緒","工作需要你的處理"],

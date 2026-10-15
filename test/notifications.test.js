@@ -91,3 +91,26 @@ test("simultaneous session completions queue per endpoint and a failed delivery 
   assert.deepEqual(delivered, ["first"]); release(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(delivered, ["first", "second", "third"]);
 });
+test("a notice names its agent and project so the alert can say where the work happened", () => {
+  const { createNotifications } = require("../server/notifications");
+  const members = [
+    { key: crypto.randomUUID(), record: { agentId: "claude-code", id: "claude-code:a", name: "Fix login", cwd: "/Volumes/devkit/Projects/ByOneStep/Stepsemble/" } },
+    { key: crypto.randomUUID(), record: { agentId: "mystery-agent", id: "mystery-agent:b", name: "Other" } },
+  ];
+  const published = [], service = createNotifications({ entries: () => members, host: () => "mini", publish: event => published.push(event) });
+  service.observe("claude-code", "a", { type: "rate.turn.started", turnId: "t" }); service.observe("claude-code", "a", { type: "result", is_error: false });
+  service.observe("mystery-agent", "b", { type: "rate.turn.started", turnId: "t" }); service.observe("mystery-agent", "b", { type: "rate.turn.ended", result: { stopReason: "end_turn" } });
+  assert.deepEqual(published.map(row => [row.agent, row.project, row.title]), [["Claude Code", "Stepsemble", "Fix login"], ["mystery-agent", null, "Other"]]);
+});
+test("alert lines read computer · agent, then project · session, and drop what is missing", () => {
+  const { noticeLines } = require("../server/notifications");
+  assert.deepEqual(noticeLines({ agent: "Claude Code", project: "Stepsemble", title: "Fix login" }, "Mac Mini"), { subtitle: "Mac Mini · Claude Code", body: "Stepsemble · Fix login" });
+  assert.deepEqual(noticeLines({ title: "Fix login" }, "Mac Mini"), { subtitle: "Mac Mini", body: "Fix login" });
+  assert.deepEqual(noticeLines({ agent: "Codex", project: "API", title: "API" }, ""), { subtitle: "Codex", body: "API" }, "a session named after its project is not repeated");
+  assert.deepEqual(noticeLines({ agent: "Pi\nAgent", project: "x".repeat(200), title: "t" }, "Mac"), { subtitle: "Mac · Pi Agent", body: "x".repeat(80) + " · t" });
+});
+test("a Web Push alert puts both detail lines in its body, since browsers have no subtitle", () => {
+  const { pushBody } = require("../server/notifications");
+  assert.equal(pushBody({ agent: "Claude Code", project: "Stepsemble", title: "Fix login" }, "MacBook Pro"), "MacBook Pro · Claude Code\nStepsemble · Fix login");
+  assert.equal(pushBody({ title: "Stepsemble" }, ""), "Stepsemble");
+});
