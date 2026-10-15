@@ -142,5 +142,49 @@
     return PALETTE[hash % PALETTE.length];
   }
 
-  return { chooseHermesMachine, fromHistory, withInflight, applyEvent, userItem, systemItem, formatWhen, sourceLabel, initials, colorFor };
+  // The routine editor's picker, written as the schedule strings Hermes
+  // accepts and read back from the schedule Hermes reports.
+  const DAILY = /^(\d{1,2}) (\d{1,2}) \* \* \*$/, WEEKDAYS = /^(\d{1,2}) (\d{1,2}) \* \* 1-5$/, WEEKLY = /^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/;
+  const pad = value => String(value).padStart(2, "0");
+
+  function scheduleFromPicker(picker = {}) {
+    const time = /^(\d{1,2}):(\d{2})$/.exec(String(picker.time || ""));
+    const hour = time ? Math.min(23, Number(time[1])) : 9, minute = time ? Math.min(59, Number(time[2])) : 0;
+    switch (picker.kind) {
+      case "daily": return `${minute} ${hour} * * *`;
+      case "weekdays": return `${minute} ${hour} * * 1-5`;
+      case "weekly": return `${minute} ${hour} * * ${Math.min(6, Math.max(0, Math.round(Number(picker.weekday) || 0)))}`;
+      case "interval": return `every ${Math.max(1, Math.min(10_000, Math.round(Number(picker.every) || 1)))}${picker.unit === "h" ? "h" : "m"}`;
+      case "once": return String(picker.at || "").trim();
+      default: return String(picker.raw || "").trim();
+    }
+  }
+
+  function pickerFromSchedule(schedule) {
+    const value = schedule && typeof schedule === "object" ? schedule : { display: String(schedule || "") };
+    const expr = String(value.expr || "").trim();
+    const time = (minute, hour) => `${pad(hour)}:${pad(minute)}`;
+    let match;
+    if ((match = DAILY.exec(expr))) return { kind: "daily", time: time(match[1], match[2]) };
+    if ((match = WEEKDAYS.exec(expr))) return { kind: "weekdays", time: time(match[1], match[2]) };
+    if ((match = WEEKLY.exec(expr))) return { kind: "weekly", time: time(match[1], match[2]), weekday: Number(match[3]) };
+    const minutes = Number(value.minutes);
+    if (value.kind === "interval" && minutes > 0) return minutes % 60 === 0 ? { kind: "interval", every: minutes / 60, unit: "h" } : { kind: "interval", every: minutes, unit: "m" };
+    if (value.kind === "once" && value.runAt) return { kind: "once", at: String(value.runAt).slice(0, 16) };
+    return { kind: "advanced", raw: expr || String(value.display || "") };
+  }
+
+  function deliverTokens(value) {
+    return [...new Set(String(value || "").split(",").map(token => token.trim()).filter(Boolean))];
+  }
+  function withDeliver(value, token, on) {
+    const tokens = deliverTokens(value).filter(item => item !== token);
+    if (on) tokens.push(token);
+    const kept = tokens.length > 1 ? tokens.filter(item => item !== "local") : tokens;
+    return kept.length ? kept.join(",") : "local";
+  }
+  const routineName = name => String(name || "").replace(/^\[bot:[^\]]{1,64}\]\s*/, "");
+
+  return { chooseHermesMachine, fromHistory, withInflight, applyEvent, userItem, systemItem, formatWhen, sourceLabel, initials, colorFor,
+    scheduleFromPicker, pickerFromSchedule, deliverTokens, withDeliver, routineName };
 });
