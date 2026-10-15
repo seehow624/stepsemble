@@ -37,6 +37,17 @@ export async function runProjectFilesBrowserCases(browser, { screenshots } = {})
       assert.equal(await pane.locator("#changes-commit").isVisible(), false, "recorded review never offers a commit");
       assert.equal(await recorded.locator(".project-code-number").first().textContent(), "", "hunk header has no fake line number");
       if (screenshots) await page.screenshot({ path: path.join(screenshots, `modified-${width}.png`) });
+      stage = "wheel over recorded code";
+      // A mouse wheel over a recorded file's code scrolls the review; the code
+      // block keeps only sideways scrolling to itself.
+      const review = pane.locator(".project-turn-files");
+      assert.equal(await review.evaluate(element => element.scrollHeight > element.clientHeight), true, "the review is long enough to scroll");
+      const codeBox = await recorded.locator(".project-code").first().boundingBox();
+      await page.mouse.move(codeBox.x + codeBox.width / 2, codeBox.y + Math.min(codeBox.height / 2, 30));
+      await page.mouse.wheel(0, 240);
+      await pane.waitForFunction(() => document.querySelector(".project-turn-files").scrollTop > 0, null, { timeout: 2000 }).catch(() => {});
+      assert.ok(await review.evaluate(element => element.scrollTop) > 0, "the wheel over code scrolls the review");
+      await review.evaluate(element => { element.scrollTop = 0; });
       stage = "open current file";
       await recorded.getByRole("button", { name: "Open current file ↗", exact: true }).click();
       await pane.waitForFunction(() => document.querySelector(".project-file-preview .project-code")?.textContent.includes("Welcome"));

@@ -5828,7 +5828,9 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 .project-current-file:hover { color: var(--ink); }
 .project-excerpt-label { padding: 6px 12px; color: var(--pine-soft); background: var(--milk); font-size: .7rem; }
 .project-file-notice { margin: 0; padding: 24px 20px; color: var(--pine-soft); font-size: .8rem; line-height: 1.6; overflow-wrap: anywhere; }
-.project-code, .changes-diff pre.project-code { margin: 0; padding: 14px 0; min-width: 0; max-width: 100%; overflow: auto; overscroll-behavior: contain; font: 12px/1.8 var(--mono); color: var(--ink); white-space: pre; tab-size: 2; text-align: left; }
+/* Code keeps sideways scrolling to itself; vertical wheel and swipes reach the
+   review or file pane around it. */
+.project-code, .changes-diff pre.project-code { margin: 0; padding: 14px 0; min-width: 0; max-width: 100%; overflow: auto; overscroll-behavior: contain auto; font: 12px/1.8 var(--mono); color: var(--ink); white-space: pre; tab-size: 2; text-align: left; }
 .project-code-line { display: flex; width: max-content; min-width: 100%; min-height: 1.8em; }
 .project-code-line code { flex: 1; padding-right: 16px; font: inherit; white-space: inherit; }
 .project-code-number { flex: 0 0 4.5ch; margin-right: 1ch; padding: 0 1ch 0 .4ch; border-right: 1px solid var(--line); box-sizing: content-box; color: var(--pine-soft); text-align: right; opacity: .65; user-select: none; }
