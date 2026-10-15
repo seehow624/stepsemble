@@ -298,8 +298,9 @@ Oh My Pi is installed with Bun (`bun install -g @oh-my-pi/pi-coding-agent`,
 Bun 1.3.14 or later), which puts `omp` in `~/.bun/bin`, where Stepsemble looks
 for it. Until `omp` is signed in to a model provider, a new Oh My Pi session
 offers `omp login` first.
-Hermes remains listed under Personal Agents and stays separate from coding-agent
-history.
+Hermes is a personal assistant rather than a coding agent, so it is no longer
+offered for new Workspace sessions; earlier Hermes ACP conversations still open.
+It has its own page instead (see *Hermes assistant* below).
 
 Stepsemble launches each installed CLI inside the same local user environment.
 It does not copy, export, rewrite, or upload that CLI's OAuth tokens or
@@ -340,6 +341,25 @@ parity is an explicit, contract-tested milestone in the
 Device aliases only affect the interface. They do not rename the operating
 system computer. Temporary Sub Agent sessions are hidden by default; **History
 from other apps** has a switch to show them.
+
+### Hermes assistant
+
+When any paired computer runs [Hermes Agent](https://github.com/NousResearch/hermes-agent),
+the Workspace shows a **Workspace | Assistant** switch. The Assistant page is a
+phone-first client for Hermes Bot Mode on that computer (if several run Hermes, choose
+one): sign in once with the Hermes dashboard account, then chat with each Bot's
+permanent Bot Chat, answer approvals, questions, sudo and secret prompts (with push
+notifications), read Telegram and routine conversations, manage routines, hold group
+chats of 2–6 Bots, create and edit Bots (look, picture, personality, model, skills,
+Skill Hub installs after Hermes's security scan, toolsets, MCP servers) and delete
+them. **Settings → Agents & models → Hermes** opens the console for the gateway,
+default and auxiliary models, reasoning, fallback models, provider API keys, custom
+endpoints and 7/30/90-day usage.
+
+Stepsemble talks only to the Hermes server already running on that computer and
+keeps nothing but the Hermes sign-in cookie; conversations stay in Hermes. API key
+values go from the page to Hermes and are never stored, logged or shown again. See
+[docs/hermes-assistant.md](docs/hermes-assistant.md).
 
 ## What is included
 

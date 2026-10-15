@@ -147,6 +147,18 @@ Stepsemble 也會把既有的 Claude Code 與 Codex session 顯示成有界的**
 完整原生 session、結構化 tool history 與 approval schema。這些 parity 是
 [跨平台計畫](docs/platform-plan.md)中必須通過 contract test 的後續里程碑，不是目前宣稱。
 
+## 助理（Hermes）
+
+已配對的任一台電腦執行 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 時，Workspace 頂部會出現「工作區｜助理」切換。
+助理頁是那台電腦 Hermes Bot Mode 的手機優先客戶端（多台都有時可選擇）：用 Hermes 控制台帳號登入一次後，
+就能和每個 Bot 的永久對話（Bot Chat）聊天、回覆核准／提問／sudo／secret（有推播）、查看 Telegram 與例行工作的對話、
+管理例行工作、和 2～6 個 Bot 開群組、建立與編輯 Bot（外觀、圖片、個性、模型、技能、經 Hermes 安全檢查後從技能中心安裝、
+工具組、MCP），也能刪除 Bot。**設定 → Agent 與模型 → Hermes** 是控制台：閘道、預設與輔助模型、推理強度、備援模型、
+提供者 API 金鑰、自訂端點，以及 7／30／90 天用量。Hermes 不再出現在「新增對話」，以前用 ACP 開的 Hermes 對話仍可打開。
+
+Stepsemble 只連那台電腦上已在執行的 Hermes，只保存 Hermes 的登入 cookie，對話都留在 Hermes；API 金鑰的值只從頁面送到
+Hermes，不保存、不進 log、之後也不再顯示。詳見 [docs/hermes-assistant.md](docs/hermes-assistant.md)。
+
 ## 自動更新
 
 預設每小時檢查 GitHub 的最新穩定 Release，並驗證 SHA-256。若任何 agent 正在工作或等待輸入，更新會延後，完成後才替換應用程式。更新器不會修改原生工作階段、專案檔案、Provider 憑證或 Web token。

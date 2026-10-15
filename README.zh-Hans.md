@@ -121,6 +121,18 @@ Oh My Pi 用 Bun 安装（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bu
 `omp` 会在 `~/.bun/bin`，Stepsemble 会到那里找。
 `omp` 还没登录模型供应商时，新建 Oh My Pi 会话会先提供 `omp login`。
 
+## 助理（Hermes）
+
+已配对的任一台电脑运行 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 时，Workspace 顶部会出现“工作区｜助理”切换。
+助理页是那台电脑 Hermes Bot Mode 的手机优先客户端（多台都有时可选择）：用 Hermes 控制台账号登录一次后，
+就能和每个 Bot 的永久对话（Bot Chat）聊天、回复审批／提问／sudo／secret（有推送）、查看 Telegram 与定时任务的对话、
+管理定时任务、和 2～6 个 Bot 开群组、创建与编辑 Bot（外观、图片、个性、模型、技能、经 Hermes 安全检查后从技能中心安装、
+工具组、MCP），也能删除 Bot。**设置 → Agent 与模型 → Hermes** 是控制台：网关、默认与辅助模型、推理强度、备用模型、
+提供方 API 密钥、自定义端点，以及 7／30／90 天用量。Hermes 不再出现在“新建对话”，以前用 ACP 打开的 Hermes 对话仍可打开。
+
+Stepsemble 只连接那台电脑上已在运行的 Hermes，只保存 Hermes 的登录 cookie，对话都留在 Hermes；API 密钥的值只从页面发送到
+Hermes，不保存、不进日志、之后也不再显示。详见 [docs/hermes-assistant.md](docs/hermes-assistant.md)。
+
 ## 自动更新
 
 默认每小时检查 GitHub 的最新稳定 Release，并验证 SHA-256。如果 Pi 正在工作，更新会延后，完成后才替换应用。更新器不会修改 Pi 会话、项目文件、Provider 凭证或 Web token。

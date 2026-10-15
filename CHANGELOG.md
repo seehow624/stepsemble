@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.9.0
+
+- Add the Assistant page, a phone-first client for Hermes Agent Bot Mode. When any paired computer runs Hermes, the Workspace shows a Workspace | Assistant switch; the page picks that computer (or lets you choose when several run Hermes), signs in once with the Hermes dashboard account and keeps only Hermes's sign-in cookie.
+- Chat with each Bot's permanent Bot Chat with streaming replies, thinking and tool steps, image and file attachments, Stop, and reconnects that replay missed events in order. Answer Hermes approvals, questions, sudo and secret prompts in the conversation; secret values go only to Hermes and are cleared at once. Push notifications arrive for questions and for finished replies nobody is watching.
+- Read each Bot's other conversations (Telegram, routines and more) with search, rename, mark as read and two-step delete.
+- Manage each Bot's routines (Hermes cron jobs): readable schedules, pause, run now, history, edit and delete, plus a per-routine switch that also sends results to the Bot's chat. New routines follow Bot Mode naming; existing ones are never changed automatically.
+- Hold group chats of 2 to 6 Bots on the same computer through Hermes hosted rooms, with @name and @all mentions, Stop, member approvals, retries, rename and two-step disband.
+- Create Bots and edit their name, description, colour, picture, visibility, personality (SOUL.md), model, skills, toolsets and MCP servers, shared with Hermes desktop. Install skills from the Skill Hub only after Hermes's security scan: blocked skills cannot be installed and skills that need confirmation say why. Deleting a Bot requires typing its profile ID.
+- Add Settings → Agents & models → Hermes: gateway status and restart, default and auxiliary models, reasoning, an ordered fallback chain, provider API keys (values go only to Hermes and are shown masked), custom endpoints and 7/30/90-day usage. Hermes updates stay in Settings → Updates.
+- Stop offering Hermes for new Workspace sessions; earlier Hermes ACP conversations still open.
+- Add `npm run check:hermes-release`, which checks a Hermes release's source for every method and route the Assistant uses (`--tag` checks a release before updating), and `npm run test:native:hermes`, a read-only check of the real Hermes. Verified against Hermes 0.22.0; 0.21.6 and 0.22.1 declare everything the Assistant uses.
+- Let the mouse wheel scroll the changed-files code panel instead of stopping at its edge.
+
 ## 3.8.62
 
 - Redesign the macOS menu-bar panel around three clear areas: whole-computer activity, shared limits and today's usage. Show reset times beside each allowance, group computers sharing one account, and replace the text refresh glyph with a proper icon that spins while refreshing.
