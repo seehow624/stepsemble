@@ -12,11 +12,14 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
 - Bot 需要你核准、回答問題或輸入 sudo／secret 時，卡片直接出現在對話裡，手機會收到推播。
   回覆完成時，如果沒有任何畫面正在看那個對話，也會推播。
 - Hermes 不再出現在「新增對話」；以前用 ACP 開的 Hermes 對話仍可照常打開。
+- 每個 Bot 的「例行工作」分頁（以及名單頁的「所有例行工作」）列出 Hermes cron job：可暫停、立即執行、看執行紀錄、
+  編輯、刪除。「同時送到這個 Bot 的對話」會在送達清單加入或移除 `bot-chat`。在這裡新增的例行工作依 Bot Mode 慣例
+  命名為 `[bot:<profile>] <名稱>`，預設送到這個 Bot 的對話；既有工作的名稱與其他設定不會被自動修改。
 
 ## 架構與安全
 
 - 伺服器端模組：`server/hermes-discovery.js`、`hermes-session-store.js`、`hermes-gateway-client.js`、
-  `hermes-assistant-service.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
+  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
 - 瀏覽器端：`public/assistant.html` 與 `public/modules/assistant*.js`。跨機器時經由既有的
   裝置轉送 `/r/<id>/api/assistant/*`。
 - 只連本機自己的位址（`STEPSEMBLE_HERMES_URL`、`127.0.0.1:9119`、本機各網路位址的 `:9119`），
