@@ -7,7 +7,7 @@
   // a sudo or secret question leaves its field as soon as it is sent.
 
   const WI = window.StepsembleWorkspaceI18n, AI = window.StepsembleAssistantI18n;
-  const M = window.StepsembleAssistantModel, Api = window.StepsembleAssistantApi;
+  const M = window.StepsembleAssistantModel, Api = window.StepsembleAssistantApi, Guide = window.StepsembleAssistantGuide;
   const MACHINE_KEY = "stepsemble.assistant.machine";
   const MAX_FILE = 10 * 1024 * 1024, MAX_FILES = 4;
   const params = new URLSearchParams(location.search);
@@ -30,6 +30,7 @@
   const listing = { query: "", rows: [], hasMore: false };
   let api = null, machine = null, bots = [], stream = null, chat = null, tab = "chat", screen = "";
   let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null, groupsView = null;
+  let guideView = null;
   let groupData = { supported: false, rooms: [] }, allBots = [], manageView = null, consoleView = null, showHidden = false, currentRoom = null;
   const avatars = new Map();
 
@@ -56,7 +57,7 @@
     back: "M15 18l-6-6 6-6", plus: "M12 5v14M5 12h14", send: "M12 19V5M5 12l7-7 7 7",
     attach: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
     clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2",
-    stop: "M6.5 6.5h11v11h-11z", spark: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z",
+    stop: "M6.5 6.5h11v11h-11z",
   };
   function icon(name) {
     const svg = document.createElementNS(SVG, "svg");
@@ -111,10 +112,8 @@
   }
 
   function messageView(title, body, { retry, home } = {}) {
-    const box = el("section", "assistant-message");
-    const mark = el("span", "assistant-mark");
-    mark.append(icon("spark"));
-    box.append(mark, el("h1", "", title));
+    const box = el("section", "assistant-card assistant-message");
+    box.append(el("h1", "", title));
     if (body) box.append(el("p", "", body));
     if (retry) box.append(button(t("retry"), "btn primary", retry));
     if (home) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
@@ -184,6 +183,7 @@
       botName: profile => allBots.find(bot => bot.name === profile)?.displayName || profile,
       openSession: (profile, sessionId, title) => void openBot(profile, sessionId, { title }) });
     avatars.clear();
+    guideView = Guide.create({ t, el, button });
     manageView = window.StepsembleAssistantManage.create({ api, t, el, button, toast, M, machineName: () => machine?.name || "", bots: () => bots,
       onCreated: profile => void loadBots().catch(() => {}).finally(() => void openBot(profile, null, { tab: "settings" })),
       onDeleted: () => void loadBots().catch(() => {}).finally(showRoster),
@@ -210,10 +210,19 @@
     const bot = params.get("bot");
     if (bot) await openBot(bot, params.get("session") || null);
     else showRoster();
+    if (!Guide.seen("intro")) guideView.intro({ bots, avatar, onDone: () => Guide.mark("intro") });
   }
 
-  function signInView() {
-    const form = el("form", "assistant-sign-in");
+  // Sign in to Hermes. The first time, a short guide explains where the
+  // username and password come from; the form can reopen it.
+  function signInView({ guide = !Guide.seen("signin") } = {}) {
+    const page = el("div", "assistant-auth");
+    if (guide) {
+      page.append(guideView.setup({ computer: machine.name, onDone: () => { Guide.mark("signin"); render(signInView({ guide: false })); } }));
+      return page;
+    }
+    const form = el("form", "assistant-card assistant-sign-in");
+    page.append(form);
     const error = el("p", "assistant-error");
     error.hidden = true;
     const field = (label, type, autocomplete) => {
@@ -225,9 +234,12 @@
     };
     const username = field(t("username"), "text", "username"), password = field(t("password"), "password", "current-password");
     const submit = button(t("signIn"), "btn primary", null, "submit");
-    const mark = el("span", "assistant-mark");
-    mark.append(icon("spark"));
-    form.append(mark, el("h1", "", t("signInTitle")), el("p", "", t("signInBody", { computer: machine.name })), username.wrap, password.wrap, error, submit);
+    const where = el("p", "assistant-computer");
+    where.append(el("span", "assistant-computer-dot"), el("span", "", machine.name));
+    const help = button(t("guideHelp"), "assistant-link assistant-guide-open", () => render(signInView({ guide: true })));
+    form.append(where, el("h1", "", t("signInTitle")), el("p", "assistant-sign-in-body", t("signInBody", { computer: machine.name })),
+      username.wrap, password.wrap, error, submit, help);
+    queueMicrotask(() => username.input.focus());
     form.addEventListener("submit", async event => {
       event.preventDefault();
       submit.disabled = true;
@@ -245,7 +257,7 @@
         password.input.focus();
       }
     });
-    return form;
+    return page;
   }
 
   // ---- Bots -----------------------------------------------------------
@@ -293,7 +305,7 @@
     watchNow();
     renderRoster();
     const empty = el("section", "assistant-placeholder");
-    empty.append(icon("spark"), el("p", "", bots.length ? t("pickBot") : t("noBots")));
+    empty.append(el("p", "", bots.length ? t("pickBot") : t("noBots")));
     render(empty);
   }
 

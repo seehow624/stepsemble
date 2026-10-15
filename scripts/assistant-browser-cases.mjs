@@ -49,6 +49,20 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.locator("#login-form button").click();
       await page.waitForURL(/\/assistant\.html/);
 
+      stage = "first-run guide";
+      await page.getByText("Step 1 of 3").waitFor();
+      await page.getByRole("button", { name: "Next", exact: true }).click();
+      await page.locator(".assistant-code code", { hasText: "~/.hermes/config.yaml" }).waitFor();
+      await page.getByRole("button", { name: "Next", exact: true }).click();
+      await page.locator(".assistant-code code", { hasText: "hermes dashboard --host 0.0.0.0" }).waitFor();
+      await page.getByRole("button", { name: "Continue to sign in", exact: true }).click();
+      await page.getByRole("button", { name: "Where do I find these?", exact: true }).click();
+      await page.getByText("Step 1 of 3").waitFor();
+      await page.getByRole("button", { name: "Skip", exact: true }).click();
+      await page.reload();
+      await page.getByLabel("Username").waitFor();
+      assert.equal(await page.locator(".assistant-guide").count(), 0, "the guide opens by itself only the first time");
+
       stage = "Hermes sign-in";
       await page.getByLabel("Username").fill("jerome");
       await page.getByLabel("Password").fill("wrong");
@@ -56,6 +70,15 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.getByText("The username or password is wrong.").waitFor();
       await page.getByLabel("Password").fill("correct horse");
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
+
+      stage = "first-run introduction";
+      await page.getByRole("dialog").getByText("Your Bots, in one place").waitFor();
+      for (let index = 0; index < 3; index += 1) await page.locator(".assistant-intro-next").click();
+      await page.getByRole("button", { name: "Get started", exact: true }).click();
+      assert.equal(await page.locator(".assistant-intro").count(), 0);
+      await page.reload();
+      await page.locator(".assistant-input").waitFor();
+      assert.equal(await page.locator(".assistant-intro").count(), 0, "the introduction shows only once");
 
       stage = "Bot Chat";
       const input = page.getByPlaceholder("Message Luna");
