@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.3
+
+- Guide the first Hermes sign-in in three short steps: what the Assistant connects to, where the Hermes dashboard username is kept (~/.hermes/config.yaml, default admin), and how to set or reset the password with `hermes dashboard --host 0.0.0.0`, with copy buttons and a link to the Hermes guide. The sign-in form can reopen it.
+- Introduce the Assistant once after the first sign-in: Bots, approvals and notifications, groups and routines, and where Bot settings and the Hermes console live.
+- Redesign Hermes sign-in and the Assistant's messages as a centred card that names the computer it connects to, and remove the decorative icon.
+- Keep keyboard focus on the introduction's Next button rather than its example picture.
+
 ## 3.9.2
 
 - Put the Workspace | Assistant switch and a single Goals · Schedules button on one compact row at the top of the Workspace list, with a shorter computer card below it. The button opens the same panel with its Goals and Schedules tabs, and shows its name when Hermes is not installed.
