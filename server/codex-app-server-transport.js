@@ -599,6 +599,17 @@ function createCodexAppServerTransport({
   let interruptInFlight = false;
 
   const key = idKey;
+  // Codex's own reason for a failed turn, such as usageLimitExceeded, so a
+  // Goal can tell a usage limit from an outage. Bounded plain text only.
+  const turnFailure = turn => {
+    if (turn?.status !== "failed") return {};
+    const error = turn.error, info = error?.codexErrorInfo;
+    const code = typeof info === "string" ? info : plain(info) ? Object.entries(info).slice(0, 1)
+      .map(([name, detail]) => [name, plain(detail) ? Object.values(detail).filter(value => ["string", "number"].includes(typeof value)).join(" ") : ""].filter(Boolean).join(" ")).join("") : "";
+    const message = typeof error === "string" ? error : typeof error?.message === "string" ? error.message : "";
+    const text = [code, message].filter(Boolean).join(": ").replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 600);
+    return text ? { error: text } : {};
+  };
   const report = event => {
     if (typeof onEvent !== "function") return;
     try { onEvent(clone(event)); } catch { fail("native_event_handler_failed"); }
@@ -805,7 +816,7 @@ function createCodexAppServerTransport({
         turnId = id; state = "turn_running"; turnState = "running"; report({ type: "turn.started", threadId: tid, turnId: id }); return;
       }
       if (!TURN_TERMINAL_STATUSES.has(status)) { fail("native_turn_status_invalid"); return; }
-      turnState = status; state = "thread_started"; report({ type: status === "interrupted" ? "turn.interrupted" : "turn.completed", threadId: tid, turnId: id, status });
+      turnState = status; state = "thread_started"; report({ type: status === "interrupted" ? "turn.interrupted" : "turn.completed", threadId: tid, turnId: id, status, ...turnFailure(turn) });
       completedTurns.add(id);
       if (completedTurns.size > 32) completedTurns.delete(completedTurns.values().next().value);
       turnId = null; return;
@@ -1056,7 +1067,7 @@ function createCodexAppServerTransport({
         if (completedTurns.size > 32) completedTurns.delete(completedTurns.values().next().value);
         turnId = null; turnState = result.turn.status; state = "thread_started";
         report({ type: result.turn.status === "interrupted" ? "turn.interrupted" : "turn.completed", threadId: activeThreadId,
-          turnId: result.turn.id, status: result.turn.status });
+          turnId: result.turn.id, status: result.turn.status, ...turnFailure(result.turn) });
         return { kind: "completed", threadId: activeThreadId, turnId: null, completedTurnId: result.turn.id,
           status: result.turn.status, response: clone(result), dispatch: auth };
       }

@@ -5,6 +5,8 @@ const { createWorkflows, nextOccurrence, scheduleSpec, outcome } = require("../s
 const { createWorkflowEvents } = require("../server/workflow-events");
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const def = { title:"Verify login",objective:"Implement login and test it",agentId:"pi",cwd:os.tmpdir() };
+// Runs in one project wait for each other; capacity tests use separate projects.
+const project = name => path.join(os.tmpdir(), "stepsemble-capacity-test", String(name));
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(),"stepsemble-goals-test-"));
   const file = path.join(dir,"goals.json"); let clock=Date.parse("2026-10-09T00:00:00Z"), pending=[], sends=[], opens=0;
@@ -81,10 +83,10 @@ test("Codex accepts multiline Goal instructions while rejecting terminal control
 
 test("retrying a create is idempotent and queued work is never evicted to admit another run",async t=>{
   const f=fixture(t), requestId=require("node:crypto").randomUUID();
-  const first=f.host.create({...def,requestId});
-  assert.equal(f.host.create({...def,requestId}).id,first.id);
+  const first=f.host.create({...def,cwd:project("first"),requestId});
+  assert.equal(f.host.create({...def,cwd:project("first"),requestId}).id,first.id);
   assert.equal(f.host.list().runs.length,1);
-  for(let i=1;i<200;i++) f.host.create({...def,title:`Goal ${i}`});
+  for(let i=1;i<200;i++) f.host.create({...def,cwd:project(i),title:`Goal ${i}`});
   await wait(10);assert.equal(f.sends.length,2);
   const ids=f.host.list().runs.map(r=>r.id);
   assert.throws(()=>f.host.create(def),/Too many/);
@@ -101,8 +103,8 @@ test("restart preserves checkpointed elapsed time and output without silently co
 });
 for (const budget of ["minutes", "outputTokens"]) test(`a due schedule at full capacity cannot prevent ${budget} limits or queued dispatch`, async t => {
   const f = fixture(t), start = Date.parse("2026-10-09T00:00:00Z");
-  const schedule = f.host.create({ ...def, kind: "schedule", schedule: { kind: "once", at: new Date(start + 1000).toISOString() } });
-  for (let i = 0; i < 200; i++) f.host.create({ ...def, title: `Goal ${i}`, limits: { minutes: 1, outputTokens: 100 } });
+  const schedule = f.host.create({ ...def, cwd: project("schedule"), kind: "schedule", schedule: { kind: "once", at: new Date(start + 1000).toISOString() } });
+  for (let i = 0; i < 200; i++) f.host.create({ ...def, cwd: project(i), title: `Goal ${i}`, limits: { minutes: 1, outputTokens: 100 } });
   await wait(10); assert.equal(f.pending.length, 2);
   const queued = f.host.list().runs.filter(r => r.status === "queued").map(r => r.id);
   f.advance(budget === "minutes" ? 60001 : 1001);

@@ -154,7 +154,7 @@ function createAgentModeRoutes({
     throw failure("mode_unavailable", 409);
   }
 
-  return async function handle(req, res, url) {
+  async function handle(req, res, url) {
     if (url.pathname !== "/api/agent-mode" || !["GET", "POST"].includes(req.method)) return false;
     try {
       const body = req.method === "POST" ? await readJSON(req, 16 * 1024) : null;
@@ -171,7 +171,9 @@ function createAgentModeRoutes({
       sendJSON(res, error.statusCode || 409, { error: error.code || "agent_mode_failed", detail: String(error.message || "").slice(0, 300) });
     }
     return true;
-  };
+  }
+  // Goals apply a pinned mode to the conversation they open the same way.
+  return Object.assign(handle, { change });
 }
 
 module.exports = { CODEX_PERMISSION_PRESETS, codexPresetFor, codexTurnPermissions, modeOption, createAgentModeRoutes };

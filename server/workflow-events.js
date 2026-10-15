@@ -37,7 +37,7 @@ function createWorkflowEvents({ onEvent = () => {} } = {}) {
       if (e.type === "item.started") activity(e.itemType || "thinking");
       if (e.type === "approval.requested") activity("approval", true);
       if (e.type === "approval.resolved") activity("thinking");
-      if (e.type === "turn.completed") row.finish(e.status === "completed" ? null : `Codex turn ${e.status}`);
+      if (e.type === "turn.completed") row.finish(e.status === "completed" ? null : `Codex turn ${e.status}${e.error ? `: ${e.error}` : ""}`);
       if (["turn.interrupted", "transport.failed", "thread.closed"].includes(e.type)) row.finish(e.code || e.type);
     } else if (agent === "claude-code") {
       if (e.parentToolUseId || e.parent_tool_use_id || e.isReplay) return;
@@ -45,8 +45,10 @@ function createWorkflowEvents({ onEvent = () => {} } = {}) {
         row.text = textOf(e.message?.content).slice(-32000);
         const tool = e.message?.content?.find(b => b.type === "tool_use"); if (tool) activity(tool.name || "tool");
       }
-      if (e.type === "control_request" || e.type === "permission_request") activity("approval", true);
-      if (e.type === "rate.permission.resolved") activity("thinking");
+      // Hooks and MCP traffic also arrive as control requests; only a tool
+      // permission waits for the person.
+      if (e.type === "control_request" && e.request?.subtype === "can_use_tool" || e.type === "permission_request") activity("approval", true);
+      if (e.type === "rate.permission.resolved" || e.type === "control_cancel_request") activity("thinking");
       if (e.type === "result") { if (typeof e.result === "string") row.text = e.result.slice(-32000); row.finish(e.is_error ? e.errors?.join("\n") || e.result || "Claude Code failed" : null); }
       if (e.type === "rate.turn.ended") row.finish("Claude Code ended without a final result");
     } else {

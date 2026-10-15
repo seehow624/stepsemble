@@ -77,7 +77,20 @@
     const supports = () => { const c = getConnection(); return !!c && AGENTS.has(getAgentId()) && !c.readOnly && !c.nativeHistoryReadonly; };
     const current = context => !closed && context === getContext();
     function showError(key, detail = null) { error.textContent = detail || t(key); error.hidden = false; }
-    const elapsedMs = () => (latest?.elapsedMs || 0) + (!disconnected && ["starting", "running", "waiting"].includes(latest?.status) ? Math.max(0, Date.now() - received) : 0);
+    // The Host stops the clock while an approval or a retry waits.
+    const ticking = run => typeof run?.clockRunning === "boolean" ? run.clockRunning : ["starting", "running", "waiting"].includes(run?.status);
+    const elapsedMs = () => (latest?.elapsedMs || 0) + (!disconnected && ticking(latest) ? Math.max(0, Date.now() - received) : 0);
+    // Waits the Host explains with its own words, in the task center's copy.
+    function waitText(run) {
+      const copy = root.StepsembleWorkflowI18n, lang = document.documentElement.lang || "en";
+      const clockAt = value => { try { return new Intl.DateTimeFormat(lang, { hour: "2-digit", minute: "2-digit" }).format(new Date(value)); } catch { return "—"; } };
+      if (!copy) return null;
+      const say = (key, vars) => copy.t(key, vars, lang);
+      if (run.activity === "project_busy") return say("projectBusy", {});
+      if (run.activity === "retrying") return say("retrying", { time: run.retryAt ? clockAt(run.retryAt) : "—" });
+      if (run.activity === "usage_reset") return say("usageReset", { time: run.notBefore ? clockAt(run.notBefore) : "—" });
+      return null;
+    }
     function elapsed() {
       if (!latest) return;
       const ms = elapsedMs();
@@ -105,7 +118,7 @@
       objective.textContent = latest.objective;
       const activityKey = ["thinking", "approval", "queued", "starting", "waiting"].includes(latest.activity) ? "state." + latest.activity : null;
       const currentActivity = activityKey ? t(activityKey) : latest.activity || t("state." + latest.status);
-      const activityText = disconnected ? t("disconnected") : latest.error || (ACTIVE.has(latest.status) ? currentActivity : latest.result?.slice(0, 180) || t("state." + latest.status));
+      const activityText = disconnected ? t("disconnected") : ACTIVE.has(latest.status) && waitText(latest) || latest.error || (ACTIVE.has(latest.status) ? currentActivity : latest.result?.slice(0, 180) || t("state." + latest.status));
       if (activity.textContent !== activityText) activity.textContent = activityText;
       pause.hidden = !ACTIVE.has(latest.status) || latest.status === "stopping";
       resume.hidden = !RESUMABLE.has(latest.status);

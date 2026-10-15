@@ -5,6 +5,8 @@ const { randomUUID } = require("node:crypto");
 const mode = process.env.STEPSEMBLE_WORKFLOW_PEER || "pi", sid = randomUUID();
 if (process.argv.includes("--version")) { console.log("2.1.294"); process.exit(0); }
 const emit = e => process.stdout.write(JSON.stringify(e)+"\n");
+// Optional record of the commands this peer received, for Host assertions.
+const log = c => { if (process.env.STEPSEMBLE_WORKFLOW_PEER_LOG) require("node:fs").appendFileSync(process.env.STEPSEMBLE_WORKFLOW_PEER_LOG, JSON.stringify({ mode, command: c })+"\n"); };
 let running = false, timeout, turns=0, piPending=null, acpPending=null;
 const answer = prompt => {
   turns++;
@@ -17,11 +19,13 @@ function piEnd(reply) {
 }
 require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
   let c;try{c=JSON.parse(line);}catch{return;}
+  log(c);
   if(mode==="pi") {
     const reply=data=>emit({type:"response",command:c.type,id:c.id,success:true,data:data||{}});
     if(c.type==="get_state"){reply({isStreaming:running,isCompacting:false,pendingMessageCount:0});return;}
     if(c.type==="get_available_models"){reply({models:[]});return;}
     if(c.type==="abort"){clearTimeout(timeout);piEnd("Interrupted");reply();return;}
+    if(c.type==="set_model"&&c.modelId==="missing"){emit({type:"response",command:c.type,id:c.id,success:false,error:"Model not found"});return;}
     if(c.type==="prompt") {running=true;emit({type:"agent_start"});reply();const text=answer(c.message);timeout=setTimeout(()=>piEnd(text),c.message.includes("SLOW")?10000:100);return;}
     reply();return;
   }

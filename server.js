@@ -41,7 +41,7 @@ const {
 const { takeMacosApp, macosAppOpenArguments } = require("./server/macos-app");
 // Set when Stepsemble.app started this Host; null otherwise.
 const MACOS_APP = takeMacosApp();
-const { createAgentModeRoutes, codexTurnPermissions, modeOption } = require("./server/agent-mode-routes");
+const { createAgentModeRoutes, codexTurnPermissions, modeOption, CODEX_PERMISSION_PRESETS } = require("./server/agent-mode-routes");
 const { createHermesDiscovery } = require("./server/hermes-discovery");
 const { createHermesSessionStore } = require("./server/hermes-session-store");
 const { createHermesGatewayClient } = require("./server/hermes-gateway-client");
@@ -83,7 +83,7 @@ const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapte
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
 const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
-const { CLAUDE_STRUCTURED_VERSION, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
+const { CLAUDE_STRUCTURED_VERSION, CLAUDE_PERMISSION_MODES, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
 const { launchClaudeStructuredSession } = require("./server/claude-structured-launch");
 const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = require("./server/claude-desktop-upgrade");
 const { desktopPaths } = require("./server/claude-desktop-state");
@@ -5041,7 +5041,7 @@ async function openAgentTask(body, { signal } = {}) {
         ? await grokAcp.loadSession(body.resumeSessionId, nativeAgentDirectory(cwd, "Grok ACP"), { name: body?.name || null })
         : await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
       if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
-      await applyAcpChoice("grok-build", grokAcp, session.sessionId);
+      await applyAcpChoice("grok-build", grokAcp, session.sessionId, { choice: body.resumeSessionId ? null : body.choice });
       if (gone()) return;
       return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
     } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
@@ -5069,7 +5069,7 @@ async function openAgentTask(body, { signal } = {}) {
         return;
       }
       if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
-      await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded" });
+      await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded", choice: body.choice });
       if (gone()) return;
       return workspaceResult({ ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
     } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
@@ -5081,7 +5081,7 @@ async function openAgentTask(body, { signal } = {}) {
         ? body.resumeSessionId.trim() : typeof body?.threadId === "string" && body.threadId.trim() ? body.threadId.trim() : "";
       // A new thread starts with the model and level chosen last; Codex
       // keeps each thread's own afterwards.
-      const codexChoice = resumeThreadId ? null : agentChoices.last("codex");
+      const codexChoice = resumeThreadId ? null : body.choice || agentChoices.last("codex");
       const started = resumeThreadId
         ? await codexNative.resumeThread({ threadId: resumeThreadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) })
         : await codexNative.startThread({ cwd: nativeCwd,
@@ -5146,7 +5146,7 @@ async function openAgentTask(body, { signal } = {}) {
       }
       // A new conversation starts with the model and level chosen last; one
       // opened again keeps its own.
-      const claudeChoice = choiceForSession("claude-code", resumeSessionId);
+      const claudeChoice = !resumeSessionId && body.choice ? body.choice : choiceForSession("claude-code", resumeSessionId);
       // A conversation from before choices were kept has none of its own;
       // it keeps the model it last answered with.
       const transcriptModel = resumeSessionId && !agentChoices.session("claude-code", resumeSessionId)?.model
@@ -5225,12 +5225,75 @@ async function workflowBusy(record) {
   const adapter = agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent);
   return adapter?.sessions().find(row => row.id === id)?.status === "running";
 }
+// A pinned model and permission mode apply to the new conversation a Goal
+// opens, before its first prompt; a conversation it continues keeps its own.
+async function applyWorkflowPins(run, record) {
+  const { agent, id } = workflowIdentity(record), choice = run.choice;
+  const acp = agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent);
+  if (choice && agent === "pi") {
+    const model = await rpcCommand(id, { type: "set_model", provider: choice.provider, modelId: choice.model }).catch(error => ({ error: error.message }));
+    if (!model?.success) throw new Error(`The pinned model is unavailable: ${model?.error || choice.model}`);
+    if (choice.effort) {
+      const level = await rpcCommand(id, { type: "set_thinking_level", level: choice.effort }).catch(error => ({ error: error.message }));
+      if (!level?.success) throw new Error(`The pinned reasoning level is unavailable: ${level?.error || choice.effort}`);
+    }
+  } else if (choice && agent === "opencode") {
+    if (!agentChoices.record("opencode", id, choice, { agent: false })) throw new Error(`The pinned model is unavailable: ${choice.model}`);
+  } else if (choice && acp) {
+    const current = acpChoiceOptions(acp.sessionConfigOptions(id)).model?.currentValue;
+    if (current && current !== choice.model) throw new Error(`The pinned model is unavailable: ${choice.model}`);
+  }
+  if (run.permission) {
+    try { await handleAgentModeRoute.change(agent, id, run.permission, record.cwd || run.cwd); }
+    catch (error) { throw new Error(`Could not apply the pinned permission mode: ${error.code || error.message}`); }
+  }
+}
+const workflowOptions = require("./server/workflow-options").createWorkflowOptions({
+  last: agentId => agentChoices.last(agentId),
+  async codexModels() {
+    await ensureCodexNativeProbe();
+    const data = []; let cursor = null;
+    for (let page = 0; page < 10; page++) {
+      const params = cursor ? { cursor } : {}, result = await openCodexGateway?.codexModels(params) || await codexNative.listModels(params);
+      data.push(...(Array.isArray(result?.data) ? result.data : []));
+      const next = typeof result?.nextCursor === "string" && result.nextCursor ? result.nextCursor : null;
+      if (!next || next === cursor) break;
+      cursor = next;
+    }
+    return { data };
+  },
+  async openCodeModels(cwd) { return openCodeNative.status().ready ? openCodeNative.listModels({ directory: openCodeDirectory(cwd) }) : { models: [] }; },
+  piModels: () => getAvailableModels(null),
+  cachedModels: agentId => agentModelCache.get(agentId),
+  async modes(agentId, cwd) {
+    if (agentId === "codex") return Object.keys(CODEX_PERMISSION_PRESETS).map(id => ({ id }));
+    if (agentId === "claude-code") return CLAUDE_PERMISSION_MODES.map(id => ({ id }));
+    if (agentId === "opencode") {
+      if (!openCodeNative.status().ready) return [];
+      return (await openCodeNative.agents({ directory: openCodeDirectory(cwd) }))
+        .filter(agent => (agent.mode === "primary" || agent.mode === "all") && !agent.hidden).map(agent => ({ id: agent.name, label: agent.name, description: agent.description }));
+    }
+    // ACP agents list their modes inside a conversation; any open one tells.
+    const adapter = agentId === "grok-build" ? grokAcp : acpAdapterForAgent(agentId);
+    for (const row of adapter?.sessions() || []) {
+      const option = modeOption(adapter.sessionConfigOptions(row.id));
+      if (option) return option.options.map(choice => ({ id: choice.value, label: choice.name, description: choice.description }));
+    }
+    return [];
+  },
+});
+// Running Goals and scheduled tasks keep the computer from idling to sleep.
+const workflowSleepGuard = require("./server/sleep-guard").createSleepGuard({ onError: error => console.warn("[stepsemble] Keep awake:", error.message) });
+let workflowRunsActive = 0;
 const workflows = require("./server/workflows").createWorkflows({
   file: path.join(CONFIG_DIR, "workflows.json"),
   onFinished: run => hostNotifications.finished(run),
   onError: error => console.warn("[stepsemble] Background tasks:", error.message),
   bridge: {
-    reserve(active) { nativeWorkRequests += active ? 1 : -1; },
+    reserve(active) {
+      nativeWorkRequests += active ? 1 : -1;
+      workflowRunsActive = Math.max(0, workflowRunsActive + (active ? 1 : -1)); workflowSleepGuard.hold(workflowRunsActive > 0);
+    },
     tokens(run) {
       if (!run.record || !run.turnStartedAt) return 0;
       const { agent, id } = workflowIdentity(run.record), meter = hostRates.get(agent, id)?.meter;
@@ -5253,10 +5316,11 @@ const workflows = require("./server/workflows").createWorkflows({
       const r = existing?.record;
       if (r?.agentId === "pi" && !r.file) throw new Error("Pi has no saved conversation to resume");
       const task = await openAgentTask({ agentId: run.agentId, cwd: run.cwd, name: run.title, workflow: true,
-        ...(r ? r.agentId === "pi" ? { file: r.file } : { resumeSessionId: r.nativeThreadId || r.nativeSessionId } : {}) }, { signal });
+        ...(r ? r.agentId === "pi" ? { file: r.file } : { resumeSessionId: r.nativeThreadId || r.nativeSessionId } : run.choice ? { choice: run.choice } : {}) }, { signal });
       if (!task) throw new Error("Task launch was cancelled");
       if (!task.workspaceEntry) throw new Error(task.workspaceError || "Could not save the task's conversation");
       if (!workflowNative(task)) throw new Error("Native background execution is unavailable for this agent");
+      if (!r) await applyWorkflowPins(run, task.workspaceEntry.record);
       return { entry: task.workspaceEntry.key, record: task.workspaceEntry.record };
     },
     async turn(run, prompt, signal, activity) {
@@ -5381,9 +5445,9 @@ function acpChoiceOptions(options) {
 
 // A new ACP conversation is set to the agent's last model and level, and keeps
 // them as its own. One loaded again gets its own back if the agent lost them.
-async function applyAcpChoice(agentId, adapter, sessionId, { loaded = false } = {}) {
+async function applyAcpChoice(agentId, adapter, sessionId, { loaded = false, choice: pinned = null } = {}) {
   try {
-    const choice = loaded ? agentChoices.session(agentId, sessionId) : agentChoices.last(agentId);
+    const choice = loaded ? agentChoices.session(agentId, sessionId) : pinned || agentChoices.last(agentId);
     for (const key of ["model", "effort"]) {
       const option = acpChoiceOptions(adapter.sessionConfigOptions(sessionId))[key];
       const value = choice?.[key];
@@ -5767,8 +5831,13 @@ const server = http.createServer(async (req, res) => {
         res.once("finish", release); res.once("close", release);
       }
 
+      if (p === "/api/workflows/options" && req.method === "GET") {
+        const agentId = String(url.searchParams.get("agentId") || "");
+        if (!require("./server/workflows").AGENTS.includes(agentId)) { sendJSON(res, 400, { error: "invalid_agent" }); return; }
+        sendJSON(res, 200, await workflowOptions(agentId, url.searchParams.get("cwd") || null)); return;
+      }
       if (p === "/api/workflows" && req.method === "GET") {
-        sendJSON(res, 200, workflows.list(url.searchParams.get("entry") || null)); return;
+        sendJSON(res, 200, { ...workflows.list(url.searchParams.get("entry") || null), keepsAwake: workflowSleepGuard.supported }); return;
       }
       if (p === "/api/workflows" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
@@ -8221,7 +8290,7 @@ function shutdown(signal) {
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),
   }));
-  workflows.close();
+  workflows.close(); workflowSleepGuard.close();
   shutdownState = {
     signal,
     deadline: Date.now() + SHUTDOWN_GRACE_MS,
