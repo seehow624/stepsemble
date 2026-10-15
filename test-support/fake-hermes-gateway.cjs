@@ -83,6 +83,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     capabilities: [], methods: [], prompts: [], attachments: [], answers: [], patches: [], deletes: [],
     profiles, stored: new Map(), live: new Map(), peers: new Map(), rings: new Map(), seqs: new Map(),
     open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
+    rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
   const preview = row => row.messages.at(-1)?.text?.slice(0, 80) || "";
@@ -171,6 +172,27 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     emit(liveId, "message.complete", { text: reply });
   }
 
+  // Hosted group rooms: every member mentioned (or everyone, without a
+  // mention) answers once, in member order, through the room log.
+  function appendRoomEvent(room, kind, actor, payload) {
+    const events = state.roomEvents.get(room.room_id);
+    room.latest_seq += 1;
+    const event = { room_id: room.room_id, seq: room.latest_seq, event_id: `ev-${++state.next}`, kind, actor, payload, created_at: 1_760_000_000 + room.latest_seq };
+    events.push(event);
+    return event;
+  }
+  async function answerRoom(room, text) {
+    const handles = [...String(text).matchAll(/@([A-Za-z0-9][A-Za-z0-9._:-]*)/g)].map(match => match[1].toLowerCase());
+    const everyone = handles.includes("all") || handles.includes("everyone") || !handles.length;
+    for (const member of room.members) {
+      if (!everyone && !handles.includes(member.handle.toLowerCase())) continue;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      appendRoomEvent(room, "turn.started", { kind: "member", id: member.member_id }, { member_id: member.member_id });
+      appendRoomEvent(room, "message.member", { kind: "member", id: member.member_id }, { text: `${member.display_name || member.handle} heard: ${text}`, member_id: member.member_id });
+      appendRoomEvent(room, "turn.settled", { kind: "member", id: member.member_id }, { member_id: member.member_id });
+    }
+  }
+
   function handleRpc(peer, text) {
     let message;
     try { message = JSON.parse(text); } catch { return; }
@@ -237,6 +259,70 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         return undefined;
       }
       case "session.interrupt": return reply({ ok: true });
+      case "groups.capabilities":
+        return reply({ protocol_version: 1, driver: state.groupDriver, persistent_process: true, authority_gateway_id: installId,
+          room_link: { enabled: false, reason: "disabled" }, features: ["discussion"], methods: ["groups.create", "groups.send"], max_log_limit: 500 });
+      case "groups.list":
+        return reply({ rooms: [...state.rooms.values()].filter(room => p.include_disbanded || !room.disbanded_at), next_offset: null });
+      case "groups.create": {
+        const members = Array.isArray(p.members) ? p.members : [];
+        if (members.length < 2 || members.length > 6) return fail(4100, "members must contain between 2 and 6 entries");
+        for (const member of members) {
+          if (Object.keys(member).some(key => !["member_id", "profile", "handle", "display_name", "target"].includes(key))) return fail(4100, "unexpected member field");
+          if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(member.handle || "") || ["all", "everyone"].includes(member.handle)) return fail(4100, "invalid handle");
+        }
+        const room = state.rooms.get(p.room_id) || { room_id: p.room_id, name: p.name, members, authority_gateway_id: installId, authority_epoch: 1,
+          revision: 1, created_at: 1_760_000_000, updated_at: 1_760_000_000, disbanded_at: null, latest_seq: 0 };
+        state.rooms.set(room.room_id, room);
+        state.roomEvents.set(room.room_id, state.roomEvents.get(room.room_id) || []);
+        return reply({ room });
+      }
+      case "groups.send": {
+        const room = state.rooms.get(p.room_id);
+        if (!room) return fail(4101, "room not found");
+        if (Object.keys(p.payload || {}).sort().join(",") !== "text,thread_id") return fail(4100, "user payload must have exactly text and thread_id");
+        state.groupCalls.push({ method: "send", text: p.payload.text, threadId: p.payload.thread_id });
+        const event = appendRoomEvent(room, "message.user", { kind: "user", id: "owner" }, { text: p.payload.text, thread_id: p.payload.thread_id });
+        reply({ event, accepted: true, driver_started: true });
+        void answerRoom(room, p.payload.text);
+        return undefined;
+      }
+      case "groups.log": {
+        const since = Number(p.since_seq) || 0;
+        const events = (state.roomEvents.get(p.room_id) || []).filter(event => event.seq > since).slice(0, Number(p.limit) || 200);
+        return reply({ events, cursor: events.at(-1)?.seq ?? since, latest_seq: state.rooms.get(p.room_id)?.latest_seq || 0, has_more: false,
+          authority: { gateway_id: installId, epoch: 1 } });
+      }
+      case "groups.state": {
+        const room = state.rooms.get(p.room_id);
+        if (!room) return fail(4101, "room not found");
+        return reply({ room, driver_status: { running: true, working: !!state.groupApproval, blocked: !!state.groupApproval, counts: {},
+          pending_actions: state.groupApproval ? [state.groupApproval] : [], peer_routes: [] } });
+      }
+      case "groups.stop":
+        state.groupCalls.push({ method: "stop", room: p.room_id });
+        appendRoomEvent(state.rooms.get(p.room_id), "room.stop_requested", { kind: "user", id: "owner" }, {});
+        return reply({ cancelled: 1 });
+      case "groups.approve":
+        state.groupCalls.push({ method: "approve", ...p });
+        state.groupApproval = null;
+        return reply({ approved: true, result: { resolved: true } });
+      case "groups.retry":
+        state.groupCalls.push({ method: "retry", ...p });
+        return reply({ retried: true, task: { room_id: p.room_id, task_id: p.task_id, thread_id: "main", turn_id: "t1", status: "queued", execution_generation: 2, cancel_generation: 0 } });
+      case "groups.rename": {
+        const room = state.rooms.get(p.room_id);
+        if (!room) return fail(4101, "room not found");
+        room.name = p.name;
+        appendRoomEvent(room, "room.renamed", { kind: "user", id: "owner" }, { name: p.name });
+        return reply({ room });
+      }
+      case "groups.disband": {
+        const room = state.rooms.get(p.room_id);
+        if (!room) return fail(4101, "room not found");
+        room.disbanded_at = 1_760_600_000;
+        return reply({ tombstone: { room_id: room.room_id, disbanded_at: room.disbanded_at, idempotent: false } });
+      }
       default: return fail(-32601, `Method not found: ${message.method}`);
     }
   }
@@ -445,6 +531,10 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     addSession(profile, title, options) { return newStored(profile, title, options); },
     addRoutine(profile, body) { const job = cronJob(profile, body); state.cron.push(job); return job; },
     storedSessions: () => [...state.stored.values()],
+    requestGroupApproval(roomId, memberId) {
+      state.groupApproval = { kind: "approval", member_id: memberId, task_id: "task-1", execution_generation: 1, run_id: "run-1", session_id: "live-x",
+        request_id: "appr-g1", approval: { request_id: "appr-g1", command: "rm -rf cache", description: "Clear the cache", choices: ["once", "deny"] } };
+    },
     cancelRequests, emit, broadcast, serverRequest,
   };
   return api;
