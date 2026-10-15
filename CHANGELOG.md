@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.2
+
+- Put the Workspace | Assistant switch and a single Goals · Schedules button on one compact row at the top of the Workspace list, with a shorter computer card below it. The button opens the same panel with its Goals and Schedules tabs, and shows its name when Hermes is not installed.
+- Redesign the Assistant page. From 900 px wide the list of Bots and groups stays beside the open conversation and marks the one that is open; on a phone one pane shows at a time.
+- Show each Bot's face beside its replies, fold thinking and tool steps into small chips (a running tool pulses), and put attach, stop and send inside one rounded message field.
+- Make the Assistant's buttons smaller and quieter: icon buttons for new Bot, all routines and new group, text links for hidden Bots and signing out, and one primary choice in approval cards.
+- Restyle sign-in, routines, group chats, Bot settings and the Hermes console to match, in every theme.
+
 ## 3.9.1
 
 - Make Goal completion tolerant of Markdown-wrapped markers and trailing punctuation, while retaining the exact Goal nonce and rejecting trailing prose. Stop repeated empty or identical continuation replies as Needs attention instead of spending the remaining turn budget.
