@@ -288,7 +288,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
       const chat = row.canonical_session && typeof row.canonical_session === "object" ? row.canonical_session : null;
       botNames.set(row.name, displayName);
       rows.push({ name: row.name, displayName, description: clip(row.description, 500) || clip(meta.description, 500),
-        isDefault: row.is_default === true, hidden: meta.hidden === true, color: COLOR.test(String(meta.color || "")) ? meta.color : null,
+        isDefault: row.is_default === true, hidden: meta.hidden === true, hasAvatar: row.has_avatar === true, color: COLOR.test(String(meta.color || "")) ? meta.color : null,
         model: clip(row.model, 200), provider: clip(row.provider, 100),
         botChat: chat ? { id: clip(chat.resolved_id, 200) || clip(chat.id, 200), preview: clip(chat.preview, 300), lastActive: count(chat.last_active) } : null });
     }

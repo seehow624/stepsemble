@@ -5,9 +5,9 @@
 // used, so the device relay (/r/<machine>/api/...) can carry every call, and
 // the event stream ends in /stream so the relay keeps it open.
 
-const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024;
+const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024, AVATAR = 4 * 1024 * 1024, SKILL = 1024 * 1024;
 
-function createHermesAssistantRoutes({ service, routines, groups, readJSON, sendJSON, sseFrame, trySseWrite }) {
+function createHermesAssistantRoutes({ service, routines, groups, bots, skills, readJSON, sendJSON, sseFrame, trySseWrite }) {
   function fail(res, error) {
     const status = Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
     sendJSON(res, status, { error: typeof error?.code === "string" ? error.code : "assistant_failed",
@@ -33,6 +33,40 @@ function createHermesAssistantRoutes({ service, routines, groups, readJSON, send
     req.on("close", end);
     res.on("close", end);
     res.on("error", end);
+  }
+
+  // Bot settings and skills: reads are GET with the profile in the query,
+  // changes are POST with a JSON body.
+  async function manage(req, res, url, p, get, post) {
+    const q = key => url.searchParams.get(key);
+    if (get) {
+      const reads = {
+        "/api/assistant/bot/describe": () => bots.describe(q("profile")),
+        "/api/assistant/bot/models": () => bots.models(q("profile")),
+        "/api/assistant/bot/avatar": () => bots.avatar(q("profile")),
+        "/api/assistant/skills": () => skills.list(q("profile")),
+        "/api/assistant/skills/content": () => skills.content(q("profile"), q("name")),
+        "/api/assistant/skills/hub/search": () => skills.search(q("profile"), q("q")),
+        "/api/assistant/skills/hub/preview": () => skills.preview(q("profile"), q("identifier")),
+        "/api/assistant/skills/hub/scan": () => skills.scan(q("profile"), q("identifier")),
+        "/api/assistant/skills/action": () => skills.action(q("name")),
+      };
+      if (reads[p]) { sendJSON(res, 200, await reads[p]()); return; }
+    } else if (post) {
+      const limit = p === "/api/assistant/bot/avatar" ? AVATAR : p === "/api/assistant/skills/save" ? SKILL : SMALL;
+      const writes = {
+        "/api/assistant/bot/create": body => bots.create(body.fields || {}),
+        "/api/assistant/bot/configure": body => bots.configure(body.profile, body.changes || {}),
+        "/api/assistant/bot/avatar": body => bots.setAvatar(body.profile, body.data ?? null),
+        "/api/assistant/bot/delete": body => bots.remove(body.profile, body.confirm),
+        "/api/assistant/skills/toggle": body => skills.toggle(body.profile, body.name, body.enabled),
+        "/api/assistant/skills/save": body => skills.save(body.profile, body.name, body.content),
+        "/api/assistant/skills/install": body => skills.install(body.profile, body.identifier, { acknowledged: body.acknowledged === true }),
+        "/api/assistant/skills/uninstall": body => skills.uninstall(body.profile, body.name),
+      };
+      if (writes[p]) { sendJSON(res, 200, await writes[p](await readJSON(req, limit))); return; }
+    }
+    sendJSON(res, 404, { error: "assistant_route_not_found" });
   }
 
   return async function handle(req, res, url) {
@@ -84,6 +118,8 @@ function createHermesAssistantRoutes({ service, routines, groups, readJSON, send
         const extra = { send: body.text, retry: body.taskId, rename: body.name,
           approve: { memberId: body.memberId, taskId: body.taskId, executionGeneration: body.executionGeneration, requestId: body.requestId, choice: body.choice } }[verb];
         sendJSON(res, 200, extra === undefined ? await groups[verb](body.room) : await groups[verb](body.room, extra));
+      } else if (p.startsWith("/api/assistant/bot/") || p === "/api/assistant/skills" || p.startsWith("/api/assistant/skills/")) {
+        await manage(req, res, url, p, get, post);
       } else if (p === "/api/assistant/watch" && post) {
         const body = await readJSON(req, SMALL);
         sendJSON(res, 200, service.watch(body.clientId, body.sessionId ?? null));

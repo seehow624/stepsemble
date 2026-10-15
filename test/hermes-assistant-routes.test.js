@@ -118,3 +118,40 @@ test("group routes pass the room through, GET and POST only", async t => {
     ["send", "r1", "@all hi"], ["approve", "r1", { memberId: "a", taskId: "t", executionGeneration: 1, requestId: "q", choice: "once" }],
     ["retry", "r1", "t"], ["rename", "r1", "New"], ["stop", "r1"], ["disband", "r1"]]);
 });
+
+test("Bot and skill routes reach the managers with the page's fields", async t => {
+  const calls = [];
+  const record = name => async (...args) => { calls.push([name, ...args]); return { ok: true }; };
+  const bots = { describe: record("describe"), models: record("models"), avatar: record("avatar"), create: record("create"),
+    configure: record("configure"), setAvatar: record("setAvatar"), remove: record("remove") };
+  const skills = { list: record("list"), content: record("content"), search: record("search"), preview: record("preview"), scan: record("scan"),
+    action: record("action"), toggle: record("toggle"), save: record("save"), install: record("install"), uninstall: record("uninstall") };
+  const { readJSON, sendJSON, sseFrame, trySseWrite } = createHttpUtils();
+  const handle = createHermesAssistantRoutes({ service: {}, bots, skills, readJSON, sendJSON, sseFrame, trySseWrite });
+  const server = http.createServer(async (req, res) => { if (!await handle(req, res, new URL(req.url, "http://localhost"))) sendJSON(res, 404, {}); });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  await fetch(base + "/api/assistant/bot/describe?profile=qa");
+  await fetch(base + "/api/assistant/bot/models?profile=qa");
+  await fetch(base + "/api/assistant/bot/avatar?profile=qa");
+  await post(base, "/api/assistant/bot/create", { fields: { name: "research", title: "Research" } });
+  await post(base, "/api/assistant/bot/configure", { profile: "qa", changes: { hidden: true } });
+  await post(base, "/api/assistant/bot/avatar", { profile: "qa", data: null });
+  await post(base, "/api/assistant/bot/delete", { profile: "qa", confirm: "qa" });
+  await fetch(base + "/api/assistant/skills?profile=qa");
+  await fetch(base + "/api/assistant/skills/content?profile=qa&name=daily");
+  await fetch(base + "/api/assistant/skills/hub/search?profile=qa&q=pdf");
+  await fetch(base + "/api/assistant/skills/hub/preview?profile=qa&identifier=official%2Fpdf");
+  await fetch(base + "/api/assistant/skills/hub/scan?profile=qa&identifier=official%2Fpdf");
+  await fetch(base + "/api/assistant/skills/action?name=skills-install-x-12345678");
+  await post(base, "/api/assistant/skills/toggle", { profile: "qa", name: "daily", enabled: false });
+  await post(base, "/api/assistant/skills/save", { profile: "qa", name: "daily", content: "x" });
+  await post(base, "/api/assistant/skills/install", { profile: "qa", identifier: "official/pdf", acknowledged: true });
+  await post(base, "/api/assistant/skills/uninstall", { profile: "qa", name: "pdf" });
+  assert.deepEqual(calls, [["describe", "qa"], ["models", "qa"], ["avatar", "qa"], ["create", { name: "research", title: "Research" }],
+    ["configure", "qa", { hidden: true }], ["setAvatar", "qa", null], ["remove", "qa", "qa"], ["list", "qa"], ["content", "qa", "daily"],
+    ["search", "qa", "pdf"], ["preview", "qa", "official/pdf"], ["scan", "qa", "official/pdf"], ["action", "skills-install-x-12345678"],
+    ["toggle", "qa", "daily", false], ["save", "qa", "daily", "x"], ["install", "qa", "official/pdf", { acknowledged: true }], ["uninstall", "qa", "pdf"]]);
+});
