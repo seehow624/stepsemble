@@ -1,6 +1,4 @@
 /* Shared task center: a stable list and inspector, with a focused editor. */
-.wf-nav {display:flex;gap:6px;padding:0 5px;}
-.wf-nav .btn {flex:1;text-align:left;font-size:.85rem;border-radius:10px;}
 .wf-panel {--wf-green:#288152;--wf-amber:#95631d;--wf-red:#b9503e;box-sizing:border-box;width:min(1120px,calc(100vw - 48px));height:min(840px,calc(100vh - 64px));height:min(840px,calc(100dvh - 64px));max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:22px;background:var(--paper);color:var(--ink);overflow:hidden;box-shadow:0 32px 120px #0005;font-family:inherit;}
 .wf-panel[open] {display:flex;flex-direction:column;}
 .wf-panel::backdrop {background:#0009;backdrop-filter:blur(4px);}

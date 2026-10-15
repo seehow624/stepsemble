@@ -10,7 +10,10 @@
     <button id="workspace-refresh" class="btn ghost workspace-icon-btn" type="button" title="Refresh" aria-label="Refresh" data-workspace-title="refresh" data-workspace-aria-label="refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v4h-4M4 17v-4h4M5.6 10a7 7 0 0 1 12.3-2L20 11M4 13l2.1 3a7 7 0 0 0 12.3-2"/></svg></button>
     <button id="workspace-settings" class="btn ghost workspace-icon-btn" type="button" title="Settings" aria-label="Settings" data-workspace-title="settings" data-workspace-aria-label="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.1h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-2.8-2.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg></button>
   </header>
-  <nav id="workspace-mode" class="workspace-mode" hidden><span aria-current="page" data-workspace-i18n="workspace">Workspace</span><a href="/assistant.html" data-workspace-i18n="assistant">Assistant</a></nav>
+  <div class="workspace-nav-row">
+    <nav id="workspace-mode" class="workspace-mode" hidden><span aria-current="page" data-workspace-i18n="workspace">Workspace</span><a href="/assistant.html" data-workspace-i18n="assistant">Assistant</a></nav>
+    <button id="workspace-workflows" class="btn ghost workspace-workflows" type="button" title="Goals · Schedules" aria-label="Goals · Schedules"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="13" r="7.5"/><circle cx="11" cy="13" r="3.5"/><path d="M11 13l8.5-8.5M16.5 4.5h3v3"/></svg><span id="workspace-workflows-label">Goals · Schedules</span></button>
+  </div>
   <section class="workspace-host-block">
     <label class="workspace-host-card">
       <span class="workspace-host-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20"/></svg><span class="workspace-status-dot"></span></span>
@@ -20,7 +23,6 @@
     </label>
     <span id="workspace-connection" class="workspace-sr-only" role="status"></span>
   </section>
-  <nav class="wf-nav"><button id="workspace-goals" class="btn ghost" type="button">◎ Goals</button><button id="workspace-schedules" class="btn ghost" type="button">◷ Schedules</button></nav>
   <div class="workspace-search-row">
     <label class="workspace-search-wrap"><span aria-hidden="true">⌕</span><input id="workspace-search" type="search" placeholder="Search sessions" aria-label="Search workspace sessions" data-workspace-placeholder="searchSessions" data-workspace-aria-label="searchWorkspace"></label>
     <button id="workspace-history" class="btn workspace-row-action" type="button" title="History from other apps" aria-label="History from other apps" data-workspace-title="history" data-workspace-aria-label="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9V4.5H8M4.2 9A8.5 8.5 0 1 1 3.5 12M12 7v5l3.2 2"/></svg></button>

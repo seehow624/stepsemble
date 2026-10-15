@@ -60,9 +60,9 @@ small { color: var(--pine-soft); }
   position: relative;
   display: block;
   min-width: 0;
-  height: 58px;
+  height: 50px;
   border: .5px solid var(--line);
-  border-radius: 15px;
+  border-radius: 13px;
   background: var(--milk);
   transition: background .15s ease;
 }
@@ -72,7 +72,7 @@ small { color: var(--pine-soft); }
   width: 100%;
   max-width: none;
   height: 100%;
-  padding: 0 40px 17px 60px;
+  padding: 0 38px 15px 52px;
   border: 0;
   border-radius: inherit;
   background: transparent;
@@ -86,26 +86,26 @@ small { color: var(--pine-soft); }
 #workspace-host:focus { outline: 0; }
 .workspace-host-icon {
   position: absolute;
-  left: 11px;
-  top: 11px;
-  width: 36px;
-  height: 36px;
+  left: 9px;
+  top: 9px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 11px;
+  border-radius: 9px;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
   pointer-events: none;
 }
-.workspace-host-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-host-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .workspace-status-dot { position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px; border: 2.5px solid var(--milk); border-radius: 50%; background: var(--warn); }
 .workspace-status-dot[data-state=online] { background: var(--ok); }
 .workspace-status-dot[data-state=offline] { background: var(--err); }
 .workspace-host-state {
   position: absolute;
-  left: 60px;
-  right: 40px;
-  bottom: 11px;
+  left: 52px;
+  right: 38px;
+  bottom: 9px;
   overflow: hidden;
   color: var(--pine-soft);
   font-size: .69rem;
@@ -618,7 +618,22 @@ body.compact .workspace-session strong { font-size: .78rem; }
 }
 
 /* Workspace | Assistant: shown only when a computer here runs Hermes. */
-.workspace-mode { display: flex; margin: 0 12px 8px; padding: 3px; border: .5px solid var(--line); border-radius: 10px; background: var(--milk); }
+/* One quiet row under the brand: which page (when Hermes is installed) and
+   the goals-and-schedules panel. The panel's button shows only its icon next
+   to the switch and its name when it has the row to itself. */
+.workspace-nav-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.workspace-mode { display: inline-flex; flex: 1 1 auto; min-width: 0; padding: 2px; border: .5px solid var(--line); border-radius: 9px; background: var(--milk); }
 .workspace-mode[hidden] { display: none; }
-.workspace-mode > * { flex: 1; padding: 5px 0; border-radius: 7px; color: var(--pine-soft); font-size: .82rem; font-weight: 600; text-align: center; text-decoration: none; }
-.workspace-mode [aria-current="page"] { background: var(--bubble-user); color: var(--ink); }
+.workspace-mode > * { flex: 1; min-width: 0; padding: 4px 8px; overflow: hidden; border-radius: 7px; color: var(--pine-soft); font-size: .76rem; font-weight: 620; line-height: 1.35;
+  text-align: center; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; transition: color .15s ease, background .15s ease; }
+.workspace-mode a:hover { color: var(--ink); }
+.workspace-mode [aria-current="page"] { background: var(--bubble-user); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.btn.workspace-workflows { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; height: 30px; min-height: 30px; min-width: 34px; padding: 0 8px;
+  border: .5px solid var(--line); border-radius: 9px; background: var(--milk); color: var(--ink); font: inherit; font-size: .78rem; font-weight: 620; cursor: pointer;
+  transition: background .15s ease; }
+.btn.workspace-workflows:hover { background: var(--bubble-user); }
+.workspace-workflows:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.workspace-workflows svg { width: 17px; height: 17px; flex: 0 0 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-mode:not([hidden]) + .btn.workspace-workflows { width: 34px; padding: 0; }
+.workspace-mode:not([hidden]) + .workspace-workflows span { display: none; }
+#workspace-mode[hidden] + .btn.workspace-workflows { flex: 1 1 auto; justify-content: flex-start; padding: 0 10px; }

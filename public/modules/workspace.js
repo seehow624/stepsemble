@@ -28,8 +28,7 @@
     document.body.classList.toggle("compact", prefs.compact);
     document.title = `Stepsemble · ${t("workspace")}`;
     if (window.StepsembleWorkflows) {
-      $("workspace-goals").textContent = "◎ " + window.StepsembleWorkflows.label("goals");
-      $("workspace-schedules").textContent = "◷ " + window.StepsembleWorkflows.label("schedules");
+      labelWorkflows();
     }
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
@@ -1318,10 +1317,15 @@
     restoreFocus() { document.querySelector(".workspace-limits-strip")?.focus({ preventScroll: true }); },
     onVisibility() { closeUsageTip(); document.querySelector(".workspace-limits-strip")?.setAttribute("aria-expanded", String(usageUI.isOpen())); reportDragRegions(); notificationPresence(); },
   });
-  $("workspace-goals").textContent = "◎ " + window.StepsembleWorkflows.label("goals");
-  $("workspace-schedules").textContent = "◷ " + window.StepsembleWorkflows.label("schedules");
-  $("workspace-goals").onclick = () => workflowUI.open("goals").catch(error => toast(error.message));
-  $("workspace-schedules").onclick = () => workflowUI.open("schedules").catch(error => toast(error.message));
+  // Goals and schedules share one panel with its own tabs, so one button opens it.
+  function labelWorkflows() {
+    const label = window.StepsembleWorkflows.label("goals") + " · " + window.StepsembleWorkflows.label("schedules");
+    $("workspace-workflows-label").textContent = label;
+    $("workspace-workflows").title = label;
+    $("workspace-workflows").setAttribute("aria-label", label);
+  }
+  labelWorkflows();
+  $("workspace-workflows").onclick = () => workflowUI.open("goals").catch(error => toast(error.message));
   function showMobileList() {
     if (!mobile()) return;
     document.body.classList.remove("sidebar-hidden");
