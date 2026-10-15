@@ -72,6 +72,10 @@ test("resumed Pi rebinds its workspace identity before work and completion; rest
   assert.deepEqual(saved.entries.find(row => row.key === other.key), other, "same title/folder is not identity");
   assert.equal(saved.entries.length, 2);
   assert.equal((await f.json("/api/workspace/entry?key=" + first.key)).record.live.sid, opened.sid);
+  // Observe the native state response before checking the durable identity:
+  // Windows Pi reports backslashes, while the catalog uses forward slashes.
+  await f.rpc(opened.sid, { type: "get_state" });
+  assert.equal((await f.stored()).entries.find(row => row.key === first.key).record.file, file);
   await f.json("/api/send", { sid: opened.sid, message: "run" });
   await f.wait(async () => (await f.row(first.key)).working);
   assert.equal((await f.row(first.key)).record.status, "running");

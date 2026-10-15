@@ -3599,7 +3599,7 @@ function rpcSessionFileOf(session) {
   const file = session?.state?.sessionFile;
   if (typeof file !== "string" || !file) return null;
   const relative = path.isAbsolute(file) ? path.relative(SESSIONS_DIR, file) : file;
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : null;
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : null;
 }
 
 // A Pi conversation that ended before its first message has no file: not in
@@ -3760,7 +3760,9 @@ async function openRpc({ file, cwd, name }) {
       if (ev.type === "response" && ev.command === "get_state" && ev.success) {
         sess.state = { ...sess.state, ...ev.data };
         if (typeof ev.data.sessionFile === "string") {
-          const file = path.isAbsolute(ev.data.sessionFile) ? path.relative(SESSIONS_DIR, ev.data.sessionFile) : ev.data.sessionFile;
+          // The catalog and workspace use slash-separated relative identities
+          // on every platform, even when Pi reports a native Windows path.
+          const file = (path.isAbsolute(ev.data.sessionFile) ? path.relative(SESSIONS_DIR, ev.data.sessionFile) : ev.data.sessionFile).split(path.sep).join("/");
           if (file && !file.startsWith("..") && !path.isAbsolute(file)) {
             try {
               const owned = workspaceRegistry.list().entries.find(row => row.record.agentId === "pi" && row.record.sid === sid);
@@ -4928,7 +4930,7 @@ async function openAgentTask(body, { signal } = {}) {
           value.name = body.name || session?.meta.name || "Pi";
           const sessionFile = session?.state.sessionFile || body.file;
           if (typeof sessionFile === "string") {
-            const relative = path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile;
+            const relative = (path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile).split(path.sep).join("/");
             if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
           }
         }
