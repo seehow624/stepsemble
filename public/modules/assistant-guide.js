@@ -140,5 +140,5 @@
     return Object.freeze({ setup, intro });
   }
 
-  root.StepsembleAssistantGuide = Object.freeze({ create, seen, mark });
+  root.StepsembleAssistantGuide = Object.freeze({ create, seen, mark, DOCS });
 })(window);

@@ -64,7 +64,7 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-card h1 { margin: 0; font-size: 1.32rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
 .assistant-card p { margin: 0; color: var(--pine-soft); font-size: .9rem; line-height: 1.55; }
 .assistant-message { display: grid; gap: 12px; margin: auto; text-align: center; }
-.assistant-message .btn { justify-self: center; }
+.assistant-message .btn, .assistant-message .assistant-guide-link { justify-self: center; }
 .assistant-view > .assistant-message { width: min(420px, calc(100% - 32px)); }
 .assistant-sign-in { display: grid; gap: 14px; }
 .assistant-sign-in .assistant-sign-in-body { margin-top: -6px; }

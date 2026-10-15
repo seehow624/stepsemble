@@ -313,6 +313,27 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await preview.close();
     }
   }
+
+  // A Hermes that only offers OAuth sign-in: no username-and-password guide,
+  // an explanation of what to add instead.
+  const preview = await createAssistantPreview({ hermes: { providers: ["oauth"] } });
+  const context = await browser.newContext({ viewport: { width: 393, height: 852 }, serviceWorkers: "block", locale: "en-US" });
+  try {
+    await context.addInitScript(() => localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" })));
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+    await page.goto(preview.origin + "/assistant.html");
+    await page.getByText("This Hermes only allows OAuth sign-in").waitFor();
+    assert.equal(await page.locator(".assistant-guide, .assistant-sign-in").count(), 0, "no password guide for an OAuth-only Hermes");
+    assert.equal(await page.locator(".ios-status-strip").count(), 1, "the page declares its colour under the iOS status bar");
+  } catch (error) {
+    error.message = "assistant OAuth-only Hermes: " + error.message;
+    throw error;
+  } finally {
+    await context.close();
+    await preview.close();
+  }
 }
 
 // `node scripts/assistant-browser-cases.mjs <playwright runtime>` runs the

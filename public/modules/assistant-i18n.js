@@ -576,8 +576,22 @@
       "Crea Bot e cambia aspetto, modello e skill nelle Impostazioni di ciascun Bot. Modelli, chiavi API e utilizzo di tutto Hermes sono in Impostazioni di Stepsemble › Agenti e modelli › Hermes.",
       "Inizia"],
   };
+  const AUTH_KEYS = ["oauthHelp"];
+  const authRows = {
+    "en": ["Add a username and password to the Hermes dashboard on {computer}, restart Hermes, then try again."],
+    "zh-Hant": ["請先在 {computer} 替 Hermes 控制台加上帳號和密碼，重新啟動 Hermes 後再試一次。"],
+    "zh-Hans": ["请先在 {computer} 为 Hermes 控制台添加账号和密码，重启 Hermes 后再试一次。"],
+    "ja": ["{computer} の Hermes ダッシュボードにユーザー名とパスワードを追加し、Hermes を再起動してからもう一度お試しください。"],
+    "ko": ["{computer}의 Hermes 대시보드에 사용자 이름과 비밀번호를 추가하고 Hermes를 다시 시작한 뒤 다시 시도하세요."],
+    "tr": ["{computer} üzerindeki Hermes paneline bir kullanıcı adı ve parola ekleyin, Hermes'i yeniden başlatın ve tekrar deneyin."],
+    "fr": ["Ajoutez un identifiant et un mot de passe au tableau de bord Hermes sur {computer}, redémarrez Hermes, puis réessayez."],
+    "de": ["Füge dem Hermes-Dashboard auf {computer} einen Benutzernamen und ein Passwort hinzu, starte Hermes neu und versuche es erneut."],
+    "es": ["Añade un usuario y una contraseña al panel de Hermes en {computer}, reinicia Hermes y vuelve a intentarlo."],
+    "pt-BR": ["Adicione um usuário e uma senha ao painel do Hermes em {computer}, reinicie o Hermes e tente de novo."],
+    "it": ["Aggiungi nome utente e password alla dashboard di Hermes su {computer}, riavvia Hermes e riprova."],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

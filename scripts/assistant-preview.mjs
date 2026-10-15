@@ -13,8 +13,8 @@ const require = createRequire(import.meta.url);
 const { createFakeHermesGateway } = require("../test-support/fake-hermes-gateway.cjs");
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-export async function createAssistantPreview() {
-  const fake = createFakeHermesGateway();
+export async function createAssistantPreview({ hermes = {} } = {}) {
+  const fake = createFakeHermesGateway(hermes);
   await fake.start();
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-assistant-preview-"));
   const config = path.join(home, ".config/stepsemble"), bin = path.join(home, "bin");

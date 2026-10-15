@@ -111,12 +111,13 @@
     history.replaceState(null, "", url);
   }
 
-  function messageView(title, body, { retry, home } = {}) {
+  function messageView(title, body, { retry, home, docs } = {}) {
     const box = el("section", "assistant-card assistant-message");
     box.append(el("h1", "", title));
     if (body) box.append(el("p", "", body));
     if (retry) box.append(button(t("retry"), "btn primary", retry));
     if (home) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
+    if (docs) { const link = el("a", "assistant-guide-link", t("guideDocs")); link.href = docs; link.target = "_blank"; link.rel = "noopener"; box.append(link); }
     return box;
   }
   function loadingView() {
@@ -198,6 +199,12 @@
     try { status = await api.status(); } catch (error) { render(errorView(error, () => start(next))); return; }
     if (!status.installed) { render(messageView(t("notInstalledTitle"), t("notInstalledBody"), { home: true })); return; }
     if (!status.running) { render(messageView(t("notRunningTitle"), t("notRunningBody", { computer: next.name }), { retry: () => start(next) })); return; }
+    // A Hermes that only offers OAuth sign-in has no password to type here,
+    // so it gets an explanation instead of the username-and-password guide.
+    if (!status.signedIn && status.authRequired && Array.isArray(status.providers) && !status.providers.includes("basic")) {
+      render(messageView(t("signInTitle"), `${t("oauthOnly")}${/^(zh|ja)/.test(prefs.locale) ? "" : " "}${t("oauthHelp", { computer: next.name })}`, { retry: () => start(next), docs: Guide.DOCS }));
+      return;
+    }
     if (!status.signedIn) { render(signInView()); return; }
     stream = api.stream({ onEvent: handleEvent, onState: state => document.body.classList.toggle("assistant-offline", state === "error") });
     try {
