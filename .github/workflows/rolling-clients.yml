@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - 'scripts/scrollbar-browser-cases.mjs'
       - '.gitattributes'
       - '.github/workflows/rolling-clients.yml'
       - 'server.js'
@@ -51,6 +52,7 @@ on:
       - 'package.json'
   pull_request:
     paths:
+      - 'scripts/scrollbar-browser-cases.mjs'
       - '.gitattributes'
       - '.github/workflows/rolling-clients.yml'
       - 'server.js'

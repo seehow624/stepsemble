@@ -662,11 +662,14 @@ test("New project picker keeps outer controls reachable and bounds the nested fo
   assert.match(projectSheet, /overscroll-behavior: contain/);
   assert.match(projectSheet, /-webkit-overflow-scrolling: touch/);
   assert.match(projectSheet, /touch-action: pan-y/);
-  assert.match(projectSheet, /scrollbar-width: thin/);
+  // Scrollbar appearance is shared; a local width/color would override the
+  // WebKit pseudo-elements again on modern Safari/Chromium.
+  assert.doesNotMatch(projectSheet, /scrollbar-(?:width|color):/);
   assert.match(folderList, /overflow-y: auto/);
   assert.match(folderList, /max-height: clamp\(144px, 32dvh, 320px\)/);
   assert.match(folderList, /overscroll-behavior-y: contain/);
   assert.match(folderList, /scrollbar-gutter: stable/);
+  assert.doesNotMatch(folderList, /scrollbar-(?:width|color):/);
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   assert.match(html, /id="new-folder-list"[^>]*role="region"[^>]*aria-labelledby="new-folder-heading"[^>]*tabindex="0"/);
 });

@@ -39,7 +39,8 @@
     const key = identity(ref);
     if (node.type === "split") return { ...node, first: remove(node.first, ref), second: remove(node.second, ref) };
     const tabs = node.tabs.filter(r => identity(r) !== key);
-    return { ...node, tabs, active: node.active === key ? (tabs[0] ? identity(tabs[0]) : null) : node.active };
+    const neighbour = tabs[Math.min(node.tabs.findIndex(r => identity(r) === key), tabs.length - 1)];
+    return { ...node, tabs, active: node.active === key ? (neighbour ? identity(neighbour) : null) : node.active };
   }
   function insert(tree, target, ref, edge = "center") {
     ref = reference(ref);
@@ -56,13 +57,30 @@
     return normalize(replace(next, target, { type: "split", id: id(), axis: ["left", "right"].includes(edge) ? "row" : "column", ratio: .5,
       first: before ? destination : old, second: before ? old : destination }));
   }
+  // index is a boundary in the original destination strip, before removal.
+  function moveAt(tree, target, ref, index) {
+    ref = reference(ref);
+    const destination = leaves(tree).find(p => p.id === target);
+    if (!destination) throw new Error("Pane no longer exists");
+    if (!Number.isInteger(index) || index < 0 || index > destination.tabs.length) throw new Error("Invalid tab position");
+    const oldIndex = destination.tabs.findIndex(r => identity(r) === identity(ref));
+    const next = remove(tree, ref), pane = leaves(next).find(p => p.id === target);
+    const tabs = [...pane.tabs]; tabs.splice(index - (oldIndex >= 0 && oldIndex < index ? 1 : 0), 0, ref);
+    return normalize(replace(next, target, { ...pane, tabs, active: oldIndex >= 0 ? destination.active : identity(ref) }));
+  }
+  function selectAdjacent(tree, target, direction) {
+    const pane = leaves(tree).find(p => p.id === target);
+    if (!pane?.tabs.length || ![-1, 1].includes(direction)) return tree;
+    const index = pane.tabs.findIndex(r => identity(r) === pane.active);
+    return replace(tree, target, { ...pane, active: identity(pane.tabs[(index + direction + pane.tabs.length) % pane.tabs.length]) });
+  }
   function closePane(tree, target) {
     if (tree.type === "pane") return tree.id === target ? pane() : tree;
     if (tree.first.id === target) return tree.second;
     if (tree.second.id === target) return tree.first;
     return { ...tree, first: closePane(tree.first, target), second: closePane(tree.second, target) };
   }
-  const api = { pane, leaves, identity, reference, normalize, replace, remove, insert, closePane };
+  const api = { pane, leaves, identity, reference, normalize, replace, remove, insert, moveAt, selectAdjacent, closePane };
   if (typeof module !== "undefined") module.exports = api;
   else root.StepsembleLayout = api;
 })(globalThis);

@@ -25,6 +25,19 @@ test("Close Tab closes the focused session, retains other panes, and keeps the l
   assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 0);
   assert.ok(L.leaves(context.tree).length >= 1); context.closeActiveTab();
 });
+test("embedded tab shortcut intercepts only exact Cmd+Option arrows, including text inputs", () => {
+  const app = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const start = app.indexOf('  window.addEventListener("keydown", event => {', app.indexOf('// A pane is a viewer.'));
+  const end = app.indexOf('  window.addEventListener("storage"', start);
+  let handler; const messages = [];
+  vm.runInNewContext(app.slice(start, end), { window: { addEventListener: (name, fn, capture) => { assert.equal(capture, true); handler = fn; } }, parent: { postMessage: message => messages.push(message) }, location: { origin: "https://test.invalid" } });
+  for (const extra of [{}, { ctrlKey: true }, { shiftKey: true }, { isComposing: true }, { altKey: false }, { metaKey: false }]) {
+    let prevented = false;
+    handler({ key: "ArrowLeft", metaKey: true, altKey: true, ...extra, preventDefault() { prevented = true; }, stopImmediatePropagation() {} });
+    assert.equal(prevented, Object.keys(extra).length === 0);
+  }
+  assert.equal(messages.length, 1); assert.equal(messages[0].direction, -1);
+});
 function reorderFixture({ pinned = false, kind = "session" } = {}) {
   const handlers = new Map(), local = new Map(), timers = new Map(), styles = [], moves = [], states = [], captured = new Set();
   const rect = top => ({ top, bottom: top + 40, left: 0, right: 200, width: 200, height: 40 });

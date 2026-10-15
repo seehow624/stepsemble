@@ -13,6 +13,14 @@
 - Add `npm run check:hermes-release`, which checks a Hermes release's source for every method and route the Assistant uses (`--tag` checks a release before updating), and `npm run test:native:hermes`, a read-only check of the real Hermes. Verified against Hermes 0.22.0; 0.21.6 and 0.22.1 declare everything the Assistant uses.
 - Let the mouse wheel scroll the changed-files code panel instead of stopping at its edge.
 
+## 3.8.63
+
+- Make workspace tabs behave more like a browser: drag to reorder, keep the selected tab in view as more tabs open, and preserve the tab-strip position during background updates.
+- Add Command+Option+Left/Right navigation, including focused conversation inputs, and select a neighboring tab when closing the active tab. Reopening an existing conversation no longer moves its tab.
+- On macOS, drag a tab outside the workspace to open an independent window, or drop it into another workspace. Owned mouse tracking distinguishes release from cancellation; the source remains until the destination saves and acknowledges the transfer.
+- Fix pane focus after splitting and selecting a conversation hidden by another maximized pane. Keep existing conversation frames, drafts and reading positions during local moves.
+- Unify scrollbars across conversations, tables, code and panels: transparent tracks, quiet rounded gray thumbs and clearer hover/drag feedback, with native high-contrast controls preserved.
+
 ## 3.8.62
 
 - Redesign the macOS menu-bar panel around three clear areas: whole-computer activity, shared limits and today's usage. Show reset times beside each allowance, group computers sharing one account, and replace the text refresh glyph with a proper icon that spins while refreshing.
