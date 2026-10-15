@@ -7,9 +7,9 @@ const { createHttpUtils } = require("../server/http-utils");
 const { createHermesAssistantRoutes } = require("../server/hermes-assistant-routes");
 const { HermesError } = require("../server/hermes-gateway-client");
 
-async function serve(t, service, routines = null) {
+async function serve(t, service, routines = null, groups = null) {
   const { readJSON, sendJSON, sseFrame, trySseWrite } = createHttpUtils();
-  const handle = createHermesAssistantRoutes({ service, routines, readJSON, sendJSON, sseFrame, trySseWrite });
+  const handle = createHermesAssistantRoutes({ service, routines, groups, readJSON, sendJSON, sseFrame, trySseWrite });
   const server = http.createServer(async (req, res) => {
     if (!await handle(req, res, new URL(req.url, "http://localhost"))) sendJSON(res, 404, { error: "not_found" });
   });
@@ -94,4 +94,27 @@ test("routine routes pass the Bot and the routine through, GET and POST only", a
   assert.deepEqual(calls, [["list", "default"], ["list", null], ["targets", "default"], ["runs", "job1", "default"],
     ["create", "default", { schedule: "0 9 * * *" }], ["update", "job1", "default", { deliver: "bot-chat" }],
     ["pause", "job1", "default"], ["resume", "job1", "default"], ["run", "job1", "default"], ["remove", "job1", "default"]]);
+});
+
+test("group routes pass the room through, GET and POST only", async t => {
+  const calls = [];
+  const record = name => async (...args) => { calls.push([name, ...args]); return { ok: true }; };
+  const groups = { capabilities: async () => ({ supported: true }), list: async () => ({ rooms: [] }), create: record("create"),
+    send: record("send"), log: record("log"), state: record("state"), approve: record("approve"), retry: record("retry"),
+    rename: record("rename"), stop: record("stop"), disband: record("disband") };
+  const base = await serve(t, {}, null, groups);
+  assert.deepEqual(await (await fetch(base + "/api/assistant/groups")).json(), { supported: true, rooms: [] });
+  await post(base, "/api/assistant/groups/create", { name: "Ops", members: [{ profile: "a" }, { profile: "b" }] });
+  await fetch(base + "/api/assistant/groups/log?room=r1&since=4");
+  await fetch(base + "/api/assistant/groups/state?room=r1");
+  await post(base, "/api/assistant/groups/send", { room: "r1", text: "@all hi" });
+  await post(base, "/api/assistant/groups/approve", { room: "r1", memberId: "a", taskId: "t", executionGeneration: 1, requestId: "q", choice: "once" });
+  await post(base, "/api/assistant/groups/retry", { room: "r1", taskId: "t" });
+  await post(base, "/api/assistant/groups/rename", { room: "r1", name: "New" });
+  await post(base, "/api/assistant/groups/stop", { room: "r1" });
+  await post(base, "/api/assistant/groups/disband", { room: "r1" });
+  assert.equal((await fetch(base + "/api/assistant/groups/stop")).status, 404, "changes need POST");
+  assert.deepEqual(calls, [["create", { name: "Ops", members: [{ profile: "a" }, { profile: "b" }] }], ["log", "r1", "4"], ["state", "r1"],
+    ["send", "r1", "@all hi"], ["approve", "r1", { memberId: "a", taskId: "t", executionGeneration: 1, requestId: "q", choice: "once" }],
+    ["retry", "r1", "t"], ["rename", "r1", "New"], ["stop", "r1"], ["disband", "r1"]]);
 });

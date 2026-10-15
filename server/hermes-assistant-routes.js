@@ -7,7 +7,7 @@
 
 const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024;
 
-function createHermesAssistantRoutes({ service, routines, readJSON, sendJSON, sseFrame, trySseWrite }) {
+function createHermesAssistantRoutes({ service, routines, groups, readJSON, sendJSON, sseFrame, trySseWrite }) {
   function fail(res, error) {
     const status = Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
     sendJSON(res, status, { error: typeof error?.code === "string" ? error.code : "assistant_failed",
@@ -72,6 +72,18 @@ function createHermesAssistantRoutes({ service, routines, readJSON, sendJSON, ss
         const body = await readJSON(req, SMALL);
         const verb = p.slice("/api/assistant/routines/".length);
         sendJSON(res, 200, await routines[verb === "delete" ? "remove" : verb](body.id, body.profile));
+      } else if (p === "/api/assistant/groups" && get) {
+        const capabilities = await groups.capabilities();
+        sendJSON(res, 200, { ...capabilities, rooms: capabilities.supported ? (await groups.list()).rooms : [] });
+      } else if (p === "/api/assistant/groups/create" && post) sendJSON(res, 200, await groups.create(await readJSON(req, SMALL)));
+      else if (p === "/api/assistant/groups/log" && get) sendJSON(res, 200, await groups.log(url.searchParams.get("room"), url.searchParams.get("since") || "0"));
+      else if (p === "/api/assistant/groups/state" && get) sendJSON(res, 200, await groups.state(url.searchParams.get("room")));
+      else if (/^\/api\/assistant\/groups\/(send|approve|retry|rename|stop|disband)$/.test(p) && post) {
+        const body = await readJSON(req, SMALL);
+        const verb = p.slice("/api/assistant/groups/".length);
+        const extra = { send: body.text, retry: body.taskId, rename: body.name,
+          approve: { memberId: body.memberId, taskId: body.taskId, executionGeneration: body.executionGeneration, requestId: body.requestId, choice: body.choice } }[verb];
+        sendJSON(res, 200, extra === undefined ? await groups[verb](body.room) : await groups[verb](body.room, extra));
       } else if (p === "/api/assistant/watch" && post) {
         const body = await readJSON(req, SMALL);
         sendJSON(res, 200, service.watch(body.clientId, body.sessionId ?? null));
