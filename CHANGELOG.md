@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.4
+
+- Keep the Assistant's top bar sharp in the iPhone Home Screen app: the page now declares its colour under the status bar, as the Workspace does, so iOS no longer blurs the Workspace | Assistant switch.
+- Explain an OAuth-only Hermes instead of showing the username-and-password guide: say that it needs a dashboard username and password, with a retry button and a link to the Hermes guide. A Hermes without sign-in still opens directly.
+
 ## 3.9.3
 
 - Guide the first Hermes sign-in in three short steps: what the Assistant connects to, where the Hermes dashboard username is kept (~/.hermes/config.yaml, default admin), and how to set or reset the password with `hermes dashboard --host 0.0.0.0`, with copy buttons and a link to the Hermes guide. The sign-in form can reopen it.
