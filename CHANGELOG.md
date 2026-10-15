@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.9.1
+
+- Make Goal completion tolerant of Markdown-wrapped markers and trailing punctuation, while retaining the exact Goal nonce and rejecting trailing prose. Stop repeated empty or identical continuation replies as Needs attention instead of spending the remaining turn budget.
+- Let Goals and schedules pin a model, reasoning level and permission mode for the new conversations they open. Existing conversations keep their own choices. Add a configurable approval wait; time spent waiting for approval no longer uses the execution-time budget, and unanswered requests stop for user attention.
+- Serialize Goal and schedule runs in the same project folder, including nested folders, while retaining concurrent runs across separate projects.
+- Retry temporary provider and connection failures with bounded backoff. Queue usage-limited runs until the reported reset time, or recheck periodically when no reset time is available. Preserve Codex's native failure reason so usage limits and transient failures can be distinguished.
+- Keep macOS Hosts awake while tasks run with caffeinate, and support Linux systemd-inhibit where available. This does not wake a sleeping computer or override a closed laptop lid; Windows Hosts still need their normal power settings.
+- Show completion and approval notifications as status, computer · agent, and project · conversation. Use the native macOS subtitle and body, and a two-line body for Web Push. Missing details and repeated names are omitted.
+- Replace the large image-added confirmation with a smaller checkmark toast, shorter display time and correct singular and plural text in every supported language.
+
 ## 3.9.0
 
 - Add the Assistant page, a phone-first client for Hermes Agent Bot Mode. When any paired computer runs Hermes, the Workspace shows a Workspace | Assistant switch; the page picks that computer (or lets you choose when several run Hermes), signs in once with the Hermes dashboard account and keeps only Hermes's sign-in cookie.
