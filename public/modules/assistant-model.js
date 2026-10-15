@@ -1,0 +1,146 @@
+(function expose(root, factory) {
+  "use strict";
+  const api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  if (root) root.StepsembleAssistantModel = Object.freeze(api);
+})(typeof window !== "undefined" ? window : null, () => {
+  "use strict";
+
+  // Pure pieces of the assistant page: which computer to use, and how Hermes
+  // history and live events become a transcript. No DOM, so Node tests them.
+
+  const SOURCES = Object.freeze({ telegram: "Telegram", discord: "Discord", slack: "Slack", whatsapp: "WhatsApp", signal: "Signal",
+    matrix: "Matrix", email: "Email", sms: "SMS", cron: "Cron", webhook: "Webhook", api_server: "API", tui: "TUI", cli: "CLI",
+    desktop: "Desktop", dashboard: "Web", web: "Web", acp: "ACP" });
+  const PALETTE = ["#5b8def", "#d9822b", "#3aa675", "#b25fd3", "#d64f6a", "#2a9fb0", "#8a8f2b", "#7a6cf0"];
+  let counter = 0;
+
+  function chooseHermesMachine(rows, savedId) {
+    const choices = (Array.isArray(rows) ? rows : []).filter(row => row && row.status && row.status.installed === true);
+    const selected = choices.find(row => row.id === savedId) || choices.find(row => row.self) || choices[0] || null;
+    return { choices, selected };
+  }
+
+  function item(role, text = "") {
+    return { id: `${role}-${++counter}`, role, text, thinking: "", tools: [], attachments: [], streaming: false, rev: 0 };
+  }
+  function userItem(text, attachments = []) {
+    const value = item("user", text);
+    value.attachments = attachments.slice(0, 8);
+    return value;
+  }
+  const systemItem = text => item("system", text);
+
+  function fromHistory(messages) {
+    const items = [];
+    for (const message of Array.isArray(messages) ? messages : []) {
+      if (message?.role === "tool") {
+        const value = item("assistant");
+        value.tools.push({ id: null, name: message.name || "tool", detail: message.context || "", result: "", done: true });
+        items.push(value);
+        continue;
+      }
+      const role = message?.role === "user" ? "user" : message?.role === "system" ? "system" : "assistant";
+      items.push(item(role, typeof message?.text === "string" ? message.text : ""));
+    }
+    return items;
+  }
+
+  function withInflight(items, inflight) {
+    if (!inflight) return items;
+    const last = items[items.length - 1];
+    if (inflight.user && !(last && last.role === "user" && last.text === inflight.user)) items.push(item("user", inflight.user));
+    const live = item("assistant", inflight.assistant || "");
+    live.streaming = true;
+    items.push(live);
+    return items;
+  }
+
+  function streaming(items) {
+    for (let index = items.length - 1; index >= 0; index -= 1) if (items[index].streaming) return items[index];
+    const value = item("assistant");
+    value.streaming = true;
+    items.push(value);
+    return value;
+  }
+  function settle(items) {
+    for (const value of items) if (value.streaming) { value.streaming = false; value.rev += 1; }
+  }
+
+  function applyEvent(items, event) {
+    const payload = event?.payload || {};
+    switch (event?.type) {
+      case "message.start": {
+        settle(items);
+        const value = item("assistant");
+        value.streaming = true;
+        items.push(value);
+        return true;
+      }
+      case "message.delta":
+      case "thinking.delta": {
+        if (!payload.text) return false;
+        const value = streaming(items);
+        if (event.type === "message.delta") value.text += payload.text; else value.thinking += payload.text;
+        value.rev += 1;
+        return true;
+      }
+      case "tool.start": {
+        const value = streaming(items);
+        value.tools.push({ id: payload.tool_id || null, name: payload.name || "tool", detail: payload.args_text || payload.context || "", result: "", done: false });
+        value.rev += 1;
+        return true;
+      }
+      case "tool.complete": {
+        const value = streaming(items);
+        const tool = [...value.tools].reverse().find(entry => (payload.tool_id ? entry.id === payload.tool_id : !entry.done && entry.name === payload.name));
+        if (!tool) return false;
+        tool.done = true;
+        tool.result = payload.summary || payload.result_text || "";
+        value.rev += 1;
+        return true;
+      }
+      case "message.complete": {
+        const value = [...items].reverse().find(entry => entry.streaming);
+        if (!value) return false;
+        value.streaming = false;
+        if (!value.text && typeof payload.text === "string") value.text = payload.text;
+        value.rev += 1;
+        return true;
+      }
+      case "error":
+        settle(items);
+        items.push(item("system", payload.message || "Error"));
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function formatWhen(seconds, now = Date.now(), locale = "en") {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value <= 0) return "";
+    const date = new Date(value < 1e12 ? value * 1000 : value), today = new Date(now);
+    try {
+      if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+      if (now - date.getTime() < 6 * 86_400_000 && date < today) return date.toLocaleDateString(locale, { weekday: "short" });
+      return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
+    } catch { return date.toISOString().slice(0, 10); }
+  }
+  function sourceLabel(source) {
+    const key = String(source || "").toLowerCase();
+    return SOURCES[key] || (key ? key.slice(0, 20) : "");
+  }
+  function initials(name) {
+    const text = String(name || "").trim();
+    return text ? Array.from(text)[0].toUpperCase() : "?";
+  }
+  function colorFor(name, color) {
+    if (/^#[0-9a-fA-F]{3,8}$/.test(String(color || ""))) return color;
+    let hash = 0;
+    for (const char of String(name || "")) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+    return PALETTE[hash % PALETTE.length];
+  }
+
+  return { chooseHermesMachine, fromHistory, withInflight, applyEvent, userItem, systemItem, formatWhen, sourceLabel, initials, colorFor };
+});
