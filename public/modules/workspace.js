@@ -1275,6 +1275,15 @@
   // connects by itself once the host answers instead of needing a reload.
   let booted = false, booting = false, bootTimer = 0, bootAttempt = 0, pendingUsage = null;
   function retryBoot() { clearTimeout(bootTimer); bootTimer = 0; void boot(); }
+  // The assistant switch appears once any computer here runs Hermes. Older
+  // Hosts without the route simply answer 404 and are skipped.
+  async function checkAssistant() {
+    for (const machine of machines) {
+      try {
+        if ((await api("/api/assistant/status", undefined, machine.id))?.installed === true) { $("workspace-mode").hidden = false; return; }
+      } catch {}
+    }
+  }
   async function boot() {
     if (booted || booting) return;
     booting = true;
@@ -1297,7 +1306,7 @@
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }
       $("workspace-host").value = host;
       booted = true;
-      await refresh(); render(); void refreshUsage();
+      await refresh(); render(); void refreshUsage(); void checkAssistant();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);
       if (pendingUsage) { openUsageIntent(pendingUsage); pendingUsage = null; }
