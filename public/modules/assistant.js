@@ -502,10 +502,13 @@
       renderChips();
       renderTranscript();
       scrollToEnd();
+      // Running from the moment it is sent: a quick reply can finish before
+      // this request answers, and its events then decide the state.
+      chat.running = true;
       try {
         await api.prompt(chat.sessionId, text, attachments);
-        chat.running = true;
       } catch (error) {
+        chat.running = false;
         chat.items.push(M.systemItem(t("sendFailed", { message: error.message })));
         input.value = text;
         renderTranscript();
