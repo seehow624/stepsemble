@@ -1,0 +1,88 @@
+/* The assistant page: Hermes Bots and their conversations. Colours, type and
+   the Markdown body come from style.css, so the page follows the user's
+   Stepsemble theme instead of carrying its own. */
+.assistant-page { display: flex; flex-direction: column; height: 100dvh; margin: 0; overflow: hidden; background: var(--paper); color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.assistant-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: calc(var(--safe-top) + 10px) 16px 10px;
+  border-bottom: 1px solid var(--line); background: var(--paper); }
+.assistant-switch { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--milk); }
+.assistant-switch > * { padding: 5px 14px; border-radius: 7px; color: var(--pine-soft); font-size: .85rem; font-weight: 600; text-decoration: none; }
+.assistant-switch [aria-current="page"] { background: var(--bubble-user); color: var(--ink); }
+.assistant-machine { max-width: 45vw; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--milk); color: var(--ink); }
+.assistant-main { flex: 1; min-height: 0; width: 100%; max-width: 860px; margin: 0 auto; overflow-y: auto; overscroll-behavior: contain; }
+body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); }
+
+.assistant-message, .assistant-sign-in { display: grid; gap: 12px; max-width: 420px; margin: 12vh auto 0; padding: 0 24px; text-align: center; }
+.assistant-message h1, .assistant-sign-in h1 { margin: 0; font-size: 1.2rem; }
+.assistant-message p, .assistant-sign-in p { margin: 0; color: var(--pine-soft); }
+.assistant-sign-in { text-align: left; }
+.assistant-field { display: grid; gap: 4px; font-size: .85rem; color: var(--pine-soft); }
+.assistant-field input, .assistant-search, .assistant-rename, .assistant-ask-secret input, .assistant-ask-input {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--milk); color: var(--ink); font: inherit; font-size: 16px; }
+.assistant-error { margin: 0; color: var(--err); font-size: .85rem; }
+
+.assistant-roster { padding: 12px 16px 32px; }
+.assistant-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+.assistant-section-head h1 { margin: 0; font-size: 1.15rem; }
+.assistant-pending { padding: 4px 12px; border: 1px solid var(--warn); border-radius: 999px; background: transparent; color: var(--warn); font-weight: 600; cursor: pointer; }
+.assistant-bot-list, .assistant-session-list { margin: 0; padding: 0; list-style: none; }
+.assistant-bot-row, .assistant-session-open { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 4px; border: 0;
+  border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.assistant-avatar { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 50%; color: #fff; font-weight: 700; }
+.assistant-bot-copy, .assistant-session-open { min-width: 0; }
+.assistant-bot-copy { flex: 1; }
+.assistant-bot-copy strong, .assistant-bot-copy small, .assistant-session-open strong, .assistant-session-open small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-bot-copy small, .assistant-session-open small, .assistant-bot-meta time { color: var(--pine-soft); font-size: .8rem; }
+.assistant-bot-meta { display: grid; justify-items: end; gap: 4px; }
+.assistant-badge { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--warn); color: #fff; font-size: .75rem; font-weight: 700; text-align: center; }
+.assistant-sign-out { margin-top: 24px; }
+.assistant-empty { padding: 24px 4px; color: var(--pine-soft); }
+
+.assistant-bot { display: flex; flex-direction: column; height: 100%; }
+.assistant-bot-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.assistant-back { min-width: 40px; font-size: 1.4rem; }
+.assistant-bot-title { min-width: 0; }
+.assistant-bot-title strong, .assistant-bot-title small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-bot-title small { color: var(--pine-soft); font-size: .8rem; }
+.assistant-tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.assistant-tab { padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--pine-soft); font: inherit; font-weight: 600; cursor: pointer; }
+.assistant-tab[aria-selected="true"] { border-color: var(--accent); color: var(--ink); }
+
+.assistant-transcript { flex: 1; min-height: 0; padding: 12px 16px; overflow-y: auto; overscroll-behavior: contain; }
+.assistant-msg { margin: 0 0 14px; }
+.assistant-msg.user { display: flex; justify-content: flex-end; }
+.assistant-bubble { max-width: 82%; padding: 8px 12px; border-radius: 14px; background: var(--bubble-user); white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-msg.system { color: var(--pine-soft); font-size: .85rem; text-align: center; }
+.assistant-thinking, .assistant-tool { margin: 0 0 6px; color: var(--pine-soft); font-size: .85rem; }
+.assistant-thinking pre, .assistant-tool pre { max-height: 240px; margin: 6px 0 0; padding: 8px; overflow: auto; overscroll-behavior: contain auto; border-radius: 8px;
+  background: var(--bubble-ai); font: 12px/1.6 var(--mono); white-space: pre-wrap; }
+.assistant-working { margin: 0; color: var(--pine-soft); }
+.assistant-chip { display: inline-flex; align-items: center; gap: 4px; margin: 4px 4px 0 0; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: .78rem; }
+.assistant-chip-remove { border: 0; background: transparent; color: inherit; cursor: pointer; }
+
+.assistant-ask { margin: 0 0 14px; padding: 12px; border: 1px solid var(--warn); border-radius: 12px; background: var(--milk); }
+.assistant-ask h3 { margin: 0 0 8px; font-size: .95rem; }
+.assistant-ask p { margin: 0 0 8px; }
+.assistant-ask-command { margin: 0 0 8px; padding: 8px; overflow-x: auto; overscroll-behavior: contain auto; border-radius: 8px; background: var(--bubble-ai); font: 12px/1.6 var(--mono); }
+.assistant-ask-actions, .assistant-ask-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.assistant-choice { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.assistant-choice[aria-pressed="true"] { border-color: var(--accent); background: var(--bubble-user); }
+.assistant-ask-question { margin: 0 0 10px; }
+.assistant-ask-secret { display: grid; gap: 8px; }
+.assistant-ask-closed { margin: 0 0 14px; color: var(--pine-soft); font-size: .85rem; text-align: center; }
+
+.assistant-composer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--paper); }
+.assistant-composer-row { display: flex; align-items: flex-end; gap: 8px; }
+.assistant-input { flex: 1; min-height: 40px; max-height: 180px; padding: 9px 12px; resize: none; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--milk); color: var(--ink); font: inherit; font-size: 16px; }
+.assistant-attach { min-width: 40px; font-size: 1.2rem; }
+.assistant-hint { margin: 0 0 6px; color: var(--warn); font-size: .8rem; }
+.assistant-sessions { padding: 12px 16px 32px; overflow-y: auto; }
+.assistant-session-row { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); }
+.assistant-session-row .assistant-session-open { flex: 1; display: block; border-bottom: 0; }
+.assistant-session-row.unread strong::after { content: " •"; color: var(--accent); }
+.assistant-session-actions { display: flex; gap: 2px; }
+.assistant-danger { color: var(--err); }
+.assistant-toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); z-index: 20; max-width: 90vw; margin: 0; padding: 8px 14px;
+  transform: translateX(-50%); border-radius: 10px; background: var(--ink); color: var(--paper); font-size: .85rem; }

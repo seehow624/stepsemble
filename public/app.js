@@ -1184,6 +1184,15 @@ let enterAppRequest = null;
 // first sign-in on a device shows the setup guide first; the Workspace follows.
 let workspaceAfterGuide = false;
 function workspaceDestination() {
+  // The assistant page sends people here to sign in and expects them back.
+  if (PAGE_QUERY.get("assistant") === "1") {
+    const assistant = new URL("/assistant.html", location.origin);
+    for (const key of ["bot", "session"]) {
+      const value = PAGE_QUERY.get(key);
+      if (value && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) assistant.searchParams.set(key, value);
+    }
+    return assistant.href;
+  }
   const destination = new URL("/workspace.html", location.origin);
   for (const key of ["window", "ack", "source", "host", "entry"]) {
     const value = PAGE_QUERY.get(key);
