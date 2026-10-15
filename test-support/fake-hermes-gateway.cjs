@@ -288,6 +288,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         return undefined;
       }
       case "groups.log": {
+        if (!state.rooms.has(p.room_id)) return fail(4112, "hosted room not found");
         const since = Number(p.since_seq) || 0;
         const events = (state.roomEvents.get(p.room_id) || []).filter(event => event.seq > since).slice(0, Number(p.limit) || 200);
         return reply({ events, cursor: events.at(-1)?.seq ?? since, latest_seq: state.rooms.get(p.room_id)?.latest_seq || 0, has_more: false,
