@@ -98,6 +98,27 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.locator(".assistant-msg.user", { hasText: "buy milk" }).waitFor();
       await shot("other");
 
+      stage = "routines";
+      const brief = preview.fake.addRoutine("default", { name: "Luna 每日情報簡報", schedule: "0 7 * * *", deliver: "telegram:586668748", prompt: "Brief me" });
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await page.getByRole("tab", { name: "Routines", exact: true }).click();
+      const routine = page.locator(".assistant-routine", { hasText: "Luna 每日情報簡報" });
+      await routine.waitFor();
+      assert.match(await routine.textContent(), /Every day 07:00/, "a cron schedule reads as words");
+      await routine.getByLabel("Also send to this Bot's chat").check();
+      for (let tries = 0; tries < 50 && preview.fake.state.cron.find(job => job.id === brief.id).deliver !== "telegram:586668748,bot-chat"; tries += 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(preview.fake.state.cron.find(job => job.id === brief.id).deliver, "telegram:586668748,bot-chat");
+      await page.getByRole("button", { name: "New routine", exact: true }).click();
+      await page.getByLabel("Name").fill("Weekly review");
+      await page.getByLabel("What to do").fill("Summarise my week");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await page.locator(".assistant-routine", { hasText: "Weekly review" }).waitFor();
+      const created = preview.fake.state.cron.at(-1);
+      assert.deepEqual([created.name, created.schedule_display, created.deliver, created.profile], ["[bot:default] Weekly review", "0 9 * * *", "bot-chat", "default"]);
+      await shot("routines");
+
       stage = "Workspace switch";
       await page.goto(preview.origin + "/workspace.html");
       await page.locator("#workspace-mode:not([hidden])").waitFor({ state: "attached" });
