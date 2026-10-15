@@ -1,7 +1,7 @@
-/* stepsemble v3.8.62 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.8.63 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.8.62";
+const CLIENT_APP_VERSION = "3.8.63";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -18910,6 +18910,12 @@ boot();
 
 // A pane is a viewer. Unmounting it must never send stop/close to the Host.
 if (WORKSPACE_PANE) {
+  window.addEventListener("keydown", event => {
+    if (!event.isComposing && event.metaKey && event.altKey && !event.ctrlKey && !event.shiftKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      parent.postMessage({ type: "workspace-select-tab", direction: event.key === "ArrowLeft" ? -1 : 1 }, location.origin);
+    }
+  }, true);
   window.addEventListener("storage", event => {
     if (event.key !== null && ![SETTINGS_KEY, ...LEGACY_SETTINGS_KEYS].includes(event.key)) return;
     // Update presentation in place: reconnecting here could lose a live draft

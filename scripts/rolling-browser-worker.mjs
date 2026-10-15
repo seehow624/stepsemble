@@ -19,7 +19,9 @@ import { runHistorySourcesBrowserCases } from "./history-sources-browser-cases.m
 import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
 import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs";
 import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.mjs";
+import { runScrollbarBrowserCases } from "./scrollbar-browser-cases.mjs";
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
+import { runWorkspaceTabsBrowserCases } from "./workspace-tabs-browser-cases.mjs";
 import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
@@ -182,8 +184,10 @@ try {
     await runConversationUxBrowserCases(browser);
   }
   else if (suite === "workspace") {
+    await runScrollbarBrowserCases(browser);
     await runProjectFilesBrowserCases(browser);
     await runWorkspaceReorderBrowserCases(browser);
+    await runWorkspaceTabsBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
   }

@@ -163,7 +163,18 @@
     for (const tab of allRefs()) if (L.identity(tab) === key && tab.agentId !== agentId) { tab.agentId = agentId; changed = true; }
     if (!changed) return;
     try { save(); } catch (error) { toast(error.message); }
-    render();
+    updateTabMetadata(ref);
+  }
+  function updateTabMetadata(ref) {
+    const current = allRefs().find(tab => L.identity(tab) === L.identity(ref));
+    if (!current) return;
+    for (const tab of document.querySelectorAll(".workspace-tab")) {
+      if (tab.dataset.identity !== L.identity(ref)) continue;
+      const label = tab.querySelector(".workspace-tab-label");
+      label.title = `${current.title} · ${hostName(current.host)}`; label.setAttribute("aria-label", label.title);
+      label.replaceChildren(window.StepsembleAgentIdentity.create(document, current.agentId || "", true), node("span", current.title, "workspace-tab-title"));
+      const close = tab.lastElementChild; close.title = t("closeTab", { title: current.title }); close.setAttribute("aria-label", close.title);
+    }
   }
   function setRefTitle(ref, value) {
     const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 160);
@@ -181,7 +192,7 @@
       frame.frame.contentWindow?.postMessage({ type: "workspace-renamed", title }, location.origin);
     }
     try { save(); } catch (error) { toast(error.message); }
-    render();
+    updateTabMetadata(ref);
   }
   // Renames a session of any agent; the Host keeps the name.
   function renameSession(ref) {
@@ -222,7 +233,40 @@
     }
   }
   window.addEventListener("stepsemble-close-tab", closeActiveTab);
-  function commit(next) { try { save(next); render(); return true; } catch (error) { toast(error.message); return false; } }
+  function commit(next, reveal = null) {
+    const changed = L.leaves(next).filter(p => { const old = L.leaves(tree).find(old => old.id === p.id); return p.active !== old?.active || p.tabs.length < (old?.tabs.length || 0); }).map(p => p.id);
+    try { save(next); render(); requestAnimationFrame(() => revealActiveTabs(reveal ? [reveal] : changed)); return true; }
+    catch (error) { toast(error.message); return false; }
+  }
+  function revealActiveTabs(paneIds = L.leaves(tree).map(p => p.id)) {
+    for (const pane of document.querySelectorAll(".workspace-pane")) {
+      if (!paneIds.includes(pane.dataset.pane)) continue;
+      const list = pane.querySelector(".workspace-tablist"), tab = list?.querySelector('[aria-selected="true"]');
+      if (!tab || !list.clientWidth) continue;
+      const a = tab.getBoundingClientRect(), b = list.getBoundingClientRect();
+      if (a.left < b.left) list.scrollLeft += a.left - b.left;
+      else if (a.right > b.right) list.scrollLeft += Math.min(a.right - b.right, a.left - b.left);
+    }
+    reportDragRegions();
+  }
+  function selectTab(paneId, key) {
+    const pane = L.leaves(tree).find(p => p.id === paneId);
+    if (!pane?.tabs.some(ref => L.identity(ref) === key)) return false;
+    const previous = focused; focused = paneId;
+    if (commit(L.replace(tree, paneId, { ...pane, active: key }), paneId)) return true;
+    focused = previous; return false;
+  }
+  function selectAdjacentTab(direction, paneId = focused) {
+    if (![-1, 1].includes(direction) || settingsLayer || $("workspace-dialog").open || usageUI.isOpen()) return;
+    const next = L.selectAdjacent(tree, paneId, direction), pane = L.leaves(next).find(p => p.id === paneId);
+    if (pane?.active && selectTab(paneId, pane.active)) requestAnimationFrame(() => frames.get(pane.active)?.frame.focus({ preventScroll: true }));
+  }
+  addEventListener("stepsemble-select-tab", event => selectAdjacentTab(event.detail?.direction));
+  addEventListener("keydown", event => {
+    if (!event.isComposing && event.metaKey && event.altKey && !event.ctrlKey && !event.shiftKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault(); selectAdjacentTab(event.key === "ArrowLeft" ? -1 : 1);
+    }
+  });
   function untrackMembership(target, keys, broadcast = true) {
     if (!machines.some(machine => machine.id === target) || !Array.isArray(keys)) return;
     const valid = keys.filter(key => typeof key === "string" && /^[a-f0-9-]{36}$/.test(key));
@@ -232,12 +276,26 @@
     if (broadcast) channel?.postMessage({ type: "untracked", host: target, keys: valid });
     void refresh();
   }
-  function open(ref, paneId = focused, edge = "center") {
+  function open(ref, paneId = focused, edge = "center", move = false, index = null) {
     try {
-      const next = L.insert(tree, paneId, ref, edge);
+      const existing = !move && edge === "center" && L.leaves(tree).find(p => p.tabs.some(tab => L.identity(tab) === L.identity(ref)));
+      if (existing) {
+        const previousMaximized = maximized;
+        if (maximized && maximized !== existing.id) maximized = null;
+        if (!selectTab(existing.id, L.identity(ref))) { maximized = previousMaximized; return false; }
+        if (mobile()) {
+          if (!document.body.classList.contains("sidebar-hidden")) window.history.pushState({ stepsembleWorkspaceView: "session" }, "", location.href);
+          document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames);
+        }
+        return true;
+      }
+      const next = index === null ? L.insert(tree, paneId, ref, edge) : L.moveAt(tree, paneId, ref, index);
+      const previousFocus = focused;
+      const samePane = move && edge === "center" && L.leaves(tree).find(p => p.id === paneId)?.tabs.some(tab => L.identity(tab) === L.identity(ref));
       focused = L.leaves(next).find(p => p.tabs.some(r => L.identity(r) === L.identity(ref))).id;
       maximized = null;
-      if (!commit(next)) return false;
+      if (samePane) focused = previousFocus;
+      if (!commit(next, samePane ? paneId : focused)) { focused = previousFocus; return false; }
       if (mobile()) {
         if (!document.body.classList.contains("sidebar-hidden")) window.history.pushState({ stepsembleWorkspaceView: "session" }, "", location.href);
         document.body.classList.add("sidebar-hidden");
@@ -246,6 +304,30 @@
       return true;
     } catch (error) { toast(error.message); return false; }
   }
+  function tabInsertionIndex(list, x) {
+    const tabs = [...list.querySelectorAll(".workspace-tab")];
+    const index = tabs.findIndex(tab => { const r = tab.getBoundingClientRect(); return x < r.left + r.width / 2; });
+    return index < 0 ? tabs.length : index;
+  }
+  let insertionList = null, insertionX = 0, insertionFrame = 0;
+  function clearTabInsertion() {
+    cancelAnimationFrame(insertionFrame); insertionFrame = 0; insertionList = null;
+    for (const tab of document.querySelectorAll("[data-insert]")) delete tab.dataset.insert;
+  }
+  function showTabInsertion(list, x) {
+    clearTabInsertion(); insertionList = list; insertionX = x;
+    const tick = () => {
+      if (!insertionList?.isConnected) return clearTabInsertion();
+      const r = list.getBoundingClientRect();
+      if (insertionX < r.left + 28) list.scrollLeft -= 8;
+      else if (insertionX > r.right - 28) list.scrollLeft += 8;
+      const tabs = [...list.querySelectorAll(".workspace-tab")], index = tabInsertionIndex(list, insertionX);
+      for (const tab of tabs) delete tab.dataset.insert;
+      if (tabs.length) tabs[Math.min(index, tabs.length - 1)].dataset.insert = index === tabs.length ? "after" : "before";
+      insertionFrame = requestAnimationFrame(tick);
+    };
+    tick();
+  }
   function dragStart(event, ref, fromTab) {
     const payload = { version: 1, ref: L.reference(ref), source: fromTab ? windowId : null, transfer: crypto.randomUUID() };
     if (fromTab) { pendingTransfers.set(payload.transfer, { ref: payload.ref, drag: true }); setTimeout(() => pendingTransfers.delete(payload.transfer), 30000); }
@@ -253,7 +335,42 @@
     event.dataTransfer.effectAllowed = fromTab ? "move" : "copyMove";
     document.body.classList.add("workspace-dragging"); channel?.postMessage({ type: "drag", active: true }); reportDragRegions();
   }
-  function dragEnd() { renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
+  function dragEnd() { clearTabInsertion(); renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
+  addEventListener("keydown", event => { if (event.key === "Escape") dragEnd(); });
+  let nativeOwnedDrag = null;
+  // Native owns mouse tracking only; placement and save-before-ACK stay here.
+  window.stepsembleNativeTabPayload = token => nativeOwnedDrag?.transfer === token ? nativeOwnedDrag : null;
+  addEventListener("stepsemble-native-tab", event => {
+    const data = event.detail || {};
+    if (data.phase === "receive") {
+      const pane = [...document.querySelectorAll(".workspace-pane")].find(element => { const r = element.getBoundingClientRect(); return data.x >= r.left && data.x <= r.right && data.y >= r.top && data.y <= r.bottom; });
+      if (!pane) return;
+      const list = pane.querySelector(".workspace-tablist"), r = list?.getBoundingClientRect();
+      const inStrip = r && data.x >= r.left && data.x <= r.right && data.y >= r.top && data.y <= r.bottom;
+      const p = pane.getBoundingClientRect(), x = (data.x - p.left) / p.width, y = (data.y - p.top) / p.height;
+      const edge = inStrip ? "center" : x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center";
+      try { acceptTransfer(data.payload, pane.dataset.pane, edge, inStrip ? tabInsertionIndex(list, data.x) : null); }
+      catch (error) { toast(error.message); }
+      return;
+    }
+    if (data.phase === "cancel") { if (nativeOwnedDrag?.transfer === data.token) nativeOwnedDrag = null; dragEnd(); return; }
+    if (data.phase === "end") { dragEnd(); return; }
+    const ref = allRefs().find(ref => L.identity(ref) === data.identity);
+    if (!ref) return;
+    const pane = L.leaves(tree).find(p => p.tabs.some(tab => L.identity(tab) === data.identity));
+    if (data.phase === "click") { selectTab(pane.id, data.identity); return; }
+    if (data.phase === "start" && typeof data.token === "string") {
+      nativeOwnedDrag = { version: 1, ref: L.reference(ref), source: windowId, transfer: data.token };
+      pendingTransfers.set(data.token, { ref: nativeOwnedDrag.ref, drag: true });
+      setTimeout(() => { pendingTransfers.delete(data.token); if (nativeOwnedDrag?.transfer === data.token) nativeOwnedDrag = null; }, 30000);
+      document.body.classList.add("workspace-dragging"); channel?.postMessage({ type: "drag", active: true }); reportDragRegions();
+    }
+    if (data.phase === "move" && nativeOwnedDrag?.transfer === data.token) {
+      const list = document.elementFromPoint(data.x, data.y)?.closest(".workspace-tablist");
+      if (list) showTabInsertion(list, data.x); else clearTabInsertion();
+    }
+    if (data.phase === "tear-out" && nativeOwnedDrag?.transfer === data.token) { newWindow(ref); nativeOwnedDrag = null; dragEnd(); }
+  });
   function newWindow(ref) {
     const target = crypto.randomUUID(), token = crypto.randomUUID();
     if (ref) {
@@ -268,11 +385,11 @@
     const opened = window.open(url.href, `stepsemble-${target}`, "popup,width=1100,height=820");
     if (!opened) { pendingTransfers.delete(token); toast(t("popupBlocked")); }
   }
-  function acceptTransfer(payload, paneId, edge) {
+  function acceptTransfer(payload, paneId, edge, index = null) {
     if (payload.version !== 1) throw new Error(t("invalidDrop"));
     const ref = L.reference(payload.ref);
     if (!machines.some(m => m.id === ref.host)) throw new Error(t("missingHost"));
-    if (open(ref, paneId, edge) && payload.source && payload.source !== windowId) {
+    if (open(ref, paneId, edge, true, index) && payload.source && payload.source !== windowId) {
       channel?.postMessage({ type: "moved", source: payload.source, ref, transfer: payload.transfer });
     }
   }
@@ -288,11 +405,11 @@
     }
     reportDragRegions(); notificationPresence();
   }
-  const resize = new ResizeObserver(layoutFrames); resize.observe($("workspace-stage"));
+  const resize = new ResizeObserver(() => { layoutFrames(); revealActiveTabs(); }); resize.observe($("workspace-stage"));
   // The Mac app's window has no title bar. The app moves the window from the
   // empty parts of the Workspace's top edge, which the page names here, as a
   // browser's empty tab strip does; anywhere else this sends nothing.
-  let dragRegionsSent = "[]", dragRegionsFrame = 0;
+  let dragRegionsSent = "[]", tabRegionsSent = "[]", dragRegionsFrame = 0;
   function reportDragRegions() {
     const app = window.webkit?.messageHandlers?.stepsemble;
     if (!app || dragRegionsFrame) return;
@@ -303,6 +420,13 @@
       const rects = moving ? dragRegions() : [];
       const sent = JSON.stringify(rects);
       if (sent !== dragRegionsSent) { dragRegionsSent = sent; app.postMessage({ type: "drag-regions", rects }); }
+      const tabRegions = !settingsLayer && !usageUI.isOpen() && !$("workspace-dialog").open && !document.querySelector(".wf-panel[open]") ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
+        const r = label.getBoundingClientRect(), list = label.closest(".workspace-tablist").getBoundingClientRect();
+        const left = Math.max(r.left, list.left), right = Math.min(r.right, list.right);
+        return right > left && r.height ? [{ identity: label.parentElement.dataset.identity, rect: [left, r.top, right - left, r.height] }] : [];
+      }) : [];
+      const tabSent = JSON.stringify(tabRegions);
+      if (tabSent !== tabRegionsSent) { tabRegionsSent = tabSent; app.postMessage({ type: "tab-drag-regions", tabs: tabRegions }); }
     });
   }
   function dragRegions() {
@@ -334,6 +458,7 @@
   addEventListener("stepsemble-mac-window", () => requestAnimationFrame(layoutFrames));
   function render() {
     closePaneMenu();
+    const scrolls = new Map([...document.querySelectorAll(".workspace-pane")].map(p => [p.dataset.pane, p.querySelector(".workspace-tablist")?.scrollLeft || 0]));
     slots.clear(); $("workspace-tree").replaceChildren();
     if (!L.leaves(tree).some(p => p.id === focused)) focused = L.leaves(tree)[0].id;
     const wanted = new Set(allRefs().map(L.identity));
@@ -357,7 +482,7 @@
         first.style.flex = `${n.ratio} 1 0`; second.style.flex = `${1-n.ratio} 1 0`;
         first.append(draw(n.first)); second.append(draw(n.second));
         const divider = node("div", "", "workspace-divider"); divider.tabIndex = 0; divider.setAttribute("role", "separator"); divider.setAttribute("aria-label", t("resize")); divider.setAttribute("aria-orientation", n.axis === "row" ? "vertical" : "horizontal"); divider.setAttribute("aria-valuenow", Math.round(n.ratio * 100));
-        const adjust = ratio => { n.ratio = Math.max(.15, Math.min(.85, ratio)); first.style.flex = `${n.ratio} 1 0`; second.style.flex = `${1-n.ratio} 1 0`; divider.setAttribute("aria-valuenow", Math.round(n.ratio*100)); tree = L.replace(tree, n.id, n); layoutFrames(); };
+        const adjust = ratio => { n.ratio = Math.max(.15, Math.min(.85, ratio)); first.style.flex = `${n.ratio} 1 0`; second.style.flex = `${1-n.ratio} 1 0`; divider.setAttribute("aria-valuenow", Math.round(n.ratio*100)); tree = L.replace(tree, n.id, n); layoutFrames(); revealActiveTabs(); };
         divider.onkeydown = e => { if (["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(e.key)) { e.preventDefault(); adjust(n.ratio + (["ArrowLeft", "ArrowUp"].includes(e.key) ? -.05 : .05)); try { save(); } catch (error) { toast(error.message); } } };
         divider.onpointerdown = e => { e.preventDefault(); divider.setPointerCapture(e.pointerId); document.body.classList.add("workspace-resizing"); };
         divider.onpointermove = e => { if (!divider.hasPointerCapture(e.pointerId)) return; const r = split.getBoundingClientRect(); adjust(n.axis === "row" ? (e.clientX-r.left)/r.width : (e.clientY-r.top)/r.height); };
@@ -370,14 +495,25 @@
       const tabs = node("div", "", "workspace-tabs");
       const tablist = node("div", "", "workspace-tablist"); tablist.setAttribute("role", "tablist");
       for (const ref of n.tabs) {
-        const key = L.identity(ref), tab = node("div", "", "workspace-tab"); tab.setAttribute("aria-selected", String(n.active === key)); tab.draggable = true;
+        const key = L.identity(ref), tab = node("div", "", "workspace-tab"); tab.setAttribute("aria-selected", String(n.active === key)); tab.dataset.identity = key; tab.setAttribute("role", "tab"); tab.draggable = true;
         tab.ondragstart = e => dragStart(e, ref, true); tab.ondragend = dragEnd;
         // Every tab is the same width and starts with its agent's logo; the
         // conversation below it shows no title row of its own.
-        const label = button("", () => { n.active = key; focused = n.id; commit(tree); }, `${ref.title} · ${hostName(ref.host)}`, "btn workspace-tab-label");
+        const label = button("", () => selectTab(n.id, key), `${ref.title} · ${hostName(ref.host)}`, "btn workspace-tab-label");
         label.append(window.StepsembleAgentIdentity.create(document, ref.agentId || "", true), node("span", ref.title, "workspace-tab-title"));
         tab.append(label, button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tablist.append(tab);
       }
+      tablist.onscroll = reportDragRegions;
+      tablist.ondragover = e => {
+        if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return;
+        e.preventDefault(); e.stopPropagation(); showTabInsertion(tablist, e.clientX); delete overlay.dataset.edge;
+      };
+      tablist.ondragleave = e => { if (!tablist.contains(e.relatedTarget)) clearTabInsertion(); };
+      tablist.ondrop = e => {
+        e.preventDefault(); e.stopPropagation();
+        try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, "center", tabInsertionIndex(tablist, e.clientX)); }
+        catch (error) { toast(error.message); } finally { dragEnd(); }
+      };
       tabs.append(tablist);
       // Layout actions collapse into one overflow control. A permanent row of
       // buttons costs every pane a strip of height that belongs to the
@@ -395,7 +531,7 @@
         // The strip's window button opens an empty window; this one carries the
         // pane's own conversation, so it must not repeat that label.
         actions.push([t("moveWindow"), () => newWindow(active(n))]);
-        actions.push([maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); }]);
+        actions.push([maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); requestAnimationFrame(() => revealActiveTabs()); }]);
       }
       if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
       if (n.tabs.length || L.leaves(tree).length > 1) actions.push([t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
@@ -414,14 +550,17 @@
       if (n.active) slots.set(n.active, slot);
       const overlay = node("div", "", "workspace-drop");
       const edgeAt = e => { const r = pane.getBoundingClientRect(), x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height; return x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center"; };
-      pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); overlay.dataset.edge = edgeAt(e); };
+      pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); clearTabInsertion(); overlay.dataset.edge = edgeAt(e); };
       pane.ondrop = e => { e.preventDefault(); try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
       // A pane with no tabs, actions or corner controls keeps no strip, so the
       // invitation to drag a session is the only thing in it.
       if (n.tabs.length || actions.length || corner) pane.append(tabs);
       pane.append(slot, overlay); return pane;
     }
-    $("workspace-tree").append(draw(shown)); requestAnimationFrame(layoutFrames); renderSidebar();
+    $("workspace-tree").append(draw(shown));
+    for (const pane of document.querySelectorAll(".workspace-pane")) { const list = pane.querySelector(".workspace-tablist"); if (list) list.scrollLeft = scrolls.get(pane.dataset.pane) || 0; }
+    layoutFrames();
+    requestAnimationFrame(() => revealActiveTabs(L.leaves(tree).filter(p => !scrolls.has(p.id)).map(p => p.id))); renderSidebar();
   }
   function renderSidebar() {
     if (sidebarDragging) return;
@@ -1135,6 +1274,10 @@
     }
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
+    if (event.data?.type === "workspace-select-tab" && !item.frame.hidden) {
+      const pane = L.leaves(tree).find(p => p.active === L.identity(item.ref));
+      if (pane) selectAdjacentTab(event.data.direction, pane.id);
+    }
     if (event.data?.type === "workspace-read-ready") void markViewed(item, event.data.completionId);
     if (event.data?.type === "workspace-ready") { void refresh(); }
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }

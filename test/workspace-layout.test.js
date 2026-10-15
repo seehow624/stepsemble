@@ -29,6 +29,26 @@ test("malformed or excessive persisted layouts are rejected", () => {
   assert.throws(() => L.insert(tree, "missing", ref()), /no longer/);
 });
 
+test("tab insertion preserves selection, supports both directions and the 32-tab bound", () => {
+  let tree = L.pane(); const refs = Array.from({ length: 32 }, () => ref());
+  for (const r of refs) tree = L.insert(tree, tree.id, r);
+  const selected = tree.active;
+  tree = L.moveAt(tree, tree.id, refs[0], 32);
+  assert.equal(tree.tabs[31].key, refs[0].key); assert.equal(tree.active, selected);
+  tree = L.moveAt(tree, tree.id, refs[0], 0);
+  assert.deepEqual(tree.tabs, refs); assert.equal(tree.active, selected);
+  assert.throws(() => L.moveAt(tree, tree.id, ref(), 0), /Too many tabs/);
+  assert.equal(L.selectAdjacent(tree, tree.id, 1).active, L.identity(refs[0]));
+  assert.equal(L.selectAdjacent(tree, tree.id, -1).active, L.identity(refs[30]));
+});
+test("closing active tabs selects their nearest neighbour, not the first tab", () => {
+  const refs = Array.from({ length: 4 }, () => ref());
+  let tree = L.pane(); for (const r of refs) tree = L.insert(tree, tree.id, r);
+  assert.equal(L.remove(tree, refs[3]).active, L.identity(refs[2]));
+  tree.active = L.identity(refs[1]);
+  assert.equal(L.remove(tree, refs[1]).active, L.identity(refs[2]));
+  assert.equal(L.remove(tree, refs[0]).active, tree.active);
+});
 test("a tab keeps its agent for the logo, and a tab saved without one still loads", () => {
   const key = crypto.randomUUID();
   assert.equal(L.reference({ host: "local", key, title: "T", agentId: "claude-code" }).agentId, "claude-code");

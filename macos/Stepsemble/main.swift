@@ -1037,6 +1037,70 @@ final class WindowDragArea: NSView {
     }
 }
 
+/// Consume the exact shortcut before WebKit, including focused iframe inputs.
+final class WorkspaceNSWindow: NSWindow {
+    var selectTab: ((Int) -> Bool)?
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if flags == [.command, .option], [123, 124].contains(event.keyCode), selectTab?(event.keyCode == 123 ? -1 : 1) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+/// Only tab labels intercept mouse input; buttons, accessibility and titlebar remain unchanged.
+final class WorkspaceTabDragArea: NSView {
+    var tabs: [(identity: String, rect: CGRect)] = []
+    weak var webView: WKWebView?
+    var emit: (([String: Any]) -> Void)?
+    var released: ((String, String, NSPoint) -> Void)?
+    var generation = 0
+    override var isFlipped: Bool { true }
+    private func tab(at point: NSPoint) -> String? {
+        let zoom = webView?.pageZoom ?? 1
+        return tabs.first { $0.rect.contains(NSPoint(x: point.x / zoom, y: point.y / zoom)) }?.identity
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let parent = superview else { return nil }
+        return tab(at: convert(point, from: parent)) == nil ? nil : self
+    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    func cancel() { generation += 1; tabs = [] }
+    override func scrollWheel(with event: NSEvent) { webView?.scrollWheel(with: event) }
+    override func rightMouseDown(with event: NSEvent) { webView?.rightMouseDown(with: event) }
+    override func mouseDown(with down: NSEvent) {
+        guard let window = window, let identity = tab(at: convert(down.locationInWindow, from: nil)) else { return }
+        // A click on an inactive workspace's tab is a deliberate focus action.
+        // The overlay, unlike WebKit's content view, does not do this for us.
+        window.makeKey()
+        let origin = window.convertPoint(toScreen: down.locationInWindow), token = UUID().uuidString.lowercased()
+        let epoch = generation, deadline = Date().addingTimeInterval(30)
+        var started = false, didRelease = false
+        defer { emit?(["phase": didRelease ? "end" : "cancel", "token": token]) }
+        while Date() < deadline, generation == epoch, window.isVisible, NSApp.isActive, window.isKeyWindow {
+            guard let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown], until: Date().addingTimeInterval(0.05), inMode: .eventTracking, dequeue: true) else { continue }
+            let screen = window.convertPoint(toScreen: event.locationInWindow)
+            switch event.type {
+            case .keyDown:
+                if event.keyCode == 53 { return }
+            case .leftMouseDragged:
+                if !started && hypot(screen.x - origin.x, screen.y - origin.y) >= 5 {
+                    started = true; emit?(["phase": "start", "identity": identity, "token": token])
+                }
+                if started {
+                    let p = convert(event.locationInWindow, from: nil), zoom = webView?.pageZoom ?? 1
+                    emit?(["phase": "move", "identity": identity, "token": token, "x": p.x / zoom, "y": p.y / zoom])
+                }
+            case .leftMouseUp:
+                didRelease = true
+                if started { released?(identity, token, screen) }
+                else { emit?(["phase": "click", "identity": identity]) }
+                return
+            default: break
+            }
+        }
+    }
+}
+
 /// One window of the Workspace, the same pages the browser shows, signed in
 /// to the Host on this Mac.
 final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
@@ -1052,6 +1116,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     private var retryTimer: Timer?
     private var titleObservation: NSKeyValueObservation?
     private let dragArea = WindowDragArea()
+    private let tabDragArea = WorkspaceTabDragArea()
     /// The page draws the window's top edge (see WindowChrome).
     private var chromeless = false
     private var fullScreen = false
@@ -1062,7 +1127,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         self.isPopup = isPopup
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = false
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 1280, height: 820)),
+        window = WorkspaceNSWindow(contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 1280, height: 820)),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
         webView.navigationDelegate = self
@@ -1073,12 +1138,20 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         // The Workspace has its own tabs; a macOS tab bar would cover them.
         window.tabbingMode = .disallowed
         let content = NSView(frame: NSRect(origin: .zero, size: window.contentRect(forFrameRect: window.frame).size))
-        for view in [webView, dragArea] as [NSView] {
+        for view in [webView, dragArea, tabDragArea] as [NSView] {
             view.frame = content.bounds
             view.autoresizingMask = [.width, .height]
             content.addSubview(view)
         }
         dragArea.webView = webView
+        tabDragArea.webView = webView
+        tabDragArea.emit = { [weak self] data in self?.sendTabEvent(data) }
+        tabDragArea.released = { [weak self] identity, token, point in self?.releaseTab(identity, token: token, at: point) }
+        (window as? WorkspaceNSWindow)?.selectTab = { [weak self] direction in
+            guard let self = self, let url = self.webView.url, self.isHost(url), url.path == "/workspace.html" else { return false }
+            self.webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('stepsemble-select-tab',{detail:{direction:\(direction)}}))", completionHandler: nil)
+            return true
+        }
         window.contentView = content
         window.initialFirstResponder = webView
         window.delegate = self
@@ -1151,6 +1224,41 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     func setDragRegions(_ rects: [[Double]]) {
         guard chromeless, !fullScreen else { dragArea.regions = []; return }
         dragArea.regions = rects.prefix(32).compactMap { $0.count == 4 ? CGRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
+    }
+
+    func setTabDragRegions(_ rows: [[String: Any]]) {
+        guard let url = webView.url, isHost(url), url.path == "/workspace.html" else { tabDragArea.cancel(); return }
+        tabDragArea.tabs = rows.prefix(32).compactMap { row in
+            guard let identity = row["identity"] as? String, identity.count < 300,
+                  let data = identity.data(using: .utf8), let ref = (try? JSONSerialization.jsonObject(with: data)) as? [String],
+                  ref.count == 2, UUID(uuidString: ref[1]) != nil,
+                  let r = row["rect"] as? [Double], r.count == 4, r.allSatisfy({ $0.isFinite }), r[2] > 0, r[3] > 0 else { return nil }
+            return (identity, CGRect(x: r[0], y: r[1], width: r[2], height: r[3]))
+        }
+    }
+    private func sendTabEvent(_ body: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: body), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('stepsemble-native-tab',{detail:\(json)}))", completionHandler: nil)
+    }
+    private func releaseTab(_ identity: String, token: String, at screen: NSPoint) {
+        guard let url = webView.url, isHost(url), url.path == "/workspace.html" else { return }
+        // Resolve only this application's windows. A real mouseUp outside every
+        // visible window tears out like a browser; it does not drop data into
+        // the other app underneath. No desktop/window-server inference needed.
+        let destinationWindow = controller?.workspaceWindow(at: screen)
+        if let destination = destinationWindow, destination.webView.url.map(destination.isHost) == true,
+           destination.webView.url?.path == "/workspace.html" {
+            let p = destination.webView.convert(destination.window.convertPoint(fromScreen: screen), from: nil), zoom = destination.webView.pageZoom
+            webView.evaluateJavaScript("window.stepsembleNativeTabPayload && window.stepsembleNativeTabPayload('\(token)')") { [weak self, weak destination] payload, _ in
+                guard let self = self, let destination = destination, let payload = payload as? [String: Any], payload["transfer"] as? String == token else { return }
+                destination.sendTabEvent(["phase": "receive", "payload": payload, "x": p.x / zoom, "y": p.y / zoom])
+                self.sendTabEvent(["phase": "cancel", "token": token])
+            }
+        } else if destinationWindow == nil && NSScreen.screens.contains(where: { $0.visibleFrame.contains(screen) }) {
+            sendTabEvent(["phase": "tear-out", "identity": identity, "token": token])
+        } else {
+            sendTabEvent(["phase": "cancel", "token": token])
+        }
     }
 
     /// From the page: the theme chosen in Stepsemble, so the window, its
@@ -1226,9 +1334,11 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     }
 
     func closeSessionTab(_ sender: Any?) {
-        if isPopup { window.performClose(sender); return }
-        guard let url = webView.url, isHost(url), url.path == "/workspace.html" || url.path == "/" else { return }
-        webView.evaluateJavaScript("window.dispatchEvent(new Event('stepsemble-close-tab'))", completionHandler: nil)
+        if let url = webView.url, isHost(url), url.path == "/workspace.html" || url.path == "/" {
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('stepsemble-close-tab'))", completionHandler: nil)
+            return
+        }
+        if isPopup { window.performClose(sender) }
     }
 
     private static let zoomSteps: [CGFloat] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
@@ -1264,6 +1374,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     }
 
     func windowWillClose(_ notification: Notification) {
+        tabDragArea.cancel()
         retryTimer?.invalidate()
         retryTimer = nil
         titleObservation = nil
@@ -1281,6 +1392,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if #available(macOS 11.3, *), action.shouldPerformDownload { decisionHandler(.download); return }
         guard let url = action.request.url else { decisionHandler(.cancel); return }
+        if action.targetFrame?.isMainFrame == true { tabDragArea.cancel() }
         // A file dropped outside a drop zone would replace the Workspace.
         if url.isFileURL { decisionHandler(.cancel); return }
         let scheme = url.scheme?.lowercased() ?? ""
@@ -1516,6 +1628,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func workspaceWindow(at point: NSPoint) -> WorkspaceWindow? {
+        // Front-to-back AppKit order includes the source and popup workspaces.
+        // Ignore hidden/minimized windows; screen coordinates work across displays.
+        for candidate in NSApp.orderedWindows where candidate.isVisible && !candidate.isMiniaturized && candidate.frame.contains(point) {
+            if let workspace = windows.first(where: { $0.window === candidate }) { return workspace }
+        }
+        return nil
+    }
+
     func received(_ message: WKScriptMessage) {
         guard let workspace = windows.first(where: { $0.webView === message.webView }) else { return }
         if message.body as? String == "retry" { workspace.connect(); return }
@@ -1535,6 +1656,9 @@ final class AppController: NSObject, NSApplicationDelegate {
                     workspace.webView.evaluateJavaScript("window.postMessage(\(json),location.origin);document.querySelectorAll('iframe').forEach(f=>f.contentWindow.postMessage(\(json),location.origin))", completionHandler: nil)
                 }
             }
+        }
+        if message.frameInfo.isMainFrame, workspace.trusts(message.frameInfo), let body = message.body as? [String: Any], body["type"] as? String == "tab-drag-regions" {
+            workspace.setTabDragRegions(body["tabs"] as? [[String: Any]] ?? [])
         }
         if message.frameInfo.isMainFrame, let body = message.body as? [String: Any], body["type"] as? String == "drag-regions" {
             workspace.setDragRegions(body["rects"] as? [[Double]] ?? [])

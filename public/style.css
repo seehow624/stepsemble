@@ -1,4 +1,4 @@
-/* stepsemble v3.8.62 — Ink & Ivory / English-first localization */
+/* stepsemble v3.8.63 — Ink & Ivory / English-first localization */
 
 :root {
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
@@ -53,6 +53,39 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* One quiet scrollbar treatment for every scrolling surface, including nested
+   tables, code, dialogs and Workspace panes. Do not paint a track or reserve
+   extra space; keep the system's scrolling and deliberately hidden bars.
+   Forced colours retain native controls rather than low-contrast decoration. */
+@media (forced-colors: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--pine-soft) transparent;
+    scrollbar-color: color-mix(in srgb, var(--pine-soft) 75%, transparent) transparent;
+  }
+  @supports selector(::-webkit-scrollbar) {
+    /* Non-auto standard properties override WebKit pseudo-elements in modern
+       engines. Use only one styling path, including macOS Always-visible mode. */
+    * { scrollbar-width: auto; scrollbar-color: auto; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-track-piece,
+    ::-webkit-scrollbar-corner { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      border: 3px solid transparent;
+      border-radius: 999px;
+      background-clip: padding-box;
+      background-color: var(--pine-soft);
+      background-color: color-mix(in srgb, var(--pine-soft) 75%, transparent);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      border-width: 2px;
+      background-color: var(--pine-soft);
+    }
+    ::-webkit-scrollbar-thumb:active { background-color: var(--ink); }
+    ::-webkit-scrollbar-button { display: none; }
+  }
+}
 html, body { height: 100%; overscroll-behavior-y: contain; }
 body {
   font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
@@ -328,21 +361,7 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 
 .messages {
   flex: 1; overflow-y: auto; padding: 16px 12px 8px; -webkit-overflow-scrolling: touch;
-  /* Classic scrollbars can stay visible on macOS. Keep their track clear in
-     embedded conversations as well as standalone pages, in either theme. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--pine-soft) transparent;
-  scrollbar-color: color-mix(in srgb, var(--pine-soft) 75%, transparent) transparent;
 }
-.messages::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
-.messages::-webkit-scrollbar-track,
-.messages::-webkit-scrollbar-corner { background: transparent; }
-.messages::-webkit-scrollbar-thumb {
-  border: 2px solid transparent; border-radius: 999px; background-clip: padding-box;
-  background-color: var(--pine-soft);
-  background-color: color-mix(in srgb, var(--pine-soft) 75%, transparent);
-}
-.messages::-webkit-scrollbar-thumb:hover { background-color: var(--pine-soft); }
 .msg { margin-bottom: 14px; max-width: 92%; }
 .msg.user { margin-left: auto; }
 .bubble {
@@ -548,7 +567,6 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  scrollbar-width: thin;
 }
 .model-info strong,
 .model-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1525,7 +1543,6 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   -webkit-overflow-scrolling: touch;
   border: 0.5px solid var(--line);
   border-radius: 10px;
-  scrollbar-width: thin;
 }
 .md-body table {
   width: max-content;
@@ -2084,7 +2101,6 @@ body.image-lightbox-open { overflow: hidden; }
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
   margin: 7px 12px 9px;
   padding: 12px 14px;
   border: .5px solid var(--line);
@@ -2124,7 +2140,6 @@ body.image-lightbox-open { overflow: hidden; }
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 2px;
-  scrollbar-width: thin;
   overscroll-behavior-x: contain;
 }
 .agent-connector-chip {
@@ -2145,7 +2160,6 @@ body.image-lightbox-open { overflow: hidden; }
   margin-top: 9px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
 }
 .agent-task-row {
@@ -2204,7 +2218,7 @@ html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { anima
 .agent-task-center-toolbar select { width: 112px; min-width: 0; }
 .agent-task-center-list {
   display: grid; gap: 6px; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding: 1px 1px 4px; -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+  padding: 1px 1px 4px; -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
 }
 .agent-task-center-row {
@@ -2435,7 +2449,6 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  scrollbar-width: thin;
 }
 .sheet-handle { width: 32px; height: 4px; margin: -8px auto 14px; border-radius: 99px; background: var(--pine-soft); opacity: .55; }
 .sheet-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -2451,8 +2464,6 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  scrollbar-width: thin;
-  scrollbar-color: var(--pine-soft) transparent;
   scrollbar-gutter: stable;
   padding: 1px 0 6px;
   border-bottom: 0.5px solid var(--line);
@@ -5065,7 +5076,6 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   display: grid;
   gap: 2px;
   align-content: start;
-  scrollbar-width: thin;
 }
 .command-row {
   display: flex;
