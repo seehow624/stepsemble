@@ -7,7 +7,8 @@ import { createAssistantPreview } from "./assistant-preview.mjs";
 // The assistant page end to end against a fake Hermes: the Stepsemble sign-in
 // round trip, Hermes sign-in, a streamed Bot Chat reply, the roster, an
 // approval, a sudo question whose value never stays in the page, older
-// Telegram conversations, routines and a group chat. Phone and desktop widths.
+// Telegram conversations, routines, a group chat, and creating, editing
+// and deleting a Bot with its skills. Phone and desktop widths.
 export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
   for (const viewport of [{ width: 393, height: 852 }, { width: 1440, height: 900 }]) {
     const preview = await createAssistantPreview();
@@ -141,6 +142,79 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await shot("group");
       await page.getByRole("button", { name: "Back", exact: true }).click();
       await page.locator(".assistant-group-row", { hasText: "Production" }).waitFor();
+      await shot("roster");
+
+      stage = "new Bot";
+      await page.getByRole("button", { name: "New Bot", exact: true }).click();
+      await page.getByLabel("Name", { exact: true }).fill("Research Buddy");
+      assert.equal(await page.getByLabel("Profile ID").inputValue(), "research-buddy", "the id follows the name");
+      await page.getByLabel("Description", { exact: true }).fill("Finds papers");
+      await page.getByRole("button", { name: "Create Bot", exact: true }).click();
+      await page.locator(".assistant-manage-section").first().waitFor();
+      const research = preview.fake.state.profiles.find(row => row.name === "research-buddy");
+      assert.deepEqual([research.description, research.ui_meta["hermes-bots"].title], ["Finds papers", "Research Buddy"]);
+
+      stage = "Bot settings";
+      await page.locator(".assistant-manage-section input[type=file]").setInputFiles({ name: "face.png", mimeType: "image/png",
+        buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64") });
+      for (let tries = 0; tries < 50 && !preview.fake.state.avatars.has("research-buddy"); tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.ok(preview.fake.state.avatars.get("research-buddy").startsWith("data:image/png;base64,"));
+      await page.locator("summary", { hasText: "Personality (SOUL.md)" }).click();
+      await page.getByRole("textbox", { name: "Personality (SOUL.md)" }).fill("Cite every source.");
+      await page.locator(".assistant-manage-section[open] .btn.primary", { hasText: "Save" }).last().click();
+      await page.getByText("Saved", { exact: true }).first().waitFor();
+      assert.equal(preview.fake.state.bots.get("research-buddy").soul, "Cite every source.");
+      await page.locator("summary", { hasText: "Model" }).click();
+      await page.getByLabel("Provider").selectOption("ollama");
+      await page.getByRole("combobox", { name: "Model", exact: true }).selectOption("expensive-model");
+      await page.getByRole("button", { name: "Use this model", exact: true }).click();
+      await page.getByText("Hermes says: expensive-model costs more than usual").waitFor();
+      assert.notEqual(preview.fake.state.profiles.find(row => row.name === "research-buddy").model, "expensive-model", "nothing changes before confirming");
+      await page.getByRole("button", { name: "Use anyway", exact: true }).click();
+      for (let tries = 0; tries < 50 && preview.fake.state.profiles.find(row => row.name === "research-buddy").model !== "expensive-model"; tries += 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(preview.fake.state.profiles.find(row => row.name === "research-buddy").model, "expensive-model");
+
+      stage = "skills";
+      await page.locator("summary", { hasText: "Skills" }).click();
+      await page.getByLabel("image-gen", { exact: true }).check();
+      for (let tries = 0; tries < 50 && preview.fake.state.botCalls.at(-1)?.method !== "toggle"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.deepEqual(preview.fake.state.botCalls.at(-1), { method: "toggle", profile: "research-buddy", name: "image-gen", enabled: true });
+      await page.getByPlaceholder("Search the Skill Hub").fill("stealer");
+      const stealer = page.locator(".assistant-hub-row", { hasText: "stealer" });
+      await stealer.getByRole("button", { name: "Install", exact: true }).click();
+      await stealer.getByText("Hermes blocks this skill: critical finding").waitFor();
+      assert.equal(await stealer.locator(".assistant-scan button").count(), 0, "a blocked skill offers no install");
+      await page.getByPlaceholder("Search the Skill Hub").fill("shell");
+      const shell = page.locator(".assistant-hub-row", { hasText: "shell-helper" });
+      await shell.getByRole("button", { name: "Install", exact: true }).click();
+      await shell.getByText("Hermes asks you to confirm: community skill with shell access").waitFor();
+      await shell.getByText("high · Runs arbitrary shell commands (SKILL.md:4)").waitFor();
+      await shell.getByRole("button", { name: "I read the check — install", exact: true }).click();
+      await page.locator(".assistant-skill[data-skill='shell-helper']").waitFor();
+      await page.locator("#assistant-bot-head .assistant-avatar.has-picture").waitFor();
+      assert.match(await page.locator("#assistant-bot-head small").textContent(), /expensive-model/, "the header follows the new model");
+      assert.ok((await page.locator(".assistant-tabs").boundingBox()).height >= 30, "the tab bar keeps its height");
+      await shot("bot-settings");
+
+      stage = "hide and delete a Bot";
+      await page.getByLabel("Hide from the list").check();
+      for (let tries = 0; tries < 50 && preview.fake.state.profiles.find(row => row.name === "research-buddy").ui_meta["hermes-bots"].hidden !== true; tries += 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await page.getByRole("button", { name: "Hidden Bots (2)", exact: true }).click();
+      await page.locator(".assistant-bot-row.is-hidden[data-profile='research-buddy'] .assistant-avatar.has-picture").waitFor();
+      await page.locator(".assistant-bot-row[data-profile='research-buddy']").click();
+      await page.getByRole("tab", { name: "Settings", exact: true }).click();
+      await page.locator("summary", { hasText: "Delete this Bot" }).click();
+      const forever = page.getByRole("button", { name: "Delete forever", exact: true });
+      assert.equal(await forever.isDisabled(), true);
+      await page.getByRole("textbox", { name: "Delete this Bot" }).fill("research-buddy");
+      await forever.click();
+      await page.getByRole("button", { name: "New Bot", exact: true }).waitFor();
+      assert.equal(preview.fake.state.profiles.some(row => row.name === "research-buddy"), false);
 
       stage = "Workspace switch";
       await page.goto(preview.origin + "/workspace.html");

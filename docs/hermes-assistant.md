@@ -19,10 +19,17 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   沒有指名時由 Hermes 決定誰回答。成員需要核准時卡片出現在群組裡；可停止、重試失敗的回合、改名、解散（點兩次）。
   群組開著且畫面可見時每 1.5 秒讀新訊息、每 3 秒讀狀態。Hermes 沒有群組驅動時顯示「需要較新版本的 Hermes」。
 
+- 名單頁的「新增 Bot」建立新的 Hermes profile（可從現有 Bot 複製設定），外觀寫入 `ui_meta["hermes-bots"]`，與 Hermes 桌面版共用。
+  每個 Bot 的「設定」分頁可以改名稱、說明、顏色、圖片（PNG／JPEG／WebP，小於 2 MB）、從名單隱藏、個性（SOUL.md）、
+  模型（Hermes 認為較貴的模型要再按一次「仍要使用」才會寫入）、技能、工具組與 MCP 伺服器。外觀以 Hermes 的修訂號比對，
+  別處改過時不會覆蓋。刪除 Bot 要輸入它的設定檔 ID，預設 Bot 不能刪除。
+- 技能：分類列出、開關、編輯 SKILL.md；技能中心可搜尋、預覽，安裝前一定先做 Hermes 的安全檢查並顯示結果——Hermes 封鎖的
+  技能不提供安裝，需要確認的技能要按「我看過檢查結果，安裝」；Stepsemble 伺服器在安裝前會再檢查一次。
+
 ## 架構與安全
 
 - 伺服器端模組：`server/hermes-discovery.js`、`hermes-session-store.js`、`hermes-gateway-client.js`、
-  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-groups.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
+  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-groups.js`、`hermes-bots.js`、`hermes-skills.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
 - 瀏覽器端：`public/assistant.html` 與 `public/modules/assistant*.js`。跨機器時經由既有的
   裝置轉送 `/r/<id>/api/assistant/*`。
 - 只連本機自己的位址（`STEPSEMBLE_HERMES_URL`、`127.0.0.1:9119`、本機各網路位址的 `:9119`），

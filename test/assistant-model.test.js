@@ -88,3 +88,9 @@ test("delivery targets toggle without disturbing the others", () => {
   assert.equal(M.routineName("[bot:qa-reviewer] Nightly check"), "Nightly check");
   assert.equal(M.routineName("Setel Email Auto-Processor"), "Setel Email Auto-Processor");
 });
+
+test("a new Bot's name suggests the same profile id the server accepts", () => {
+  const { profileIdFor } = require("../server/hermes-bots");
+  for (const label of ["Research Buddy", "  QA_Reviewer 2 ", "影像", "--Luna--"]) assert.equal(M.profileIdFor(label), profileIdFor(label), label);
+  assert.equal(M.profileIdFor("Research Buddy"), "research-buddy");
+});

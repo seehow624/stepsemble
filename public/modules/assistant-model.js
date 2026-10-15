@@ -184,7 +184,9 @@
     return kept.length ? kept.join(",") : "local";
   }
   const routineName = name => String(name || "").replace(/^\[bot:[^\]]{1,64}\]\s*/, "");
+  // A suggested Hermes profile id for a new Bot name (the user can edit it).
+  const profileIdFor = label => String(label || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64);
 
   return { chooseHermesMachine, fromHistory, withInflight, applyEvent, userItem, systemItem, formatWhen, sourceLabel, initials, colorFor,
-    scheduleFromPicker, pickerFromSchedule, deliverTokens, withDeliver, routineName };
+    scheduleFromPicker, pickerFromSchedule, deliverTokens, withDeliver, routineName, profileIdFor };
 });

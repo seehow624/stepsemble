@@ -100,6 +100,23 @@
       groupRename: (room, name) => post("/api/assistant/groups/rename", { room, name }),
       groupStop: room => post("/api/assistant/groups/stop", { room }),
       groupDisband: room => post("/api/assistant/groups/disband", { room }),
+      botDescribe: profile => call(`/api/assistant/bot/describe?${new URLSearchParams({ profile })}`),
+      botModels: profile => call(`/api/assistant/bot/models?${new URLSearchParams({ profile })}`),
+      botAvatar: profile => call(`/api/assistant/bot/avatar?${new URLSearchParams({ profile })}`),
+      createBot: fields => post("/api/assistant/bot/create", { fields }),
+      configureBot: (profile, changes) => post("/api/assistant/bot/configure", { profile, changes }),
+      setBotAvatar: (profile, data) => post("/api/assistant/bot/avatar", { profile, data }),
+      deleteBot: (profile, confirm) => post("/api/assistant/bot/delete", { profile, confirm }),
+      skills: profile => call(`/api/assistant/skills?${new URLSearchParams({ profile })}`),
+      skillContent: (profile, name) => call(`/api/assistant/skills/content?${new URLSearchParams({ profile, name })}`),
+      hubSearch: (profile, q) => call(`/api/assistant/skills/hub/search?${new URLSearchParams({ profile, q })}`),
+      hubPreview: (profile, identifier) => call(`/api/assistant/skills/hub/preview?${new URLSearchParams({ profile, identifier })}`),
+      hubScan: (profile, identifier) => call(`/api/assistant/skills/hub/scan?${new URLSearchParams({ profile, identifier })}`),
+      skillAction: name => call(`/api/assistant/skills/action?${new URLSearchParams({ name })}`),
+      toggleSkill: (profile, name, enabled) => post("/api/assistant/skills/toggle", { profile, name, enabled }),
+      saveSkill: (profile, name, content) => post("/api/assistant/skills/save", { profile, name, content }),
+      installSkill: (profile, identifier, acknowledged) => post("/api/assistant/skills/install", { profile, identifier, acknowledged }),
+      uninstallSkill: (profile, name) => post("/api/assistant/skills/uninstall", { profile, name }),
     });
   }
 
