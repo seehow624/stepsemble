@@ -130,11 +130,68 @@
       "{bot} ha una domanda", "La tua risposta", "Invia risposta", "Salta", "{bot} ha bisogno della tua password sudo", "{bot} ha bisogno di {name}",
       "Nascosto mentre scrivi", "Risposto", "Non più necessario", "Rinomina", "Elimina", "Tocca di nuovo per eliminare", "Salva", "Annulla", "Modello"],
   };
+  const ROUTINE_KEYS = ["routines", "allRoutines", "noRoutines", "newRoutine", "editRoutine", "routineName", "when", "daily", "weekdays", "weekly",
+    "interval", "oneTime", "advanced", "atTime", "onDay", "minutes", "hours", "rawSchedule", "instructions", "deliverTo", "botChatTarget",
+    "alsoBotChat", "modelOptional", "skillsOptional", "nextRun", "statusOk", "statusFailed", "statusDeliveryFailed", "paused", "pause", "resume",
+    "runNow", "confirmRun", "history", "noRuns", "scriptOnly"];
+  const routineRows = {
+    "en": ["Routines", "All routines", "No routines yet.", "New routine", "Edit routine", "Name", "When", "Every day", "Weekdays", "Every week",
+      "Repeat every", "Once", "Advanced", "At", "On", "Minutes", "Hours", "Hermes schedule", "What to do", "Send the result to", "This Bot's chat",
+      "Also send to this Bot's chat", "Model (optional)", "Skills (optional, comma separated)", "Next {time}", "Succeeded", "Failed", "Could not deliver",
+      "Paused", "Pause", "Resume", "Run now", "Tap again to run now", "History", "No runs yet.", "Runs a script without the AI"],
+    "zh-Hant": ["例行工作", "所有例行工作", "還沒有例行工作。", "新增例行工作", "編輯例行工作", "名稱", "執行時間", "每天", "平日", "每週", "每隔", "一次", "進階",
+      "時間", "星期", "分鐘", "小時", "Hermes 排程", "要做什麼", "結果送到", "這個 Bot 的對話", "同時送到這個 Bot 的對話", "模型（選填）", "技能（選填，以逗號分隔）",
+      "下次 {time}", "成功", "失敗", "無法送達", "已暫停", "暫停", "繼續", "立即執行", "再點一次立即執行", "執行紀錄", "還沒有執行紀錄。", "只執行腳本，不使用 AI"],
+    "zh-Hans": ["例行任务", "所有例行任务", "还没有例行任务。", "新建例行任务", "编辑例行任务", "名称", "执行时间", "每天", "工作日", "每周", "每隔", "一次", "高级",
+      "时间", "星期", "分钟", "小时", "Hermes 日程", "要做什么", "结果发送到", "这个 Bot 的对话", "同时发送到这个 Bot 的对话", "模型（选填）", "技能（选填，用逗号分隔）",
+      "下次 {time}", "成功", "失败", "无法送达", "已暂停", "暂停", "继续", "立即运行", "再点一次立即运行", "运行记录", "还没有运行记录。", "只运行脚本，不使用 AI"],
+    "ja": ["ルーティン", "すべてのルーティン", "ルーティンはまだありません。", "新しいルーティン", "ルーティンを編集", "名前", "実行タイミング", "毎日", "平日", "毎週",
+      "繰り返し間隔", "1 回だけ", "詳細", "時刻", "曜日", "分", "時間", "Hermes のスケジュール", "やること", "結果の送信先", "この Bot のチャット",
+      "この Bot のチャットにも送る", "モデル（任意）", "スキル（任意、カンマ区切り）", "次回 {time}", "成功", "失敗", "配信できませんでした", "一時停止中", "一時停止",
+      "再開", "今すぐ実行", "もう一度タップすると今すぐ実行", "履歴", "まだ実行されていません。", "AI を使わずスクリプトだけを実行"],
+    "ko": ["루틴", "모든 루틴", "아직 루틴이 없습니다.", "새 루틴", "루틴 편집", "이름", "실행 시점", "매일", "평일", "매주", "반복 간격", "한 번", "고급", "시각",
+      "요일", "분", "시간", "Hermes 일정", "할 일", "결과 보낼 곳", "이 Bot의 채팅", "이 Bot의 채팅에도 보내기", "모델(선택)", "스킬(선택, 쉼표로 구분)", "다음 {time}",
+      "성공", "실패", "전달하지 못함", "일시 중지됨", "일시 중지", "재개", "지금 실행", "한 번 더 누르면 지금 실행", "기록", "아직 실행 기록이 없습니다.",
+      "AI 없이 스크립트만 실행"],
+    "tr": ["Rutinler", "Tüm rutinler", "Henüz rutin yok.", "Yeni rutin", "Rutini düzenle", "Ad", "Ne zaman", "Her gün", "Hafta içi", "Her hafta",
+      "Şu aralıkla tekrarla", "Bir kez", "Gelişmiş", "Saat", "Gün", "Dakika", "Saat", "Hermes zamanlaması", "Ne yapılacak", "Sonucu gönder", "Bu Bot'un sohbeti",
+      "Bu Bot'un sohbetine de gönder", "Model (isteğe bağlı)", "Beceriler (isteğe bağlı, virgülle ayırın)", "Sonraki {time}", "Başarılı", "Başarısız",
+      "Teslim edilemedi", "Duraklatıldı", "Duraklat", "Devam ettir", "Şimdi çalıştır", "Şimdi çalıştırmak için tekrar dokunun", "Geçmiş", "Henüz çalıştırma yok.",
+      "Yapay zekâ olmadan yalnızca betik çalıştırır"],
+    "fr": ["Routines", "Toutes les routines", "Aucune routine pour l’instant.", "Nouvelle routine", "Modifier la routine", "Nom", "Quand", "Chaque jour",
+      "En semaine", "Chaque semaine", "Répéter toutes les", "Une fois", "Avancé", "À", "Le", "Minutes", "Heures", "Planification Hermes", "À faire",
+      "Envoyer le résultat à", "La discussion de ce Bot", "Envoyer aussi dans la discussion de ce Bot", "Modèle (facultatif)",
+      "Compétences (facultatif, séparées par des virgules)", "Prochaine : {time}", "Réussi", "Échec", "Envoi impossible", "En pause", "Mettre en pause",
+      "Reprendre", "Exécuter maintenant", "Touchez encore pour exécuter", "Historique", "Aucune exécution pour l’instant.", "Exécute un script sans l’IA"],
+    "de": ["Routinen", "Alle Routinen", "Noch keine Routinen.", "Neue Routine", "Routine bearbeiten", "Name", "Wann", "Jeden Tag", "Werktags", "Jede Woche",
+      "Wiederholen alle", "Einmal", "Erweitert", "Um", "Am", "Minuten", "Stunden", "Hermes-Zeitplan", "Was zu tun ist", "Ergebnis senden an",
+      "Chat dieses Bots", "Auch an den Chat dieses Bots senden", "Modell (optional)", "Skills (optional, durch Kommas getrennt)", "Nächste: {time}",
+      "Erfolgreich", "Fehlgeschlagen", "Konnte nicht zugestellt werden", "Pausiert", "Pausieren", "Fortsetzen", "Jetzt ausführen", "Zum Ausführen erneut tippen",
+      "Verlauf", "Noch keine Ausführungen.", "Führt ein Skript ohne KI aus"],
+    "es": ["Rutinas", "Todas las rutinas", "Todavía no hay rutinas.", "Nueva rutina", "Editar rutina", "Nombre", "Cuándo", "Cada día", "Días laborables",
+      "Cada semana", "Repetir cada", "Una vez", "Avanzado", "A las", "El", "Minutos", "Horas", "Programación de Hermes", "Qué hacer", "Enviar el resultado a",
+      "El chat de este Bot", "Enviar también al chat de este Bot", "Modelo (opcional)", "Habilidades (opcional, separadas por comas)", "Próxima: {time}",
+      "Correcto", "Falló", "No se pudo entregar", "En pausa", "Pausar", "Reanudar", "Ejecutar ahora", "Toca otra vez para ejecutar", "Historial",
+      "Todavía no hay ejecuciones.", "Ejecuta un script sin la IA"],
+    "pt-BR": ["Rotinas", "Todas as rotinas", "Ainda não há rotinas.", "Nova rotina", "Editar rotina", "Nome", "Quando", "Todo dia", "Dias úteis", "Toda semana",
+      "Repetir a cada", "Uma vez", "Avançado", "Às", "Em", "Minutos", "Horas", "Agenda do Hermes", "O que fazer", "Enviar o resultado para",
+      "A conversa deste Bot", "Enviar também para a conversa deste Bot", "Modelo (opcional)", "Habilidades (opcional, separadas por vírgula)", "Próxima: {time}",
+      "Concluída", "Falhou", "Não foi possível entregar", "Pausada", "Pausar", "Retomar", "Executar agora", "Toque de novo para executar", "Histórico",
+      "Ainda não há execuções.", "Executa um script sem a IA"],
+    "it": ["Routine", "Tutte le routine", "Ancora nessuna routine.", "Nuova routine", "Modifica routine", "Nome", "Quando", "Ogni giorno", "Giorni feriali",
+      "Ogni settimana", "Ripeti ogni", "Una volta", "Avanzate", "Alle", "Il", "Minuti", "Ore", "Pianificazione Hermes", "Cosa fare", "Invia il risultato a",
+      "La chat di questo Bot", "Invia anche alla chat di questo Bot", "Modello (facoltativo)", "Skill (facoltative, separate da virgole)", "Prossima: {time}",
+      "Riuscita", "Non riuscita", "Impossibile consegnare", "In pausa", "Metti in pausa", "Riprendi", "Esegui ora", "Tocca di nuovo per eseguire", "Cronologia",
+      "Ancora nessuna esecuzione.", "Esegue uno script senza l’IA"],
+  };
   const tables = {};
-  for (const [locale, values] of Object.entries(rows)) {
-    if (values.length !== KEYS.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${KEYS.length}`);
-    tables[locale] = Object.freeze(Object.fromEntries(KEYS.map((key, index) => [key, values[index]])));
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows]]) {
+    for (const [locale, values] of Object.entries(set)) {
+      if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
+      tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };
+    }
   }
+  for (const locale of Object.keys(tables)) Object.freeze(tables[locale]);
   function t(key, vars = {}, locale = "en") {
     const table = tables[locale] || tables.en;
     const text = table[key] ?? tables.en[key] ?? key;
