@@ -23,6 +23,7 @@ import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cas
 import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
+import { runAssistantBrowserCases } from "./assistant-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
@@ -186,6 +187,7 @@ try {
     await runWorkspaceReorderBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
+    await runAssistantBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
   else await runCodexHistoryBrowserCases(browser, historyHelper);
