@@ -42,5 +42,10 @@ namespace StepsembleAgentIdentity {
     badge.appendChild(mark);
     return badge;
   }
+  // Personal assistants (Hermes) live on the assistant page; a new
+  // conversation offers only installed coding agents.
+  export function startsConversations(connector: { installed?: unknown; category?: unknown } | null | undefined): boolean {
+    return !!connector && connector.installed === true && connector.category !== "personal";
+  }
 }
 if (typeof module !== "undefined") module.exports = StepsembleAgentIdentity;

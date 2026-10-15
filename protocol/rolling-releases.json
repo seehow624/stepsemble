@@ -1,7 +1,7 @@
 {
   "purpose": "Latest two shipped releases preceding this unreleased development Host; advance explicitly at the next release",
   "releases": [
-    { "tag": "v3.8.62", "commit": "3249a2624926fa731e720d28aafabe0a4ae0fe65", "version": "3.8.62" },
-    { "tag": "v3.8.61", "commit": "b9fe4d9db1a036ad2c49743718a4161a6f847e18", "version": "3.8.61" }
+    { "tag": "v3.8.63", "commit": "56e609ac5e049a6f00079b263629e5e8134d55fb", "version": "3.8.63" },
+    { "tag": "v3.8.62", "commit": "3249a2624926fa731e720d28aafabe0a4ae0fe65", "version": "3.8.62" }
   ]
 }
