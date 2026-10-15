@@ -47,6 +47,7 @@ const { createHermesSessionStore } = require("./server/hermes-session-store");
 const { createHermesGatewayClient } = require("./server/hermes-gateway-client");
 const { createHermesAssistantService } = require("./server/hermes-assistant-service");
 const { createHermesAssistantRoutes } = require("./server/hermes-assistant-routes");
+const { createHermesRoutines } = require("./server/hermes-routines");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
@@ -5339,16 +5340,18 @@ const handleAgentModeRoute = createAgentModeRoutes({
 // Hermes Bot Mode for the assistant page (docs/hermes-assistant.md). The
 // client connects only when the page or a running turn needs it; nothing is
 // spawned and no Hermes file is read.
+const hermesClient = createHermesGatewayClient({
+  discovery: createHermesDiscovery(),
+  store: createHermesSessionStore({ file: path.join(CONFIG_DIR, "hermes-session.json") }),
+  log: (...args) => console.warn(...args),
+});
 const hermesAssistant = createHermesAssistantService({
-  client: createHermesGatewayClient({
-    discovery: createHermesDiscovery(),
-    store: createHermesSessionStore({ file: path.join(CONFIG_DIR, "hermes-session.json") }),
-    log: (...args) => console.warn(...args),
-  }),
+  client: hermesClient,
   installed: () => !!hermesCommand,
   notify: notice => { void deliverPushNotification({ url: notice.url }, notice.title, notice.body); },
 });
-const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, readJSON, sendJSON, sseFrame, trySseWrite });
+const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, routines: createHermesRoutines({ client: hermesClient }),
+  readJSON, sendJSON, sseFrame, trySseWrite });
 
 // A mode chosen earlier is put back when an ACP conversation is loaded again;
 // the agent would otherwise start it in its own default mode.

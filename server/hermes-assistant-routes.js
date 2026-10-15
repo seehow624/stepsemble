@@ -7,7 +7,7 @@
 
 const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024;
 
-function createHermesAssistantRoutes({ service, readJSON, sendJSON, sseFrame, trySseWrite }) {
+function createHermesAssistantRoutes({ service, routines, readJSON, sendJSON, sseFrame, trySseWrite }) {
   function fail(res, error) {
     const status = Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 502;
     sendJSON(res, status, { error: typeof error?.code === "string" ? error.code : "assistant_failed",
@@ -59,7 +59,20 @@ function createHermesAssistantRoutes({ service, readJSON, sendJSON, sseFrame, tr
       else if (p === "/api/assistant/interrupt" && post) sendJSON(res, 200, await service.interrupt(await readJSON(req, SMALL)));
       else if (p === "/api/assistant/asks" && get) sendJSON(res, 200, { asks: service.pendingAsks() });
       else if (p === "/api/assistant/respond" && post) sendJSON(res, 200, await service.respond(await readJSON(req, SMALL)));
-      else if (p === "/api/assistant/watch" && post) {
+      else if (p === "/api/assistant/routines" && get) sendJSON(res, 200, await routines.list(url.searchParams.get("profile") || null));
+      else if (p === "/api/assistant/routines/targets" && get) sendJSON(res, 200, await routines.targets(url.searchParams.get("profile")));
+      else if (p === "/api/assistant/routines/runs" && get) sendJSON(res, 200, await routines.runs(url.searchParams.get("id"), url.searchParams.get("profile")));
+      else if (p === "/api/assistant/routines/create" && post) {
+        const body = await readJSON(req, SMALL);
+        sendJSON(res, 200, await routines.create(body.profile, body.fields || {}));
+      } else if (p === "/api/assistant/routines/update" && post) {
+        const body = await readJSON(req, SMALL);
+        sendJSON(res, 200, await routines.update(body.id, body.profile, body.fields || {}));
+      } else if (/^\/api\/assistant\/routines\/(pause|resume|run|delete)$/.test(p) && post) {
+        const body = await readJSON(req, SMALL);
+        const verb = p.slice("/api/assistant/routines/".length);
+        sendJSON(res, 200, await routines[verb === "delete" ? "remove" : verb](body.id, body.profile));
+      } else if (p === "/api/assistant/watch" && post) {
         const body = await readJSON(req, SMALL);
         sendJSON(res, 200, service.watch(body.clientId, body.sessionId ?? null));
       } else sendJSON(res, 404, { error: "assistant_route_not_found" });

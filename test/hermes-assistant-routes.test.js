@@ -7,9 +7,9 @@ const { createHttpUtils } = require("../server/http-utils");
 const { createHermesAssistantRoutes } = require("../server/hermes-assistant-routes");
 const { HermesError } = require("../server/hermes-gateway-client");
 
-async function serve(t, service) {
+async function serve(t, service, routines = null) {
   const { readJSON, sendJSON, sseFrame, trySseWrite } = createHttpUtils();
-  const handle = createHermesAssistantRoutes({ service, readJSON, sendJSON, sseFrame, trySseWrite });
+  const handle = createHermesAssistantRoutes({ service, routines, readJSON, sendJSON, sseFrame, trySseWrite });
   const server = http.createServer(async (req, res) => {
     if (!await handle(req, res, new URL(req.url, "http://localhost"))) sendJSON(res, 404, { error: "not_found" });
   });
@@ -76,4 +76,22 @@ test("the event stream replays after the cursor and follows new events", async t
   controller.abort();
   await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(released, 1, "closing the page releases the subscription");
+});
+
+test("routine routes pass the Bot and the routine through, GET and POST only", async t => {
+  const calls = [];
+  const record = name => async (...args) => { calls.push([name, ...args]); return { ok: true }; };
+  const routines = { list: record("list"), targets: record("targets"), runs: record("runs"), create: record("create"), update: record("update"),
+    pause: record("pause"), resume: record("resume"), run: record("run"), remove: record("remove") };
+  const base = await serve(t, {}, routines);
+  await fetch(base + "/api/assistant/routines?profile=default");
+  await fetch(base + "/api/assistant/routines");
+  await fetch(base + "/api/assistant/routines/targets?profile=default");
+  await fetch(base + "/api/assistant/routines/runs?id=job1&profile=default");
+  await post(base, "/api/assistant/routines/create", { profile: "default", fields: { schedule: "0 9 * * *" } });
+  await post(base, "/api/assistant/routines/update", { id: "job1", profile: "default", fields: { deliver: "bot-chat" } });
+  for (const verb of ["pause", "resume", "run", "delete"]) await post(base, `/api/assistant/routines/${verb}`, { id: "job1", profile: "default" });
+  assert.deepEqual(calls, [["list", "default"], ["list", null], ["targets", "default"], ["runs", "job1", "default"],
+    ["create", "default", { schedule: "0 9 * * *" }], ["update", "job1", "default", { deliver: "bot-chat" }],
+    ["pause", "job1", "default"], ["resume", "job1", "default"], ["run", "job1", "default"], ["remove", "job1", "default"]]);
 });
