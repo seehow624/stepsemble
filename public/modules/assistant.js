@@ -26,7 +26,7 @@
   const listing = { query: "", rows: [], hasMore: false };
   let api = null, machine = null, bots = [], stream = null, chat = null, tab = "chat", screen = "";
   let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null, groupsView = null;
-  let groupData = { supported: false, rooms: [] }, allBots = [], manageView = null, showHidden = false;
+  let groupData = { supported: false, rooms: [] }, allBots = [], manageView = null, consoleView = null, showHidden = false;
   const avatars = new Map();
 
   function el(tag, className = "", text) {
@@ -65,7 +65,7 @@
     const login = new URL("/index.html", location.origin);
     login.searchParams.set("returnWorkspace", "1");
     login.searchParams.set("assistant", "1");
-    for (const key of ["bot", "session"]) if (params.get(key)) login.searchParams.set(key, params.get(key));
+    for (const key of ["bot", "session", "view"]) if (params.get(key)) login.searchParams.set(key, params.get(key));
     location.replace(login.href);
   }
 
@@ -147,6 +147,8 @@
       onCreated: profile => void loadBots().catch(() => {}).finally(() => void openBot(profile, null, { tab: "settings" })),
       onDeleted: () => void loadBots().catch(() => {}).finally(showRoster),
       onChanged: profile => { avatars.delete(profile); void loadBots().then(() => refreshBotHead(profile)).catch(() => {}); } });
+    consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, toast, locale: prefs.locale,
+      onBack: () => { if (history.length > 1) history.back(); else location.assign("/index.html?settings=1&section=connection"); } });
     groupsView?.close();
     groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, toast, avatar, markdown, bots: () => bots,
       onBack: () => void loadGroups().finally(showRoster) });
@@ -162,6 +164,7 @@
       await loadBots();
       await loadGroups();
     } catch (error) { render(errorView(error, () => start(next))); return; }
+    if (params.get("view") === "console") { screen = "console"; await consoleView.show(main); return; }
     const bot = params.get("bot");
     if (bot) await openBot(bot, params.get("session") || null);
     else showRoster();

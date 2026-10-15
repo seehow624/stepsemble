@@ -8,7 +8,8 @@ import { createAssistantPreview } from "./assistant-preview.mjs";
 // round trip, Hermes sign-in, a streamed Bot Chat reply, the roster, an
 // approval, a sudo question whose value never stays in the page, older
 // Telegram conversations, routines, a group chat, and creating, editing
-// and deleting a Bot with its skills. Phone and desktop widths.
+// and deleting a Bot with its skills, and the Hermes console reached from
+// Settings. Phone and desktop widths.
 export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
   for (const viewport of [{ width: 393, height: 852 }, { width: 1440, height: 900 }]) {
     const preview = await createAssistantPreview();
@@ -215,6 +216,58 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await forever.click();
       await page.getByRole("button", { name: "New Bot", exact: true }).waitFor();
       assert.equal(preview.fake.state.profiles.some(row => row.name === "research-buddy"), false);
+
+      stage = "Hermes console";
+      const sectionOf = title => page.locator(".assistant-manage-section").filter({ has: page.locator("summary", { hasText: new RegExp("^" + title + "$") }) });
+      await page.goto(preview.origin + "/index.html?settings=1&section=connection");
+      await page.locator("#hermes-console-open:not(.hidden)").waitFor();
+      await page.locator("#hermes-console-open").click();
+      await page.waitForURL(/\/assistant\.html\?view=console$/);
+      await page.locator("summary", { hasText: "Messaging gateway" }).waitFor();
+      await page.getByText("Running", { exact: true }).waitFor();
+      await page.locator(".assistant-platform.error", { hasText: "token rejected" }).waitFor();
+      assert.equal((await page.content()).includes("sk-config-secret-never-leaves"), false);
+      await page.locator("summary", { hasText: "Default model" }).click();
+      const mainBox = sectionOf("Default model");
+      await mainBox.getByRole("combobox", { name: "Provider" }).selectOption("ollama");
+      await mainBox.getByRole("combobox", { name: "Model", exact: true }).selectOption("expensive-model");
+      await mainBox.getByRole("button", { name: "Use this model", exact: true }).click();
+      await mainBox.getByText("Hermes says: expensive-model costs more than usual").waitFor();
+      assert.equal(preview.fake.state.config.model.default, "gpt-6-luna");
+      await mainBox.getByRole("button", { name: "Use anyway", exact: true }).click();
+      await sectionOf("Messaging gateway").waitFor();
+      for (let tries = 0; tries < 50 && preview.fake.state.config.model.default !== "expensive-model"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(preview.fake.state.config.model.default, "expensive-model");
+      assert.equal(await sectionOf("Default model").getAttribute("open"), "", "the open section stays open after a save");
+      await sectionOf("Default model").getByRole("combobox", { name: "Reasoning" }).selectOption("high");
+      for (let tries = 0; tries < 50 && preview.fake.state.config.agent.reasoning_effort !== "high"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(preview.fake.state.config.agent.reasoning_effort, "high");
+
+      stage = "Hermes API keys";
+      await page.locator("summary", { hasText: "API keys" }).click();
+      const keysBox = sectionOf("API keys");
+      await keysBox.locator("li[data-key='OPENAI_API_KEY']", { hasText: "sk-...3456" }).waitFor();
+      await keysBox.getByRole("combobox", { name: "Key" }).selectOption("ANTHROPIC_API_KEY");
+      await keysBox.getByRole("textbox", { name: "Value" }).fill("sk-ant-browser-secret");
+      await keysBox.getByRole("button", { name: "Save", exact: true }).click();
+      for (let tries = 0; tries < 50 && preview.fake.state.env.ANTHROPIC_API_KEY !== "sk-ant-browser-secret"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(preview.fake.state.env.ANTHROPIC_API_KEY, "sk-ant-browser-secret");
+      await page.locator("summary", { hasText: "Messaging gateway" }).waitFor();
+      const inputs = await page.locator("input").evaluateAll(nodes => nodes.map(node => node.value));
+      assert.equal(inputs.includes("sk-ant-browser-secret") || (await page.content()).includes("sk-ant-browser-secret"), false, "a key value never stays in the page");
+
+      stage = "Hermes usage and gateway";
+      await page.locator("summary", { hasText: "Usage" }).click();
+      await page.locator(".assistant-usage-totals").waitFor();
+      await page.getByRole("button", { name: "30 days", exact: true }).click();
+      for (let tries = 0; tries < 50 && preview.fake.state.consoleCalls.at(-1)?.days !== 30; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(preview.fake.state.consoleCalls.at(-1).days, 30);
+      await shot("console");
+      const restart = page.getByRole("button", { name: "Restart gateway", exact: true });
+      await restart.click();
+      await page.getByRole("button", { name: "Tap again to restart", exact: true }).click();
+      await page.getByText("Gateway restarted").waitFor();
+      assert.ok(preview.fake.state.consoleCalls.some(call => call.method === "gateway.restart"));
 
       stage = "Workspace switch";
       await page.goto(preview.origin + "/workspace.html");

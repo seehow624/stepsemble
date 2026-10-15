@@ -1191,6 +1191,7 @@ function workspaceDestination() {
       const value = PAGE_QUERY.get(key);
       if (value && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) assistant.searchParams.set(key, value);
     }
+    if (PAGE_QUERY.get("view") === "console") assistant.searchParams.set("view", "console");
     return assistant.href;
   }
   const destination = new URL("/workspace.html", location.origin);
@@ -16428,7 +16429,24 @@ async function checkForClientUpdate() {
   } catch {}
 }
 
+// Settings → Agents & models shows the Hermes console row once any device
+// reports Hermes installed; the console itself opens on that device.
+let hermesConsoleCheck = null;
+function checkHermesConsole() {
+  if (hermesConsoleCheck || !machines.length) return;
+  hermesConsoleCheck = (async () => {
+    for (const machine of machines) {
+      const base = machine.id === selfId || machine.self ? "" : "/r/" + encodeURIComponent(machine.id);
+      try {
+        const response = await fetch(base + "/api/assistant/status", { credentials: "same-origin", cache: "no-store" });
+        if (response.ok && (await response.json())?.installed === true) { $("hermes-console-open")?.classList.remove("hidden"); return; }
+      } catch {}
+    }
+  })();
+}
+
 function renderSettings() {
+  checkHermesConsole();
   if (el.setAppVersion) el.setAppVersion.textContent = `v${window._appVersion || CLIENT_APP_VERSION}`;
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;

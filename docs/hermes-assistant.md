@@ -26,10 +26,16 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
 - 技能：分類列出、開關、編輯 SKILL.md；技能中心可搜尋、預覽，安裝前一定先做 Hermes 的安全檢查並顯示結果——Hermes 封鎖的
   技能不提供安裝，需要確認的技能要按「我看過檢查結果，安裝」；Stepsemble 伺服器在安裝前會再檢查一次。
 
+- 設定 → Agent 與模型 → Hermes（任一台裝了 Hermes 才出現）打開 Hermes 控制台（`/assistant.html?view=console`）：訊息閘道狀態與重新啟動
+  （點兩次）、預設模型與推理強度、輔助模型、備援模型（最多 5 個，可排序）、提供者 API 金鑰、自訂端點，以及 7／30／90 天用量。
+  Hermes 本身的更新仍在「設定 → 更新」。
+- API 金鑰的值只從頁面送到 Hermes：不寫檔、不進 log、不回傳，送出後輸入欄立即清空；頁面只顯示 Hermes 的遮罩預覽。
+  Hermes 設定檔裡的金鑰不會被讀出到瀏覽器，控制台只轉送需要顯示的欄位。訊息平台的憑證留在 Hermes 自己的頁面管理。
+
 ## 架構與安全
 
 - 伺服器端模組：`server/hermes-discovery.js`、`hermes-session-store.js`、`hermes-gateway-client.js`、
-  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-groups.js`、`hermes-bots.js`、`hermes-skills.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
+  `hermes-assistant-service.js`、`hermes-routines.js`、`hermes-groups.js`、`hermes-bots.js`、`hermes-skills.js`、`hermes-console.js`、`hermes-assistant-routes.js`；路由為 `/api/assistant/*`。
 - 瀏覽器端：`public/assistant.html` 與 `public/modules/assistant*.js`。跨機器時經由既有的
   裝置轉送 `/r/<id>/api/assistant/*`。
 - 只連本機自己的位址（`STEPSEMBLE_HERMES_URL`、`127.0.0.1:9119`、本機各網路位址的 `:9119`），

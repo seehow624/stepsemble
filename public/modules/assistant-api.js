@@ -117,6 +117,19 @@
       saveSkill: (profile, name, content) => post("/api/assistant/skills/save", { profile, name, content }),
       installSkill: (profile, identifier, acknowledged) => post("/api/assistant/skills/install", { profile, identifier, acknowledged }),
       uninstallSkill: (profile, name) => post("/api/assistant/skills/uninstall", { profile, name }),
+      console: () => call("/api/assistant/console"),
+      consoleUsage: days => call(`/api/assistant/console/usage?${new URLSearchParams({ days: String(days) })}`),
+      consoleRestartStatus: () => call("/api/assistant/console/restart-status"),
+      setMainModel: (provider, model, confirmExpensive = false) => post("/api/assistant/console/main", { provider, model, confirmExpensive }),
+      setAuxiliaryModel: fields => post("/api/assistant/console/auxiliary", fields),
+      setReasoning: level => post("/api/assistant/console/reasoning", { level }),
+      setFallback: chain => post("/api/assistant/console/fallback", { chain }),
+      setKey: (key, value) => post("/api/assistant/console/key", { key, value }),
+      removeKey: key => post("/api/assistant/console/key/remove", { key }),
+      saveEndpoint: fields => post("/api/assistant/console/endpoint", { fields }),
+      activateEndpoint: id => post("/api/assistant/console/endpoint/activate", { id }),
+      removeEndpoint: id => post("/api/assistant/console/endpoint/remove", { id }),
+      restartGateway: () => post("/api/assistant/console/restart"),
     });
   }
 
