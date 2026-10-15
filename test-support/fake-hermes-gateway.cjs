@@ -59,6 +59,26 @@ function defaultProfiles() {
   ];
 }
 
+function defaultSkills() {
+  return [
+    { name: "daily-brief", category: "productivity", description: "Morning brief", provenance: "agent", enabled: true, content: "---\nname: daily-brief\n---\nBrief me.\n" },
+    { name: "web-search", category: "research", description: "Search the web", provenance: "bundled", enabled: true, content: "---\nname: web-search\n---\nSearch.\n" },
+    { name: "image-gen", category: "creative", description: "Make images", provenance: "hub", enabled: false, content: "---\nname: image-gen\n---\nDraw.\n" },
+  ];
+}
+function defaultHub() {
+  return [
+    { name: "pdf-reader", description: "Read PDFs", source: "official", identifier: "official/docs/pdf-reader", trust_level: "builtin", repo: null, tags: ["pdf"],
+      scan: { verdict: "safe", summary: "No issues", policy: "allow", policy_reason: "", findings: [], severity_counts: { critical: 0, high: 0, medium: 0, low: 0 } } },
+    { name: "shell-helper", description: "Runs shell scripts", source: "github", identifier: "github/someone/shell-helper", trust_level: "community", repo: "someone/shell-helper", tags: [],
+      scan: { verdict: "caution", summary: "Runs commands", policy: "ask", policy_reason: "community skill with shell access",
+        findings: [{ severity: "high", category: "exec", file: "SKILL.md", line: 4, description: "Runs arbitrary shell commands" }], severity_counts: { critical: 0, high: 1, medium: 0, low: 0 } } },
+    { name: "stealer", description: "Bad", source: "github", identifier: "github/bad/stealer", trust_level: "community", repo: "bad/stealer", tags: [],
+      scan: { verdict: "dangerous", summary: "Exfiltrates keys", policy: "block", policy_reason: "critical finding",
+        findings: [{ severity: "critical", category: "exfiltration", file: "run.sh", line: 1, description: "Sends ~/.ssh to a server" }], severity_counts: { critical: 1, high: 0, medium: 0, low: 0 } } },
+  ];
+}
+
 function cookie(req, name) {
   for (const part of String(req.headers.cookie || "").split(";")) {
     const index = part.indexOf("=");
@@ -84,6 +104,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     profiles, stored: new Map(), live: new Map(), peers: new Map(), rings: new Map(), seqs: new Map(),
     open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
     rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
+    bots: new Map(), avatars: new Map(), hubCatalog: defaultHub(), actions: new Map(), botCalls: [],
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
   const preview = row => row.messages.at(-1)?.text?.slice(0, 80) || "";
@@ -139,10 +160,20 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
   function roster() {
     return state.profiles.map(profile => {
       const chat = [...state.stored.values()].find(row => row.profile === profile.name && row.title === BOT_CHAT);
-      return { path: `/fake/${profile.name}`, skill_count: 3, previous_names: [], ui_meta_revisions: {}, has_avatar: false,
+      return { path: `/fake/${profile.name}`, skill_count: 3, previous_names: [], has_avatar: state.avatars.has(profile.name), ui_meta_revisions: { ...(state.bots.get(profile.name)?.revisions || {}) },
         worker_session: null, last_session: null, ...profile,
         canonical_session: chat ? { id: chat.id, title: BOT_CHAT, root_title: BOT_CHAT, preview: preview(chat), last_active: chat.lastActive } : null };
     });
+  }
+  // Per-profile editor state (SOUL, skills, toolsets, MCP), created on first use.
+  function botOf(name) {
+    if (!state.bots.has(name)) {
+      state.bots.set(name, { soul: `You are ${name}.`, skills: defaultSkills(), revisions: {},
+        toolsets: [{ name: "web", label: "Web", description: "Search and fetch", tool_count: 3, enabled: true },
+          { name: "terminal", label: "Terminal", description: "Run commands", tool_count: 2, enabled: false }],
+        mcp: [{ name: "github", enabled: true, transport: "http" }, { name: "notion", enabled: false, transport: "stdio" }] });
+    }
+    return state.bots.get(name);
   }
   async function runTurn(liveId, storedId, text) {
     const row = state.stored.get(storedId);
@@ -259,6 +290,70 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         return undefined;
       }
       case "session.interrupt": return reply({ ok: true });
+      case "profiles.describe": {
+        const profile = state.profiles.find(row => row.name === p.name);
+        if (!profile) return fail(4064, `profile '${p.name}' not found`);
+        const bot = botOf(profile.name);
+        return reply({ name: profile.name, description: profile.description || "", soul: bot.soul, model: { provider: profile.provider || "", default: profile.model || "" },
+          skills: bot.skills.map(skill => ({ name: skill.name, enabled: skill.enabled })), toolsets: bot.toolsets.map(row => ({ ...row })),
+          toolsets_pinned: false, mcp_servers: bot.mcp.map(row => ({ ...row })) });
+      }
+      case "profiles.configure": {
+        const profile = state.profiles.find(row => row.name === p.name);
+        if (!profile) return fail(4064, `profile '${p.name}' not found`);
+        const bot = botOf(profile.name);
+        state.botCalls.push({ method: "configure", ...p });
+        const applied = {};
+        if (p.ui_meta && typeof p.ui_meta === "object") {
+          const expected = p.ui_meta_expected_revisions || {};
+          const conflicts = Object.keys(p.ui_meta).filter(key => p.ui_meta_expected_revisions && (expected[key] ?? -1) !== (bot.revisions[key] || 0));
+          if (conflicts.length) { applied.ui_meta = false; applied.ui_meta_conflicts = Object.fromEntries(conflicts.map(key => [key, { expected: expected[key], actual: bot.revisions[key] || 0 }])); }
+          else {
+            profile.ui_meta = { ...(profile.ui_meta || {}) };
+            for (const [key, value] of Object.entries(p.ui_meta)) { if (value === null) delete profile.ui_meta[key]; else profile.ui_meta[key] = value; bot.revisions[key] = (bot.revisions[key] || 0) + 1; }
+            applied.ui_meta = true;
+          }
+        }
+        if (typeof p.soul === "string") { bot.soul = p.soul; applied.soul = true; }
+        if (typeof p.description === "string") { profile.description = p.description.trim(); applied.description = true; }
+        let confirm = null;
+        if (p.model && p.provider) {
+          if (/expensive/.test(p.model) && p.confirm_expensive_model !== true) confirm = `${p.model} costs more than usual`;
+          else { profile.model = p.model; profile.provider = p.provider; applied.model = true; }
+        }
+        if (Array.isArray(p.disabled_skills)) { for (const skill of bot.skills) skill.enabled = !p.disabled_skills.includes(skill.name); applied.skills = true; }
+        if (Array.isArray(p.enabled_toolsets)) { for (const row of bot.toolsets) row.enabled = p.enabled_toolsets.includes(row.name); applied.toolsets = true; }
+        if (Array.isArray(p.enabled_mcp_servers)) { for (const row of bot.mcp) row.enabled = p.enabled_mcp_servers.includes(row.name); applied.mcp_servers = true; }
+        return reply({ ok: Object.values(applied).every(value => value !== false), applied, ...(confirm ? { confirm_required: true, confirm_message: confirm } : {}) });
+      }
+      case "profiles.create": {
+        const name = String(p.name || "").trim();
+        if (!name) return fail(4061, "name required");
+        if (state.profiles.some(row => row.name === name)) return fail(4062, `Profile '${name}' already exists`);
+        const source = p.clone_from ? state.profiles.find(row => row.name === p.clone_from) : null;
+        if (p.clone_from && !source) return fail(4062, `Profile '${p.clone_from}' does not exist`);
+        state.botCalls.push({ method: "create", ...p });
+        state.profiles.push({ name, is_default: false, display_name: "", description: String(p.description || ""), model: p.model || source?.model || "gpt-6-luna",
+          provider: p.provider || source?.provider || "openai-codex", ui_meta: {} });
+        if (typeof p.soul === "string" && p.soul.trim()) botOf(name).soul = p.soul;
+        return reply({ ok: true, name, path: `/fake/${name}`, soul_written: !!p.soul, model_set: !!(p.model && p.provider), mirrored: {} });
+      }
+      case "profiles.set_asset": {
+        if (!state.profiles.some(row => row.name === p.name)) return fail(4064, `profile '${p.name}' not found`);
+        if (p.clear === true) { state.avatars.delete(p.name); return reply({ ok: true, asset: "avatar", size: 0, removed: 1 }); }
+        const match = /^data:(image\/(?:png|jpeg|webp));base64,(.*)$/s.exec(String(p.data || ""));
+        if (!match) return fail(4070, "unsupported image format (PNG/JPEG/WebP only)");
+        state.avatars.set(p.name, String(p.data));
+        return reply({ ok: true, asset: "avatar", size: Buffer.from(match[2], "base64").length });
+      }
+      case "profiles.get_asset": {
+        const data = state.avatars.get(p.name);
+        return reply(data ? { found: true, mime: /^data:([^;]+)/.exec(data)[1], size: data.length, data } : { found: false });
+      }
+      case "model.options":
+        return reply({ model: "gpt-6-luna", provider: "openai-codex", providers: [
+          { slug: "openai-codex", name: "OpenAI Codex", is_current: true, models: ["gpt-6-luna", "gpt-6-mini"], total_models: 2 },
+          { slug: "ollama", name: "Ollama", is_current: false, models: ["deepseek-v4-pro:cloud", "expensive-model"], total_models: 2 }] });
       case "groups.capabilities":
         return reply({ protocol_version: 1, driver: state.groupDriver, persistent_process: true, authority_gateway_id: installId,
           room_link: { enabled: false, reason: "disabled" }, features: ["discussion"], methods: ["groups.create", "groups.send"], max_log_limit: 500 });
@@ -456,6 +551,81 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
           runs.push({ id: `cron_output:${job.id}:latest`, title: "Script output", preview: null, source: "cron_output", started_at: 1_760_400_000 });
           return send(200, { runs, limit: 20 }, rotated);
         }
+      }
+      const profileMatch = /^\/api\/profiles\/([^/]+)$/.exec(url.pathname);
+      if (profileMatch && req.method === "DELETE") {
+        const name = decodeURIComponent(profileMatch[1]);
+        const index = state.profiles.findIndex(row => row.name === name);
+        if (index < 0) return send(404, { detail: `Profile '${name}' not found` });
+        if (state.profiles[index].is_default) return send(400, { detail: "Cannot delete the default profile" });
+        state.profiles.splice(index, 1);
+        state.botCalls.push({ method: "delete", name });
+        return send(200, { ok: true, path: `/fake/${name}` }, rotated);
+      }
+      const skillProfile = () => {
+        const name = url.searchParams.get("profile") || "default";
+        return state.profiles.some(row => row.name === name) ? botOf(name) : null;
+      };
+      if (url.pathname === "/api/skills" && req.method === "GET") {
+        const bot = skillProfile();
+        if (!bot) return send(404, { detail: "Profile not found" });
+        return send(200, bot.skills.map(({ content, ...skill }) => ({ ...skill, usage: 0 })), rotated);
+      }
+      if (url.pathname === "/api/skills/toggle" && req.method === "PUT") {
+        const body = await readJson(req);
+        const skill = (state.profiles.some(row => row.name === body.profile) ? botOf(body.profile) : null)?.skills.find(row => row.name === body.name);
+        if (!skill) return send(404, { detail: "Skill not found" });
+        skill.enabled = body.enabled === true;
+        state.botCalls.push({ method: "toggle", profile: body.profile, name: body.name, enabled: skill.enabled });
+        return send(200, { ok: true, name: skill.name, enabled: skill.enabled }, rotated);
+      }
+      if (url.pathname === "/api/skills/content" && req.method === "GET") {
+        const skill = skillProfile()?.skills.find(row => row.name === url.searchParams.get("name"));
+        if (!skill) return send(404, { detail: "Skill not found." });
+        return send(200, { name: skill.name, content: skill.content, path: `/fake/skills/${skill.name}/SKILL.md` }, rotated);
+      }
+      if (url.pathname === "/api/skills/content" && req.method === "PUT") {
+        const body = await readJson(req);
+        const skill = (state.profiles.some(row => row.name === body.profile) ? botOf(body.profile) : null)?.skills.find(row => row.name === body.name);
+        if (!skill) return send(404, { detail: "Skill 'x' not found." });
+        skill.content = String(body.content);
+        state.botCalls.push({ method: "skill.save", profile: body.profile, name: body.name });
+        return send(200, { success: true }, rotated);
+      }
+      if (url.pathname === "/api/skills/hub/search" && req.method === "GET") {
+        const query = String(url.searchParams.get("q") || "").toLowerCase();
+        const results = state.hubCatalog.filter(row => query && (row.name.includes(query) || row.description.toLowerCase().includes(query)));
+        const installed = Object.fromEntries((skillProfile()?.skills || []).filter(row => row.identifier).map(row => [row.identifier, row.name]));
+        return send(200, { results: results.map(({ scan, ...row }) => row), source_counts: {}, timed_out: [], installed }, rotated);
+      }
+      if ((url.pathname === "/api/skills/hub/preview" || url.pathname === "/api/skills/hub/scan") && req.method === "GET") {
+        const row = state.hubCatalog.find(item => item.identifier === url.searchParams.get("identifier"));
+        if (!row) return send(404, { detail: "Skill not found" });
+        if (url.pathname.endsWith("/preview")) return send(200, { name: row.name, description: row.description, source: row.source, identifier: row.identifier,
+          trust_level: row.trust_level, repo: row.repo, tags: row.tags, skill_md: `---\nname: ${row.name}\n---\n${row.description}\n`, files: ["SKILL.md"] }, rotated);
+        state.botCalls.push({ method: "scan", identifier: row.identifier });
+        return send(200, { name: row.name, identifier: row.identifier, source: row.source, trust_level: row.trust_level, ...row.scan, tier1: null }, rotated);
+      }
+      if ((url.pathname === "/api/skills/hub/install" || url.pathname === "/api/skills/hub/uninstall") && req.method === "POST") {
+        const body = await readJson(req);
+        const bot = state.profiles.some(row => row.name === body.profile) ? botOf(body.profile) : null;
+        if (!bot) return send(404, { detail: "Profile not found" });
+        const install = url.pathname.endsWith("/install");
+        const key = install ? body.identifier : body.name;
+        const name = `skills-${install ? "install" : "uninstall"}-${String(key).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48)}-${crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 8)}`;
+        state.botCalls.push({ method: install ? "install" : "uninstall", profile: body.profile, key });
+        if (install) {
+          const row = state.hubCatalog.find(item => item.identifier === key);
+          if (row && !bot.skills.some(skill => skill.name === row.name)) bot.skills.push({ name: row.name, category: "hub", description: row.description, provenance: "hub", enabled: true, identifier: row.identifier, content: `---\nname: ${row.name}\n---\n` });
+        } else bot.skills = bot.skills.filter(skill => skill.name !== key);
+        state.actions.set(name, { name, running: false, exit_code: 0, pid: 4242, lines: [`${install ? "Installed" : "Uninstalled"} ${key}`] });
+        return send(200, { ok: true, pid: 4242, name }, rotated);
+      }
+      const actionMatch = /^\/api\/actions\/([^/]+)\/status$/.exec(url.pathname);
+      if (actionMatch && req.method === "GET") {
+        const action = state.actions.get(decodeURIComponent(actionMatch[1]));
+        if (!action) return send(404, { detail: "Unknown action" });
+        return send(200, action, rotated);
       }
       const match = /^\/api\/sessions\/([^/]+)$/.exec(url.pathname);
       if (match && req.method === "PATCH") {
