@@ -42,7 +42,7 @@ test("a wrong password is reported once and nothing is saved", async t => {
   const status = await client.status();
   assert.equal(status.signedIn, false);
   assert.equal(status.authRequired, true);
-  assert.equal(status.version, "0.21.6");
+  assert.equal(status.version, "0.22.0");
 });
 
 test("signing in keeps only cookies; requests use a ticketed socket that says it answers questions", async t => {

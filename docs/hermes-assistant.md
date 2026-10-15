@@ -50,10 +50,18 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
 ## 測試
 
 - 單元與整合：`test/hermes-*.test.js`、`test/assistant-*.test.js`，以
-  `test-support/fake-hermes-gateway.cjs` 模擬 Hermes 0.21.6。
+  `test-support/fake-hermes-gateway.cjs` 模擬 Hermes 0.22.0。
 - 瀏覽器：`node scripts/assistant-browser-cases.mjs <Playwright runtime>`，或 Rolling 的 workspace 套件。
 
 ## 相容性
 
-基準為 Hermes 0.21.6。這套 WebSocket JSON-RPC 是 Hermes 給自家桌面版用的協定，Hermes 升級時
-可能改變；每次 Hermes 新穩定版都要以假伺服器與真機唯讀檢查重新確認。
+以 Hermes 0.22.0 原始碼實作與驗證（Mac mini 現行版本）；0.21.6 與 0.22.1 也宣告了所有用到的方法與路由。
+這套 WebSocket JSON-RPC 是 Hermes 給自家桌面版用的協定，升級時可能改變：
+
+- `npm run check:hermes-release`：讀本機 Hermes 原始碼（預設 `~/.hermes/hermes-agent`，或 `--source`），確認
+  Stepsemble 用到的每個 JSON-RPC 方法與 REST 路由仍在；`--tag v0.22.1` 可在更新前先檢查已抓取的版本。結果記在
+  `~/.config/stepsemble/hermes-release-checks.json`。
+- `npm run test:native:hermes`：在裝 Hermes 的電腦上，用助理頁保存的登入唯讀檢查真機（狀態、Bot、對話、例行工作、
+  群組支援），只印數量，不送訊息、不改任何設定。
+- 0.22.1 新增「session authority」：Hermes 由 gateway 代管網頁伺服器時，`session.*`／`prompt.*` 改由它處理。
+  方法名稱都還在，但行為要在真機更新後以互動測試確認。

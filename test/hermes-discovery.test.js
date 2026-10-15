@@ -38,7 +38,7 @@ test("discovery finds a running Hermes and remembers it for a while", async t =>
   const discovery = createHermesDiscovery({ env: { STEPSEMBLE_HERMES_URL: fake.url }, interfaces: () => ({}), fetchImpl, now: () => clock });
   const found = await discovery.find();
   assert.equal(found.url, fake.url);
-  assert.equal(found.status.version, "0.21.6");
+  assert.equal(found.status.version, "0.22.0");
   assert.equal(found.status.authRequired, true);
   const before = probes;
   await discovery.find();

@@ -338,7 +338,7 @@ Bot、對話、例行工作、技能、群組都只存在 Hermes。
 
 ## 8. 相容性
 
-- 基準：Hermes 0.21.6。
+- 基準：Hermes 0.21.6（實作期間 Mac mini 更新到 0.22.0，最後以 0.22.0 原始碼與執行中的伺服器驗證）。
 - 啟動時讀 `/api/status` 的版本，並在使用各功能前偵測（例如 `groups.capabilities`）；
   缺少的方法視為「需要更新」，不猜測替代方案。
 - 新增 `scripts/check-hermes-release.mjs` 與 `npm run check:hermes-release`，比照其他 Agent 的相容性檢查；

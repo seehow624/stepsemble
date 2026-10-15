@@ -1,6 +1,6 @@
 "use strict";
 
-// A stand-in for the Hermes 0.21.6 web server, for tests only: /api/status,
+// A stand-in for the Hermes 0.22.0 web server, for tests only: /api/status,
 // password sign-in with cookies, WebSocket tickets, one JSON-RPC socket with
 // events and server→client requests, and the session REST routes the
 // assistant reads. Tests steer it through the returned controls; no model is
@@ -105,7 +105,7 @@ async function readJson(req) {
 }
 
 function createFakeHermesGateway({ authRequired = true, providers = ["basic"], username = "jerome",
-  password = "correct horse", version = "0.21.6", installId = "install-fake", profiles = defaultProfiles() } = {}) {
+  password = "correct horse", version = "0.22.0", installId = "install-fake", profiles = defaultProfiles() } = {}) {
   const state = {
     epoch: crypto.randomBytes(8).toString("hex"), loopbackToken: crypto.randomBytes(24).toString("base64url"),
     accessTokens: new Set(), tickets: new Set(), ticketsIssued: 0, loginAttempts: 0, rateLimitAfter: Infinity,
