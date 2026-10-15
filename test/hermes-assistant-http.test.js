@@ -33,7 +33,15 @@ test("the running server reaches Hermes, keeps the sign-in and streams a Bot Cha
       STEPSEMBLE_PORT: String(port), PI_BIN: "/path/that/does/not/exist", STEPSEMBLE_HERMES_URL: fake.url, STEPSEMBLE_HERMES_ACP: "0" }),
     stdio: ["ignore", "pipe", "pipe"],
   });
-  t.after(async () => { child.kill("SIGTERM"); await fake.close(); fs.rmSync(home, { recursive: true, force: true }); });
+  // The server may still be writing its config while it stops; remove the
+  // folder only after it has exited.
+  t.after(async () => {
+    const exited = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise(resolve => child.once("exit", resolve));
+    child.kill("SIGTERM");
+    await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 10_000))]);
+    await fake.close();
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
   let output = "";
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`server did not start:\n${output}`)), 20_000);
