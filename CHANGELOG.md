@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.7
+
+- Replace the Assistant conversation's Back and History text actions with quiet line icons. Keep accessible names, hover hints and full-size touch targets without taking space from the Bot name.
+- Add 20 original robot and spirit avatars with transparent backgrounds and distinct silhouettes. Default avatars no longer sit inside a coloured tile; uploaded pictures retain their rounded frame.
+- Let users choose an avatar in Bot settings and save the selection in the Hermes profile metadata. Switching to a built-in avatar preserves the uploaded picture, and users can switch back or upload a replacement without losing other Bot settings.
+- Support keyboard selection, keep focus while saving, restore the selected avatar after reloading, and roll back the picker when a save fails. Cover phone and desktop layouts, image switching, and all 11 interface languages with regression tests that make no model calls.
+
 ## 3.9.6
 
 - Redesign the Hermes Assistant around conversations: a searchable Bot and group list, a focused reading view, a history panel with date groups and row actions, and a quiet More menu for routines and settings. Keep the desktop two-pane layout and update the introduction and all 11 languages.
