@@ -129,7 +129,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.9.4";
+const APP_VERSION = "3.9.5";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -3599,7 +3599,7 @@ function rpcSessionFileOf(session) {
   const file = session?.state?.sessionFile;
   if (typeof file !== "string" || !file) return null;
   const relative = path.isAbsolute(file) ? path.relative(SESSIONS_DIR, file) : file;
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : null;
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : null;
 }
 
 // A Pi conversation that ended before its first message has no file: not in
@@ -3640,6 +3640,17 @@ function reusableRpc(file) {
   return null;
 }
 
+// The workspace owns the durable file; a Pi RPC sid belongs only to this
+// process. Reopening/reusing a saved conversation must refresh that sid before
+// its next lifecycle event, without adopting history or replacing metadata.
+function bindWorkspacePiRpc(file, sid) {
+  if (typeof file !== "string" || !file) return;
+  try {
+    const entry = workspaceRegistry.list().entries.find(row => row.record.agentId === "pi" && row.record.file === file);
+    if (entry && entry.record.sid !== sid) workspaceRegistry.update(entry.key, { sid });
+  } catch { console.warn("[stepsemble] Could not reconnect the Pi session's workspace status; the session is still available"); }
+}
+
 async function openRpc({ file, cwd, name }) {
   let validatedNewCwd = null;
   if (!file) {
@@ -3651,7 +3662,7 @@ async function openRpc({ file, cwd, name }) {
     }
   }
   const reused = reusableRpc(file);
-  if (reused) return reused;
+  if (reused) { bindWorkspacePiRpc(file, reused.sid); return reused; }
   const activeRpcCount = [...rpcSessions.values()].filter((session) => !session.exited).length;
   if (activeRpcCount >= MAX_RPC_SESSIONS) {
     const err = new Error(`too many rpc sessions (limit ${MAX_RPC_SESSIONS})`);
@@ -3679,7 +3690,7 @@ async function openRpc({ file, cwd, name }) {
   // File metadata is asynchronous. Recheck identity and capacity at the effect
   // boundary so two simultaneous opens cannot spawn two writers for one file.
   const concurrentlyOpened = reusableRpc(file);
-  if (concurrentlyOpened) return concurrentlyOpened;
+  if (concurrentlyOpened) { bindWorkspacePiRpc(file, concurrentlyOpened.sid); return concurrentlyOpened; }
   if (!file) {
     const recheckedCwd = projectDirectory(spawnCwd);
     if (!recheckedCwd || recheckedCwd !== spawnCwd) {
@@ -3749,7 +3760,9 @@ async function openRpc({ file, cwd, name }) {
       if (ev.type === "response" && ev.command === "get_state" && ev.success) {
         sess.state = { ...sess.state, ...ev.data };
         if (typeof ev.data.sessionFile === "string") {
-          const file = path.isAbsolute(ev.data.sessionFile) ? path.relative(SESSIONS_DIR, ev.data.sessionFile) : ev.data.sessionFile;
+          // The catalog and workspace use slash-separated relative identities
+          // on every platform, even when Pi reports a native Windows path.
+          const file = (path.isAbsolute(ev.data.sessionFile) ? path.relative(SESSIONS_DIR, ev.data.sessionFile) : ev.data.sessionFile).split(path.sep).join("/");
           if (file && !file.startsWith("..") && !path.isAbsolute(file)) {
             try {
               const owned = workspaceRegistry.list().entries.find(row => row.record.agentId === "pi" && row.record.sid === sid);
@@ -3809,6 +3822,7 @@ async function openRpc({ file, cwd, name }) {
   // A new conversation starts with the model and level chosen last; one opened
   // again has its own back from Pi's session file.
   if (!file) await piChoice.applyLast(sid);
+  bindWorkspacePiRpc(file, sid);
   rpcWrite(sid, { type: "get_state" });
   scheduleRpcCleanup(sid);
   return { sid, pid: proc.pid, cwd: spawnCwd, reused: false, isStreaming: false, replayAfter: -1 };
@@ -4916,7 +4930,7 @@ async function openAgentTask(body, { signal } = {}) {
           value.name = body.name || session?.meta.name || "Pi";
           const sessionFile = session?.state.sessionFile || body.file;
           if (typeof sessionFile === "string") {
-            const relative = path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile;
+            const relative = (path.isAbsolute(sessionFile) ? path.relative(SESSIONS_DIR, sessionFile) : sessionFile).split(path.sep).join("/");
             if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) value.file = relative;
           }
         }

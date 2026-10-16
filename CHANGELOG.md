@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.5
+
+- Fix Pi conversation activity indicators after reconnecting or reopening a saved conversation. The existing workspace entry now follows the current Pi process, so desktop and mobile sidebars show working status and completed-unread results consistently.
+- Preserve conversation identity, chosen names, pins, ordering and read acknowledgements when updating the transient Pi connection. Reusing a running conversation does not launch a second writer or import unrelated history.
+- Add deterministic HTTP regressions for reconnects, Host restarts, concurrent opens and completion outcomes without an open conversation viewer. No Bot interface redesign is included in this release.
+
 ## 3.9.4
 
 - Keep the Assistant's top bar sharp in the iPhone Home Screen app: the page now declares its colour under the status bar, as the Workspace does, so iOS no longer blurs the Workspace | Assistant switch.
