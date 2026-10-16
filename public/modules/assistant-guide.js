@@ -98,13 +98,9 @@
         chips.append(el("span", "assistant-choice", "@all"));
         box.append(chips);
       } else {
-        const tabs = el("div", "assistant-tabs");
-        for (const [label, on] of [[t("chat"), false], [t("routines"), false], [t("settings"), true]]) {
-          const tab = el("span", "assistant-tab", label);
-          if (on) tab.setAttribute("aria-selected", "true");
-          tabs.append(tab);
-        }
-        box.append(tabs);
+        const menu = el("div", "assistant-intro-menu");
+        for (const label of [t("historyAction"), t("routines"), t("settings")]) menu.append(el("span", "", label));
+        box.append(menu);
       }
       return box;
     }
@@ -119,8 +115,23 @@
       layer.append(card);
       const pages = [["bots", "introTitle1", "introBody1"], ["ask", "introTitle2", "introBody2"], ["groups", "introTitle3", "introBody3"], ["settings", "introTitle4", "introBody4"]];
       let page = 0;
-      const close = () => { document.removeEventListener("keydown", keys); layer.remove(); onDone(); };
-      const keys = event => { if (event.key === "Escape") close(); };
+      const opener = document.activeElement, covered = new Map();
+      for (const node of document.querySelectorAll(".assistant-top, .assistant-main")) { covered.set(node, node.inert); node.inert = true; }
+      const close = () => {
+        document.removeEventListener("keydown", keys, true); layer.remove();
+        for (const [node, value] of covered) node.inert = value;
+        if (opener?.isConnected) opener.focus();
+        onDone();
+      };
+      const keys = event => {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+        if (event.key === "Tab") {
+          const buttons = [...card.querySelectorAll("button")], first = buttons[0], last = buttons.at(-1);
+          if (!card.contains(document.activeElement)) { event.preventDefault(); first?.focus(); }
+          else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }
+      };
       const draw = () => {
         const [kind, title, body] = pages[page], last = page === pages.length - 1;
         const heading = el("h1", "", t(title));
@@ -131,7 +142,7 @@
         card.replaceChildren(preview(kind, bots, avatar), progress(page, pages.length), heading, el("p", "", t(body)), actions);
         next.focus();
       };
-      document.addEventListener("keydown", keys);
+      document.addEventListener("keydown", keys, true);
       document.body.append(layer);
       draw();
       return layer;

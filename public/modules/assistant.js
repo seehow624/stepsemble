@@ -1,38 +1,30 @@
 (function () {
   "use strict";
 
-  // The assistant page: Hermes Bots and their conversations, served by the
-  // computer that runs Hermes. Every call goes through that computer's
-  // /api/assistant; this page never talks to Hermes itself, and an answer to
-  // a sudo or secret question leaves its field as soon as it is sent.
-
+  // Assistant 的頁面只經 Stepsemble API 存取 Hermes；路由和草稿都留在前端。
   const WI = window.StepsembleWorkspaceI18n, AI = window.StepsembleAssistantI18n;
   const M = window.StepsembleAssistantModel, Api = window.StepsembleAssistantApi, Guide = window.StepsembleAssistantGuide;
-  const MACHINE_KEY = "stepsemble.assistant.machine";
-  const MAX_FILE = 10 * 1024 * 1024, MAX_FILES = 4;
-  const params = new URLSearchParams(location.search);
+  const N = window.StepsembleAssistantNavigation;
   const prefs = WI.preferences(localStorage, { prefersDark: matchMedia("(prefers-color-scheme: dark)").matches });
   const coarse = matchMedia("(pointer: coarse)").matches;
   const t = (key, vars) => AI.t(key, vars, prefs.locale);
-  // Two panes: the list of Bots and groups, and whatever is open. On a phone
-  // only one shows at a time; from 900 px wide both stay side by side.
-  const shell = document.getElementById("assistant-main");
-  const listPane = document.getElementById("assistant-list");
-  const main = document.getElementById("assistant-view");
-  const machineSelect = document.getElementById("assistant-machine");
+  const shell = document.getElementById("assistant-main"), listPane = document.getElementById("assistant-list"), main = document.getElementById("assistant-view");
+  const top = document.querySelector(".assistant-top"), machineSelect = document.getElementById("assistant-machine");
+  const MACHINE_KEY = "stepsemble.assistant.machine", MAX_FILE = 10 * 1024 * 1024, MAX_FILES = 4;
+  const asks = new Map(), avatars = new Map(), drafts = new Map(), sessionTitles = new Map(), groupDrafts = new Map();
   const clientId = (() => {
     try { const saved = sessionStorage.getItem("stepsemble.assistant.client"); if (saved) return saved; } catch {}
     const id = crypto.randomUUID();
     try { sessionStorage.setItem("stepsemble.assistant.client", id); } catch {}
     return id;
   })();
-  const asks = new Map();
-  const listing = { query: "", rows: [], hasMore: false };
-  let api = null, machine = null, bots = [], stream = null, chat = null, tab = "chat", screen = "";
-  let renderQueued = false, watchTimer = 0, reloadTimer = 0, routinesView = null, groupsView = null;
-  let guideView = null;
-  let groupData = { supported: false, rooms: [] }, allBots = [], manageView = null, consoleView = null, showHidden = false, currentRoom = null;
-  const avatars = new Map();
+  let api = null, machine = null, machines = [], bots = [], allBots = [], chat = null, chatKey = "", tab = "chat", screen = "auth";
+  let stream = null, navigation = null, historyView = null, routinesView = null, groupsView = null, manageView = null, consoleView = null, guideView = null;
+  let groupData = { supported: false, rooms: [] }, currentRoom = null, panel = null;
+  let renderQueued = false, watchTimer = 0, reloadTimer = 0, routeRevision = 0, startRevision = 0, homeScroll = 0, rosterQuery = "";
+  let routeTask = Promise.resolve();
+  const content = window.StepsembleAssistantContent.create();
+  const markdown = text => content.markdown(text);
 
   function el(tag, className = "", text) {
     const node = document.createElement(tag);
@@ -41,183 +33,365 @@
     return node;
   }
   function button(label, className, onClick, type = "button") {
-    const node = el("button", className, label);
-    node.type = type;
+    const node = el("button", className, label); node.type = type;
     if (onClick) node.addEventListener("click", onClick);
     return node;
   }
-  function layout() {
-    shell.classList.toggle("has-list", !listPane.hidden);
-    shell.classList.toggle("at-list", screen === "roster");
-  }
-  const render = node => { main.replaceChildren(node); main.scrollTop = 0; layout(); };
-  function showList(on) { listPane.hidden = !on; if (!on) listPane.replaceChildren(); layout(); }
-  const SVG = "http://www.w3.org/2000/svg";
   const ICONS = {
     back: "M15 18l-6-6 6-6", plus: "M12 5v14M5 12h14", send: "M12 19V5M5 12l7-7 7 7",
     attach: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
-    clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2",
-    stop: "M6.5 6.5h11v11h-11z",
+    clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2", stop: "M6.5 6.5h11v11h-11z",
   };
-  function icon(name) {
-    const svg = document.createElementNS(SVG, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS(SVG, "path");
-    path.setAttribute("d", ICONS[name]);
-    svg.append(path);
-    return svg;
-  }
-  // An icon-only button; its label is what screen readers and tooltips use.
   function iconButton(name, label, className, onClick, type = "button") {
-    const node = button("", `assistant-icon-btn ${className}`, onClick, type);
-    node.append(icon(name));
-    node.setAttribute("aria-label", label);
-    node.title = label;
+    const node = button("", `assistant-icon-btn ${className}`, onClick, type), svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", ICONS[name]); svg.append(path); node.append(svg);
+    node.setAttribute("aria-label", label); node.title = label;
     return node;
   }
-  function toast(text) {
-    const note = el("p", "assistant-toast", text);
-    note.setAttribute("role", "status");
-    document.body.append(note);
-    setTimeout(() => note.remove(), 4000);
+  function toast(text) { const note = el("p", "assistant-toast", text); note.setAttribute("role", "status"); document.body.append(note); setTimeout(() => note.remove(), 4000); }
+  function layout() {
+    shell.classList.toggle("has-list", !listPane.hidden); shell.classList.toggle("at-list", screen === "roster");
+    document.body.classList.toggle("assistant-detail", !listPane.hidden && screen !== "roster");
   }
-
+  function render(node) { main.replaceChildren(node); main.scrollTop = 0; layout(); }
+  function showList(on) { listPane.hidden = !on; layout(); }
+  function messageView(title, body, { retry, home, docs } = {}) {
+    const box = el("section", "assistant-card assistant-message"); box.append(el("h1", "", title));
+    if (body) box.append(el("p", "", body));
+    if (retry) box.append(button(t("retry"), "btn primary", retry));
+    if (home) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
+    if (docs) { const link = el("a", "assistant-guide-link", t("guideDocs")); link.href = docs; link.target = "_blank"; link.rel = "noopener noreferrer"; box.append(link); }
+    return box;
+  }
+  function loadingView() { const box = el("section", "assistant-loading"); box.setAttribute("role", "status"); box.append(el("span", "assistant-spinner"), el("span", "", t("loading"))); return box; }
+  const errorView = (error, retry) => messageView(t("failed", { message: error?.message || "" }), "", { retry });
   function applyPreferences() {
-    const root = document.documentElement;
-    root.lang = prefs.locale;
-    root.dataset.theme = prefs.resolvedTheme;
-    root.dataset.designTheme = prefs.designTheme;
-    root.classList.toggle("reduced-motion", prefs.reducedMotion);
-    root.style.fontSize = `${prefs.fontScale}%`;
+    const root = document.documentElement; root.lang = prefs.locale; root.dataset.theme = prefs.resolvedTheme; root.dataset.designTheme = prefs.designTheme;
+    root.classList.toggle("reduced-motion", prefs.reducedMotion); root.style.fontSize = `${prefs.fontScale}%`;
     document.title = `Stepsemble · ${t("assistant")}`;
     for (const node of document.querySelectorAll("[data-assistant-i18n]")) node.textContent = t(node.dataset.assistantI18n);
     machineSelect.setAttribute("aria-label", t("computer"));
   }
-
   function signInToStepsemble() {
-    const login = new URL("/index.html", location.origin);
-    login.searchParams.set("returnWorkspace", "1");
-    login.searchParams.set("assistant", "1");
-    for (const key of ["bot", "session", "view"]) if (params.get(key)) login.searchParams.set(key, params.get(key));
+    const params = new URLSearchParams(location.search), login = new URL("/index.html", location.origin);
+    login.searchParams.set("returnWorkspace", "1"); login.searchParams.set("assistant", "1");
+    for (const key of ["bot", "session", "view", "machine", "room", "panel"]) if (params.get(key)) login.searchParams.set(key, params.get(key));
     location.replace(login.href);
   }
-
-  function setUrl(profile, sessionId) {
-    const url = new URL(location.href);
-    url.search = "";
-    if (profile) url.searchParams.set("bot", profile);
-    if (profile && sessionId) url.searchParams.set("session", sessionId);
-    history.replaceState(null, "", url);
-  }
-
-  function messageView(title, body, { retry, home, docs } = {}) {
-    const box = el("section", "assistant-card assistant-message");
-    box.append(el("h1", "", title));
-    if (body) box.append(el("p", "", body));
-    if (retry) box.append(button(t("retry"), "btn primary", retry));
-    if (home) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
-    if (docs) { const link = el("a", "assistant-guide-link", t("guideDocs")); link.href = docs; link.target = "_blank"; link.rel = "noopener"; box.append(link); }
-    return box;
-  }
-  function loadingView() {
-    const box = el("section", "assistant-loading");
-    box.setAttribute("role", "status");
-    box.append(el("span", "assistant-spinner"), el("span", "", t("loading")));
-    return box;
-  }
-  const errorView = (error, retry) => messageView(t("failed", { message: error?.message || "" }), "", { retry });
-
-  // A Bot's picture when Hermes has one (fetched once per page), else its initials.
   function avatar(bot) {
     const node = el("span", "assistant-avatar", M.initials(bot.displayName || bot.name));
-    node.style.background = M.colorFor(bot.name, bot.color);
-    node.setAttribute("aria-hidden", "true");
+    node.style.setProperty("--assistant-avatar-color", M.colorFor(bot.name, bot.color)); node.setAttribute("aria-hidden", "true");
     const known = allBots.find(row => row.name === bot.name);
     if (api && (bot.hasAvatar || known?.hasAvatar)) {
       if (!avatars.has(bot.name)) avatars.set(bot.name, api.botAvatar(bot.name).then(result => result.data).catch(() => null));
-      void avatars.get(bot.name).then(data => {
-        if (!data) return;
-        node.textContent = "";
-        node.style.backgroundImage = `url("${data}")`;
-        node.classList.add("has-picture");
-      });
+      void avatars.get(bot.name).then(data => { if (data) { node.textContent = ""; node.style.backgroundImage = `url("${data}")`; node.classList.add("has-picture"); } });
     }
     return node;
   }
-
-  // ---- start-up -------------------------------------------------------
-
-  async function boot() {
-    applyPreferences();
-    render(loadingView());
-    let rows;
-    try { rows = await Api.machines({ onSignedOut: signInToStepsemble }); } catch (error) {
-      if (error.code !== "stepsemble_signed_out") render(errorView(error, boot));
-      return;
-    }
-    const checked = await Promise.all(rows.map(async row => ({ ...row, status: await Api.create({ base: row.base }).status().catch(() => null) })));
-    let saved = null;
-    try { saved = localStorage.getItem(MACHINE_KEY); } catch {}
-    const { choices, selected } = M.chooseHermesMachine(checked, saved);
-    machineSelect.replaceChildren(...choices.map(row => { const option = el("option", "", row.name); option.value = row.id; return option; }));
-    machineSelect.hidden = choices.length < 2;
-    machineSelect.onchange = () => {
-      const next = choices.find(row => row.id === machineSelect.value);
-      try { localStorage.setItem(MACHINE_KEY, next.id); } catch {}
-      void start(next);
-    };
-    if (!selected) { render(messageView(t("notInstalledTitle"), t("notInstalledBody"), { home: true })); return; }
-    machineSelect.value = selected.id;
-    await start(selected);
+  const keyFor = route => [machine?.id, route.profile, route.session || "bot-chat"].join("/");
+  function remember(entry = chat) {
+    if (entry && (!drafts.get(entry.key)?.owner || drafts.get(entry.key).owner === entry)) drafts.set(entry.key, { text: entry.draft || "", attachments: entry.attachments, owner: entry });
   }
-
+  function go(route) { navigation?.go({ ...route, machine: route.machine || machine?.id }); }
+  function showRoster() { go({ page: "home" }); }
+  function openBot(profile, session, { title = "", tab: page = "bot" } = {}) {
+    if (session && title) sessionTitles.set(session, title);
+    go({ page: page === "chat" ? "bot" : page, profile, ...(session ? { session } : {}) });
+  }
+  function openGroup(room) { go({ page: "group", room: room.id }); }
+  function newGroup() { go({ page: "newgroup" }); }
+  async function loadBots() {
+    const owner = api, data = await owner.bots(); if (api !== owner) return;
+    allBots = data.bots || []; bots = allBots.filter(bot => !bot.hidden);
+  }
+  async function loadGroups() {
+    const owner = api;
+    try { const data = await groupsView.load(); if (api === owner) groupData = data; }
+    catch { if (api === owner) groupData = { supported: false, rooms: [] }; }
+  }
+  async function boot() {
+    applyPreferences(); render(loadingView());
+    try {
+      const rows = await Api.machines({ onSignedOut: signInToStepsemble });
+      const checked = await Promise.all(rows.map(async row => ({ ...row, status: await Api.create({ base: row.base }).status().catch(() => null) })));
+      let saved; try { saved = localStorage.getItem(MACHINE_KEY); } catch {}
+      const choice = M.chooseHermesMachine(checked, new URLSearchParams(location.search).get("machine") || saved);
+      machines = choice.choices;
+      machineSelect.replaceChildren(...machines.map(row => { const option = el("option", "", row.name); option.value = row.id; return option; }));
+      machineSelect.hidden = machines.length < 2;
+      machineSelect.onchange = () => {
+        const next = machines.find(row => row.id === machineSelect.value); if (!next) return;
+        try { localStorage.setItem(MACHINE_KEY, next.id); } catch {}
+        if (navigation) go({ page: "home", machine: next.id });
+        else { const url = new URL(location.href); url.searchParams.set("machine", next.id); history.replaceState(history.state, "", url); void start(next); }
+      };
+      if (!choice.selected) { render(messageView(t("notInstalledTitle"), t("notInstalledBody"), { home: true })); return; }
+      await start(choice.selected);
+    } catch (error) { if (error.code !== "stepsemble_signed_out") render(errorView(error, boot)); }
+  }
   async function start(next) {
-    machine = next;
-    showList(false);
-    stream?.close();
-    stream = null;
-    chat = null;
-    asks.clear();
+    const epoch = ++startRevision; routeRevision += 1;
+    remember(); closePanel(false); groupsView?.close(); stream?.close();
+    machine = next; machineSelect.value = next.id; screen = "auth"; chat = null; chatKey = ""; asks.clear(); avatars.clear(); showList(false);
     api = Api.create({ base: next.base, onSignedOut: signInToStepsemble });
+    guideView = Guide.create({ t, el, button });
     routinesView = window.StepsembleAssistantRoutines.create({ api, t, el, button, toast, M, locale: prefs.locale,
       botName: profile => allBots.find(bot => bot.name === profile)?.displayName || profile,
-      openSession: (profile, sessionId, title) => void openBot(profile, sessionId, { title }) });
-    avatars.clear();
-    guideView = Guide.create({ t, el, button });
+      openSession: (profile, session, title) => openBot(profile, session, { title }) });
+    const afterBots = action => {
+      if (epoch !== startRevision) return;
+      void loadBots().then(() => { if (epoch === startRevision) action(); })
+        .catch(error => { if (epoch === startRevision) toast(t("failed", { message: error.message })); });
+    };
     manageView = window.StepsembleAssistantManage.create({ api, t, el, button, toast, M, machineName: () => machine?.name || "", bots: () => bots,
-      onCreated: profile => void loadBots().catch(() => {}).finally(() => void openBot(profile, null, { tab: "settings" })),
-      onDeleted: () => void loadBots().catch(() => {}).finally(showRoster),
-      onChanged: profile => { avatars.delete(profile); void loadBots().then(() => { refreshBotHead(profile); renderRoster(); }).catch(() => {}); } });
+      onCreated: profile => afterBots(() => openBot(profile, null, { tab: "settings" })),
+      onDeleted: () => afterBots(showRoster),
+      onChanged: profile => { if (epoch !== startRevision) return; avatars.delete(profile); afterBots(() => { refreshBotHead(profile); renderRoster(); }); } });
     consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, iconButton, toast, locale: prefs.locale,
       onBack: () => { if (history.length > 1) history.back(); else location.assign("/index.html?settings=1&section=connection"); } });
-    groupsView?.close();
-    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots,
-      onBack: () => void loadGroups().finally(showRoster) });
+    if (!groupDrafts.has(next.id)) groupDrafts.set(next.id, new Map());
+    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots, drafts: groupDrafts.get(next.id),
+      onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) showRoster(); }); } });
+    historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, M, locale: prefs.locale, showPanel,
+      onSelect: (profile, row) => { if (epoch === startRevision) openBot(profile, row.id, { title: row.title }); } });
     render(loadingView());
-    let status;
-    try { status = await api.status(); } catch (error) { render(errorView(error, () => start(next))); return; }
-    if (!status.installed) { render(messageView(t("notInstalledTitle"), t("notInstalledBody"), { home: true })); return; }
-    if (!status.running) { render(messageView(t("notRunningTitle"), t("notRunningBody", { computer: next.name }), { retry: () => start(next) })); return; }
-    // A Hermes that only offers OAuth sign-in has no password to type here,
-    // so it gets an explanation instead of the username-and-password guide.
-    if (!status.signedIn && status.authRequired && Array.isArray(status.providers) && !status.providers.includes("basic")) {
-      render(messageView(t("signInTitle"), `${t("oauthOnly")}${/^(zh|ja)/.test(prefs.locale) ? "" : " "}${t("oauthHelp", { computer: next.name })}`, { retry: () => start(next), docs: Guide.DOCS }));
+    try {
+      const status = await api.status(); if (epoch !== startRevision) return;
+      if (!status.installed) { render(messageView(t("notInstalledTitle"), t("notInstalledBody"), { home: true })); return; }
+      if (!status.running) { render(messageView(t("notRunningTitle"), t("notRunningBody", { computer: next.name }), { retry: () => start(next) })); return; }
+      if (!status.signedIn && status.authRequired && Array.isArray(status.providers) && !status.providers.includes("basic")) {
+        render(messageView(t("signInTitle"), `${t("oauthOnly")}${/^(zh|ja)/.test(prefs.locale) ? "" : " "}${t("oauthHelp", { computer: next.name })}`, { retry: () => start(next), docs: Guide.DOCS })); return;
+      }
+      if (!status.signedIn) { render(signInView()); return; }
+      stream = api.stream({ onEvent: event => { if (epoch === startRevision) handleEvent(event); },
+        onState: state => { if (epoch === startRevision) document.body.classList.toggle("assistant-offline", state === "error"); } });
+      for (const ask of (await api.asks()).asks || []) asks.set(ask.id, ask);
+      await Promise.all([loadBots(), loadGroups()]); if (epoch !== startRevision) return;
+      if (!navigation) {
+        navigation = N.create({ onChange: route => { routeTask = applyRoute(route); } });
+        navigation.initialize(); await routeTask;
+      } else await applyRoute(navigation.current);
+      if (epoch !== startRevision) return;
+      if (!Guide.seen("intro") && navigation.current.page !== "console" && !document.querySelector(".assistant-intro")) {
+        closePanel(false);
+        guideView.intro({ bots, avatar, onDone: () => {
+          Guide.mark("intro");
+          if (navigation?.current.panel) void applyRoute(navigation.current);
+        } });
+      }
+    } catch (error) { if (epoch === startRevision) render(errorView(error, () => start(next))); }
+  }
+
+  // 面板與更多選單使用同一套關閉／焦點規則，返回只走路由控制器。
+  function closePanel(restore = true) {
+    historyView?.close();
+    if (!panel) return;
+    const previous = panel; panel = null;
+    previous.layer.remove();
+    document.removeEventListener("keydown", previous.keys, true);
+    for (const [node, value] of previous.covered) node.inert = value;
+    if (restore && previous.opener?.isConnected) previous.opener.focus();
+  }
+  function showPanel(title, subtitle = "") {
+    closePanel(false);
+    const opener = document.activeElement, covered = new Map();
+    for (const node of [...main.children, listPane, top]) { covered.set(node, node.inert); node.inert = true; }
+    const layer = el("div", "assistant-overlay"), sheet = el("section", "assistant-sheet");
+    sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true");
+    const heading = el("h2", "", title); heading.id = "assistant-panel-title"; heading.tabIndex = -1; sheet.setAttribute("aria-labelledby", heading.id);
+    const head = el("header", "assistant-sheet-head"), copy = el("div"); copy.append(heading);
+    if (subtitle) copy.append(el("p", "", subtitle));
+    const close = button("×", "assistant-icon-btn", () => navigation.back()); close.setAttribute("aria-label", t("closePanel"));
+    head.append(copy, close);
+    const body = el("div", "assistant-sheet-body"); sheet.append(el("div", "assistant-sheet-grab"), head, body); layer.append(sheet); main.append(layer);
+    panel = { layer, covered, opener };
+    layer.addEventListener("click", event => { if (event.target === layer) navigation.back(); });
+    const keys = event => {
+      if (panel?.layer !== layer) return;
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); navigation.back(); }
+      if (event.key === "Tab") {
+        const focusable = [...sheet.querySelectorAll("button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex='0']")].filter(node => node.getClientRects().length);
+        const first = focusable[0], last = focusable.at(-1);
+        if (!sheet.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === heading)) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    panel.keys = keys;
+    document.addEventListener("keydown", keys, true);
+    heading.focus(); return { body, sheet };
+  }
+  function pageHead(title, back = () => navigation.back(), bot = null) {
+    const head = el("header", "assistant-page-head");
+    head.append(iconButton("back", t("back"), "assistant-back", back));
+    if (bot) head.append(avatar(bot));
+    head.append(el("h1", "", title)); return head;
+  }
+  function pageBody(title, bot) {
+    const box = el("section", "assistant-roster assistant-page-body"), body = el("div"); box.append(pageHead(title, undefined, bot), body); render(box); return body;
+  }
+  async function ensureConversation(route, revision, force = false) {
+    const key = keyFor(route);
+    if (!force && chat && chatKey === key) return true;
+    remember(); chat = null; chatKey = ""; watchNow(); render(loadingView());
+    const owner = api, view = route.session ? await owner.openSession(route.session, route.profile) : await owner.botChat(route.profile);
+    if (revision !== routeRevision || owner !== api) return false;
+    const bot = allBots.find(row => row.name === route.profile) || { name: route.profile, displayName: route.profile, color: null, model: "" };
+    const draft = drafts.get(key) || { text: "", attachments: [] };
+    chat = { ...view, key, bot, profile: route.profile, botChat: !route.session || view.botChat === true || route.session === bot.botChat?.id,
+      title: sessionTitles.get(route.session) || view.title || (route.session ? t("untitled") : t("botChat")),
+      items: M.withInflight(M.fromHistory(view.messages), view.inflight), cards: new Map(), closed: [], nodes: new Map(), attachments: draft.attachments,
+      draft: draft.text, sending: false, sync: null };
+    chatKey = key;
+    drafts.set(key, { ...draft, owner: chat });
+    for (const ask of view.asks || []) asks.set(ask.id, ask);
+    return true;
+  }
+  async function applyRoute(route, { force = false } = {}) {
+    const revision = ++routeRevision;
+    remember(); closePanel(route.page === "bot");
+    if (route.machine && route.machine !== machine?.id) {
+      const next = machines.find(row => row.id === route.machine);
+      if (next) await start(next); else go({ page: "home", machine: machine.id });
       return;
     }
-    if (!status.signedIn) { render(signInView()); return; }
-    stream = api.stream({ onEvent: handleEvent, onState: state => document.body.classList.toggle("assistant-offline", state === "error") });
+    if (screen === "roster") homeScroll = listPane.scrollTop;
+    screen = route.page === "home" ? "roster" : route.page; tab = route.page === "bot" ? "chat" : route.page;
+    currentRoom = route.page === "group" ? route.room : null;
+    showList(route.page !== "console"); layout();
+    if (route.page !== "group") groupsView?.close();
     try {
-      for (const ask of (await api.asks()).asks || []) asks.set(ask.id, ask);
-      await loadBots();
-      await loadGroups();
-    } catch (error) { render(errorView(error, () => start(next))); return; }
-    if (params.get("view") === "console") { screen = "console"; layout(); await consoleView.show(main); return; }
-    showList(true);
-    const bot = params.get("bot");
-    if (bot) await openBot(bot, params.get("session") || null);
-    else showRoster();
-    if (!Guide.seen("intro")) guideView.intro({ bots, avatar, onDone: () => Guide.mark("intro") });
+      if (route.page === "bot") {
+        if (!await ensureConversation(route, revision, force)) return;
+        if (!document.getElementById("assistant-bot-head") || main.firstElementChild?.dataset.chat !== chat.key || force) render(botView());
+        renderRoster(); watchNow(); void api.read(chat.sessionId, route.profile).catch(() => {});
+        if (route.panel === "history" && !document.querySelector(".assistant-intro")) historyView.open(route.profile, chat.bot.displayName);
+        if (route.panel === "menu" && !document.querySelector(".assistant-intro")) {
+          const { body, sheet } = showPanel(chat.bot.displayName);
+          sheet.classList.add("assistant-menu-sheet");
+          for (const [page, label] of [["routines", "routines"], ["settings", "settings"]]) body.append(button(t(label), "assistant-menu-row", () => go({ page, profile: route.profile, session: route.session })));
+        }
+        return;
+      }
+      chat = null; chatKey = ""; watchNow();
+      if (route.page === "home") {
+        renderRoster(); const empty = el("section", "assistant-placeholder"); empty.append(el("p", "", bots.length ? t("pickBot") : t("noBots"))); render(empty); listPane.scrollTop = homeScroll;
+      } else if (route.page === "group") {
+        if (!groupData.rooms.some(row => row.id === route.room)) await loadGroups();
+        if (revision !== routeRevision) return;
+        const room = groupData.rooms.find(row => row.id === route.room); if (!room) throw new Error(t("noGroups"));
+        groupsView.view(main, room); renderRoster(); layout();
+      } else if (route.page === "newgroup") { groupsView.picker(main, openGroup); renderRoster(); layout(); }
+      else if (route.page === "newbot") { manageView.creator(main, () => navigation.back()); renderRoster(); layout(); }
+      else if (route.page === "bots") { renderManager(); renderRoster(); }
+      else if (route.page === "pending") { render(pendingView()); renderRoster(); }
+      else if (route.page === "routines") {
+        const bot = allBots.find(row => row.name === route.profile); const body = pageBody(bot ? `${bot.displayName} · ${t("routines")}` : t("allRoutines"), bot);
+        void routinesView.list(body, route.profile || null); renderRoster();
+      } else if (route.page === "settings") {
+        const bot = allBots.find(row => row.name === route.profile); const body = pageBody(bot ? `${bot.displayName} · ${t("settings")}` : t("settings"), bot);
+        void manageView.settings(body, route.profile); renderRoster();
+      } else if (route.page === "console") await consoleView.show(main);
+    } catch (error) { if (revision === routeRevision) render(errorView(error, () => void applyRoute(navigation.current, { force: true }))); }
+  }
+  function reopen() { if (chat && navigation) void applyRoute(navigation.current, { force: true }); }
+  function waitingFor(profile) { return [...asks.values()].filter(ask => ask.profile === profile).length; }
+  function updatePending() {
+    const node = document.getElementById("assistant-pending"); if (!node) return;
+    node.hidden = asks.size === 0; node.textContent = t("pending", { count: asks.size });
+    for (const row of listPane.querySelectorAll(".assistant-bot-row[data-profile]")) {
+      const waiting = waitingFor(row.dataset.profile), badge = row.querySelector(".assistant-badge");
+      if (badge) { badge.hidden = !waiting; badge.textContent = String(waiting); }
+      row.classList.toggle("needs-reply", waiting > 0);
+    }
+  }
+  function renderRoster() {
+    if (listPane.hidden) return;
+    const keep = listPane.scrollTop, wrap = el("section", "assistant-roster"), head = el("div", "assistant-section-head assistant-list-head");
+    const title = el("div", "assistant-home-title"); title.append(el("h1", "", t("assistant")), el("small", "", machine?.name || ""));
+    const add = button(`＋ ${t("newBot")}`, "assistant-link assistant-new-bot", () => go({ page: "newbot" }));
+    add.setAttribute("aria-label", t("newBot"));
+    head.append(title, add);
+    const pending = button("", "assistant-pending", () => go({ page: "pending" })); pending.id = "assistant-pending";
+    const search = el("input", "assistant-search assistant-bot-search"); search.type = "search"; search.placeholder = t("searchBots"); search.setAttribute("aria-label", t("searchBots")); search.value = rosterQuery;
+    const list = el("ul", "assistant-bot-list");
+    const groupBox = el("div");
+    function filterRows() {
+      const query = rosterQuery.trim().toLocaleLowerCase(prefs.locale);
+      const rows = [...bots].sort((a, b) => (b.botChat?.lastActive || 0) - (a.botChat?.lastActive || 0) || Number(b.isDefault) - Number(a.isDefault));
+      list.replaceChildren();
+      for (const bot of rows.filter(bot => `${bot.displayName} ${bot.description} ${bot.botChat?.preview || ""}`.toLocaleLowerCase(prefs.locale).includes(query))) {
+        const row = button("", "assistant-bot-row", () => openBot(bot.name)); row.dataset.profile = bot.name;
+        if (chat?.profile === bot.name || navigation?.current.profile === bot.name) row.setAttribute("aria-current", "true");
+        const copy = el("span", "assistant-bot-copy"), first = el("span", "assistant-bot-first");
+        first.append(el("strong", "", bot.displayName), el("time", "", M.formatWhen(bot.botChat?.lastActive, Date.now(), prefs.locale)));
+        copy.append(first, el("small", "", bot.botChat?.preview || bot.description || ""));
+        const badge = el("span", "assistant-badge", String(waitingFor(bot.name))); badge.hidden = !waitingFor(bot.name);
+        row.append(avatar(bot), copy, badge); const li = el("li"); li.append(row); list.append(li);
+      }
+      if (!list.childElementCount) list.append(el("li", "assistant-empty", t(query ? "noMatches" : "noBots")));
+      const groups = query ? { ...groupData, rooms: groupData.rooms.filter(room => `${room.name} ${room.members.map(member => member.displayName).join(" ")}`.toLocaleLowerCase(prefs.locale).includes(query)) } : groupData;
+      groupBox.replaceChildren(groupsView.section(groups, openGroup, newGroup, currentRoom));
+    }
+    search.addEventListener("input", () => { rosterQuery = search.value; filterRows(); });
+    const caption = el("div", "assistant-list-caption", t("bots"));
+    const links = el("div", "assistant-home-links"); links.append(button(t("allRoutines"), "assistant-link assistant-all-routines", () => go({ page: "routines" })),
+      button(t("manageBots"), "assistant-link", () => go({ page: "bots" })));
+    wrap.append(head, search, pending, caption, list, groupBox, links);
+    const hiddenCount = allBots.filter(bot => bot.hidden).length;
+    if (hiddenCount) wrap.append(button(t("hiddenBots", { count: hiddenCount }), "assistant-link assistant-hidden-bots", () => go({ page: "bots" })));
+    wrap.append(button(t("signOut"), "assistant-link assistant-sign-out", async () => {
+      remember(); closePanel(false); await api.logout().catch(() => {}); stream?.close(); groupsView?.close(); navigation?.destroy(); navigation = null;
+      chat = null; chatKey = ""; screen = "auth"; showList(false); render(signInView());
+    }));
+    filterRows(); listPane.replaceChildren(wrap); listPane.scrollTop = keep; updatePending();
+  }
+  function renderManager() {
+    const body = pageBody(t("manageBots"));
+    body.append(button(t("newBot"), "btn primary", () => go({ page: "newbot" })));
+    const list = el("ul", "assistant-bot-list");
+    for (const bot of allBots) {
+      const row = button("", `assistant-bot-row${bot.hidden ? " is-hidden" : ""}`, () => openBot(bot.name, null, { tab: "settings" })); row.dataset.profile = bot.name;
+      const copy = el("span", "assistant-bot-copy"); copy.append(el("strong", "", bot.displayName), el("small", "", bot.hidden ? t("hideBot") : bot.description));
+      row.append(avatar(bot), copy, el("span", "assistant-row-chevron", "›")); const li = el("li"); li.append(row); list.append(li);
+    }
+    body.append(list);
+  }
+  function pendingView() {
+    const box = el("section", "assistant-roster assistant-page-body"); box.append(pageHead(t("pendingTitle")));
+    if (!asks.size) box.append(el("p", "assistant-empty", t("nothingPending")));
+    for (const ask of asks.values()) {
+      const row = button("", "assistant-bot-row", () => openBot(ask.profile, ask.sessionId)), bot = allBots.find(bot => bot.name === ask.profile) || { name: ask.profile, displayName: ask.bot };
+      const copy = el("span", "assistant-bot-copy"); copy.append(el("strong", "", bot.displayName), el("small", "", ask.description || ask.command || ask.prompt || "")); row.append(avatar(bot), copy); box.append(row);
+    }
+    return box;
+  }
+  function conversationHead() {
+    const head = el("header", "assistant-bot-head"); head.id = "assistant-bot-head";
+    const back = button("", "assistant-back to-list", showRoster); back.setAttribute("aria-label", t("backAssistant"));
+    back.append(el("span", "", "‹"), el("span", "assistant-back-label", t("assistant")));
+    const title = el("div", "assistant-bot-title"); title.append(el("strong", "", chat.bot.displayName), el("small", "", chat.botChat ? t("botChat") : chat.title));
+    const history = button(t("historyAction"), "assistant-header-action", () => go({ ...navigation.current, panel: "history" }));
+    const more = button("···", "assistant-icon-btn assistant-more-options", () => go({ ...navigation.current, panel: "menu" })); more.setAttribute("aria-label", t("moreOptions"));
+    head.append(back, avatar(chat.bot), title, history, more); return head;
+  }
+  function refreshBotHead(profile) {
+    const bot = allBots.find(bot => bot.name === profile);
+    if (chat?.profile === profile) {
+      chat.bot = bot || chat.bot;
+      document.getElementById("assistant-bot-head")?.replaceWith(conversationHead());
+    } else if (bot && navigation?.current.profile === profile && ["settings", "routines"].includes(navigation.current.page)) {
+      const label = t(navigation.current.page);
+      main.querySelector(".assistant-page-head")?.replaceWith(pageHead(`${bot.displayName} · ${label}`, undefined, bot));
+    }
+  }
+  function botView() {
+    const wrap = el("section", "assistant-bot"); wrap.dataset.chat = chat.key;
+    const transcript = el("div", "assistant-transcript"); transcript.id = "assistant-transcript";
+    wrap.append(conversationHead(), transcript, composer()); chat.nodes.clear();
+    queueMicrotask(() => { if (wrap.isConnected) { renderTranscript(); scrollToEnd(); } });
+    return wrap;
   }
 
   // Sign in to Hermes. The first time, a short guide explains where the
@@ -267,234 +441,6 @@
     return page;
   }
 
-  // ---- Bots -----------------------------------------------------------
-
-  async function loadBots() {
-    allBots = (await api.bots()).bots || [];
-    bots = allBots.filter(bot => !bot.hidden);
-  }
-
-  async function loadGroups() { try { groupData = await groupsView.load(); } catch { groupData = { supported: false, rooms: [] }; } }
-  function openGroup(room) {
-    chat = null;
-    currentRoom = room.id;
-    screen = "group";
-    setUrl(null, null);
-    watchNow();
-    groupsView.view(main, room);
-    layout();
-    if (groupData.rooms.some(row => row.id === room.id)) renderRoster();
-    else void loadGroups().then(renderRoster);
-  }
-  function newGroup() { chat = null; currentRoom = null; screen = "group"; groupsView.picker(main, openGroup); layout(); renderRoster(); }
-
-  function waitingFor(profile) { return [...asks.values()].filter(ask => ask.profile === profile).length; }
-
-  function updatePending() {
-    const node = document.getElementById("assistant-pending");
-    if (!node) return;
-    node.hidden = asks.size === 0;
-    node.textContent = t("pending", { count: asks.size });
-    for (const row of listPane.querySelectorAll(".assistant-bot-row[data-profile]")) {
-      const waiting = waitingFor(row.dataset.profile), badge = row.querySelector(".assistant-badge");
-      if (badge) { badge.hidden = !waiting; badge.textContent = String(waiting); }
-    }
-  }
-
-  // Back to the list: on a phone the list replaces the open view; on a wide
-  // screen the list is already there and the view shows a quiet placeholder.
-  function showRoster() {
-    groupsView?.close();
-    chat = null;
-    currentRoom = null;
-    screen = "roster";
-    setUrl(null, null);
-    watchNow();
-    renderRoster();
-    const empty = el("section", "assistant-placeholder");
-    empty.append(el("p", "", bots.length ? t("pickBot") : t("noBots")));
-    render(empty);
-  }
-
-  function pageHead(title, back = showRoster) {
-    const head = el("header", "assistant-page-head");
-    head.append(iconButton("back", t("back"), "assistant-back", back), el("h1", "", title));
-    return head;
-  }
-
-  function renderRoster() {
-    if (listPane.hidden) return;
-    const wrap = el("section", "assistant-roster");
-    const head = el("div", "assistant-section-head assistant-list-head");
-    const pending = button("", "assistant-pending", () => { screen = "pending"; render(pendingView()); });
-    pending.id = "assistant-pending";
-    const all = iconButton("clock", t("allRoutines"), "assistant-all-routines", () => {
-      screen = "routines";
-      const box = el("section", "assistant-roster assistant-page-body");
-      const body = el("div");
-      box.append(pageHead(t("allRoutines")), body);
-      render(box);
-      void routinesView.list(body, null);
-    });
-    const add = iconButton("plus", t("newBot"), "assistant-new-bot", () => { screen = "newbot"; chat = null; manageView.creator(main, showRoster); layout(); renderRoster(); });
-    const actions = el("div", "assistant-head-actions");
-    actions.append(pending, all, add);
-    head.append(el("h1", "", t("bots")), actions);
-    wrap.append(head);
-    if (!bots.length) wrap.append(el("p", "assistant-empty", t("noBots")));
-    const list = el("ul", "assistant-bot-list");
-    const hiddenBots = allBots.filter(bot => bot.hidden);
-    const sorted = [...bots, ...(showHidden ? hiddenBots : [])].sort((a, b) => (b.botChat?.lastActive || 0) - (a.botChat?.lastActive || 0) || Number(b.isDefault) - Number(a.isDefault));
-    for (const bot of sorted) {
-      const row = button("", "assistant-bot-row", () => void openBot(bot.name, null));
-      row.dataset.profile = bot.name;
-      if (bot.hidden) row.classList.add("is-hidden");
-      if (chat?.profile === bot.name) row.setAttribute("aria-current", "true");
-      const copy = el("span", "assistant-bot-copy");
-      copy.append(el("strong", "", bot.displayName), el("small", "", bot.botChat?.preview || bot.description || ""));
-      const meta = el("span", "assistant-bot-meta");
-      meta.append(el("time", "", M.formatWhen(bot.botChat?.lastActive, Date.now(), prefs.locale)));
-      const waiting = waitingFor(bot.name);
-      const badge = el("span", "assistant-badge", String(waiting));
-      badge.hidden = !waiting;
-      meta.append(badge);
-      row.append(avatar(bot), copy, meta);
-      const item = el("li");
-      item.append(row);
-      list.append(item);
-    }
-    if (hiddenBots.length) {
-      const toggle = button(t("hiddenBots", { count: hiddenBots.length }), "assistant-link assistant-hidden-bots", () => { showHidden = !showHidden; renderRoster(); });
-      toggle.setAttribute("aria-pressed", String(showHidden));
-      wrap.append(list, toggle);
-    } else wrap.append(list);
-    wrap.append(groupsView.section(groupData, openGroup, newGroup, currentRoom));
-    wrap.append(button(t("signOut"), "assistant-link assistant-sign-out", async () => {
-      await api.logout().catch(() => {});
-      stream?.close();
-      stream = null;
-      showList(false);
-      render(signInView());
-    }));
-    const keep = listPane.scrollTop;
-    listPane.replaceChildren(wrap);
-    listPane.scrollTop = keep;
-    updatePending();
-  }
-
-  function pendingView() {
-    const wrap = el("section", "assistant-roster assistant-page-body");
-    wrap.append(pageHead(t("pendingTitle")));
-    if (!asks.size) wrap.append(el("p", "assistant-empty", t("nothingPending")));
-    const list = el("ul", "assistant-bot-list");
-    for (const ask of asks.values()) {
-      const bot = allBots.find(row => row.name === ask.profile) || { name: ask.profile, displayName: ask.bot };
-      const row = button("", "assistant-bot-row", () => void openBot(ask.profile, ask.sessionId));
-      const copy = el("span", "assistant-bot-copy");
-      copy.append(el("strong", "", bot.displayName), el("small", "", ask.description || ask.command || ask.prompt || ask.questions?.[0]?.question || ""));
-      row.append(avatar(bot), copy);
-      const item = el("li");
-      item.append(row);
-      list.append(item);
-    }
-    wrap.append(list);
-    return wrap;
-  }
-
-  // ---- a conversation -----------------------------------------------------
-
-  async function openBot(profile, sessionId, { title = "", tab: startTab = "chat" } = {}) {
-    groupsView?.close();
-    currentRoom = null;
-    const bot = allBots.find(row => row.name === profile) || { name: profile, displayName: profile, color: null, model: "", botChat: null };
-    tab = startTab;
-    screen = "bot";
-    render(loadingView());
-    try {
-      const view = sessionId ? await api.openSession(sessionId, profile) : await api.botChat(profile);
-      const botChat = !sessionId || view.botChat === true || sessionId === bot.botChat?.id;
-      chat = { ...view, bot, botChat, title, items: M.withInflight(M.fromHistory(view.messages), view.inflight),
-        cards: new Map(), closed: [], nodes: new Map(), attachments: [], sending: false, sync: null };
-      for (const ask of view.asks || []) asks.set(ask.id, ask);
-      setUrl(profile, botChat ? null : chat.sessionId);
-      render(botView());
-      renderRoster();
-      watchNow();
-      void api.read(chat.sessionId, profile).catch(() => {});
-    } catch (error) { render(errorView(error, () => openBot(profile, sessionId, { title }))); }
-  }
-
-  function reopen() {
-    if (!chat) return;
-    void openBot(chat.profile, chat.botChat ? null : chat.sessionId, { title: chat.title });
-  }
-
-  // The open Bot's picture, name and model, redrawn after its settings change.
-  function botHead() {
-    const title = el("div", "assistant-bot-title");
-    const detail = chat.botChat ? (chat.bot.model ? `${t("model")} · ${chat.bot.model}` : "") : (chat.title || t("untitled"));
-    title.append(el("strong", "", chat.bot.displayName), el("small", "", detail));
-    return [avatar(chat.bot), title];
-  }
-  function refreshBotHead(profile) {
-    if (!chat || chat.profile !== profile) return;
-    chat.bot = allBots.find(row => row.name === profile) || chat.bot;
-    const head = document.getElementById("assistant-bot-head");
-    if (head) head.replaceChildren(head.firstElementChild, ...botHead());
-  }
-
-  function botView() {
-    const wrap = el("section", "assistant-bot");
-    const head = el("header", "assistant-bot-head");
-    const back = iconButton("back", t("back"), `assistant-back${chat.botChat ? " to-list" : ""}`, () => {
-      if (chat && !chat.botChat) { void openBot(chat.profile, null); return; }
-      void loadBots().catch(() => {}).finally(showRoster);
-    });
-    head.id = "assistant-bot-head";
-    head.append(back, ...botHead());
-    const tabs = el("div", "assistant-tabs");
-    tabs.setAttribute("role", "tablist");
-    for (const [key, label] of [["chat", t("chat")], ["other", t("otherChats")], ["routines", t("routines")], ["settings", t("settings")]]) {
-      const node = button(label, "assistant-tab", () => {
-        tab = key;
-        render(botView());
-        if (key === "other") void loadSessions(true);
-      });
-      node.setAttribute("role", "tab");
-      node.setAttribute("aria-selected", String(tab === key));
-      tabs.append(node);
-    }
-    wrap.append(head, tabs);
-    requestAnimationFrame(() => tabs.querySelector("[aria-selected=\"true\"]")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
-    if (tab === "other") { wrap.append(sessionsView()); return wrap; }
-    if (tab === "routines") {
-      const body = el("div", "assistant-sessions");
-      wrap.append(body);
-      void routinesView.list(body, chat.profile);
-      return wrap;
-    }
-    if (tab === "settings") {
-      const body = el("div", "assistant-sessions");
-      wrap.append(body);
-      void manageView.settings(body, chat.profile);
-      return wrap;
-    }
-    const transcript = el("div", "assistant-transcript");
-    transcript.id = "assistant-transcript";
-    wrap.append(transcript, composer());
-    chat.nodes.clear();
-    queueMicrotask(() => { renderTranscript(); scrollToEnd(); });
-    return wrap;
-  }
-
-  function markdown(text) {
-    const box = el("div", "md-body");
-    if (window.marked && window.DOMPurify) {
-      box.innerHTML = window.DOMPurify.sanitize(window.marked.parse(text, { breaks: true, gfm: true }), { ADD_ATTR: ["target"] });
-      for (const link of box.querySelectorAll("a[href]")) { link.target = "_blank"; link.rel = "noopener"; }
-    } else box.textContent = text;
-    return box;
-  }
 
   function itemNode(item) {
     const cached = chat.nodes.get(item.id);
@@ -513,11 +459,17 @@
         details.append(el("summary", "", t("thinking")), el("pre", "", item.thinking));
         steps.append(details);
       }
-      for (const tool of item.tools) {
-        const details = el("details", `assistant-tool${tool.done ? "" : " running"}`);
-        details.append(el("summary", "", `${t("tool")} · ${tool.name}`));
-        if (tool.detail || tool.result) details.append(el("pre", "", [tool.detail, tool.result].filter(Boolean).join("\n\n")));
-        steps.append(details);
+      if (item.tools.length) {
+        const running = item.tools.some(tool => !tool.done);
+        const group = el("details", `assistant-tool-group${running ? " running" : ""}`);
+        group.append(el("summary", "", t(running ? "toolsRunning" : "toolsComplete", { count: item.tools.length })));
+        for (const tool of item.tools) {
+          const details = el("details", "assistant-tool");
+          details.append(el("summary", "", tool.name));
+          if (tool.detail || tool.result) details.append(el("pre", "", [tool.detail, tool.result].filter(Boolean).join("\n\n")));
+          group.append(details);
+        }
+        steps.append(group);
       }
       if (steps.childElementCount) body.append(steps);
       if (item.text) body.append(markdown(item.text));
@@ -630,169 +582,62 @@
   }
 
   function composer() {
-    const form = el("form", "assistant-composer");
-    const chips = el("div", "assistant-attachments");
-    const input = el("textarea", "assistant-input");
-    input.rows = 1;
-    input.placeholder = t("messagePlaceholder", { name: chat.bot.displayName });
-    input.setAttribute("aria-label", input.placeholder);
-    const file = el("input");
-    file.type = "file"; file.multiple = true; file.hidden = true;
+    // 固定這個表單所屬的對話與 API，避免送出等待期間切換 Bot 而寫到別筆。
+    const entry = chat, owner = api;
+    const form = el("form", "assistant-composer"), chips = el("div", "assistant-attachments"), input = el("textarea", "assistant-input");
+    input.rows = 1; input.value = entry.draft;
+    input.placeholder = t("messagePlaceholder", { name: entry.bot.displayName }); input.setAttribute("aria-label", input.placeholder);
+    const file = el("input"); file.type = "file"; file.multiple = true; file.hidden = true;
     const attach = iconButton("attach", t("attach"), "assistant-attach", () => file.click());
     const hint = el("p", "assistant-hint", t("interruptHint"));
     const send = iconButton("send", t("send"), "assistant-send", null, "submit");
-    const stop = iconButton("stop", t("stop"), "assistant-stop", () => void api.interrupt(chat.sessionId).catch(error => toast(t("failed", { message: error.message }))));
-    const renderChips = () => chips.replaceChildren(...chat.attachments.map((item, index) => {
-      const chip = el("span", "assistant-chip", item.name);
-      const remove = button("×", "assistant-chip-remove", () => { chat.attachments.splice(index, 1); renderChips(); sync(); });
-      remove.setAttribute("aria-label", `${t("remove")} ${item.name}`);
-      chip.append(remove);
-      return chip;
-    }));
+    const stop = iconButton("stop", t("stop"), "assistant-stop", () => void owner.interrupt(entry.sessionId).catch(error => toast(t("failed", { message: error.message }))));
+    function renderChips() {
+      chips.replaceChildren(...entry.attachments.map((item, index) => {
+        const chip = el("span", "assistant-chip", item.name), remove = button("×", "assistant-chip-remove", () => { entry.attachments.splice(index, 1); remember(entry); renderChips(); sync(); });
+        remove.setAttribute("aria-label", `${t("remove")} ${item.name}`); chip.append(remove); return chip;
+      }));
+    }
     function sync() {
-      if (!chat) return;
-      stop.hidden = !chat.running;
-      hint.hidden = !(chat.running && input.value.trim());
-      send.disabled = chat.sending || !(input.value.trim() || chat.attachments.length);
-      input.style.height = "auto";
-      input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+      stop.hidden = !entry.running; hint.hidden = !(entry.running && input.value.trim());
+      send.disabled = entry.sending || !(input.value.trim() || entry.attachments.length);
+      input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
     }
     file.addEventListener("change", async () => {
-      for (const picked of file.files) {
-        if (chat.attachments.length >= MAX_FILES) { toast(t("tooMany")); break; }
-        if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name })); continue; }
-        chat.attachments.push({ kind: picked.type.startsWith("image/") ? "image" : "file", name: picked.name,
-          mime: picked.type || "application/octet-stream", data: await readBase64(picked) });
-      }
-      file.value = "";
-      renderChips();
-      sync();
+      try {
+        for (const picked of file.files) {
+          if (entry.attachments.length >= MAX_FILES) { toast(t("tooMany")); break; }
+          if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name })); continue; }
+          const data = await readBase64(picked);
+          entry.attachments.push({ kind: picked.type.startsWith("image/") ? "image" : "file", name: picked.name, mime: picked.type || "application/octet-stream", data });
+        }
+        remember(entry); renderChips(); sync();
+      } catch (error) { toast(t("failed", { message: error.message })); }
+      finally { file.value = ""; }
     });
-    input.addEventListener("input", sync);
+    input.addEventListener("input", () => { entry.draft = input.value; remember(entry); sync(); });
     input.addEventListener("keydown", event => {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !coarse) { event.preventDefault(); form.requestSubmit(); }
     });
     form.addEventListener("submit", async event => {
-      event.preventDefault();
-      const text = input.value;
-      if (!text.trim() && !chat.attachments.length) return;
-      const attachments = chat.attachments;
-      chat.sending = true;
-      chat.items.push(M.userItem(text, attachments.map(item => item.name)));
-      chat.attachments = [];
-      input.value = "";
-      renderChips();
-      renderTranscript();
-      scrollToEnd();
-      // Running from the moment it is sent: a quick reply can finish before
-      // this request answers, and its events then decide the state.
-      chat.running = true;
-      try {
-        await api.prompt(chat.sessionId, text, attachments);
-      } catch (error) {
-        chat.running = false;
-        chat.items.push(M.systemItem(t("sendFailed", { message: error.message })));
-        input.value = text;
-        renderTranscript();
-      } finally { if (chat) { chat.sending = false; sync(); } }
+      event.preventDefault(); if (chat !== entry || entry.sending) return;
+      const text = input.value; if (!text.trim() && !entry.attachments.length) return;
+      const attachments = entry.attachments; entry.sending = true; entry.running = true;
+      entry.items.push(M.userItem(text, attachments.map(item => item.name)));
+      entry.attachments = []; entry.draft = ""; input.value = ""; remember(entry);
+      renderChips(); renderTranscript(); scrollToEnd(); sync();
+      try { await owner.prompt(entry.sessionId, text, attachments); }
+      catch (error) {
+        entry.running = false;
+        entry.items.push(M.systemItem(t("sendFailed", { message: error.message })));
+        if (!entry.draft) entry.draft = text;
+        entry.attachments = [...attachments, ...entry.attachments].slice(0, MAX_FILES);
+        remember(entry);
+        if (chat === entry) { if (!input.value) input.value = entry.draft; renderChips(); renderTranscript(); }
+      } finally { entry.sending = false; if (chat === entry) sync(); }
     });
-    chat.sync = sync;
-    const row = el("div", "assistant-composer-row");
-    row.append(attach, input, stop, send);
-    form.append(hint, chips, row, file);
-    queueMicrotask(sync);
-    return form;
-  }
-
-  // ---- other conversations ----------------------------------------------
-
-  function sessionsView() {
-    const wrap = el("div", "assistant-sessions");
-    const search = el("input", "assistant-search");
-    search.type = "search";
-    search.placeholder = t("search");
-    search.setAttribute("aria-label", t("search"));
-    search.value = listing.query;
-    let timer = 0;
-    search.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => { listing.query = search.value.trim(); void loadSessions(true); }, 350);
-    });
-    const list = el("ul", "assistant-session-list");
-    list.id = "assistant-session-list";
-    const more = button(t("loadMore"), "btn ghost", () => void loadSessions(false));
-    more.id = "assistant-more";
-    more.hidden = true;
-    wrap.append(search, list, more);
-    queueMicrotask(renderSessions);
-    return wrap;
-  }
-
-  async function loadSessions(reset) {
-    if (!chat) return;
-    try {
-      const data = await api.sessions(chat.profile, listing.query, reset ? 0 : listing.rows.length);
-      listing.rows = reset ? data.sessions : [...listing.rows, ...data.sessions];
-      listing.hasMore = data.hasMore === true;
-    } catch (error) { toast(t("failed", { message: error.message })); }
-    renderSessions();
-  }
-
-  function renderSessions() {
-    const list = document.getElementById("assistant-session-list");
-    if (!list) return;
-    list.replaceChildren();
-    if (!listing.rows.length) list.append(el("li", "assistant-empty", t("noChats")));
-    for (const row of listing.rows) list.append(sessionRow(row));
-    const more = document.getElementById("assistant-more");
-    if (more) more.hidden = !listing.hasMore;
-  }
-
-  function sessionRow(row) {
-    const item = el("li", `assistant-session-row${row.unread ? " unread" : ""}`);
-    const open = button("", "assistant-session-open", () => void openBot(chat.profile, row.id, { title: row.title }));
-    open.append(el("strong", "", row.title || row.preview || t("untitled")),
-      el("small", "", [M.sourceLabel(row.source), M.formatWhen(row.lastActive, Date.now(), prefs.locale)].filter(Boolean).join(" · ")));
-    const rename = button(t("rename"), "btn ghost", () => {
-      const input = el("input", "assistant-rename");
-      input.value = row.title || "";
-      input.setAttribute("aria-label", t("rename"));
-      let done = false;
-      const save = async () => {
-        if (done) return;
-        done = true;
-        const title = input.value.trim();
-        if (title && title !== row.title) {
-          try { await api.rename(row.id, chat.profile, title); row.title = title; } catch (error) { toast(t("failed", { message: error.message })); }
-        }
-        renderSessions();
-      };
-      input.addEventListener("keydown", event => {
-        if (event.key === "Enter") { event.preventDefault(); void save(); }
-        if (event.key === "Escape") { done = true; renderSessions(); }
-      });
-      input.addEventListener("blur", () => void save());
-      open.replaceWith(input);
-      input.focus();
-    });
-    let armed = false;
-    const remove = button(t("delete"), "btn ghost assistant-danger", async () => {
-      if (!armed) {
-        armed = true;
-        remove.textContent = t("confirmDelete");
-        setTimeout(() => { armed = false; remove.textContent = t("delete"); }, 4000);
-        return;
-      }
-      try {
-        await api.remove(row.id, chat.profile);
-        listing.rows = listing.rows.filter(other => other.id !== row.id);
-        renderSessions();
-      } catch (error) { toast(t("failed", { message: error.message })); }
-    });
-    const actions = el("span", "assistant-session-actions");
-    actions.append(rename, remove);
-    item.append(open, actions);
-    return item;
+    const row = el("div", "assistant-composer-row"); row.append(attach, input, stop, send); form.append(hint, chips, row, file);
+    entry.sync = sync; queueMicrotask(() => { renderChips(); sync(); }); return form;
   }
 
   // ---- events from Hermes ------------------------------------------------

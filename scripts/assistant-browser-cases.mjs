@@ -33,7 +33,18 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       // On a phone Back returns to the list; on a wide screen the list stays
       // beside the conversation and there is no Back to the list.
       const wide = viewport.width >= 900;
-      const toList = async () => { if (!wide) await page.locator(".assistant-back.to-list").click(); };
+      const toList = async () => {
+        if (wide) return;
+        for (let index = 0; index < 4 && !await page.locator(".assistant-list").isVisible(); index += 1) {
+          await page.goBack();
+          await page.locator(".assistant-loading").waitFor({ state: "hidden" });
+        }
+        await page.locator(".assistant-list").waitFor({ state: "visible" });
+      };
+      const openMore = async label => {
+        await page.getByRole("button", { name: "More options", exact: true }).click();
+        await page.getByRole("dialog").getByRole("button", { name: label, exact: true }).click();
+      };
 
       stage = "Stepsemble sign-in returns to the assistant";
       const keyCheck = page.waitForResponse(response => new URL(response.url()).pathname === "/api/onboarding/key");
@@ -122,7 +133,7 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       stage = "other conversations";
       const telegram = preview.fake.addSession("default", "Groceries", { source: "telegram" });
       telegram.messages.push({ role: "user", text: "buy milk" });
-      await page.getByRole("tab", { name: "Other conversations", exact: true }).click();
+      await page.getByRole("button", { name: "History", exact: true }).click();
       const row = page.locator(".assistant-session-row", { hasText: "Groceries" });
       await row.waitFor();
       assert.match(await row.textContent(), /Telegram/);
@@ -132,8 +143,7 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
 
       stage = "routines";
       const brief = preview.fake.addRoutine("default", { name: "Luna 每日情報簡報", schedule: "0 7 * * *", deliver: "telegram:586668748", prompt: "Brief me" });
-      await page.getByRole("button", { name: "Back", exact: true }).click();
-      await page.getByRole("tab", { name: "Routines", exact: true }).click();
+      await openMore("Routines");
       const routine = page.locator(".assistant-routine", { hasText: "Luna 每日情報簡報" });
       await routine.waitFor();
       assert.match(await routine.textContent(), /Every day 07:00/, "a cron schedule reads as words");
@@ -225,9 +235,9 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await shell.getByText("high · Runs arbitrary shell commands (SKILL.md:4)").waitFor();
       await shell.getByRole("button", { name: "I read the check — install", exact: true }).click();
       await page.locator(".assistant-skill[data-skill='shell-helper']").waitFor();
-      await page.locator("#assistant-bot-head .assistant-avatar.has-picture").waitFor();
-      assert.match(await page.locator("#assistant-bot-head small").textContent(), /expensive-model/, "the header follows the new model");
-      assert.ok((await page.locator(".assistant-tabs").boundingBox()).height >= 30, "the tab bar keeps its height");
+      await page.locator(".assistant-page-head .assistant-avatar.has-picture").waitFor();
+      assert.match(await page.locator(".assistant-page-head h1").textContent(), /Research Buddy/, "the auxiliary page identifies its Bot");
+      assert.equal(await page.getByRole("tablist").count(), 0, "the conversation no longer carries four long tabs");
       await shot("bot-settings");
 
       stage = "hide and delete a Bot";
@@ -239,7 +249,6 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.getByRole("button", { name: "Hidden Bots (2)", exact: true }).click();
       await page.locator(".assistant-bot-row.is-hidden[data-profile='research-buddy'] .assistant-avatar.has-picture").waitFor();
       await page.locator(".assistant-bot-row[data-profile='research-buddy']").click();
-      await page.getByRole("tab", { name: "Settings", exact: true }).click();
       await page.locator("summary", { hasText: "Delete this Bot" }).click();
       const forever = page.getByRole("button", { name: "Delete forever", exact: true });
       assert.equal(await forever.isDisabled(), true);

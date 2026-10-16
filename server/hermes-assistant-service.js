@@ -305,7 +305,9 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     entry.running = resumed.running === true;
     restoreAsks(entry, resumed.open_requests);
     updateTurnHold();
-    return view(entry, { botChat: false, messages: messages(resumed.messages),
+    // session.title 省略 title 時是唯讀，讓重載的歷史對話仍保有正確標題。
+    const named = await client.request("session.title", { session_id: resumed.session_id }, { timeoutMs: 10_000 }).catch(() => ({ title: resumed.title }));
+    return view(entry, { botChat: false, title: clip(named?.title, 300), messages: messages(resumed.messages),
       inflight: entry.running ? { user: clip(resumed.inflight?.user, MAX_TEXT), assistant: clip(resumed.inflight?.assistant, MAX_TEXT) } : null });
   }
 
@@ -402,7 +404,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     }
     const found = await client.rest("GET", "/api/sessions", { query: { profile: name, order: "recent", limit: 30, offset: start } });
     const rows = Array.isArray(found?.sessions) ? found.sessions : [];
-    return { sessions: rows.map(sessionRow).filter(keep), hasMore: rows.length === 30 };
+    return { sessions: rows.map(sessionRow).filter(keep), hasMore: rows.length === 30, nextOffset: start + rows.length };
   }
 
   async function renameSession({ sessionId, profile, title } = {}) {

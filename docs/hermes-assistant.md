@@ -17,7 +17,12 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
 - Bot 需要你核准、回答問題或輸入 sudo／secret 時，卡片直接出現在對話裡，手機會收到推播。
   回覆完成時，如果沒有任何畫面正在看那個對話，也會推播。
 - Hermes 不再出現在「新增對話」；以前用 ACP 開的 Hermes 對話仍可照常打開。
-- 每個 Bot 的「例行工作」分頁（以及名單頁的「所有例行工作」）列出 Hermes cron job：可暫停、立即執行、看執行紀錄、
+- 首頁用列表顯示 Bot、最近對話預覽與時間；搜尋欄可篩選已載入的 Bot 和群組。桌面保留左右雙欄，手機一次只顯示列表或對話。
+- 對話頁的「歷史」開啟歷史面板，可搜尋、分頁與依日期瀏覽。每列的更多操作提供重新命名及二段確認刪除。
+  選取歷史後直接閱讀該對話；重開面板會保留同一個 Bot 的查詢和捲動位置。
+- 對話頁返回先回助理列表，不直接跳到工作區；歷史面板或更多選單開著時，瀏覽器返回先關閉面板。
+  設定／例行工作返回該 Bot 的對話，瀏覽器前進可還原畫面。直接開對話網址也有助理列表作為返回落點。
+- 對話右上角的「更多選項 → 例行工作」（以及名單頁的「所有例行工作」）列出 Hermes cron job：可暫停、立即執行、看執行紀錄、
   編輯、刪除。「同時送到這個 Bot 的對話」會在送達清單加入或移除 `bot-chat`。在這裡新增的例行工作依 Bot Mode 慣例
   命名為 `[bot:<profile>] <名稱>`，預設送到這個 Bot 的對話；既有工作的名稱與其他設定不會被自動修改。
 - 名單頁的「群組」區可以建立 2～6 個同一台電腦 Bot 的群組（Hermes hosted room）。`@名稱` 指名一個 Bot、`@all` 指名全體，
@@ -25,7 +30,7 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   群組開著且畫面可見時每 1.5 秒讀新訊息、每 3 秒讀狀態。Hermes 沒有群組驅動時顯示「需要較新版本的 Hermes」。
 
 - 名單頁的「新增 Bot」建立新的 Hermes profile（可從現有 Bot 複製設定），外觀寫入 `ui_meta["hermes-bots"]`，與 Hermes 桌面版共用。
-  每個 Bot 的「設定」分頁可以改名稱、說明、顏色、圖片（PNG／JPEG／WebP，小於 2 MB）、從名單隱藏、個性（SOUL.md）、
+  每個 Bot 的「更多選項 → 設定」可以改名稱、說明、顏色、圖片（PNG／JPEG／WebP，小於 2 MB）、從名單隱藏、個性（SOUL.md）、
   模型（Hermes 認為較貴的模型要再按一次「仍要使用」才會寫入）、技能、工具組與 MCP 伺服器。外觀以 Hermes 的修訂號比對，
   別處改過時不會覆蓋。刪除 Bot 要輸入它的設定檔 ID，預設 Bot 不能刪除。
 - 技能：分類列出、開關、編輯 SKILL.md；技能中心可搜尋、預覽，安裝前一定先做 Hermes 的安全檢查並顯示結果——Hermes 封鎖的
@@ -51,12 +56,20 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   `client.capabilities {server_requests: true}`，只回答自己打開的對話；不認得的請求立即拒絕，
   不讓 Agent 空等。核准只接受 Hermes 提供的選項，絕不自動核准。
 - 斷線時自動重連，以 `session.resume` 與 `session.events.since` 接回並依序補上漏掉的事件。
+- 寬表格與程式碼只在自己的區域橫向捲動；圖片依閱讀欄縮放。連續工具紀錄合成可展開摘要，核准卡仍直接顯示。
+- Bot 草稿與未送附件依機器／profile／對話分開保留，群組草稿依機器／群組分開保留；只存當前頁面的記憶體，重載後不保留。
+  網址與瀏覽器歷史只保存路由識別，不放訊息內容、草稿、附件或敏感答案。
+- 重開歷史會以既有唯讀 `session.title` 補上標題；分頁使用伺服器回傳的原始 `nextOffset`，不因濾掉永久 Bot Chat 而錯位。
 
 ## 測試
 
 - 單元與整合：`test/hermes-*.test.js`、`test/assistant-*.test.js`，以
   `test-support/fake-hermes-gateway.cjs` 模擬 Hermes 0.22.0。
-- 瀏覽器：`node scripts/assistant-browser-cases.mjs <Playwright runtime>`，或 Rolling 的 workspace 套件。
+- 瀏覽器：`node scripts/assistant-browser-cases.mjs <Playwright runtime>`；新手機回歸為
+  `node scripts/assistant-mobile-browser-cases.mjs <Playwright runtime>`，兩者均納入 Rolling 的 workspace 套件。
+- 手機回歸涵蓋寬內容、原生瀏覽器 Back／Forward、歷史搜尋／分頁／操作／錯誤、草稿／附件／群組、競態與首次介紹。
+  版面檢查包含 320／393／414px、橫向與桌面、深淺主題、繁中／英文／德文及 150% 字級。
+- Chromium 模擬手機不等於真 iPhone 或 WebKit；iPhone 主畫面模式的原生左緣滑動仍需實機確認。
 
 ## 相容性
 

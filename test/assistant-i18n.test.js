@@ -35,3 +35,15 @@ test("group chat strings exist in every locale", () => {
   assert.equal(I.t("groupsUnsupported", {}, "zh-Hant"), "群組聊天需要較新版本的 Hermes。");
   assert.equal(I.t("turnFailed", { name: "Luna" }, "en"), "Luna could not answer");
 });
+
+test("對話歷史按鈕不使用例行工作的執行紀錄名稱", () => {
+  assert.equal(I.t("historyAction", {}, "zh-Hant"), "歷史");
+  assert.equal(I.t("historyAction", {}, "en"), "History");
+  assert.notEqual(I.t("historyAction", {}, "zh-Hant"), I.t("history", {}, "zh-Hant"));
+});
+
+test("首次介紹使用新版歷史與更多選項，不再指向已移除的分頁", () => {
+  assert.match(I.t("introBody1", {}, "en"), /History/);
+  assert.doesNotMatch(I.t("introBody1", {}, "en"), /tab/);
+  assert.match(I.t("introBody3", {}, "en"), /More/);
+});

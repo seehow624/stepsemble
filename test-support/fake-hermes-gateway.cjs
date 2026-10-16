@@ -268,8 +268,8 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
       case "session.title": {
         const storedId = storedOf(p.session_id);
         if (!storedId) return fail(4001, "session not found");
-        state.stored.get(storedId).title = String(p.title || "");
-        return reply({ title: p.title });
+        if (Object.hasOwn(p, "title")) state.stored.get(storedId).title = String(p.title || "");
+        return reply({ title: state.stored.get(storedId).title });
       }
       case "session.resume": {
         const row = state.stored.get(p.session_id);
@@ -515,7 +515,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
       if (url.pathname === "/api/sessions/search" && req.method === "GET") {
         const q = String(url.searchParams.get("q") || "").toLowerCase(), profile = url.searchParams.get("profile") || "default";
         const rows = [...state.stored.values()].filter(row => row.profile === profile
-          && (row.title.toLowerCase().includes(q) || row.messages.some(item => item.text.toLowerCase().includes(q))));
+          && (row.title.toLowerCase().includes(q) || row.messages.some(item => String(item.text || "").toLowerCase().includes(q))));
         return send(200, { results: rows.map(row => ({ ...sessionRow(row), snippet: preview(row) })) }, rotated);
       }
       if (url.pathname === "/api/cron/delivery-targets" && req.method === "GET") {

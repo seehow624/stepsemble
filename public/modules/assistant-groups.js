@@ -6,7 +6,7 @@
   // answers the approvals a member raises. While a room is open and visible
   // it reads new events every 1.5 s and the room state every 3 s.
 
-  function create({ api, t, el, button, iconButton, toast, avatar, markdown, bots, onBack }) {
+  function create({ api, t, el, button, iconButton, toast, avatar, markdown, bots, onBack, drafts = new Map() }) {
     let open = null;
     const colorOf = profile => bots().find(bot => bot.name === profile)?.color;
     const failed = error => toast(t("failed", { message: error.message }));
@@ -157,12 +157,16 @@
       const mentions = el("div", "assistant-group-mentions");
       const input = el("textarea", "assistant-input");
       input.rows = 1;
+      input.value = drafts.get(room.id) || "";
+      state.input = input;
+      input.addEventListener("input", () => drafts.set(room.id, input.value));
       input.placeholder = t("messageGroup");
       input.setAttribute("aria-label", t("messageGroup"));
       for (const handle of [...room.members.map(member => member.handle), "all"]) {
         mentions.append(button(`@${handle}`, "assistant-choice", () => {
           const text = input.value.replace(/\s*$/, "");
           input.value = `${text}${text ? " " : ""}@${handle} `;
+          drafts.set(room.id, input.value);
           input.focus();
         }));
       }
@@ -179,6 +183,7 @@
         try {
           await api.groupSend(room.id, text);
           input.value = "";
+          if (drafts.get(room.id)?.trim() === text) drafts.delete(room.id);
           state.working = true;
           renderLive();
           await pollLog();
@@ -261,6 +266,7 @@
 
     function close() {
       if (!open) return;
+      if (open.input) drafts.set(open.room.id, open.input.value);
       for (const timer of open.timers.values()) clearTimeout(timer);
       open = null;
     }

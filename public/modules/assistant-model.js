@@ -35,9 +35,11 @@
     const items = [];
     for (const message of Array.isArray(messages) ? messages : []) {
       if (message?.role === "tool") {
-        const value = item("assistant");
+        // 只有連續、沒有文字的工具紀錄合併，不跨過真正的回答。
+        const previous = items.at(-1);
+        const value = previous?.role === "assistant" && !previous.text && previous.tools.length ? previous : item("assistant");
         value.tools.push({ id: null, name: message.name || "tool", detail: message.context || "", result: "", done: true });
-        items.push(value);
+        if (value !== previous) items.push(value);
         continue;
       }
       const role = message?.role === "user" ? "user" : message?.role === "system" ? "system" : "assistant";

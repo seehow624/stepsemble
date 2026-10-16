@@ -1203,11 +1203,14 @@ function workspaceDestination() {
   // The assistant page sends people here to sign in and expects them back.
   if (PAGE_QUERY.get("assistant") === "1") {
     const assistant = new URL("/assistant.html", location.origin);
-    for (const key of ["bot", "session"]) {
+    for (const key of ["bot", "session", "room", "machine"]) {
       const value = PAGE_QUERY.get(key);
       if (value && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) assistant.searchParams.set(key, value);
     }
-    if (PAGE_QUERY.get("view") === "console") assistant.searchParams.set("view", "console");
+    // 只轉送 Assistant 自己的畫面，不讓登入返回成為任意網址導向。
+    const view = PAGE_QUERY.get("view"), panel = PAGE_QUERY.get("panel");
+    if (["console", "settings", "routines", "bots", "newbot", "newgroup", "pending"].includes(view)) assistant.searchParams.set("view", view);
+    if (["history", "menu"].includes(panel)) assistant.searchParams.set("panel", panel);
     return assistant.href;
   }
   const destination = new URL("/workspace.html", location.origin);
