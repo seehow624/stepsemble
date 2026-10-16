@@ -190,8 +190,8 @@ function compactOpenCode(calls,{busy=false,result=true}={}) {
   ],calls)});
 }
 test("OpenCode compacts the same session with that session's model, not the global default",async()=>{
-  const calls=[],adapter=compactOpenCode(calls);assert.deepEqual(await adapter.compact("owned-session",{directory:"/owned/project"}),{completed:true});
-  const sent=calls.find(call=>call.method==="POST");assert.equal(sent.pathname,"/session/owned-session/summarize");assert.deepEqual(sent.body,{providerID:"owned-provider",modelID:"owned-model"});assert.equal(sent.query.get("directory"),"/owned/project");
+  const calls=[],adapter=compactOpenCode(calls),directory=path.resolve("/owned/project");assert.deepEqual(await adapter.compact("owned-session",{directory}),{completed:true});
+  const sent=calls.find(call=>call.method==="POST");assert.equal(sent.pathname,"/session/owned-session/summarize");assert.deepEqual(sent.body,{providerID:"owned-provider",modelID:"owned-model"});assert.equal(sent.query.get("directory"),directory);
   assert.equal(calls.some(call=>call.pathname==="/config"||call.pathname.endsWith("/message")&&call.method==="POST"),false);
 });
 test("OpenCode refuses busy sessions and never retries a rejected summarization",async()=>{
