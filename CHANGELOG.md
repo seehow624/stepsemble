@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.10
+
+- Drag a session from the Workspace sidebar onto another conversation's message box to hand it over. A handoff summary of the dragged session is appended to your next message, naming its agent, project and the turn it covers. Preview and edit the summary before sending; nothing is written to disk and the referenced session is not changed. Up to three sessions on the same Host per message.
+- Choose the summarizer in Settings: Claude Code, Codex or Pi, with its model and thinking level. Each run has no tools, no MCP servers and saves no session, and treats the record as data. Long records are summarized in parts, records above an estimated 300,000 tokens ask first, and a failure offers a retry or a plain digest made without a model. A summarizer chosen in Settings that is not installed is refused instead of replaced by another agent.
+- Keep Goals in their conversation. The sidebar button now opens Schedules only, and each session row shows a Goal mark while its Goal runs, is paused or needs attention. The in-session Goal bar, `/goal` and scheduled Goals are unchanged; the cross-session list of finished Goals is gone.
+- Show the subagents a conversation's agent starts: a bubble above the message box counts them, its list shows each one's task, state, time and current action, and a read-only panel shows its full task, activity and result. Supported for Claude Code (including background Agents), Codex, OpenCode and Pi with pi-subagents; other agents show nothing rather than a guess. Transcript cards open the same panel, also after the conversation is opened again.
+- Stop a Codex sub-agent from failing the parent conversation's connection: its notifications are reported as subagent activity, and its approval requests are declined with a note in its panel. Verified with real Codex 0.162.1 and Claude Code 2.1.295 against a localhost model fixture, with no provider requests.
+
 ## 3.9.9
 
 - Let Hermes Bots send files the way Telegram does. A reply that names a file with `MEDIA:` shows images inline, plays audio and video, and offers PDFs, text files and other documents as cards that open or download. Text files open as a page sized for the phone, and phone notices name the files instead of showing their paths.
