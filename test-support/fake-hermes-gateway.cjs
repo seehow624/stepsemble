@@ -115,6 +115,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
     rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
     bots: new Map(), avatars: new Map(), hubCatalog: defaultHub(), actions: new Map(), botCalls: [],
+    files: new Map(), downloads: [], sources: [],
     consoleCalls: [], gatewayRunning: true, config: defaultConfig(), env: { OPENAI_API_KEY: "sk-live-abcdef123456", TELEGRAM_BOT_TOKEN: "123:abc" },
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
@@ -262,6 +263,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
           message_count: row.messages.length, source: row.source })) });
       }
       case "session.create": {
+        state.sources.push(p.source ?? null);
         const row = newStored(p.profile || "default", "", { hidden: p.hidden === true });
         return reply({ session_id: liveFor(row.id, peer), stored_session_id: row.id });
       }
@@ -272,6 +274,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         return reply({ title: state.stored.get(storedId).title });
       }
       case "session.resume": {
+        state.sources.push(p.source ?? null);
         const row = state.stored.get(p.session_id);
         if (!row) return fail(4001, "session not found");
         const liveId = liveFor(row.id, peer);
@@ -505,6 +508,23 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         state.tickets.add(ticket);
         state.ticketsIssued += 1;
         return send(200, { ticket, ttl_seconds: 30 }, rotated);
+      }
+      // Hermes 0.22's /api/files/download: sensitive names are refused, Range is
+      // honoured, and the raw bytes come back.
+      if (url.pathname === "/api/files/download" && req.method === "GET") {
+        const target = String(url.searchParams.get("path") || ""), name = target.split("/").pop().toLowerCase();
+        if (name === ".env" || name === "config.yaml" || name === "auth.json") return send(403, { detail: "Access to sensitive files is not allowed" });
+        const file = state.files.get(target);
+        if (!file) return send(404, { detail: "File not found" });
+        state.downloads.push({ path: target, range: req.headers.range || null });
+        const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || "");
+        if (range) {
+          const start = Number(range[1]), end = range[2] ? Math.min(Number(range[2]), file.length - 1) : file.length - 1;
+          res.writeHead(206, { "content-type": "application/octet-stream", "accept-ranges": "bytes", "content-range": `bytes ${start}-${end}/${file.length}`, "content-length": end - start + 1 });
+          return res.end(file.subarray(start, end + 1));
+        }
+        res.writeHead(200, { "content-type": "application/octet-stream", "accept-ranges": "bytes", "content-length": file.length, "content-disposition": `attachment; filename="${encodeURIComponent(name)}"` });
+        return res.end(file);
       }
       if (url.pathname === "/api/sessions" && req.method === "GET") {
         const profile = url.searchParams.get("profile") || "default";
@@ -789,6 +809,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     },
     liveOf(storedId) { for (const [liveId, owner] of state.live) if (owner === storedId) return liveId; return null; },
     addSession(profile, title, options) { return newStored(profile, title, options); },
+    addFile(path, data) { state.files.set(path, Buffer.from(data)); },
     addRoutine(profile, body) { const job = cronJob(profile, body); state.cron.push(job); return job; },
     storedSessions: () => [...state.stored.values()],
     requestGroupApproval(roomId, memberId) {

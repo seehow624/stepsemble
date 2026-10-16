@@ -5797,6 +5797,8 @@ const server = http.createServer(async (req, res) => {
         if (req.headers.origin && req.method !== "GET" && req.method !== "HEAD") headers.origin = upstream.origin;
       }
       if (req.headers["last-event-id"]) headers["last-event-id"] = req.headers["last-event-id"];
+      // 影音拖曳與 iPhone 播放都要靠分段讀取。
+      if (req.headers.range && (req.method === "GET" || req.method === "HEAD")) headers.range = String(req.headers.range).slice(0, 200);
       if (req.method === "POST") headers["content-type"] = req.headers["content-type"] || "application/json";
       // 用內建 fetch（undici）：http.request 在服務進程環境下有 outbound socket 怪病（socket hang up）。
       // 上游 stream 必須接 error，否則遠端斷線會把本機 Node server 一起打死。

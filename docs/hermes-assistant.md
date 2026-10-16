@@ -33,6 +33,8 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   每個 Bot 的「更多選項 → 設定」可以改名稱、說明、顏色、圖片（PNG／JPEG／WebP，小於 2 MB）、從名單隱藏、個性（SOUL.md）、
   模型（Hermes 認為較貴的模型要再按一次「仍要使用」才會寫入）、技能、工具組與 MCP 伺服器。外觀以 Hermes 的修訂號比對，
   別處改過時不會覆蓋。刪除 Bot 要輸入它的設定檔 ID，預設 Bot 不能刪除。
+- Bot 可以像在 Telegram 一樣傳檔案：回覆裡的 `MEDIA:/絕對路徑` 會變成附件，圖片直接顯示、點開放大；PDF 與文字檔可開啟或下載，文字檔在手機上以裝置寬度排版閱讀；
+  影片和音訊可直接播放；其他檔案提供下載。群組訊息和送到 Bot 對話的例行工作也適用，手機通知只顯示文字或檔名，不顯示路徑。
 - 外觀設定提供 20 款透明背景的小機器人／小精靈，點選即儲存，支援鍵盤方向鍵。內建造型沒有底框，自訂圖片保留圓角外框。
   選擇保存在 Bot metadata 的 `avatarPreset`，其他裝置重開 Stepsemble 也會讀到；選內建造型不會刪除既有圖片，仍可切回「使用已上傳圖片」。
 - 技能：分類列出、開關、編輯 SKILL.md；技能中心可搜尋、預覽，安裝前一定先做 Hermes 的安全檢查並顯示結果——Hermes 封鎖的
@@ -58,6 +60,12 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   `client.capabilities {server_requests: true}`，只回答自己打開的對話；不認得的請求立即拒絕，
   不讓 Agent 空等。核准只接受 Hermes 提供的選項，絕不自動核准。
 - 斷線時自動重連，以 `session.resume` 與 `session.events.since` 接回並依序補上漏掉的事件。
+- Stepsemble 開啟或重開對話時以 `source: "desktop"` 告訴 Hermes 這是圖形介面，Hermes 才會教 Bot 用 `MEDIA:` 傳附件。
+  檔案經 `GET /api/assistant/media?path=` 從 Hermes 自己的 `/api/files/download` 串流取得：只接受這台 Host 曾在 Bot 回覆或群組成員訊息中
+  看過的路徑，Hermes 仍套用它的敏感檔案阻擋與 100 MB 上限；Stepsemble 不直接讀那台電腦的磁碟，也不另存副本。
+  圖片與影音以 inline 回應並加上沙盒 CSP；文字檔開啟時轉成跳脫後的閱讀頁（同樣在沙盒內，內容不會成為標籤），下載保留原檔；
+  PDF 交給瀏覽器內建閱讀器，HTML 與其他類型一律下載；圖片、影音與 PDF 支援 Range，跨電腦轉送也會帶上。
+  desktop 模式的 Bot 也可能寫 `::preview{file="…"}` 互動小工具；絕對路徑會顯示成只能下載的檔案卡片，Stepsemble 不執行其中的網頁。
 - 寬表格與程式碼只在自己的區域橫向捲動；圖片依閱讀欄縮放。連續工具紀錄合成可展開摘要，核准卡仍直接顯示。
 - Bot 草稿與未送附件依機器／profile／對話分開保留，群組草稿依機器／群組分開保留；只存當前頁面的記憶體，重載後不保留。
   網址與瀏覽器歷史只保存路由識別，不放訊息內容、草稿、附件或敏感答案。
@@ -69,6 +77,7 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   `test-support/fake-hermes-gateway.cjs` 模擬 Hermes 0.22.0。
 - 瀏覽器：`node scripts/assistant-browser-cases.mjs <Playwright runtime>`；新手機回歸為
   `node scripts/assistant-mobile-browser-cases.mjs <Playwright runtime>`，兩者均納入 Rolling 的 workspace 套件。
+- 附件：`node scripts/assistant-media-browser-cases.mjs <Playwright runtime>`，在手機與桌面驗證圖片、PDF、文字檔與已消失的檔案。
 - 手機回歸涵蓋寬內容、原生瀏覽器 Back／Forward、歷史搜尋／分頁／操作／錯誤、草稿／附件／群組、競態與首次介紹。
   版面檢查包含 320／393／414px、橫向與桌面、深淺主題、繁中／英文／德文及 150% 字級。
 - Chromium 模擬手機不等於真 iPhone 或 WebKit；iPhone 主畫面模式的原生左緣滑動仍需實機確認。

@@ -3,7 +3,7 @@
 
   // 歷史面板只管理搜尋、分頁與列操作，導航交給外層控制器。
   // 不同 profile 分開保存查詢與捲動，關閉後拒收過期的 API 結果。
-  function create({ api, t, el, button, M, locale, showPanel, onSelect }) {
+  function create({ api, t, el, button, M, locale, showPanel, onSelect, plain = text => text }) {
     const saved = new Map();
     let active = null, serial = 0, timer = 0;
     function close() {
@@ -85,7 +85,7 @@
       const open = button("", "assistant-session-open", () => onSelect(entry.profile, row));
       const title = el("strong", "", row.title || t("untitled"));
       open.append(title);
-      if (row.preview) open.append(el("p", "assistant-session-preview", row.preview));
+      if (row.preview) open.append(el("p", "assistant-session-preview", plain(row.preview)));
       const meta = el("small", "assistant-session-meta");
       meta.append(el("span", "assistant-source", row.source === "cron" ? t("routines") : M.sourceLabel(row.source)),
         el("time", "", M.formatWhen(row.lastActive || row.startedAt, Date.now(), locale)));

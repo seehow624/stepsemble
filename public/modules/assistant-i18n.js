@@ -618,8 +618,22 @@
     "pt-BR": ["Avatares padrão", "Avatar padrão {number}", "Usar imagem enviada"],
     "it": ["Avatar predefiniti", "Avatar predefinito {number}", "Usa l’immagine caricata"],
   };
+  const FILE_KEYS = ["fileOpen", "fileDownload", "fileUnavailable"];
+  const fileRows = {
+    "en": ["Open", "Download", "This file is no longer available."],
+    "zh-Hant": ["開啟", "下載", "這個檔案已無法開啟。"],
+    "zh-Hans": ["打开", "下载", "这个文件已无法打开。"],
+    "ja": ["開く", "ダウンロード", "このファイルは開けなくなりました。"],
+    "ko": ["열기", "다운로드", "이 파일은 더 이상 열 수 없습니다."],
+    "tr": ["Aç", "İndir", "Bu dosya artık açılamıyor."],
+    "fr": ["Ouvrir", "Télécharger", "Ce fichier n’est plus disponible."],
+    "de": ["Öffnen", "Herunterladen", "Diese Datei ist nicht mehr verfügbar."],
+    "es": ["Abrir", "Descargar", "Este archivo ya no está disponible."],
+    "pt-BR": ["Abrir", "Baixar", "Este arquivo não está mais disponível."],
+    "it": ["Apri", "Scarica", "Questo file non è più disponibile."],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

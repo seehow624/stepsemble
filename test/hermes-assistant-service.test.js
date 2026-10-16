@@ -87,6 +87,20 @@ test("a reply streams to subscribers; a finished reply reaches the phone only wh
   assert.equal(notices.length, 1, "someone was watching");
 });
 
+test("a phone notice drops attachment paths and names the files when there is no text", async t => {
+  const { fake, service, notices } = await setup(t);
+  await service.bots();
+  const chat = await service.openBotChat("default");
+  const { events } = collect(service, chat.cursor);
+  fake.setTurn({ reply: "報告好了 MEDIA:/Users/me/報告.pdf" });
+  await service.prompt({ sessionId: chat.sessionId, text: "報告" });
+  await until(() => events.some(event => event.type === "message.complete"));
+  fake.setTurn({ reply: "MEDIA:/Users/me/chart.png" });
+  await service.prompt({ sessionId: chat.sessionId, text: "圖" });
+  await until(() => events.filter(event => event.type === "message.complete").length === 2);
+  assert.deepEqual(notices.map(notice => notice.body), ["報告好了", "chart.png"]);
+});
+
 test("a Hermes approval waits for an answer, reaches the phone, and takes only offered choices", async t => {
   const { fake, service, notices } = await setup(t);
   await service.bots();
