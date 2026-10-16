@@ -180,3 +180,21 @@ test("OpenCode adapter rejects invalid identities and decisions before network e
   await assert.rejects(() => adapter.respondPermission({ sessionId: "s1", permissionId: "p1", response: "allow" }), /decision is invalid/);
   assert.equal(calls, 0);
 });
+
+function compactOpenCode(calls,{busy=false,result=true}={}) {
+  return createOpenCodeNativeAdapter({baseUrl:"http://127.0.0.1:4096",fetchImpl:routeFetch([
+    {method:"GET",pathname:"/session/status",body:busy?{"owned-session":{type:"busy"}}:{}},
+    {method:"GET",pathname:"/permission",body:[]},
+    {method:"GET",pathname:"/session/owned-session/message",body:[{info:{id:"message-1",sessionID:"owned-session",role:"assistant",providerID:"owned-provider",modelID:"owned-model"},parts:[]}]},
+    {method:"POST",pathname:"/session/owned-session/summarize",body:result},
+  ],calls)});
+}
+test("OpenCode compacts the same session with that session's model, not the global default",async()=>{
+  const calls=[],adapter=compactOpenCode(calls);assert.deepEqual(await adapter.compact("owned-session",{directory:"/owned/project"}),{completed:true});
+  const sent=calls.find(call=>call.method==="POST");assert.equal(sent.pathname,"/session/owned-session/summarize");assert.deepEqual(sent.body,{providerID:"owned-provider",modelID:"owned-model"});assert.equal(sent.query.get("directory"),"/owned/project");
+  assert.equal(calls.some(call=>call.pathname==="/config"||call.pathname.endsWith("/message")&&call.method==="POST"),false);
+});
+test("OpenCode refuses busy sessions and never retries a rejected summarization",async()=>{
+  const busyCalls=[];await assert.rejects(compactOpenCode(busyCalls,{busy:true}).compact("owned-session"),/compaction_busy/);assert.equal(busyCalls.some(call=>call.method==="POST"),false);
+  const calls=[];await assert.rejects(compactOpenCode(calls,{result:false}).compact("owned-session"),/compaction_not_confirmed/);assert.equal(calls.filter(call=>call.method==="POST").length,1);
+});

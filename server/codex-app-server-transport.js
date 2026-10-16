@@ -37,7 +37,7 @@ const APPROVAL_METHODS = Object.freeze([
 ]);
 const CLIENT_METHODS = Object.freeze([
   "initialize", "account/rateLimits/read", "thread/start", "thread/resume", "thread/read", "thread/list",
-  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/name/set", "model/list", "turn/start", "turn/interrupt",
+  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/name/set", "thread/compact/start", "model/list", "turn/start", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
@@ -597,7 +597,14 @@ function createCodexAppServerTransport({
   let resumingTurns = new Set();
   let turnStartInFlight = false;
   let interruptInFlight = false;
+  let compactionStarting = false, compactionPending = null;
 
+  function finishCompaction(result) {
+    const pending = compactionPending;
+    if (!pending) return;
+    compactionPending = null;
+    pending.resolve(result);
+  }
   const key = idKey;
   // Codex's own reason for a failed turn, such as usageLimitExceeded, so a
   // Goal can tell a usage limit from an outage. Bounded plain text only.
@@ -647,6 +654,7 @@ function createCodexAppServerTransport({
     if (failure || closed) return;
     failure = new Error(code);
     failure.code = code;
+    finishCompaction(reject(code));
     for (const row of pending.values()) { clearTimeout(row.timer); row.reject(failure); }
     pending.clear();
     approvals.clear();
@@ -813,19 +821,28 @@ function createCodexAppServerTransport({
         || method === "turn/completed" && turnId !== id) { fail("native_turn_mismatch"); return; }
       if (method === "turn/started") {
         if (status !== "inProgress") { fail("native_turn_status_invalid"); return; }
-        turnId = id; state = "turn_running"; turnState = "running"; report({ type: "turn.started", threadId: tid, turnId: id }); return;
+        turnId = id; state = "turn_running"; turnState = "running";
+        if (compactionPending && compactionPending.threadId === tid && !compactionPending.turnId) compactionPending.turnId = id;
+        report({ type: "turn.started", threadId: tid, turnId: id }); return;
       }
       if (!TURN_TERMINAL_STATUSES.has(status)) { fail("native_turn_status_invalid"); return; }
       turnState = status; state = "thread_started"; report({ type: status === "interrupted" ? "turn.interrupted" : "turn.completed", threadId: tid, turnId: id, status, ...turnFailure(turn) });
       completedTurns.add(id);
       if (completedTurns.size > 32) completedTurns.delete(completedTurns.values().next().value);
-      turnId = null; return;
+      turnId = null;
+      if (compactionPending?.threadId === tid && compactionPending.turnId === id) {
+        finishCompaction(status === "completed" && compactionPending.boundary
+          ? { kind: "completed", completed: true, threadId: tid, completedTurnId: id }
+          : reject(status === "completed" ? "compaction_not_confirmed" : "native_compaction_failed"));
+      }
+      return;
     }
     if (["item/started", "item/completed"].includes(method)) {
       const tid = nativeId(params?.threadId), trn = nativeId(params?.turnId), item = nativeId(params?.item?.id);
       if (!item || !correlation(tid, trn)) { fail("native_item_mismatch"); return; }
       const itemType = typeof params?.item?.type === "string" ? params.item.type : "";
       if (["contextCompaction", "context_compaction", "context-compacted", "context_compacted"].includes(itemType)) {
+        if (compactionPending?.threadId === tid && compactionPending.turnId === trn && method === "item/completed") compactionPending.boundary = true;
         report({ type: "context.compaction", threadId: tid, turnId: trn, itemId: item });
       }
       report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item, itemType, ...(itemType === "agentMessage" && typeof params.item.text === "string" ? { text: params.item.text.slice(-32000) } : {}) }); return;
@@ -862,6 +879,7 @@ function createCodexAppServerTransport({
     }
     const tid = nativeId(params?.threadId);
     if (tid && !correlation(tid)) { fail("native_thread_mismatch"); return; }
+    if (method === "thread/compacted" && compactionPending?.threadId === tid && compactionPending.turnId === params?.turnId) compactionPending.boundary = true;
     report({ type: method, threadId: tid || threadId });
   }
 
@@ -988,7 +1006,7 @@ function createCodexAppServerTransport({
   }
 
   async function resumeThread(resumeParams, authorization = null) {
-    if (!initialized || !plain(resumeParams) || !nativeId(resumeParams.threadId) || !["ready", "thread_started"].includes(state) || turnId || resumeInFlight) return reject("native_lifecycle_conflict");
+    if (!initialized || !plain(resumeParams) || !nativeId(resumeParams.threadId) || !["ready", "thread_started"].includes(state) || turnId || resumeInFlight || compactionStarting || compactionPending) return reject("native_lifecycle_conflict");
     const requested = resumeParams.threadId;
     if (threadId && threadId !== requested) return reject("native_thread_mismatch");
     const detached = bounded(resumeParams, 128 * 1024); if (detached === null) return reject("invalid_native_params");
@@ -1036,7 +1054,7 @@ function createCodexAppServerTransport({
       authorization = null;
     }
     if (expectedThreadId !== null && (!nativeId(expectedThreadId) || expectedThreadId !== threadId)) return reject("native_thread_mismatch");
-    if (!initialized || !threadId || state !== "thread_started" || turnId || turnStartInFlight || !Array.isArray(input) || !input.length) return reject("native_lifecycle_conflict");
+    if (!initialized || !threadId || state !== "thread_started" || turnId || turnStartInFlight || compactionStarting || compactionPending || !Array.isArray(input) || !input.length) return reject("native_lifecycle_conflict");
     if (!validTurnParams(params)) return reject("invalid_native_params");
     const normalizedInput = normalizeTurnInput(input);
     if (!normalizedInput) return reject("invalid_turn_input");
@@ -1077,6 +1095,33 @@ function createCodexAppServerTransport({
     } finally { turnStartInFlight = false; }
   }
 
+  async function compactThread(expectedThreadId) {
+    if (!nativeId(expectedThreadId) || expectedThreadId !== threadId) return reject("native_thread_mismatch");
+    if (!initialized || closed || failure || state !== "thread_started" || turnId || turnStartInFlight || resumeInFlight || compactionStarting || compactionPending || approvals.size) return reject("native_lifecycle_conflict");
+    const activeThreadId = threadId;
+    compactionStarting = true;
+    let row = null;
+    try {
+      const auth = await authorize("thread.compact", { threadId: activeThreadId, params: { threadId: activeThreadId } });
+      if (auth.kind === "reject") return auth;
+      if (closed || failure || state !== "thread_started" || threadId !== activeThreadId || turnId || approvals.size) return reject("native_lifecycle_conflict");
+      let resolve;
+      const promise = new Promise(done => { resolve = done; });
+      row = { threadId: activeThreadId, turnId: null, boundary: false, resolve };
+      compactionPending = row; state = "compacting";
+      await request("thread/compact/start", { threadId: activeThreadId }, { check: value => plain(value) && Reflect.ownKeys(value).length === 0 });
+      // The empty response only admits the operation. A completed native
+      // compaction item and its terminal turn prove that it finished.
+      const result = await promise;
+      return { ...result, dispatch: auth };
+    } catch (error) {
+      if (compactionPending === row) {
+        finishCompaction(reject(error?.code || "native_compaction_failed"));
+        if (!closed && !failure) state = error?.code === "native_request_rejected" ? "thread_started" : "reconciliation_required";
+      }
+      return reject(error?.code || "native_compaction_failed");
+    } finally { compactionStarting = false; }
+  }
   async function interruptTurn(authorization = null, expectedThreadId = null) {
     if (expectedThreadId === null && typeof authorization === "string") {
       expectedThreadId = authorization;
@@ -1130,6 +1175,7 @@ function createCodexAppServerTransport({
     if (closePromise) return closePromise;
     closePromise = (async () => {
     closed = true;
+    finishCompaction(reject("native_transport_closed"));
     for (const row of pending.values()) { clearTimeout(row.timer); row.reject(Object.assign(new Error("native_transport_closed"), { code: "native_transport_closed" })); }
     pending.clear(); approvals.clear(); usageByThread.clear();
     rejectWrites("native_transport_closed");
@@ -1158,11 +1204,12 @@ function createCodexAppServerTransport({
       return request("account/rateLimits/read", {}, { check: value => plain(value) });
     },
     startTurn,
+    compactThread,
     interruptTurn,
     respondApproval,
     tokenUsage,
     pendingApprovals: () => [...approvals.values()].map(row => ({ ...clone(row.request), responseWritten: row.responded === true })),
-    state: () => ({ state, threadId, turnId, turnState, initialized, failure: failure?.code || null, cleanupConfirmed, firstTurnPending }),
+    state: () => ({ state, threadId, turnId, turnState, compacting: compactionStarting || !!compactionPending, initialized, failure: failure?.code || null, cleanupConfirmed, firstTurnPending }),
     nativeVersion,
     protocolVersion: CODEX_PROTOCOL_VERSION,
   });

@@ -336,7 +336,8 @@ function createOpenCodeNativeAdapter({
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (config.password) headers.Authorization = `Basic ${Buffer.from(`${config.username}:${config.password}`).toString("base64")}`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), Math.max(250, Math.min(Number(timeout) || boundedTimeout, 60_000)));
+    const maximum = method === "POST" && /^\/session\/[^/]+\/summarize$/.test(pathname) ? 10 * 60 * 1000 : 60_000;
+    const timer = setTimeout(() => controller.abort(), Math.max(250, Math.min(Number(timeout) || boundedTimeout, maximum)));
     try {
       const response = await fetchImpl(target, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
       if (!response || typeof response.status !== "number") throw new OpenCodeNativeError("invalid_response", "OpenCode returned an invalid response", 502);
@@ -629,6 +630,38 @@ function createOpenCodeNativeAdapter({
     }
   }
 
+  async function compact(sessionId, { directory = null, model = null } = {}) {
+    if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "invalid_session_id", 400);
+    const safeDirectory = directory === null ? null : normalizeDirectory(directory);
+    if (directory !== null && safeDirectory === null) throw new OpenCodeNativeError("invalid_directory", "invalid_directory", 400);
+    const before = await sessionStatus({ directory: safeDirectory });
+    if (before[sessionId]?.type === "busy" || before[sessionId]?.type === "retry") throw new OpenCodeNativeError("compaction_busy", "compaction_busy", 409);
+    const pending = await permissions({ sessionId, directory: safeDirectory });
+    if (pending.permissions.length) throw new OpenCodeNativeError("compaction_busy", "compaction_busy", 409);
+    let chosen = model;
+    if (!chosen) {
+      const page = await messages(sessionId, { directory: safeDirectory });
+      for (const row of [...page.messages].reverse()) {
+        const info = row.info || {}, candidate = info.model || info;
+        if (validId(candidate.providerID) && validModelId(candidate.modelID)) { chosen = { providerID: candidate.providerID, modelID: candidate.modelID }; break; }
+      }
+      // Only an empty conversation has no model of its own yet. Never use a
+      // changed global default instead of an existing conversation's model.
+      if (!chosen && !page.messages.length) chosen = await configuredModel({ directory: safeDirectory });
+    }
+    if (!chosen || !validId(chosen.providerID) || !validModelId(chosen.modelID)) throw new OpenCodeNativeError("compaction_model_unavailable", "compaction_model_unavailable", 409);
+    const result = await request(`/session/${encodeURIComponent(sessionId)}/summarize`, { method: "POST", query: { directory: safeDirectory },
+      body: { providerID: chosen.providerID, modelID: chosen.modelID }, timeout: 10 * 60 * 1000 });
+    if (result.data !== true) throw new OpenCodeNativeError("compaction_not_confirmed", "compaction_not_confirmed", 502);
+    const deadline = Date.now() + 10 * 60 * 1000;
+    for (;;) {
+      const states = await sessionStatus({ directory: safeDirectory });
+      if (!["busy", "retry"].includes(states[sessionId]?.type)) break;
+      if (Date.now() >= deadline) throw new OpenCodeNativeError("compaction_result_unknown", "compaction_result_unknown", 504);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    return { completed: true };
+  }
   async function abort(sessionId, { directory = null } = {}) {
     if (!validId(sessionId)) throw new OpenCodeNativeError("invalid_session_id", "OpenCode session id is invalid", 400);
     const safeDirectory = directory === null ? null : normalizeDirectory(directory);
@@ -761,6 +794,7 @@ function createOpenCodeNativeAdapter({
     forkSession,
     renameSession,
     sendMessage,
+    compact,
     abort,
     reconcile,
     config: Object.freeze({ ...config, password: undefined }),

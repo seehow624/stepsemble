@@ -21,6 +21,7 @@ const EXTRA_READ_FILES = Object.freeze([
   "v2/ThreadForkResponse.json",
   "v2/ThreadSetNameResponse.json",
   "v2/ThreadGoalGetResponse.json",
+  "v2/ThreadCompactStartResponse.json",
   "v2/GetAccountRateLimitsResponse.json",
   "v2/TurnStartResponse.json",
   "v2/TurnInterruptResponse.json",
@@ -33,7 +34,7 @@ const CONTRACT_FILES = Object.freeze([...SCHEMA_FILES, ...EXTRA_READ_FILES]);
 const USED_CLIENT_METHODS = Object.freeze([
   "initialize", "thread/start", "thread/resume", "thread/read", "thread/list", "thread/loaded/list",
   "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/name/set", "thread/fork",
-  "model/list", "turn/start", "turn/interrupt", "account/rateLimits/read",
+  "model/list", "turn/start", "turn/interrupt", "thread/compact/start", "account/rateLimits/read",
 ]);
 
 const IGNORED_KEYS = new Set(["description", "title", "examples", "default", "$schema", "$comment", "markdownDescription"]);

@@ -25,6 +25,7 @@ require("node:readline").createInterface({input:process.stdin}).on("line",line=>
     if(c.type==="get_state"){reply({isStreaming:running,isCompacting:false,pendingMessageCount:0});return;}
     if(c.type==="get_available_models"){reply({models:[]});return;}
     if(c.type==="abort"){clearTimeout(timeout);piEnd("Interrupted");reply();return;}
+    if(c.type==="compact") {running=true;emit({type:"compaction_start"});timeout=setTimeout(()=>{running=false;reply({tokensBefore:3000,estimatedTokensAfter:1000});emit({type:"compaction_end",result:{tokensBefore:3000,estimatedTokensAfter:1000}});},String(c.customInstructions||"").includes("SLOW")?800:10);return;}
     if(c.type==="set_model"&&c.modelId==="missing"){emit({type:"response",command:c.type,id:c.id,success:false,error:"Model not found"});return;}
     if(c.type==="prompt") {running=true;emit({type:"agent_start"});reply();const text=answer(c.message);timeout=setTimeout(()=>piEnd(text),c.message.includes("SLOW")?10000:100);return;}
     reply();return;

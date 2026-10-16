@@ -198,7 +198,7 @@ const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
 const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
 const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
 const hostNotifications = require("./server/notifications").createNotifications({ entries: () => workspaceRegistry.list().entries,
-  host: () => selfMachineId(), quietCompletion: key => { try { return key && workflows.locked(key); } catch { return false; } },
+  host: () => selfMachineId(), quietCompletion: key => { try { return key && (workflows.locked(key) || compactions.locked(key)); } catch { return false; } },
   publish: event => {
     try { workspaceRegistry.completed(event); }
     catch { console.warn("[stepsemble] Could not save the session's unread status"); }
@@ -3857,7 +3857,7 @@ function rpcCommand(sid, cmd) {
     const timer = setTimeout(() => {
       pendingRpcCmds.delete(rid);
       reject(new Error("rpc command timeout"));
-    }, 20000);
+    }, cmd.type === "compact" ? 10 * 60 * 1000 : 20000);
     pendingRpcCmds.set(rid, {
       sid, command: cmd.type,
       resolve: (v) => { clearTimeout(timer); resolve(v); },
@@ -4881,6 +4881,17 @@ async function readJSON(req, maxBytes) {
     const entry = workspaceRegistry.list().entries.find(row => [row.record.sid, row.record.id, row.record.taskId, row.record.nativeThreadId, row.record.nativeSessionId].some(id => id && ids.includes(id)));
     if (entry && workflows.locked(entry.key)) throw Object.assign(new Error("Pause the Goal before sending another message"), { statusCode: 409 });
   }
+  // A compaction owns this exact conversation until native work settles.
+  // Reads, approval responses and Stop remain available while it is running.
+  const command = body?.command || body;
+  const observation = ["/api/rpc-cmd", "/api/cmd"].includes(route) && (/^get_/.test(String(command?.type || "")) || command?.type === "abort");
+  const lifecycle = /\/(interrupt|abort|cancel|close|permission|rpc-ui)$/.test(route);
+  if (route !== "/api/agent/compaction" && !observation && !lifecycle) {
+    const ids = [body?.sid, body?.taskId, body?.threadId, body?.sessionId].filter(value => typeof value === "string");
+    const own = workspaceRegistry.list().entries.find(row => row.key === body?.entry || [row.record.sid, row.record.id, row.record.taskId, row.record.nativeThreadId, row.record.nativeSessionId]
+      .some(id => id && (ids.includes(id) || ids.some(value => `${row.record.agentId}:${value}` === id))));
+    if (own && compactions.locked(own.key)) throw Object.assign(new Error("compaction_busy"), { code: "compaction_busy", statusCode: 409 });
+  }
   return body;
 }
 
@@ -5315,6 +5326,7 @@ const workflows = require("./server/workflows").createWorkflows({
       return meter && meter.startedAt >= run.turnStartedAt - 100 ? Math.max(meter.reported || 0, meter.estimated || 0) : 0;
     },
     async open(run, signal) {
+      if (run.entry && compactions.locked(run.entry)) throw new Error("compaction_busy");
       if (shutdownState || harnessUpdateService.isRunning()) throw new Error("Host is updating or shutting down; try again later");
       nativeAgentDirectory(run.cwd, run.agentId);
       const existing = run.entry ? workspaceRegistry.get(run.entry) : null;
@@ -5401,6 +5413,20 @@ const workflows = require("./server/workflows").createWorkflows({
     },
   },
 });
+
+const compactionBridge = require("./server/agent-compaction-bridge").createCompactionBridge({
+  pi: { session: sid => rpcSessions.get(sid), busy: sid => rpcHasWork(rpcSessions.get(sid) || { state: {} }), command: rpcCommand },
+  claude: resolveClaudeStructuredSession, codex: codexNative, openCode: openCodeNative,
+  acp: agentId => agentId === "grok-build" ? grokAcp : acpAdapterForAgent(agentId),
+  working: workflowBusy, choice: (agentId, sessionId) => agentChoices.session(agentId, sessionId),
+});
+const compactions = require("./server/agent-compaction").createAgentCompaction({
+  resolve: key => workspaceRegistry.get(key), goalLocked: key => workflows.locked(key),
+  describe: record => shutdownState || harnessUpdateService.isRunning()
+    ? { supported: false, instructions: false, reason: "compaction_host_unavailable" } : compactionBridge.describe(record),
+  run: compactionBridge.run, reserve: active => { nativeWorkRequests += active ? 1 : -1; },
+});
+const handleCompactionRoute = require("./server/agent-compaction").createCompactionRoutes({ service: compactions, readJSON, sendJSON });
 
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
@@ -6331,6 +6357,7 @@ const server = http.createServer(async (req, res) => {
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || `${agentId}_acp_failed` }); }
         return;
       }
+      if (await handleCompactionRoute(req, res, url)) return;
       if (await handleNativeComposerRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
       if (await handleHermesAssistantRoute(req, res, url)) return;
@@ -8305,7 +8332,7 @@ function shutdown(signal) {
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),
   }));
-  workflows.close(); workflowSleepGuard.close();
+  workflows.close(); compactions.close(); workflowSleepGuard.close();
   shutdownState = {
     signal,
     deadline: Date.now() + SHUTDOWN_GRACE_MS,

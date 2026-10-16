@@ -836,3 +836,36 @@ test("Claude model ACK errors preserve selection and successful switches clear o
     model: "opus", contextWindow: null, contextTokens: null, contextPercent: null, usage: null,
   });
 });
+
+function compactionFixture(t) {
+  const child=childFixture(),sent=[];
+  observeControlWire(child,message=>{if(message.type==="control_request")child.stdout.write(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:message.request_id,response:{}}})+"\n");else sent.push(message);});
+  const session=createClaudeStructuredSession({command:"/usr/local/bin/claude",cwd:"/owned",spawnImpl:()=>child,requestTimeoutMs:100});t.after(()=>session.close());
+  const emit=event=>child.stdout.write(JSON.stringify({session_id:"compact-native",...event})+"\n");
+  return {child,session,sent,emit};
+}
+test("manual compaction requires a root boundary and final native result, not a pipe write",async t=>{
+  const f=compactionFixture(t);let finished=false;const result=f.session.compact({instructions:"Keep decisions"}).then(value=>{finished=true;return value;});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.sent[0].message.content[0].text,"/compact Keep decisions");assert.equal(finished,false);assert.equal(f.session.status().compacting,true);
+  assert.equal((await f.session.send("interleaved")).code,"compaction_busy");
+  f.emit({type:"system",subtype:"compact_boundary",compact_metadata:{trigger:"manual",pre_tokens:12345}});assert.equal(finished,false);
+  f.emit({type:"result",subtype:"success",is_error:false,result:"Compacted"});
+  assert.deepEqual(await result,{completed:true,beforeTokens:12345});assert.equal(f.session.status().compacting,false);
+});
+test("a normal response without a compact boundary never claims compaction succeeded",async t=>{
+  const f=compactionFixture(t),result=f.session.compact();await new Promise(resolve=>setImmediate(resolve));
+  f.emit({type:"result",subtype:"success",is_error:false,result:"I compacted it"});assert.equal((await result).code,"compaction_not_confirmed");
+});
+test("subagent and replay compact boundaries cannot complete the root compaction",async t=>{
+  const f=compactionFixture(t),result=f.session.compact();await new Promise(resolve=>setImmediate(resolve));
+  f.emit({type:"system",subtype:"compact_boundary",parent_tool_use_id:"child-tool",compact_metadata:{pre_tokens:100}});
+  f.emit({type:"result",subtype:"success",parent_tool_use_id:"child-tool"});
+  assert.equal(f.session.status().compacting,true);
+  f.emit({type:"result",subtype:"error_during_execution",is_error:true,result:"Provider unavailable"});
+  assert.notEqual((await result).completed,true);
+});
+test("closing a Claude process releases its pending compaction as failure",async t=>{
+  const f=compactionFixture(t),result=f.session.compact();await new Promise(resolve=>setImmediate(resolve));f.child.emit("close",1,null);
+  assert.equal((await result).code,"claude_process_ended");
+});

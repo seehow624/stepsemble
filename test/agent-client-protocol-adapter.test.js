@@ -373,3 +373,36 @@ test("ACP shows the person's message once when the agent sends it back", async t
   assert.deepEqual(adapter.sessionEvents("session-1").map(row => [row.update.sessionUpdate, row.update.content.text]),
     [["user_message_chunk", "two lines\nhere "], ["agent_message_chunk", "ok"]]);
 });
+
+function announceCompaction(child, commands, sessionId = "session-1") {
+  child.stdout.write(JSON.stringify({ jsonrpc:"2.0", method:"session/update", params:{ sessionId, update:{ sessionUpdate:"available_commands_update", availableCommands:commands } } })+"\n");
+}
+test("native compaction requires the same session's current command advertisement", async t => {
+  const child=childFixture(), adapter=createAgentClientProtocolAdapter({command:"/usr/local/bin/agent",cwd:"/tmp",spawnImpl:()=>child});t.after(()=>adapter.close());
+  await adapter.createSession({directory:"/tmp"});
+  assert.equal(adapter.compactionSupport("session-1").supported,false);
+  assert.equal((await adapter.compact("session-1")).code,"compaction_unavailable");
+  announceCompaction(child,[{name:"compact",input:{hint:"What to keep"}}],"another-session");
+  assert.equal(adapter.compactionSupport("session-1").supported,false);
+  announceCompaction(child,[{name:"compact",input:{hint:"What to keep"}}]);
+  assert.equal(adapter.compactionSupport("session-1").instructions,true);
+  const sent=[];child.stdin.on("data",chunk=>{for(const line of chunk.toString().split("\n").filter(Boolean)){const frame=JSON.parse(line);if(frame.method==="session/prompt")sent.push(frame.params);}});
+  assert.deepEqual(await adapter.compact("session-1",{instructions:"Keep decisions"}),{completed:true});
+  assert.deepEqual(sent.map(row=>row.prompt),[[{type:"text",text:"/compact Keep decisions"}]]);
+  announceCompaction(child,[]);assert.equal(adapter.compactionSupport("session-1").supported,false);
+  assert.equal((await adapter.compact("session-1")).code,"compaction_unavailable");assert.equal(sent.length,1);
+});
+test("compaction advertisements arriving before session/new returns are retained",async t=>{
+  const child=childFixture();child.stdin.prependListener("data",chunk=>{for(const line of chunk.toString().split("\n").filter(Boolean))if(JSON.parse(line).method==="session/new")announceCompaction(child,[{name:"compress"}]);});
+  const adapter=createAgentClientProtocolAdapter({command:"/usr/local/bin/agent",cwd:"/tmp",spawnImpl:()=>child});t.after(()=>adapter.close());await adapter.createSession({directory:"/tmp"});
+  assert.equal(adapter.compactionSupport("session-1").supported,true);
+  assert.equal((await adapter.compact("session-1",{instructions:"not accepted"})).code,"compaction_instructions_unavailable");
+  assert.deepEqual(await adapter.compact("session-1"),{completed:true});
+  await adapter.close();assert.equal(adapter.compactionSupport("session-1").supported,false);
+});
+test("a cancelled compaction is not reported as completed",async t=>{
+  const child=childFixture(),write=child.stdout.write.bind(child.stdout);
+  child.stdout.write=chunk=>{try{const frame=JSON.parse(chunk);if(frame.result?.stopReason)chunk=JSON.stringify({...frame,result:{stopReason:"cancelled"}})+"\n";}catch{}return write(chunk);};
+  const adapter=createAgentClientProtocolAdapter({command:"/usr/local/bin/agent",cwd:"/tmp",spawnImpl:()=>child});t.after(()=>adapter.close());await adapter.createSession({directory:"/tmp"});announceCompaction(child,[{name:"compact"}]);
+  assert.equal((await adapter.compact("session-1")).code,"compaction_interrupted");
+});

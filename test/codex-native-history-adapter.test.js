@@ -645,3 +645,14 @@ test("Codex approval pipe writes remain awaiting native confirmation", async t =
   assert.equal(result.kind, "written");
   assert.equal(adapter.mutationStatus().operations[0].state, "awaiting_confirmation");
 });
+
+test("compaction commits native intent before IO and settles only after native completion",async t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),"stepsemble-codex-compact-"));t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));let options;
+  const fake={async initialize(){},async listThreads(){return {kind:"threads",data:[thread()]};},state:()=>({threadId:"thread-1"}),
+    async compactThread(threadId){const dispatch=await options.authorizeNative("thread.compact",{threadId,params:{threadId}});assert.equal(dispatch.kind,"committed");
+      const journal=JSON.parse(fs.readFileSync(path.join(temp,"mutations.json"),"utf8"));assert.equal(journal.operations.at(-1).state,"dispatching");return {kind:"completed",completed:true,threadId,dispatch};},
+    async close(){return {kind:"closed",cleanupConfirmed:true};}};
+  const adapter=createCodexNativeHistoryAdapter({enabled:true,mutationEnabled:true,executable:process.execPath,cwd:temp,journalFile:path.join(temp,"mutations.json"),transportFactory:async value=>{options=value;return fake;}});t.after(()=>adapter.close());await adapter.refresh();
+  assert.equal((await adapter.compactThread("thread-1")).completed,true);assert.equal(adapter.mutationStatus().operations.at(-1).state,"succeeded");
+  assert.equal((await adapter.compactThread("another-thread")).code,"native_thread_mismatch");
+});

@@ -1175,3 +1175,34 @@ test("account quota is a read-only native request without starting a thread", as
   frame(child, { jsonrpc: "2.0", id: request.id, result: value });
   assert.deepEqual(await reading, value); assert.equal(transport.state().threadId, null);
 });
+
+const completeOwnedTurn = child => frame(child,{method:"turn/completed",params:{threadId:"native-typed",turn:{id:"turn-typed",status:"completed"}}});
+test("manual compaction keeps its exact thread and waits past the empty ACK",async t=>{
+  const authorizations=[];const {child,transport,writes}=await readyOwnedTransport(t,{authorizeNative:async(operation,context)=>{authorizations.push([operation,context]);return proof();}});completeOwnedTurn(child);
+  let ended=false;const compacting=transport.compactThread("native-typed").then(result=>{ended=true;return result;});
+  const request=await writes.next();assert.equal(request.method,"thread/compact/start");assert.deepEqual(request.params,{threadId:"native-typed"});
+  assert.equal(authorizations.at(-1)[0],"thread.compact");
+  frame(child,{id:request.id,result:{}});await new Promise(resolve=>setImmediate(resolve));assert.equal(ended,false);assert.equal(transport.state().compacting,true);
+  assert.equal((await transport.startTurn([{type:"text",text:"interleaved"}],{},null,"native-typed")).kind,"reject");
+  frame(child,{method:"turn/started",params:{threadId:"native-typed",turn:{id:"compact-turn",status:"inProgress"}}});
+  frame(child,{method:"item/completed",params:{threadId:"native-typed",turnId:"compact-turn",item:{id:"compact-item",type:"contextCompaction"}}});assert.equal(ended,false);
+  frame(child,{method:"turn/completed",params:{threadId:"native-typed",turn:{id:"compact-turn",status:"completed"}}});
+  const result=await compacting;assert.equal(result.completed,true);assert.equal(result.threadId,"native-typed");assert.equal(transport.state().compacting,false);
+});
+test("compaction is refused for a different thread or a live turn",async t=>{
+  const {child,transport}=await readyOwnedTransport(t);
+  assert.equal((await transport.compactThread("another-thread")).code,"native_thread_mismatch");
+  assert.equal((await transport.compactThread("native-typed")).code,"native_lifecycle_conflict");completeOwnedTurn(child);
+});
+test("native compaction failure or transport closure never reports completion",async t=>{
+  const {child,transport,writes}=await readyOwnedTransport(t);completeOwnedTurn(child);
+  const compacting=transport.compactThread("native-typed"),request=await writes.next();frame(child,{id:request.id,result:{}});
+  frame(child,{method:"turn/started",params:{threadId:"native-typed",turn:{id:"compact-failed",status:"inProgress"}}});
+  frame(child,{method:"turn/completed",params:{threadId:"native-typed",turn:{id:"compact-failed",status:"failed",error:{message:"not available"}}}});
+  assert.equal((await compacting).code,"native_compaction_failed");
+  const next=transport.compactThread("native-typed"),req=await writes.next();frame(child,{id:req.id,result:{}});await transport.close();assert.equal((await next).code,"native_transport_closed");
+});
+test("the compaction authorizer must commit and the thread is rechecked afterwards",async t=>{
+  let allow=true;const {child,transport}=await readyOwnedTransport(t,{authorizeNative:async()=>allow?proof():{kind:"reject",code:"no_authority"}});completeOwnedTurn(child);allow=false;
+  assert.equal((await transport.compactThread("native-typed")).code,"no_authority");assert.equal(transport.state().compacting,false);
+});

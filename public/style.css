@@ -414,6 +414,10 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 .usage-tag { font-size: 11px; color: var(--pine-soft); text-align: right; margin-top: 4px; font-family: var(--mono); }
 .queue-note { font-size: 12.5px; color: var(--warn); padding: 4px 16px; }
 .queue-note.stale { color: var(--err); }
+.compaction-status { font-size: 12.5px; color: var(--pine-soft); padding: 4px 16px; }
+.compaction-status::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--accent); vertical-align: 1px; animation: compaction-pulse 1.2s ease-in-out infinite; }
+@keyframes compaction-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.reduced-motion .compaction-status::before { animation: none; }
 .task-replay-note {
   margin: 0 16px 6px;
   padding: 7px 10px;
@@ -1648,6 +1652,8 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 }
 .slash-item:last-child { border-bottom: none; }
 .slash-item:hover, .slash-item.hl { background: var(--bubble-user); }
+.slash-item.disabled .s-cmd { color: var(--pine-soft); }
+.slash-item.disabled { opacity: .7; }
 .slash-item .s-cmd { font-family: var(--mono); font-size: 13.5px; color: var(--accent); font-weight: 600; }
 .slash-item .s-desc { font-size: 12px; color: var(--pine-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }

@@ -36,7 +36,7 @@ const emptyHistoryPage = () => ({ data: [], nextCursor: null, backwardsCursor: n
 const MAX_THREAD_ID = 256;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
-const MUTATION_OPERATIONS = new Set(["thread.start", "thread.resume", "turn.start", "turn.interrupt", "approval.resolve"]);
+const MUTATION_OPERATIONS = new Set(["thread.start", "thread.resume", "thread.compact", "turn.start", "turn.interrupt", "approval.resolve"]);
 const MAX_MUTATION_ROWS = 256;
 const MAX_MODEL_ID = 256;
 const MAX_REASONING_EFFORT = 128;
@@ -1220,6 +1220,14 @@ function createCodexNativeHistoryAdapter({
     return result;
   }
 
+  async function compactThread(expectedThreadId) {
+    requireMutation();
+    if (!validThreadId(expectedThreadId) || typeof transport?.state === "function" && transport.state().threadId !== expectedThreadId) return { kind: "reject", code: "native_thread_mismatch" };
+    if (typeof transport?.compactThread !== "function") return { kind: "reject", code: "compaction_unavailable" };
+    const result = await transport.compactThread(expectedThreadId);
+    settleMutation(result?.dispatch, result, result?.completedTurnId || expectedThreadId);
+    return result;
+  }
   async function interruptTurn(expectedThreadId = null) {
     requireMutation();
     if (expectedThreadId !== null && !validThreadId(expectedThreadId)) return { kind: "reject", code: "native_thread_mismatch" };
@@ -1306,6 +1314,7 @@ function createCodexNativeHistoryAdapter({
     setThreadName,
     forkThread,
     startTurn,
+    compactThread,
     interruptTurn,
     respondApproval,
     pendingApprovals,

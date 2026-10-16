@@ -3,6 +3,7 @@ const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const utilities = fs.readFileSync(path.join(__dirname, "../public/modules/session-utils.js"), "utf8");
+const compaction = fs.readFileSync(path.join(__dirname, "../public/modules/agent-compaction.js"), "utf8");
 
 // Run the shipped composer and storage helpers with controlled HTTP replies.
 // These are independent of an agent, and exercise the draft as restored on reload.
@@ -28,9 +29,12 @@ function fixture() {
     approvalTarget: () => null, scheduleWorkLog: noop, resizeComposerInput: noop,
     composerImageBudget: () => ({ count: 8 }), tKey: key => key, toast: noop,
     BUILTIN_SLASH: { compact: () => new Promise(resolve => requests.push({ resolve })) }, showList: noop,
+    // Outside a workspace tab Pi keeps its RPC compaction (BUILTIN_SLASH).
+    WORKSPACE_ENTRY_KEY: "", agentCompaction: null, compactionCopy: key => key, compactionReason: key => key,
   });
   context.window = context;
   vm.runInContext(utilities, context); Object.assign(context, context.stepsembleSessionUtils);
+  vm.runInContext(compaction, context);
   vm.runInContext(source.slice(source.indexOf("function readDraftEntries()"), source.indexOf("function resizeComposerInput()")), context);
   vm.runInContext(source.slice(source.indexOf("async function sendCurrent()"), source.indexOf('el.btnAbort.addEventListener("click"')), context);
   const type = text => { context.el.input.value = text; context.saveActiveDraft(); };
@@ -104,4 +108,26 @@ test("failing the second of two identical generic messages removes only its own 
   f.reply(1, true); await second;
   assert.equal(f.c.rpc.genericInputEchoes.length, 1); assert.equal(f.c.rpc.genericInputEchoes[0], echo);
   f.reply(0); await first;
+});
+test("in a workspace tab /compact goes to the agent's own compaction and is never sent as a message", async () => {
+  const f = fixture(), submits = [];
+  f.c.WORKSPACE_ENTRY_KEY = "entry";
+  f.c.agentCompaction = { submit: async (text, options) => { submits.push([text, options]); return { handled: true, accepted: false }; }, busy: () => false };
+  f.type("/compact keep decisions"); await f.c.sendCurrent();
+  assert.equal(submits.length, 1); assert.equal(submits[0][0], "/compact keep decisions"); assert.equal(submits[0][1].hasAttachments, false);
+  assert.equal(f.requests.length, 0); assert.equal(f.shells.length, 0);
+  assert.equal(f.saved(), "/compact keep decisions", "the draft stays until the Host accepts the compaction");
+});
+test("a /compact the compaction does not handle is still an ordinary message", async () => {
+  const f = fixture(); f.c.rpc.generic = true; f.c.rpc.genericInputEchoes = []; f.c.WORKSPACE_ENTRY_KEY = "entry";
+  f.c.agentCompaction = { submit: async () => ({ handled: false, accepted: false }), busy: () => false };
+  f.type("/compact"); const send = f.c.sendCurrent(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.requests.length, 1); assert.equal(f.shells.length, 1); f.reply(0); await send;
+});
+test("a message typed while a compaction runs stays in the box", async () => {
+  const f = fixture(), toasts = []; f.c.WORKSPACE_ENTRY_KEY = "entry"; f.c.toast = (text, error) => toasts.push([text, error]);
+  f.c.agentCompaction = { submit: async () => ({ handled: false }), busy: () => true };
+  f.type("Next message"); await f.c.sendCurrent();
+  assert.equal(f.requests.length, 0); assert.equal(f.shells.length, 0); assert.equal(f.c.el.input.value, "Next message");
+  assert.equal(f.saved(), "Next message"); assert.deepEqual(toasts, [["waitForCompaction", true]]);
 });

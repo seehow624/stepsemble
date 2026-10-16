@@ -10,6 +10,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { acpImageBlocks } = require("./prompt-attachments");
+const { createAdvertisedCompaction } = require("./agent-compaction");
 const { configOptionsFromSession, applyConfigUpdate, consumeUserEcho, squashText } = require("./agent-client-protocol-adapter");
 const { effortCatalog, replyEffort, notifiedEffort, withEffortOption } = require("./grok-reasoning-effort");
 
@@ -83,6 +84,9 @@ function createGrokAcpAdapter({
   const pending = new Map(), permissions = new Map(), sessions = new Map();
   const events = [];
 
+  const compaction = createAdvertisedCompaction({ ready: () => status().ready,
+    session: id => sessions.get(id), permissions: () => [...permissions.values()], prompt });
+
   function status() {
     return Object.freeze({ adapter: "grok-acp-v1", version: GROK_ACP_VERSION,
       state: closed ? "closed" : error ? "degraded" : child ? authenticated ? "ready" : initialized ? "authenticating" : "starting" : "disabled",
@@ -132,6 +136,7 @@ function createGrokAcpAdapter({
     if (frame.method === "session/update") {
       const value = normalizeUpdate(frame.params);
       if (!value) { fail("grok_acp_update_invalid"); return; }
+      compaction.observe(value.sessionId, value.update);
       // A Grok newer than 1.0.41 sends the person's message back while it
       // answers; the copy recorded as it was sent is kept and Grok's dropped.
       if (consumeUserEcho(sessions.get(value.sessionId), value.update)) return;
@@ -359,6 +364,7 @@ function createGrokAcpAdapter({
   }
   return Object.freeze({ version: GROK_ACP_VERSION, start, initialize, createSession, loadSession, prompt, cancel, respondPermission,
     sessionConfigOptions, setConfigOption,
+    compactionSupport: compaction.support, compact: compaction.compact,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
     // True only while a prompt is being answered: the browser shows Stop then.

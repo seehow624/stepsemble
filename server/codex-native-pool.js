@@ -699,6 +699,16 @@ function createCodexNativePool({
     return result;
   }
 
+  async function compactThread(threadId) {
+    if (!validThreadId(threadId)) return reject("native_thread_missing");
+    const entry = byThread.get(threadId);
+    if (!entry || entry.closeRequested) return reject("native_thread_missing", { threadId });
+    const native = await ensureChild(entry).then(adapter => safeNativeState(adapter));
+    if (native?.threadId !== threadId) return reject("native_thread_mismatch", { threadId });
+    const result = await invokeEntry(entry, "compactThread", [threadId]);
+    if (result?.kind !== "reject" && result?.threadId !== threadId) return reject("native_thread_mismatch", { threadId });
+    return result;
+  }
   async function interruptTurn(threadId = null) {
     if (!validThreadId(threadId)) return reject("native_thread_missing");
     const entry = byThread.get(threadId);
@@ -965,6 +975,7 @@ function createCodexNativePool({
     resumeThread,
     forkThread,
     startTurn,
+    compactThread,
     interruptTurn,
     respondApproval,
     pendingApprovals,

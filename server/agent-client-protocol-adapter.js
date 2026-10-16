@@ -13,6 +13,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { createLineDecoder } = require("./stream-safety");
 const { acpImageBlocks } = require("./prompt-attachments");
+const { createAdvertisedCompaction } = require("./agent-compaction");
 const { withCommandDirectory } = require("./command-environment");
 
 const ACP_VERSION = "acp-v1";
@@ -241,6 +242,9 @@ function createAgentClientProtocolAdapter({
   let agentCapabilities = null;
   const pending = new Map(), permissions = new Map(), sessions = new Map(), events = [], knownSessions = readSessionRegistry(registryFile);
 
+  const compaction = createAdvertisedCompaction({ ready: () => status().ready,
+    session: id => sessions.get(id), permissions: () => [...permissions.values()], prompt });
+
   function status() {
     return Object.freeze({
       adapter: ACP_VERSION, version: ACP_VERSION, label,
@@ -303,6 +307,7 @@ function createAgentClientProtocolAdapter({
     try { onPermission?.(clone(row)); } catch {}
   }
   function recordEvent(row) {
+    compaction.observe(row.sessionId, row.update);
     events.push(row); while (events.length > MAX_EVENTS) events.shift();
     const session = sessions.get(row.sessionId);
     if (session) {
@@ -548,6 +553,7 @@ function createAgentClientProtocolAdapter({
   }
   return Object.freeze({ version: ACP_VERSION, start, initialize, createSession, forkSession, loadSession, prompt, cancel, respondPermission,
     sessionConfigOptions, setConfigOption,
+    compactionSupport: compaction.support, compact: compaction.compact,
     pendingPermissions: () => [...permissions.values()].map(clone), events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
     // True only while a prompt is being answered: the browser shows Stop then.

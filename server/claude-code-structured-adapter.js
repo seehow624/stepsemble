@@ -539,6 +539,7 @@ function createClaudeStructuredSession({
   const pendingPermissions = new Map();
   const pendingInterrupts = new Set();
   const pendingControls = new Map();
+  let compactionPending = null;
   let initializationPromise = null;
   let initializationResult = null;
   let availableModels = [];
@@ -661,6 +662,40 @@ function createClaudeStructuredSession({
     }
   }
 
+  function finishCompaction(code = null) {
+    const pending = compactionPending;
+    if (!pending) return;
+    compactionPending = null;
+    if (code) pending.resolve(reject(code));
+    else pending.resolve({ completed: true, ...(Number.isSafeInteger(pending.beforeTokens) && pending.beforeTokens >= 0 ? { beforeTokens: pending.beforeTokens } : {}) });
+  }
+  function observeCompaction(event) {
+    if (!compactionPending || event.parentToolUseId || event.isReplay) return;
+    if (event.type === "system" && event.subtype === "compact_boundary" && (!event.compact_metadata?.trigger || event.compact_metadata.trigger === "manual")) {
+      compactionPending.boundary = true;
+      compactionPending.beforeTokens = event.compact_metadata?.pre_tokens;
+      // A pre-compaction snapshot is no longer the current context. The next
+      // native usage report supplies the new value; do not estimate one here.
+      contextSnapshot = { ...contextSnapshot, contextTokens: null, contextPercent: null, usage: null };
+    }
+    if (event.type === "result") {
+      const failure = resultFailure(event);
+      finishCompaction(failure ? failure.code : interruptRequested ? "compaction_interrupted" : compactionPending.boundary ? null : "compaction_not_confirmed");
+    }
+  }
+  async function compact({ instructions = "" } = {}) {
+    const failure = ensureOpen(); if (failure) return failure;
+    if (compactionPending || state !== "waiting" || pendingPermissions.size) return reject("compaction_busy");
+    if (typeof instructions !== "string" || instructions.length > 16000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(instructions)) return reject("compaction_invalid_request");
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    compactionPending = { resolve, boundary: false };
+    try {
+      const sent = await sendUser(`/compact${instructions.trim() ? " " + instructions.trim() : ""}`);
+      if (sent?.kind === "reject") finishCompaction(sent.code);
+    } catch (error) { finishCompaction(error?.code || "compaction_failed"); }
+    return promise;
+  }
   function resultFailure(event) {
     if (!plain(event) || event.type !== "result") return null;
     const subtype = safeText(event.subtype, 128);
@@ -675,6 +710,7 @@ function createClaudeStructuredSession({
   }
 
   function setNativeFailure(code, message = code) {
+    finishCompaction(code);
     processError ||= controlError(code, message);
     state = "failed";
     endProcess();
@@ -887,6 +923,7 @@ function createClaudeStructuredSession({
   }
   const parser = createClaudeStructuredParser({
     onEvent(event) {
+      observeCompaction(event);
       lastActivityAt = Date.now();
       const interrupted = event.type === "result" && (interruptRequested || /^aborted/.test(String(event.terminal_reason || "")));
       // init and status events report the mode, including changes Claude
@@ -958,6 +995,7 @@ function createClaudeStructuredSession({
       rateEvent(interrupted ? { ...event, interrupted: true } : event);
     },
     onError(code) {
+      finishCompaction(code);
       processError ||= controlError(code, code);
       state = "failed";
       endProcess();
@@ -969,6 +1007,7 @@ function createClaudeStructuredSession({
   child.on?.("error", error => { processError ||= error instanceof Error ? error : new Error("claude_process_error"); endProcess(); });
   child.stdin?.on?.("error", () => { processError ||= Object.assign(new Error("claude_input_unavailable"), { code: "claude_input_unavailable" }); endProcess(); });
   child.on?.("close", (code, signal) => {
+    finishCompaction("claude_process_ended");
     rateEvent({ type: "rate.turn.ended" });
     childExited = true;
     exitCode = Number.isInteger(code) ? code : null;
@@ -1166,6 +1205,7 @@ function createClaudeStructuredSession({
   }
   async function close() {
     if (closed) return { kind: "closed" };
+    finishCompaction("claude_session_closed");
     closed = true; parser.close();
     state = "closed";
     rejectControls(controlError("claude_session_closed"));
@@ -1188,7 +1228,8 @@ function createClaudeStructuredSession({
     version: CLAUDE_STRUCTURED_VERSION,
     cwd,
     name: safeText(name, 120) || null,
-    send: sendUser,
+    send: (text, options) => compactionPending ? Promise.resolve(reject("compaction_busy")) : sendUser(text, options),
+    compact,
     models,
     setModel,
     setEffort,
@@ -1201,7 +1242,7 @@ function createClaudeStructuredSession({
     approvalReady: !permissionPromptTool,
     status: () => {
       const current = parser.status();
-      return { ...current, closed, failed: current.failed || processError?.code || null,
+      return { ...current, closed, compacting: !!compactionPending, failed: current.failed || processError?.code || null,
         // A branch is its own conversation from the start.
         nativeSessionId: current.sessionId || (fork ? fork.sessionId : sessionId), state: current.failed || processError ? "failed" : state,
         model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),

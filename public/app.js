@@ -1361,6 +1361,7 @@ async function enterApp() {
           }
         } else await openAgentTaskFromHub(record);
         paneTranscriptReady = true;
+        refreshCompactionWhenConnected();
         parent.postMessage({ type: "workspace-ready" }, location.origin);
       } catch (error) {
         if (paneHostUnreachable(error)) { waitForPaneHost(); return false; }
@@ -10580,8 +10581,11 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       break;
     case "compaction_start":
       setActivityLabel("compacting");
-      el.queueNote.textContent = "正在整理對話上下文…";
-      el.queueNote.classList.remove("hidden");
+      // A requested /compact already shows its own status line.
+      if (!agentCompaction?.busy()) {
+        el.queueNote.textContent = compactionCopy("running");
+        el.queueNote.classList.remove("hidden");
+      }
       break;
     case "compaction_end":
       el.queueNote.classList.add("hidden");
@@ -11102,6 +11106,7 @@ function setStreaming(on) {
 el.btnSend.addEventListener("click", sendCurrent);
 el.btnModel.addEventListener("click", openModelSheet);
 let conversationGoal = null;
+let agentCompaction = null;
 const composerIme = window.stepsembleComposerIme?.createGuard();
 el.input.addEventListener("compositionstart", () => composerIme?.compositionStart());
 el.input.addEventListener("compositionend", () => composerIme?.compositionEnd());
@@ -11383,6 +11388,20 @@ async function sendCurrent() {
   // Claude or Codex still opening the conversation: the same wait as above.
   if (inputBlock === "inputUnavailable" && rpc.nativeLoading && !rpc.connectionLost) { sendOnceConnected(); return; }
   if (inputBlock) { toast(agentHubText(inputBlock), true); return; }
+  // /compact asks the agent for its own compaction of this conversation; it is
+  // never sent as a message. Pi outside a workspace tab keeps its RPC command.
+  const compactCommand = window.StepsembleAgentCompaction?.parse(el.input.value);
+  if (compactCommand && !generic && !WORKSPACE_ENTRY_KEY) {
+    if (pendingImages.length) { toast(compactionReason("compaction_attachments"), true); return; }
+    const compactDraft = beginDraftSend(activeDraftKey);
+    el.input.value = ""; el.input.style.height = "auto";
+    el.slashMenu.classList.add("hidden"); slashState = null;
+    await BUILTIN_SLASH.compact(compactCommand.instructions);
+    clearSentDraft(compactDraft);
+    return;
+  }
+  if (compactCommand && agentCompaction && (await agentCompaction.submit(el.input.value, { hasAttachments: pendingImages.length > 0 })).handled) return;
+  if (agentCompaction?.busy()) { toast(compactionCopy("waitForCompaction"), true); return; }
   if (generic && pendingImages.length && !connectorAcceptsImages(rpc)) {
     toast(agentHubText("cliTextOnly"), true);
     return;
@@ -11402,13 +11421,9 @@ async function sendCurrent() {
   el.slashMenu.classList.add("hidden");
   slashState = null;
 
-  // 內建 TUI 指令映射（/compact 等 RPC 專屬）
-  const bm = !generic && text.match(/^\/(compact|clear)\s*$/i);
-  if (bm) {
-    const cmd = bm[1].toLowerCase();
-    if (cmd === "compact") { await BUILTIN_SLASH.compact(); clearSentDraft(sendDraft); return; }
-    if (cmd === "clear") { clearSentDraft(sendDraft); showList(); return; }
-  }
+  // 內建 TUI 指令映射（/compact 已在上方處理）
+  const bm = !generic && text.match(/^\/(clear)\s*$/i);
+  if (bm) { clearSentDraft(sendDraft); showList(); return; }
 
   // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
   // transcript has no date lines, so native Codex skips the separator.
@@ -13135,7 +13150,10 @@ function updateSlashMenu() {
   const terminalItems = agentTerminalSlashItems(conversationAgentId());
   const nativeItems = rpc && !rpc.generic ? availableCommands.filter(c => !AGENT_TERMINAL_ACTIONS.includes(String(c.name).toLowerCase())) : [];
   const goalItem = conversationGoal?.commandItem();
-  const commands = [...(goalItem ? [goalItem] : []), ...terminalItems, ...nativeItems.filter(c => String(c.name).toLowerCase() !== "goal")];
+  const compactItem = compactionSlashItem();
+  if (m && compactItem && "compact".includes(m[1].toLowerCase())) void agentCompaction.refresh({ lazy: true });
+  const commands = [...(goalItem ? [goalItem] : []), ...(compactItem ? [compactItem] : []), ...terminalItems,
+    ...nativeItems.filter(c => !["goal", "compact"].includes(String(c.name).toLowerCase()))];
   if (!m || !rpc || !commands.length) { el.slashMenu.classList.add("hidden"); slashState = null; return; }
   const q = m[1].toLowerCase();
   const items = commands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 8);
@@ -13144,7 +13162,8 @@ function updateSlashMenu() {
   el.slashMenu.innerHTML = "";
   items.forEach((c, i) => {
     const row = document.createElement("div");
-    row.className = "slash-item" + (i === 0 ? " hl" : "");
+    row.className = "slash-item" + (i === 0 ? " hl" : "") + (c.disabled ? " disabled" : "");
+    if (c.disabled) row.setAttribute("aria-disabled", "true");
     row.innerHTML = `<span class="s-cmd"></span><span class="s-desc"></span>`;
     row.querySelector(".s-cmd").textContent = "/" + c.name;
     row.querySelector(".s-desc").textContent = c.description || (c.source === "skill" ? "skill" : c.source || "");
@@ -13154,6 +13173,15 @@ function updateSlashMenu() {
   el.slashMenu.classList.remove("hidden");
 }
 function pickSlash(c) {
+  if (c?.source === "compaction" && c.disabled) { toast(compactionReason(c.reason), true); return; }
+  if (c?.source === "compaction") {
+    el.input.value = c.instructions ? "/compact " : "/compact";
+    el.slashMenu.classList.add("hidden");
+    slashState = null;
+    el.input.dispatchEvent(new Event("input", { bubbles: true }));
+    el.input.focus();
+    return;
+  }
   if (c?.source === "terminal") {
     el.input.value = "";
     el.slashMenu.classList.add("hidden");
@@ -14263,12 +14291,12 @@ el.quotaSourcesRefresh?.addEventListener("click", () => void loadQuotaSources(tr
 
 /** 內建 TUI 指令映射：/compact 等 RPC 專屬命令 */
 const BUILTIN_SLASH = {
-  compact: async () => {
-    if (!rpc) { toast("對話未開啟", true); return true; }
+  compact: async (instructions = "") => {
+    if (!rpc) { toast(compactionReason("compaction_not_connected"), true); return true; }
     setStreaming(true);
     try {
-      const r = await rpcCmd(rpc.sid, { type: "compact" });
-      if (r.success) toast(`已壓縮：${fmtTokens(r.data?.tokensBefore)} → ${fmtTokens(r.data?.estimatedTokensAfter)} tok`);
+      const r = await rpcCmd(rpc.sid, { type: "compact", ...(instructions ? { customInstructions: instructions } : {}) });
+      if (r.success) toast(compactionResultText({ beforeTokens: r.data?.tokensBefore, afterTokens: r.data?.estimatedTokensAfter, estimated: true }));
       else toast(tKey("runtime.compactCommandFailed", { detail: r.error || "unknown" }), true);
     } catch (e) { toast(tKey("runtime.compactCommandFailed", { detail: e.message }), true); }
     setStreaming(false);
@@ -18983,6 +19011,71 @@ if (WORKSPACE_PANE) {
     }
   });
 }
+
+// ---- /compact: the agent's own compaction, observed through the Host ----
+function compactionLocale() { return settings.locale || "en"; }
+function compactionCopy(key, vars = {}) { return window.StepsembleCompactionI18n?.t(key, vars, compactionLocale()) || key; }
+function compactionReason(code) { return window.StepsembleCompactionI18n?.reason(code, compactionLocale()) || code; }
+function compactionResultText(op) {
+  const known = value => Number.isSafeInteger(value) && value >= 0;
+  if (known(op?.beforeTokens) && known(op?.afterTokens)) {
+    return compactionCopy(op.estimated ? "completedEstimate" : "completedTokens", { before: fmtTokens(op.beforeTokens), after: fmtTokens(op.afterTokens) });
+  }
+  if (known(op?.beforeTokens)) return compactionCopy("completedBefore", { before: fmtTokens(op.beforeTokens) });
+  return compactionCopy("completed");
+}
+// A tab reopened while a compaction runs shows it once the agent is connected.
+function refreshCompactionWhenConnected(tries = 40) {
+  if (!agentCompaction || tries <= 0) return;
+  if (rpc && !rpc.nativeLoading && !rpc.connectionLost) { void agentCompaction.refresh(); return; }
+  setTimeout(() => refreshCompactionWhenConnected(tries - 1), 500);
+}
+function compactionSlashItem() {
+  if (!agentCompaction || !rpc) return null;
+  return agentCompaction.item();
+}
+// Only an operation this view saw running announces its end, so reopening a
+// tab never repeats an earlier result.
+const compactionWatched = new Set();
+let compactionMenuKey = "";
+function renderCompactionStatus(state) {
+  const node = document.getElementById("compaction-status");
+  const op = state?.operation;
+  const running = !!state?.submitting || op?.status === "running";
+  if (node) {
+    node.classList.toggle("hidden", !running);
+    node.textContent = running ? compactionCopy("running") : "";
+  }
+  if (op?.status === "running") compactionWatched.add(op.id);
+  else if (op && compactionWatched.delete(op.id)) {
+    if (op.status === "completed") {
+      toast(compactionResultText(op));
+      markContextStatsAwaiting();
+      if (rpc?.generic) syncNativeContext(rpc); else void syncSessionStats(rpc?.sid);
+    } else toast(compactionCopy("failed", { reason: compactionReason(op.error) }), true);
+  }
+  // Keep the menu's enabled state current without resetting a highlighted row.
+  const item = compactionSlashItem(), key = item ? `${item.disabled}:${item.reason}:${item.instructions}` : "";
+  if (key !== compactionMenuKey) {
+    compactionMenuKey = key;
+    if (!el.slashMenu.classList.contains("hidden")) updateSlashMenu();
+  }
+}
+agentCompaction = window.StepsembleAgentCompaction?.create({
+  request: (path, body) => body === undefined ? api(path) : post(path, body),
+  getContext: () => ({ context: apiBase + ":" + viewGeneration, entry: WORKSPACE_ENTRY_KEY, agentId: conversationAgentId(),
+    connected: !!rpc && !rpc.nativeLoading && !rpc.connectionLost, readOnly: !!rpc?.nativeHistoryReadonly, busy: false }),
+  text: key => ["description", "instructionsHint"].includes(key) ? compactionCopy(key) : compactionReason(key),
+  onAccepted(text) {
+    if (el.input.value !== text) return;
+    el.input.value = ""; el.input.style.height = "auto";
+    el.slashMenu.classList.add("hidden"); slashState = null;
+    removeDraftForKey(activeDraftKey);
+    el.input.dispatchEvent(new Event("input", { bubbles: true }));
+  },
+  onError: code => toast(compactionReason(code), true),
+  onStatus: renderCompactionStatus,
+}) || null;
 
 conversationGoal = window.StepsembleWorkflows?.mountConversation({ api, post,
   getConnection: () => rpc, getAgentId: () => conversationAgentId(),

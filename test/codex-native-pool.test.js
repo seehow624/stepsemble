@@ -423,3 +423,11 @@ test("account quota uses the history connection without allocating a session chi
   assert.equal(reads, 1); assert.equal(pool.busyTasks().length, 0);
   assert.ok(!history.calls.some(([method]) => method === "listTasks" || method === "listThreads"));
 });
+
+test("compaction stays on the requested Codex worker and never uses the history reader",async t=>{
+  const history=historyFixture(),h=childFactoryHarness(),pool=createCodexNativePool({historyAdapter:history,createThreadAdapter:h.factory});t.after(()=>pool.close());
+  await pool.resumeThread({threadId:"thread-a"});await pool.resumeThread({threadId:"thread-b"});
+  const called=[];for(const child of h.created)child.compactThread=async id=>{called.push([child.options.threadId,id]);return {kind:"completed",completed:true,threadId:id};};
+  assert.equal((await pool.compactThread("thread-a")).completed,true);assert.deepEqual(called,[["thread-a","thread-a"]]);
+  assert.equal((await pool.compactThread("thread-c")).code,"native_thread_missing");assert.equal(called.length,1);
+});
