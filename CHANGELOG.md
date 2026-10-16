@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.9
+
+- Let Hermes Bots send files the way Telegram does. A reply that names a file with `MEDIA:` shows images inline, plays audio and video, and offers PDFs, text files and other documents as cards that open or download. Text files open as a page sized for the phone, and phone notices name the files instead of showing their paths.
+- Stream each attachment from Hermes's own file route on the computer that runs it, and only for paths a Bot sent in a reply or a group message. Hermes still refuses sensitive files and anything over 100 MB; web pages and unknown types always download, and opened content cannot run script on Stepsemble's origin.
+- On a desktop, switch the Workspace sidebar to the Assistant in place. It lists the Bots and groups of the computer that runs Hermes, with search, answers waiting for you, and quick access to routines and Bot management. Phones keep the Assistant page.
+- Open a Bot, a group or an Assistant page as a Workspace tab beside coding sessions. Bot tabs split, drag to pane edges, move to new windows and reopen where they were, with one tab per Bot; a tab that is not shown stops claiming its chat, so phone notices still arrive. Regression tests cover phone and desktop layouts with a simulated Hermes and make no model calls.
+
 ## 3.9.8
 
 - Add `/compact` to coding agent conversations. It asks the agent for its own compaction of the same conversation: Pi's RPC compaction, Claude Code's `/compact`, Codex's thread compaction, OpenCode's summarize, and the compaction command that Oh My Pi, Kilo, Cline or Grok Build advertises for the session. Pi and Claude Code also accept a note on what to keep, such as `/compact Keep the API decisions`.
