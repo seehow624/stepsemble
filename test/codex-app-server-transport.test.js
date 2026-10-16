@@ -440,7 +440,11 @@ test("Codex native transport scopes token usage notifications to the active thre
     threadId: "thread-other", turnId: "turn-usage", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: null },
   } });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(transport.state().failure, "native_usage_mismatch");
+  // Another thread of this process is a sub-agent: reported, never recorded as this thread's usage.
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.tokenUsage("thread-other"), null);
+  assert.equal(transport.tokenUsage("thread-usage").tokenUsage.total.totalTokens, 99);
+  assert.deepEqual(events.at(-1), { type: "subagent.thread", method: "thread/tokenUsage/updated", threadId: "thread-other", parentThreadId: "thread-usage", turnId: "turn-usage" });
 });
 
 test("Codex native transport reports raw and item context compaction lifecycle events", async t => {
@@ -950,10 +954,12 @@ test("Codex thread resume accepts the thread's status and last usage that Codex 
   frame(child, { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-reports", turnId: "turn-first", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: null } } });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(transport.state().failure, null);
-  // Another thread's report is still refused.
-  frame(child, { jsonrpc: "2.0", method: "thread/status/changed", params: { threadId: "thread-other", status: { type: "idle" } } });
+  // Another thread's report is a sub-agent's: it never changes this thread's state.
+  frame(child, { jsonrpc: "2.0", method: "thread/status/changed", params: { threadId: "thread-other", status: { type: "active", activeFlags: [] } } });
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(transport.state().failure, "native_thread_mismatch");
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.state().state, "thread_started");
+  assert.equal(events.at(-1), "subagent.thread");
 });
 
 test("Codex thread resume refuses another thread's report while it resumes", async t => {
@@ -1205,4 +1211,46 @@ test("native compaction failure or transport closure never reports completion",a
 test("the compaction authorizer must commit and the thread is rechecked afterwards",async t=>{
   let allow=true;const {child,transport}=await readyOwnedTransport(t,{authorizeNative:async()=>allow?proof():{kind:"reject",code:"no_authority"}});completeOwnedTurn(child);allow=false;
   assert.equal((await transport.compactThread("native-typed")).code,"no_authority");assert.equal(transport.state().compacting,false);
+});
+
+test("a sub-agent thread's notifications are reported without touching the parent's lifecycle", async t => {
+  const events = [];
+  const { child, transport } = await readyOwnedTransport(t, { onEvent: event => events.push(event) });
+  frame(child, { method: "thread/status/changed", params: { threadId: "child-thread", status: { type: "active", activeFlags: [] } } });
+  frame(child, { method: "turn/started", params: { threadId: "child-thread", turn: { id: "child-turn", status: "inProgress" } } });
+  frame(child, { method: "item/completed", params: { threadId: "child-thread", turnId: "child-turn", item: { id: "child-message", type: "agentMessage", text: "Child result" } } });
+  frame(child, { method: "thread/tokenUsage/updated", params: { threadId: "child-thread", turnId: "child-turn", tokenUsage: {} } });
+  frame(child, { method: "turn/completed", params: { threadId: "child-thread", turn: { id: "child-turn", status: "completed" } } });
+  await new Promise(resolve => setImmediate(resolve));
+  const state = transport.state();
+  assert.equal(state.failure, null); assert.equal(state.threadId, "native-typed"); assert.equal(state.turnId, "turn-typed"); assert.equal(state.state, "turn_running");
+  const reported = events.filter(event => event.type === "subagent.thread");
+  assert.deepEqual(reported.map(event => event.method), ["thread/status/changed", "turn/started", "item/completed", "thread/tokenUsage/updated", "turn/completed"]);
+  assert.ok(reported.every(event => event.threadId === "child-thread" && event.parentThreadId === "native-typed"));
+  assert.equal(reported[2].text, "Child result"); assert.equal(reported[4].status, "completed");
+  assert.equal(events.some(event => event.type === "turn.completed"), false, "a child's turn never completes the parent's");
+  assert.equal(transport.tokenUsage("native-typed"), null, "a child's usage is not the parent's context");
+});
+
+test("a sub-agent's approval request is declined as unsupported without failing the connection", async t => {
+  const events = [];
+  const { child, transport, writes } = await readyOwnedTransport(t, { onEvent: event => events.push(event) });
+  frame(child, { id: "child-approval", method: "item/commandExecution/requestApproval", params: { threadId: "child-thread", turnId: "child-turn",
+    itemId: "child-item", startedAtMs: now, command: "owned", cwd: "/owned", kind: "command" } });
+  const reply = await writes.next();
+  assert.equal(reply.id, "child-approval"); assert.ok(reply.error); assert.equal(reply.result, undefined);
+  assert.equal(transport.state().failure, null); assert.deepEqual(transport.pendingApprovals(), []);
+  assert.ok(events.some(event => event.type === "subagent.approval_unavailable" && event.threadId === "child-thread"));
+});
+
+test("a connection that owns no thread still refuses another thread's notifications", async t => {
+  const child = new FakeNativeProcess(), writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, trustedNative: true, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  const initializing = transport.initialize(); const request = await writes.next();
+  frame(child, { id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing; await writes.next();
+  frame(child, { method: "turn/started", params: { threadId: "someone-else", turn: { id: "t", status: "inProgress" } } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, "native_turn_mismatch");
 });

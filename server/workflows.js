@@ -216,6 +216,16 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
       resumedAt: null, elapsedMs: 0, turns: 0, outputTokens: 0, result: "", error: null };
     state.runs.push(run); return run;
   }
+  // The mark a session's list row shows: its latest Goal while that Goal is
+  // still the conversation's business. A finished Goal leaves no mark.
+  function goalState(entry) {
+    if (!entry) return null;
+    const run = state.runs.filter(r => r.entry === entry && r.mode !== "task").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+    if (!run) return null;
+    if (ACTIVE.has(run.status) || run.status === "queued" || run.status === "stopping") return "running";
+    if (run.status === "paused") return "paused";
+    return run.status === "blocked" || run.status === "interrupted" ? "attention" : null;
+  }
   function locked(entry) { return !!entry && state.runs.some(r => r.entry === entry && (ACTIVE.has(r.status) || r.status === "queued" || r.status === "stopping")); }
   function limit(run) { return elapsed(run) >= run.limits.minutes * 60000 || run.turns >= run.limits.turns || run.outputTokens >= run.limits.outputTokens; }
   function projectBusy(run) {
@@ -386,6 +396,6 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     return summary(run);
   }
   const timer = autoStart ? setInterval(() => void tick(), 1000) : null; timer?.unref?.();
-  return { list, create, action, tick, locked, close() { closed = true; clearInterval(timer); }, healthy: () => healthy };
+  return { list, create, action, tick, locked, goalState, close() { closed = true; clearInterval(timer); }, healthy: () => healthy };
 }
 module.exports = { createWorkflows, scheduleSpec, nextOccurrence, definition, goalPrompt, outcome, failureKind, retryDelay, sameProject, AGENTS };

@@ -30,7 +30,7 @@ function fixture() {
     composerImageBudget: () => ({ count: 8 }), tKey: key => key, toast: noop,
     BUILTIN_SLASH: { compact: () => new Promise(resolve => requests.push({ resolve })) }, showList: noop,
     // Outside a workspace tab Pi keeps its RPC compaction (BUILTIN_SLASH).
-    WORKSPACE_ENTRY_KEY: "", agentCompaction: null, compactionCopy: key => key, compactionReason: key => key,
+    WORKSPACE_ENTRY_KEY: "", agentCompaction: null, compactionCopy: key => key, compactionReason: key => key, subagentTracker: null, sessionReferences: null,
   });
   context.window = context;
   vm.runInContext(utilities, context); Object.assign(context, context.stepsembleSessionUtils);
@@ -130,4 +130,31 @@ test("a message typed while a compaction runs stays in the box", async () => {
   f.type("Next message"); await f.c.sendCurrent();
   assert.equal(f.requests.length, 0); assert.equal(f.shells.length, 0); assert.equal(f.c.el.input.value, "Next message");
   assert.equal(f.saved(), "Next message"); assert.deepEqual(toasts, [["waitForCompaction", true]]);
+});
+
+test("a send waiting for a reference summary sends once, can be cancelled, and never lands on another conversation", async () => {
+  const setup = () => {
+    const f = fixture(), sent = [], waits = [];
+    let finish = null;
+    f.c.post = (path, body) => { sent.push(body); return Promise.resolve({}); };
+    f.c.referenceWaiting = false; f.c.referenceCopy = key => key;
+    f.c.setReferenceWait = (on, cancel) => waits.push(on ? cancel : null);
+    f.c.sessionReferences = { count: () => 1, ready: () => false, whenReady: () => new Promise(resolve => { finish = resolve; }),
+      compose: text => `${text}\n\n---\nReference`, clear() {} };
+    return { f, sent, waits, finish: value => finish(value) };
+  };
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  let t = setup(); t.f.type("Continue");
+  const first = t.f.c.sendCurrent(), second = t.f.c.sendCurrent(); await second;
+  assert.equal(t.waits.filter(Boolean).length, 1, "a second press while waiting does not wait again");
+  t.finish(true); await first; await flush();
+  assert.equal(t.sent.length, 1); assert.match(JSON.stringify(t.sent[0]), /Continue\\n\\n---\\nReference/);
+
+  t = setup(); t.f.type("Continue"); const cancelled = t.f.c.sendCurrent(); await flush();
+  t.waits.find(Boolean)(); await cancelled;
+  assert.equal(t.sent.length, 0); assert.equal(t.f.c.el.input.value, "Continue", "a cancelled wait keeps the draft"); assert.equal(t.f.c.referenceWaiting, false);
+
+  t = setup(); t.f.type("Continue"); const moved = t.f.c.sendCurrent(); await flush();
+  t.f.c.viewGeneration = 2; t.f.c.el.input.value = "Other conversation"; t.finish(true); await moved;
+  assert.equal(t.sent.length, 0, "the wait ended after another conversation opened");
 });

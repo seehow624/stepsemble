@@ -418,6 +418,75 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 .compaction-status::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--accent); vertical-align: 1px; animation: compaction-pulse 1.2s ease-in-out infinite; }
 @keyframes compaction-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 .reduced-motion .compaction-status::before { animation: none; }
+.reference-wait-cancel { margin-left: 8px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.reference-wait-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Subagents of the current turn: a bubble above the composer, its list, and
+   a read-only detail panel at the side (from below on a phone). */
+.subagent-bar { padding: 0 16px; }
+.subagent-bubble { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; }
+.subagent-bubble[hidden] { display: none; }
+.subagent-bubble::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.subagent-bubble[data-state="running"]::before { background: var(--accent); animation: compaction-pulse 1.2s ease-in-out infinite; }
+.subagent-bubble:hover, .subagent-bubble:focus-visible, .subagent-bubble[aria-expanded="true"] { background: var(--bubble-user); }
+.reduced-motion .subagent-bubble::before { animation: none; }
+.subagent-list { margin: 2px 0 6px; max-height: 40vh; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--milk); box-shadow: 0 8px 24px rgba(0, 0, 0, .08); }
+.subagent-list[hidden], .subagent-drawer[hidden] { display: none; }
+.subagent-items { list-style: none; margin: 0; padding: 4px; }
+.subagent-item { display: grid; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.subagent-item:hover, .subagent-item:focus-visible { background: var(--bubble-user); }
+.subagent-item[data-depth="1"] { padding-left: 26px; }
+.subagent-item[data-depth="2"], .subagent-item[data-depth="3"] { padding-left: 42px; }
+.subagent-item-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.subagent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-time { margin-left: auto; color: var(--pine-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.subagent-task, .subagent-activity, .subagent-flag { overflow: hidden; color: var(--pine-soft); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-activity { font-family: var(--mono); font-size: 11.5px; }
+.subagent-status { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--bubble-ai); color: var(--pine); font-size: 11px; }
+.subagent-status[data-state="running"] { color: var(--accent); }
+.subagent-status[data-state="completed"] { color: var(--ok); }
+.subagent-status[data-state="failed"] { color: var(--err); }
+.subagent-drawer { position: fixed; z-index: 60; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 14px; width: min(440px, 92vw); padding: max(16px, var(--safe-top)) 18px calc(16px + env(safe-area-inset-bottom)); overflow: auto; border-left: 1px solid var(--line); background: var(--milk); color: var(--ink); box-shadow: -12px 0 32px rgba(0, 0, 0, .12); }
+.subagent-drawer-header { display: flex; align-items: flex-start; gap: 12px; }
+.subagent-drawer-header > div { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.subagent-drawer h2 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.subagent-meta { flex-basis: 100%; margin: 0; color: var(--pine-soft); font-size: 12.5px; }
+.subagent-close { flex: none; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--pine-soft); font-size: 1.2rem; cursor: pointer; }
+.subagent-close:hover, .subagent-close:focus-visible { background: var(--bubble-user); color: var(--ink); }
+.subagent-section h3 { margin: 0 0 6px; color: var(--pine-soft); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.subagent-prompt, .subagent-result { margin: 0; padding: 10px 12px; max-height: 32vh; overflow: auto; border-radius: 10px; background: var(--bubble-ai); font-family: inherit; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.subagent-log { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.subagent-log-tool { display: flex; gap: 8px; min-width: 0; font-size: 12.5px; }
+.subagent-log-tool strong { flex: none; font-family: var(--mono); font-size: 11.5px; }
+.subagent-log-tool span { overflow: hidden; color: var(--pine-soft); text-overflow: ellipsis; white-space: nowrap; }
+.subagent-log-tool[data-done="false"] strong { color: var(--accent); }
+.subagent-log-tool[data-error="true"] strong { color: var(--err); }
+.subagent-log-text p { margin: 0; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.subagent-note, .subagent-empty { margin: 0; color: var(--pine-soft); font-size: 12.5px; }
+.tool-subagent-open { flex: none; margin-left: 6px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); font: inherit; font-size: 11.5px; cursor: pointer; }
+.tool-subagent-open[hidden] { display: none; }
+/* Sessions referenced from the composer, each with its handoff summary. */
+.session-references { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 16px 0; }
+.session-references.hidden, .session-references[hidden] { display: none; }
+.session-ref { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 6px 4px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 12.5px; }
+.session-ref-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-ref-status { color: var(--pine-soft); white-space: nowrap; }
+.session-ref[data-state="running"] .session-ref-status::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--accent); vertical-align: 1px; animation: compaction-pulse 1.2s ease-in-out infinite; }
+.session-ref[data-state="completed"] .session-ref-status { color: var(--ok); }
+.session-ref[data-state="failed"] .session-ref-status { color: var(--err); white-space: normal; }
+.session-ref button { flex: none; padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--ink); font: inherit; font-size: 11.5px; cursor: pointer; }
+.session-ref .session-ref-remove { width: 24px; height: 24px; padding: 0; border: 0; color: var(--pine-soft); font-size: 1rem; }
+.session-ref button:hover, .session-ref button:focus-visible { background: var(--bubble-user); }
+.reduced-motion .session-ref .session-ref-status::before { animation: none; }
+/* The global reset drops a dialog's centring margin; restore it here. */
+.session-ref-dialog { width: min(680px, 94vw); max-height: calc(100dvh - 32px); margin: auto; padding: 18px 20px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--milk); color: var(--ink); box-shadow: 0 24px 60px rgba(0, 0, 0, .18); }
+.session-ref-dialog::backdrop { background: rgba(20, 24, 22, .32); }
+.session-ref-dialog h2 { margin: 0 0 4px; font-size: 1.05rem; overflow-wrap: anywhere; }
+.session-ref-meta { margin: 0 0 10px; color: var(--pine-soft); font-size: 12.5px; }
+.session-ref-editor { box-sizing: border-box; width: 100%; min-height: 40vh; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; font-size: 13px; resize: vertical; }
+.session-ref-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+@media (max-width: 700px) {
+  .subagent-drawer { top: auto; left: 0; width: auto; max-height: 85vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -12px 32px rgba(0, 0, 0, .14); }
+}
 .task-replay-note {
   margin: 0 16px 6px;
   padding: 7px 10px;

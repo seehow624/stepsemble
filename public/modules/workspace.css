@@ -225,6 +225,11 @@ small { color: var(--pine-soft); }
 .workspace-session-status[data-state="working"]::after { width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--ink) 16%, transparent); border-top-color: var(--ink); border-right-color: color-mix(in srgb, var(--ink) 55%, transparent); border-radius: 50%; animation: workspace-session-spin .9s linear infinite; }
 .workspace-session-status[data-state="unread"]::after { width: 7px; height: 7px; background: #51b87b; border-radius: 50%; }
 .workspace-session-status[data-state="attention"]::after { width: 7px; height: 7px; border: 2px solid #cd9855; border-radius: 50%; }
+/* A Goal running in the conversation: a small target beside the activity mark. */
+.workspace-session-goal { flex: 0 0 14px; width: 14px; height: 14px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 50%; background: radial-gradient(circle, currentColor 0 2px, transparent 2.5px); color: var(--ink); }
+.workspace-session-goal[hidden] { display: none; }
+.workspace-session-goal[data-state="paused"] { color: var(--pine-soft); border-style: dashed; }
+.workspace-session-goal[data-state="attention"] { color: #cd9855; }
 @keyframes workspace-session-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .workspace-session-status[data-state="working"]::after { animation: none; } }
 .workspace-session[data-open=true] { background: var(--bubble-user); border-color: var(--line); }
@@ -435,6 +440,8 @@ small { color: var(--pine-soft); }
 .workspace-drop[data-edge=top] { box-shadow: inset 0 56px color-mix(in srgb, var(--accent) 28%, transparent); }
 .workspace-drop[data-edge=bottom] { box-shadow: inset 0 -56px color-mix(in srgb, var(--accent) 28%, transparent); }
 .workspace-drop[data-edge=center] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.workspace-drop[data-edge=reference] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.workspace-drop[data-edge=reference]::after { content: attr(data-label); position: absolute; left: 50%; bottom: 28px; max-width: calc(100% - 32px); padding: 6px 14px; overflow: hidden; border-radius: 999px; background: var(--accent); color: var(--milk); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); }
 
 dialog { width: min(720px, 94vw); max-height: 88dvh; margin: auto; padding: 20px; border: .5px solid var(--line); border-radius: 18px; background: var(--milk); color: var(--ink); }
 dialog::backdrop { background: var(--sheet-bg); }

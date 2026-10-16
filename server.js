@@ -1885,6 +1885,7 @@ function vapidAuthorization(endpoint) {
 
 const { encryptPushPayload, createPushQueue } = require("./server/web-push");
 const notificationCopy = require("./public/modules/notifications");
+const subagentRecords = require("./public/modules/subagents");
 const { pushBody } = require("./server/notifications");
 
 function readPushSubscriptions() {
@@ -2139,11 +2140,20 @@ void openCodeNative.refresh();
 // Installed services enable Codex's official app-server; development hosts
 // opt in explicitly. Native writes still require the mutation flag, a reviewed
 // version and an owner-only intent journal, without changing account settings.
+// Sub-agent threads whose approval request Stepsemble could not answer.
+const subagentApprovalUnavailable = new Set();
 const codexNative = createCodexNativePool({ adapterOptions: {
   env: process.env,
   cwd: APP_HOME,
   journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
-}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"), onEvent: event => { hostRates.codex(event); workflowEvents.emit("codex", event.threadId || event.request?.threadId, event); } });
+}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"), onEvent: event => {
+  if (event?.type === "subagent.approval_unavailable" && typeof event.threadId === "string") {
+    subagentApprovalUnavailable.delete(event.threadId); subagentApprovalUnavailable.add(event.threadId);
+    while (subagentApprovalUnavailable.size > 256) subagentApprovalUnavailable.delete(subagentApprovalUnavailable.values().next().value);
+  }
+  if (event?.type === "subagent.thread" || event?.type === "subagent.approval_unavailable") return;
+  hostRates.codex(event); workflowEvents.emit("codex", event.threadId || event.request?.threadId, event);
+} });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is
 // opened; without the flag the existing bounded CLI connector remains the
@@ -2971,6 +2981,11 @@ function entryToWire(e) {
     if (typeof m.toolCallId === "string" && m.toolCallId.length <= 256) wire.toolCallId = m.toolCallId;
     wire.isError = !!m.isError;
     wire.text = textOfContent(m.content).slice(0, 4000);
+    // pi-subagents keeps each child's outcome in the result's details.
+    if (m.toolName === "subagent") {
+      const record = subagentRecords.piRecord(m.details);
+      if (record) wire.subagents = record;
+    }
   } else {
     wire.text = textOfContent(m.content);
   }
@@ -5427,6 +5442,31 @@ const compactions = require("./server/agent-compaction").createAgentCompaction({
   run: compactionBridge.run, reserve: active => { nativeWorkRequests += active ? 1 : -1; },
 });
 const handleCompactionRoute = require("./server/agent-compaction").createCompactionRoutes({ service: compactions, readJSON, sendJSON });
+// Handoff summaries of another session: read from the session's own history,
+// written by the summarizer chosen in Settings, kept only in memory.
+const sessionTranscripts = require("./server/session-transcript").createSessionTranscripts({
+  resolve: key => workspaceRegistry.get(key), catalog: nativeHistoryCatalog, openCode: openCodeNative,
+  readPiSession: async rel => {
+    const abs = safeSessionPath(rel);
+    if (!abs) throw Object.assign(new Error("reference_source_unavailable"), { code: "reference_source_unavailable", statusCode: 409 });
+    const stat = await fs.promises.stat(abs);
+    if (stat.size > MAX_SESSION_FILE_BYTES) throw Object.assign(new Error("reference_too_large"), { code: "reference_too_large", statusCode: 413 });
+    return fs.promises.readFile(abs, "utf8");
+  },
+});
+const handoffCodexCommand = require("./server/codex-native-history-adapter").resolveConfig(process.env).executable || null;
+const handoffInstalled = () => new Set([...(claudeStructuredCommand ? ["claude-code"] : []), ...(handoffCodexCommand ? ["codex"] : []),
+  ...(path.isAbsolute(PI_BIN) && fs.existsSync(PI_BIN) ? ["pi"] : [])]);
+const handoffSummaries = require("./server/handoff-summarizer").createHandoffSummarizer({ transcripts: sessionTranscripts, resolve: key => workspaceRegistry.get(key),
+  configFile: path.join(CONFIG_DIR, "handoff-summarizer.json"), workdir: path.join(CONFIG_DIR, "handoff-workdir"),
+  commands: () => ({ "claude-code": claudeStructuredCommand, codex: handoffCodexCommand, pi: PI_BIN }), installed: handoffInstalled,
+  // Claude's OpenCodex routing applies to Claude only.
+  environment: agentId => agentId === "claude-code" ? { ...process.env, ...claudeSessionEnvOverrides(APP_HOME) } : process.env });
+const handleHandoffRoute = require("./server/handoff-summarizer").createHandoffRoutes({ service: handoffSummaries, readJSON, sendJSON,
+  agents: () => { const available = handoffInstalled(); return handoffSummaries.agents.map(id => ({ id, installed: available.has(id) })); } });
+const handleSubagentDetailRoute = require("./server/subagent-detail").createSubagentDetailRoutes({ sendJSON,
+  detail: require("./server/subagent-detail").createSubagentDetail({ resolve: key => workspaceRegistry.get(key), codex: codexNative, openCode: openCodeNative,
+    approvalUnavailable: id => subagentApprovalUnavailable.has(id) }) });
 
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
@@ -6360,6 +6400,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (await handleCompactionRoute(req, res, url)) return;
+      if (await handleSubagentDetailRoute(req, res, url)) return;
+      if (await handleHandoffRoute(req, res, url)) return;
       if (await handleNativeComposerRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
       if (await handleHermesAssistantRoute(req, res, url)) return;
@@ -6697,6 +6739,8 @@ const server = http.createServer(async (req, res) => {
           }
           row.working = ["starting", "running", "reconnecting"].includes(record.status)
             || hostNotifications.working(row) || workflows.locked(row.key);
+          const goal = workflows.goalState(row.key);
+          if (goal) row.goal = goal;
         }
         sendJSON(res, 200, snapshot); return;
       }
@@ -8335,7 +8379,7 @@ function shutdown(signal) {
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),
   }));
-  workflows.close(); compactions.close(); workflowSleepGuard.close();
+  workflows.close(); compactions.close(); handoffSummaries.close(); workflowSleepGuard.close();
   shutdownState = {
     signal,
     deadline: Date.now() + SHUTDOWN_GRACE_MS,

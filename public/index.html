@@ -218,7 +218,9 @@
       </div>
     </div>
     <div id="queue-note" class="queue-note hidden" role="status" aria-live="polite"></div>
+    <div id="subagent-bar" class="subagent-bar" data-i18n-ignore></div>
     <div id="compaction-status" class="compaction-status hidden" role="status" aria-live="polite" data-i18n-ignore></div>
+    <div id="reference-wait" class="compaction-status reference-wait hidden" role="status" aria-live="polite" data-i18n-ignore></div>
     <div id="task-replay-note" class="task-replay-note hidden" role="status" aria-live="polite"></div>
     <section id="native-run-state" class="native-run-state hidden" role="region" aria-label="Codex status" data-i18n-ignore>
       <span id="native-run-indicator" class="native-run-indicator" aria-hidden="true"></span>
@@ -249,6 +251,7 @@
       <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
         <svg class="icon scroll-bottom-arrow" aria-hidden="true"><use href="#i-arrow-down"></use></svg><span class="scroll-bottom-dots" aria-hidden="true"><i></i><i></i><i></i></span>
       </button>
+      <div id="session-references" class="session-references hidden" data-i18n-ignore></div>
       <div id="img-preview" class="img-preview hidden"></div>
       <div class="composer-inner">
         <div class="composer-wrap">
@@ -466,6 +469,15 @@
             </div>
             <p class="settings-note" data-i18n-key="quotaSources.note">Limits come from each agent's own sign-in and from quota services on the selected host, such as OpenCodex.</p>
             <div id="quota-sources-list" class="quota-sources-list" role="status" aria-live="polite"></div>
+          </section>
+
+          <section class="settings-group" data-settings-category="agents" data-settings-target="handoff-summaries" data-i18n-ignore>
+            <h3 id="handoff-settings-title" class="group-title">Handoff summaries</h3>
+            <p id="handoff-settings-hint" class="settings-note"></p>
+            <label class="settings-row settings-select-row"><span><strong id="handoff-agent-label">Summarizer</strong></span><select id="handoff-agent"></select></label>
+            <label class="settings-row settings-select-row"><span><strong id="handoff-model-label">Model</strong></span><select id="handoff-model"></select></label>
+            <label id="handoff-effort-row" class="settings-row settings-select-row"><span><strong id="handoff-effort-label">Reasoning</strong></span><select id="handoff-effort"></select></label>
+            <p id="handoff-settings-status" class="settings-note" role="status" aria-live="polite"></p>
           </section>
 
           <!-- Devices & access -->
@@ -1095,7 +1107,7 @@
 <script src="/modules/composer-ime.js?v=3.9.9"></script>
 <script src="/modules/workflow-text.js?v=3.9.9"></script>
 <script src="/modules/goal-composer.js?v=3.9.9"></script>
-<script src="/modules/compaction-i18n.js?v=3.9.9"></script><script src="/modules/agent-compaction.js?v=3.9.9"></script>
+<script src="/modules/session-reference-i18n.js?v=3.9.9"></script><script src="/modules/session-reference.js?v=3.9.9"></script><script src="/modules/subagent-i18n.js?v=3.9.9"></script><script src="/modules/subagents.js?v=3.9.9"></script><script src="/modules/subagent-panel.js?v=3.9.9"></script><script src="/modules/compaction-i18n.js?v=3.9.9"></script><script src="/modules/agent-compaction.js?v=3.9.9"></script>
 <script src="/modules/workflows-i18n.js?v=3.9.9"></script><script src="/modules/workflows-ui.js?v=3.9.9"></script>
 <script src="/app.js?v=3.9.9"></script>
 </body>

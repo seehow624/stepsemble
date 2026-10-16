@@ -1856,6 +1856,7 @@ function showSettings() {
   renderSettings();
   void loadModelVisibility();
   void loadQuotaSources();
+  void loadHandoffSettings();
   el.viewSettings.classList.add("slide-in");
   settingsSlideTimer = setTimeout(() => {
     settingsSlideTimer = null;
@@ -5490,6 +5491,7 @@ function renderOpenCodeNativeSnapshot(snapshot, { replace = false } = {}) {
   if (!replace) el.messages.innerHTML = "";
   const messages = Array.isArray(snapshot.messages) ? [...snapshot.messages] : [];
   messages.sort((a, b) => (Number(a?.time?.created) || 0) - (Number(b?.time?.created) || 0));
+  subagentTracker?.openCode(messages);
   const messageId = message => String(message?.info?.id || message?.id || "") || null;
   for (const [index, message] of messages.entries()) {
     const view = agentTranscriptPresentation.openCodeMessage(message);
@@ -6003,6 +6005,9 @@ function reconcileCodexNativeEchoes(connection) {
 function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) {
   if (rpc !== connection || !connection?.nativeCodex) return;
   const state = connection.nativeTranscriptState;
+  // The newest turn's collab items name its subagents and their states.
+  const chronological = [...(state?.entries || [])].reverse(), latestTurn = chronological.at(-1)?.turnId;
+  subagentTracker?.codex(chronological.filter(entry => entry.turnId === latestTurn).map(entry => entry.item));
   const rendered = connection.nativeRenderedItems ||= new Map();
   const oldTop = el.messages.scrollTop;
   const oldHeight = el.messages.scrollHeight;
@@ -6804,6 +6809,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
       connection.claudeEventSeq = event.hostSeq + 1;
     }
     const position = numbered ? event.hostSeq : index;
+    subagentTracker?.claude(event);
     // A message Claude's history already shows is followed but not drawn a
     // second time. Its id comes with its first event; the events after it
     // belong to the same message until the next one starts.
@@ -7636,6 +7642,7 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
 
 function closeChat(silent) {
   if (WORKSPACE_PANE) silent = true;
+  subagentPanel?.close(); subagentTracker?.reset(); sessionReferences?.clear();
   const awaitingNative = rpc && !rpc.generic && nativeDialogs.count(apiBase, rpc.sid) > 0;
   resetNativeDialogs();
   if (openCodeNativePollTimer) { clearInterval(openCodeNativePollTimer); openCodeNativePollTimer = null; }
@@ -8933,6 +8940,7 @@ function makeToolCard(name, args, resultText, isError, running) {
   const details = document.createElement("details");
   details.className = "tool-card" + (isError ? " err" : "") + (running ? " running" : "");
   details.__tool = { name, args };
+  if (SUBAGENT_TOOL_NAMES.has(name)) details.dataset.subagentTool = "";
   const summary = document.createElement("summary");
   summary.className = "tool-head";
   const iconBox = document.createElement("span");
@@ -8965,6 +8973,16 @@ function makeToolCard(name, args, resultText, isError, running) {
   output.className = "tool-output";
   output.textContent = resultText || "（執行中…）";
   body.append(command, label, output);
+  if (SUBAGENT_TOOL_NAMES.has(name)) {
+    const open = document.createElement("button");
+    open.type = "button"; open.className = "tool-subagent-open"; open.hidden = true;
+    open.textContent = subagentCopy("details");
+    open.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); subagentPanel?.show(subagentTracker?.byTool(subagentCardTool(details))); });
+    summary.insertBefore(open, chevron);
+    // The caller sets the card's tool id right after this returns; a card
+    // drawn again from history then finds its subagents without a new event.
+    queueMicrotask(() => revealSubagentCard(details));
+  }
   details.append(summary, body);
   renderToolStat(details);
   return details;
@@ -9046,6 +9064,7 @@ function setToolCardState(card, { running = false, isError = false, text = null 
   if (text !== null && output) output.textContent = text || (isError ? "（沒有收到工具輸出）" : "（無輸出）");
   renderToolStat(card);
   updateRunToolError(card, !!isError);
+  if (card.dataset?.subagentTool !== undefined && typeof revealSubagentCard === "function") revealSubagentCard(card);
   const activity = card.closest(".activity-group")?.__activity;
   if (activity) {
     const cards = [...activity.body.children].filter((child) => child.classList.contains("tool-card"));
@@ -9135,7 +9154,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || "", { fork: piReplyFork({ entryId: m.id }) }));
     if (m.usage) attachMessageUsage(wrap, m.usage, activity);
   } else if (m.role === "toolResult") {
-    attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId);
+    attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId, m.subagents);
   }
   if (container === el.messages) {
     keepSessionUsageAtEnd();
@@ -9251,12 +9270,13 @@ function lastWorkActivity(bubble) {
   const groups = [...(bubble?.children || [])].filter(child => child.classList.contains("activity-group"));
   return groups[groups.length - 1]?.__activity || null;
 }
-function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null) {
+function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null, subagents = null) {
   // Parallel calls finish in their own order; match a result to its call
   // when the history names it.
   if (toolCallId) {
     const matched = [...container.querySelectorAll(".tool-card")].reverse().find(card => card.dataset.toolCallId === toolCallId);
     if (matched) {
+      if (subagents) matched.__subagentRecord = subagents;
       setToolCardState(matched, { running: false, isError: !!isError, text });
       return;
     }
@@ -10514,6 +10534,7 @@ function setActivityLabel(label = "thinking") {
 function handleRpcEvent(ev, eventSid = rpc?.sid) {
   if (eventSid && rpc?.sid !== eventSid) return;
   markRpcActivity();
+  subagentTracker?.pi(ev);
   switch (ev.type) {
     case "agent_start":
       startActivityRun();
@@ -11107,6 +11128,10 @@ el.btnSend.addEventListener("click", sendCurrent);
 el.btnModel.addEventListener("click", openModelSheet);
 let conversationGoal = null;
 let agentCompaction = null;
+let subagentTracker = null, subagentPanel = null;
+let sessionReferences = null;
+// Tool names whose card is a subagent: Claude Code, Pi (pi-subagents), Codex and OpenCode.
+const SUBAGENT_TOOL_NAMES = new Set(["Task", "Agent", "subagent", "task"]);
 const composerIme = window.stepsembleComposerIme?.createGuard();
 el.input.addEventListener("compositionstart", () => composerIme?.compositionStart());
 el.input.addEventListener("compositionend", () => composerIme?.compositionEnd());
@@ -11380,7 +11405,7 @@ async function sendCurrent() {
     void openAgentTerminal({ agentId: terminalAgent, action: terminalCommand.action, argument: terminalCommand.argument });
     return;
   }
-  if (!text && !pendingImages.length) return;
+  if (!text && !pendingImages.length && !sessionReferences?.count()) return;
   // Sent before the conversation has connected: it goes as soon as it has.
   if (!rpc) { sendOnceConnected(); return; }
   const generic = !!rpc.generic;
@@ -11402,6 +11427,26 @@ async function sendCurrent() {
   }
   if (compactCommand && agentCompaction && (await agentCompaction.submit(el.input.value, { hasAttachments: pendingImages.length > 0 })).handled) return;
   if (agentCompaction?.busy()) { toast(compactionCopy("waitForCompaction"), true); return; }
+  // Referenced sessions add their handoff summaries; the send waits for them.
+  let referencesSent = false;
+  if (sessionReferences?.count()) {
+    if (!sessionReferences.ready()) {
+      // One send waits at a time; pressing send again must not send twice.
+      if (referenceWaiting) return;
+      let cancel = null;
+      const cancelled = new Promise(resolve => { cancel = () => resolve("cancelled"); });
+      const waitView = viewGeneration, waitDraftKey = activeDraftKey;
+      referenceWaiting = true; setReferenceWait(true, cancel);
+      const ready = await Promise.race([sessionReferences.whenReady(), cancelled]);
+      referenceWaiting = false; setReferenceWait(false);
+      // Another conversation opened meanwhile: this send belongs to the old one.
+      if (ready === "cancelled" || viewGeneration !== waitView || activeDraftKey !== waitDraftKey) return;
+      if (!ready) { toast(referenceCopy("notReady"), true); return; }
+      text = el.input.value.trim();
+    }
+    text = sessionReferences.compose(text);
+    referencesSent = true;
+  }
   if (generic && pendingImages.length && !connectorAcceptsImages(rpc)) {
     toast(agentHubText("cliTextOnly"), true);
     return;
@@ -11430,6 +11475,7 @@ async function sendCurrent() {
   const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
   if (!codexNativeSend) maybeDateSeparator(Date.now());
   lastUserText = text;
+  subagentTracker?.newTurn();
   // Sent while the agent is idle, the message starts a turn that shows it is
   // being worked on at once; sent during a run, it waits its turn.
   const sendConnection = rpc;
@@ -11501,6 +11547,7 @@ async function sendCurrent() {
       : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
     accepted = true;
     clearSentDraft(sendDraft);
+    if (referencesSent) sessionReferences?.clear();
     // An ACP agent answers the prompt with the tokens it wrote, when it counts them.
     if (acpTurn?.outputMeter) {
       const tokens = contextUtils.acpTurnOutput(result, { agentId: acpTurn.acpAgentId || acpTurn.agentId });
@@ -14287,6 +14334,50 @@ function renderQuotaSources() {
   list.appendChild(group);
 }
 el.quotaSourcesRefresh?.addEventListener("click", () => void loadQuotaSources(true));
+
+// Settings: which agent, model and reasoning level write handoff summaries.
+let handoffSettingsTicket = 0;
+async function loadHandoffSettings() {
+  const agentBox = document.getElementById("handoff-agent"), modelBox = document.getElementById("handoff-model"), effortBox = document.getElementById("handoff-effort");
+  if (!agentBox || !modelBox || !effortBox) return;
+  const ticket = ++handoffSettingsTicket, base = apiBase, status = document.getElementById("handoff-settings-status");
+  for (const [id, key] of [["handoff-settings-title", "settingsTitle"], ["handoff-settings-hint", "settingsHint"], ["handoff-agent-label", "settingsAgent"], ["handoff-model-label", "settingsModel"], ["handoff-effort-label", "settingsEffort"]]) {
+    const node = document.getElementById(id); if (node) node.textContent = referenceCopy(key);
+  }
+  const option = (value, label, disabled = false) => { const node = document.createElement("option"); node.value = value; node.textContent = label; node.disabled = disabled; return node; };
+  let data;
+  try { data = await api("/api/handoff/settings"); } catch (error) { if (ticket === handoffSettingsTicket) status.textContent = error.message; return; }
+  if (ticket !== handoffSettingsTicket || apiBase !== base) return;
+  const current = data.settings || {};
+  const label = id => window.StepsembleAgentIdentity?.lookup(id)?.label || id;
+  agentBox.replaceChildren(option("", referenceCopy("automatic")), ...(data.agents || []).map(agent =>
+    option(agent.id, agent.installed ? label(agent.id) : referenceCopy("notInstalled", { agent: label(agent.id) }), !agent.installed)));
+  agentBox.value = current.agentId || "";
+  modelBox.replaceChildren(option("", referenceCopy("agentDefault"))); effortBox.replaceChildren(option("", referenceCopy("agentDefault")));
+  modelBox.disabled = effortBox.disabled = !current.agentId;
+  let catalog = [];
+  if (current.agentId) {
+    try { catalog = (await api(`/api/workflows/options?agentId=${encodeURIComponent(current.agentId)}`))?.models || []; } catch {}
+    if (ticket !== handoffSettingsTicket || apiBase !== base) return;
+    // A chosen model the catalog no longer lists stays selectable.
+    if (current.model && !catalog.some(item => item?.choice?.model === current.model)) catalog.push({ choice: { model: current.model }, label: current.model, efforts: current.effort ? [current.effort] : [] });
+    modelBox.append(...catalog.filter(item => item?.choice?.model).map(item => option(item.choice.model, item.label || item.choice.model)));
+    modelBox.value = current.model || "";
+    const efforts = catalog.find(item => item?.choice?.model === modelBox.value)?.efforts || catalog.flatMap(item => item.efforts || []).filter((value, index, all) => all.indexOf(value) === index);
+    effortBox.append(...efforts.map(effort => option(effort, effort)));
+    effortBox.value = current.effort || "";
+  }
+  document.getElementById("handoff-effort-row")?.classList.toggle("hidden", effortBox.options.length <= 1);
+  const save = async next => {
+    status.textContent = "";
+    try { await post("/api/handoff/settings", next); if (apiBase === base) status.textContent = referenceCopy("settingsSaved"); }
+    catch (error) { status.textContent = error.message; }
+    void loadHandoffSettings();
+  };
+  agentBox.onchange = () => void save({ agentId: agentBox.value || null, model: null, effort: null });
+  modelBox.onchange = () => void save({ agentId: agentBox.value || null, model: modelBox.value || null, effort: null });
+  effortBox.onchange = () => void save({ agentId: agentBox.value || null, model: modelBox.value || null, effort: effortBox.value || null });
+}
 
 
 /** 內建 TUI 指令映射：/compact 等 RPC 專屬命令 */
@@ -19004,6 +19095,10 @@ if (WORKSPACE_PANE) {
     if (event.origin !== location.origin || event.source !== parent) return;
     if (event.data?.type === "workspace-detach") closeChat(true);
     if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
+    if (event.data?.type === "workspace-reference-session") {
+      const result = sessionReferences?.add(event.data.session);
+      if (result && !result.added) toast(referenceCopy(result.reason === "unsupported" ? "reference_source_unavailable" : result.reason), true);
+    }
     if (event.data?.type === "workspace-read-probe" && paneTranscriptReady && !rpc?.streaming
       && !rpc?.nativeLoading && !rpc?.nativeRefreshInFlight && !rpc?.connectionLost && !rpc?.pendingTurn
       && !el.viewChat.classList.contains("chat-open-failed") && el.messages.querySelector(".msg")) {
@@ -19076,6 +19171,80 @@ agentCompaction = window.StepsembleAgentCompaction?.create({
   onError: code => toast(compactionReason(code), true),
   onStatus: renderCompactionStatus,
 }) || null;
+
+// ---- Session references: another session's handoff summary in the message ----
+function referenceLocale() { return settings.locale || "en"; }
+function referenceCopy(key, vars = {}) { return window.StepsembleSessionReferenceI18n?.t(key, vars, referenceLocale()) || key; }
+let referenceWaiting = false;
+function setReferenceWait(on, cancel = null) {
+  const node = document.getElementById("reference-wait");
+  if (!node) return;
+  node.classList.toggle("hidden", !on);
+  node.replaceChildren();
+  if (!on) return;
+  node.append(referenceCopy("waiting"));
+  if (cancel) {
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "reference-wait-cancel"; button.textContent = referenceCopy("cancelWait");
+    button.addEventListener("click", cancel);
+    node.append(button);
+  }
+}
+const sessionReferenceBox = document.getElementById("session-references");
+sessionReferences = sessionReferenceBox && window.StepsembleSessionReference?.create({ document, container: sessionReferenceBox,
+  request: (path, body) => body === undefined ? api(path) : post(path, body),
+  getContext: () => ({ context: apiBase + ":" + viewGeneration, entry: WORKSPACE_ENTRY_KEY, host: PAGE_QUERY.get("host") || "" }),
+  t: referenceCopy, reason: code => window.StepsembleSessionReferenceI18n?.reason(code, referenceLocale()) || code }) || null;
+// The Workspace learns where the message box is, so a session dropped on it
+// becomes a reference instead of a new pane.
+if (WORKSPACE_PANE) {
+  let reportedComposer = "";
+  const reportComposerRect = () => {
+    const box = document.querySelector(".composer-inner");
+    const r = box && !el.viewChat.classList.contains("hidden") && WORKSPACE_ENTRY_KEY ? box.getBoundingClientRect() : null;
+    const rect = r && r.width && r.height ? { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) } : null;
+    const key = JSON.stringify(rect);
+    if (key === reportedComposer) return;
+    reportedComposer = key;
+    parent.postMessage({ type: "workspace-composer-rect", rect }, location.origin);
+  };
+  if (typeof ResizeObserver === "function") new ResizeObserver(reportComposerRect).observe(document.body);
+  window.addEventListener("resize", reportComposerRect);
+  setInterval(reportComposerRect, 2000);
+}
+
+// ---- Subagents: the current turn's, from each agent's own data ----
+function subagentCopy(key, vars = {}) { return window.StepsembleSubagentI18n?.t(key, vars, settings.locale || "en") || key; }
+function subagentCardTool(card) { return card?.dataset.nativeToolId || card?.dataset.toolCallId || ""; }
+const TOOL_PLACEHOLDERS = new Set(["（執行中…）", "（無輸出）", "（沒有收到工具輸出）"]);
+// A transcript card offers its subagent's details: what this view saw live,
+// otherwise what the saved conversation says once the card has its result.
+function revealSubagentCard(card) {
+  const open = card?.querySelector(".tool-subagent-open");
+  if (!open || !subagentTracker) return;
+  const id = subagentCardTool(card), output = card.querySelector(".tool-output")?.textContent || "";
+  if (id && !card.classList.contains("running") && output !== "（執行中…）" && !subagentTracker.byTool(id).length)
+    subagentTracker.remember({ toolId: id, name: card.__tool?.name, args: card.__tool?.args, result: TOOL_PLACEHOLDERS.has(output) ? "" : output,
+      isError: card.classList.contains("err"), record: card.__subagentRecord || null });
+  open.hidden = !subagentTracker.byTool(id).length;
+  open.textContent = subagentCopy("details");
+}
+function syncSubagentCards() {
+  if (!subagentTracker) return;
+  for (const card of el.messages.querySelectorAll(".tool-card[data-subagent-tool]")) revealSubagentCard(card);
+}
+subagentTracker = window.StepsembleSubagents?.create() || null;
+const subagentBar = document.getElementById("subagent-bar");
+subagentPanel = subagentTracker && subagentBar && window.StepsembleSubagentPanel?.mount({ document, container: subagentBar, t: subagentCopy,
+  // Codex and OpenCode keep a subagent's work as its own thread or session.
+  loadDetail: async row => {
+    const id = row.source === "opencode" ? row.childSessionId : row.id;
+    if (!id || !WORKSPACE_ENTRY_KEY) throw new Error("subagent_detail_unavailable");
+    return api(`/api/subagent/detail?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}&id=${encodeURIComponent(id)}`);
+  } }) || null;
+subagentTracker?.onChange(() => { subagentPanel?.render(subagentTracker.list()); syncSubagentCards(); });
+// Elapsed times move while a subagent works; nothing redraws when none does.
+setInterval(() => { if (subagentTracker?.summary().running) subagentPanel?.render(subagentTracker.list()); }, 1000);
 
 conversationGoal = window.StepsembleWorkflows?.mountConversation({ api, post,
   getConnection: () => rpc, getAgentId: () => conversationAgentId(),

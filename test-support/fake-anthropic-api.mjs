@@ -8,6 +8,8 @@
 //   TOOL-ECHO                calls the agent's own shell tool with "echo tool-ok"
 //   TOOL-WRITE               calls it with a command that writes a file, which
 //                            an agent asks permission for
+//   TOOL-SUBAGENT            calls the agent's own subagent tool (Agent or Task)
+//                            with a child task that replies CHILD-DONE
 // After a tool's result it answers "command-finished". System messages an
 // agent inserts in the conversation are skipped.
 import http from "node:http";
@@ -95,6 +97,8 @@ export async function startFakeAnthropic() {
       if (/TOOL-SLEEP/.test(last) && !finished) { callTool("Bash", { command: "sleep 36; echo waited", description: "Wait 36 seconds", timeout: 120000 }); return; }
       if (/TOOL-ECHO/.test(last) && !finished && tool) { callTool(tool.name, shellInput(tool, "echo tool-ok")); return; }
       if (/TOOL-WRITE/.test(last) && !finished && tool) { callTool(tool.name, shellInput(tool, "echo tool-ok > tool-ok.txt")); return; }
+      const subagentTool = (Array.isArray(body.tools) ? body.tools : []).find(item => /^(Agent|Task)$/.test(item?.name));
+      if (/TOOL-SUBAGENT/.test(last) && !finished && subagentTool) { callTool(subagentTool.name, { description: "Check the README", prompt: "Reply with exactly: CHILD-DONE", subagent_type: "general-purpose" }); return; }
       send("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
       const end = output => {
         send("content_block_stop", { type: "content_block_stop", index: 0 });

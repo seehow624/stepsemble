@@ -44,7 +44,7 @@ class Node {
 
 function harness(api) {
   const messages = new Node(), notices = [], calls = [], contextCalls = [], timers = [];
-  const ctx = vm.createContext({ URLSearchParams, AbortController, apiBase: "/r/owned", viewGeneration: 1,
+  const ctx = vm.createContext({ URLSearchParams, AbortController, apiBase: "/r/owned", viewGeneration: 1, subagentTracker: null,
     agentTranscriptPresentation, agentStatusText: status => status, genericInputBlock: () => null,
     codexNativeHistoryButton: null, codexNativePollTimer: null, autoScrollPinned: false,
     document: { createElement: tag => new Node(tag) },

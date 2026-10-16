@@ -1,38 +1,42 @@
 # Goals and schedules
 
-Goals and Schedules belong to the selected Workspace Host. Open either from the
-sidebar. Within a conversation, type `/goal` followed by the objective to start
-work in that conversation; its limits and progress appear above the composer.
-The desktop app and browser use the same controls.
+Goals and Schedules belong to the selected Workspace Host. A Goal runs inside a
+conversation: type `/goal` followed by the objective, and its limits, progress
+and controls appear above the composer. To start a Goal in a new conversation,
+open the conversation with the agent, project and model you want, then type
+`/goal`. Schedules have their own panel, opened from the Schedules button in the
+sidebar. The desktop app and browser use the same controls.
 
-The task center uses a searchable list with an adjacent inspector on desktop.
-On a phone, select a task to open its details and use Back to return to the list.
-Goals have separate filters for active work, paused work, attention and finished
-runs. Scheduled one-turn tasks appear under their schedule's history. Goal-mode
-scheduled runs also appear in Goals.
+While a conversation's Goal is running, paused or needs attention, the sidebar
+shows a small target beside the conversation's name. The mark disappears when
+the Goal completes, stops or fails. There is no separate list of past Goals;
+each conversation keeps its own record.
 
-The inspector shows the Host's elapsed time and current activity, usage against
-execution limits, results and controls. The time-budget meter represents elapsed
-time against the time limit, not a percentage of objective completion. Clocks
-freeze on a lost connection until the Host responds again. Polling preserves
-selection, expanded details and keyboard focus.
+The Schedules panel uses a searchable list with an adjacent inspector on
+desktop. On a phone, select a schedule to open its details and use Back to
+return to the list. Every run a schedule starts, including Goal-mode runs,
+appears in that schedule's history, with the Host's elapsed time and current
+activity, usage against execution limits, results and controls. The time-budget
+meter represents elapsed time against the time limit, not a percentage of
+objective completion. Clocks freeze on a lost connection until the Host responds
+again. Polling preserves selection, expanded details and keyboard focus.
 
 ## Goals
 
-Choose a project and installed agent, describe the objective and completion
-criteria, and set limits. The Host sends the objective through the agent's normal
-native conversation interface and continues in that conversation when another
-turn is needed. The UI shows elapsed time, current activity, turns, output tokens,
-the most recent result and a link to the conversation.
+Describe the objective and completion criteria after `/goal`, and adjust the
+limits if needed. The Host sends the objective through the agent's normal native
+conversation interface and continues in that conversation when another turn is
+needed. The Goal bar shows elapsed time, current activity, turns, output tokens
+and the most recent result.
 
 Supported native agents: Pi, Claude Code, Codex, OpenCode, Oh My Pi (OMP), Cline,
 Kilo, Hermes and Grok Build. The installed agent must be signed in and its native
 adapter enabled. Generic terminal-only conversations are not supported.
 
-A Goal or schedule can pin a model, reasoning level and permission mode for the
-new conversations it opens. Without a pin, a new conversation uses the agent's
-last chosen model and the agent's own permission default. A Goal started in an
-existing conversation keeps that conversation's choices. A pinned model or mode
+A schedule can pin a model, reasoning level and permission mode for the new
+conversations it opens. Without a pin, a new conversation uses the agent's last
+chosen model and the agent's own permission default. A Goal started with `/goal`
+keeps that conversation's choices. A pinned model or mode
 the agent cannot apply fails the run before its first prompt. Approval questions
 remain in the native conversation.
 
@@ -115,7 +119,7 @@ limits, failures, retries, usage-limit waits, approval waits, project
 serialization, pinned models and permission modes, keeping the Host awake,
 cancellation, restart, scheduling, authentication and synthetic native peers, plus controller races, focus, draft preservation, schedule editing
 and every supported locale. `node scripts/workflows-preview.mjs` serves an
-interactive synthetic task center for desktop and mobile review without launching
+interactive synthetic Schedules panel for desktop and mobile review without launching
 an agent or using provider credentials. The optional POSIX smoke check runs real installed CLIs in an
 isolated temporary home against local model API fixtures:
 

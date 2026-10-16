@@ -131,12 +131,13 @@
     }
     const icon = text => { const node = el("span", text, "wf-icon"); node.setAttribute("aria-hidden", "true"); return node; };
     let modal = null, timer = null, clock = null, epoch = 0, revision = 0, contextValue = null, data = null;
-    let view = "goals", filter = "all", query = "", selected = null, historyId = null, editing = false, pending = false;
+    // A Goal runs inside its conversation; this panel holds schedules.
+    const view = "schedules";
+    let filter = "all", query = "", selected = null, historyId = null, editing = false, pending = false;
     let connected = false, frozenAt = 0, errorText = "", loaded = false, shell = null, listSignature = "", detailSignature = "";
     const received = new Map();
     const call = (body, target = contextValue.target) => api("/api/workflows", body, target);
-    const goals = () => (data?.runs || []).filter(row => row.mode !== "task");
-    const rows = () => view === "goals" ? goals() : data?.schedules || [];
+    const rows = () => data?.schedules || [];
     const current = () => rows().find(row => row.id === selected);
     const agentName = id => root.StepsembleAgentIdentity?.lookup(id).label || ({ pi:"Pi Agent", codex:"Codex", "claude-code":"Claude Code", omp:"Oh My Pi", opencode:"OpenCode", cline:"Cline", kilo:"Kilo Code", hermes:"Hermes Agent", "grok-build":"Grok Build" })[id] || id;
     const liveTime = row => elapsed(row, received.get(row.id) || Date.now(), connected ? Date.now() : frozenAt);
@@ -215,17 +216,9 @@
       const logo = el("span", "", "workspace-logo"); logo.setAttribute("aria-hidden", "true");
       identity.append(logo, el("strong", "Stepsemble"));
       const host = el("span", contextValue.hostName, "wf-host");
-      const tabs = el("nav", "", "wf-tabs"); tabs.setAttribute("aria-label", t("goals") + " · " + t("schedules"));
-      for (const key of ["goals", "schedules"]) {
-        const tab = button(t(key), () => {
-          view = key; filter = "all"; query = ""; selected = null; historyId = null;
-          shell.search.value = ""; modal.dataset.screen = "list"; render(true); poll();
-        }, "ghost", "tab:" + key);
-        tab.dataset.view = key; tabs.append(tab);
-      }
       const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";
       const dismiss = button("×", close, "ghost wf-close", "close"); dismiss.setAttribute("aria-label", t("close"));
-      header.append(identity, host, tabs, add, dismiss);
+      header.append(identity, host, add, dismiss);
       const heading = el("div", "", "wf-heading"), headingCopy = el("div"), title = el("h1"), subtitle = el("p"); headingCopy.append(title, subtitle);
       const stats = el("div", "", "wf-stats"); heading.append(headingCopy, stats);
       const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
@@ -237,24 +230,20 @@
       body.append(rail, detail);
       const note = el("footer", t(data?.keepsAwake ? "hostNoteAwake" : "hostNote"), "wf-note wf-footer");
       modal.replaceChildren(header, heading, errorBox, body, note);
-      shell = { header, tabs, add, title, subtitle, stats, error: errorBox, search, filters, list, detail };
+      shell = { header, add, title, subtitle, stats, error: errorBox, search, filters, list, detail };
       listSignature = ""; detailSignature = ""; error(errorText); render(true);
     }
     function matches(row) {
       const text = [row.title, row.objective, row.cwd, agentName(row.agentId)].join(" ").toLocaleLowerCase(locale());
       const found = !query || text.includes(query.toLocaleLowerCase(locale()));
       if (!found || filter === "all") return found;
-      return view === "goals" ? filter === "active" ? active(row) : filter === "paused" ? row.status === "paused" : filter === "attention" ? attention(row) : !active(row) && !resumable(row) : scheduleState(row) === filter;
+      return scheduleState(row) === filter;
     }
     function sortedRows() {
-      return [...rows()].filter(matches).sort((a,b) => view === "goals"
-        ? Number(active(b)) - Number(active(a)) || Number(attention(b)) - Number(attention(a)) || (b.createdAt || 0) - (a.createdAt || 0)
-        : Number(b.enabled) - Number(a.enabled) || (a.nextAt || Infinity) - (b.nextAt || Infinity) || (b.createdAt || 0) - (a.createdAt || 0));
+      return [...rows()].filter(matches).sort((a,b) => Number(b.enabled) - Number(a.enabled) || (a.nextAt || Infinity) - (b.nextAt || Infinity) || (b.createdAt || 0) - (a.createdAt || 0));
     }
     function summary() {
-      const values = view === "goals"
-        ? [["active",goals().filter(active).length],["attention",goals().filter(attention).length],["completed",goals().filter(row => row.status === "completed").length]]
-        : [["enabled",rows().filter(row => row.enabled).length],["paused",rows().filter(row => scheduleState(row) === "paused").length],["finished",rows().filter(row => scheduleState(row) === "finished").length]];
+      const values = [["enabled",rows().filter(row => row.enabled).length],["paused",rows().filter(row => scheduleState(row) === "paused").length],["finished",rows().filter(row => scheduleState(row) === "finished").length]];
       // Stable nodes keep clocks and keyboard focus independent of polling.
       if (!shell.stats.children.length) for (let i=0; i<3; i++) { const node=el("div", "", "wf-stat"); node.append(el("strong"),el("span")); shell.stats.append(node); }
       values.forEach(([key,value],i) => { const node=shell.stats.children[i]; node.children[0].textContent=String(value); node.children[1].textContent=t(key); });
@@ -262,20 +251,19 @@
     function empty(title, hint, mark = "◎", createAction = false) {
       const node = el("div", "", "wf-empty"); node.append(icon(mark), el("h2", title));
       if (hint) node.append(el("p", hint));
-      if (createAction) { const add = button(t(view === "goals" ? "newGoal" : "newSchedule"), () => form(), "primary"); add.dataset.mutation = ""; node.append(add); }
+      if (createAction) { const add = button(t("newSchedule"), () => form(), "primary"); add.dataset.mutation = ""; node.append(add); }
       return node;
     }
     function render(force = false) {
       if (!modal || editing || !shell?.list) return;
-      shell.title.textContent = t(view); shell.subtitle.textContent = t(view === "goals" ? "goalHint" : "scheduleHint");
+      shell.title.textContent = t(view); shell.subtitle.textContent = t("scheduleHint");
       shell.add.textContent = "+ " + t("new");
-      shell.add.setAttribute("aria-label", t(view === "goals" ? "newGoal" : "newSchedule"));
+      shell.add.setAttribute("aria-label", t("newSchedule"));
       shell.search.placeholder = t("filter"); shell.search.setAttribute("aria-label", t("filter"));
       modal.querySelector(".wf-footer").textContent = t(data?.keepsAwake ? "hostNoteAwake" : "hostNote");
       modal.setAttribute("aria-label", t(view));
-      for (const tab of shell.tabs.children) { const chosen = tab.dataset.view === view; tab.textContent = t(tab.dataset.view); tab.setAttribute("aria-current", chosen ? "page" : "false"); }
       summary();
-      const filterKeys = view === "goals" ? ["all","active","paused","attention","finished"] : ["all","enabled","paused","finished"];
+      const filterKeys = ["all","enabled","paused","finished"];
       if (force) {
         const restore = rememberFocus(shell.filters); shell.filters.replaceChildren();
         for (const key of filterKeys) shell.filters.append(button(t(key), () => { filter = key; selected = null; render(); }, "ghost", "filter:" + key));
@@ -289,7 +277,7 @@
         listSignature = signature; const scroll = shell.list.scrollTop, restore = rememberFocus(shell.list);
         shell.list.replaceChildren();
         if (!visible.length) {
-          const item = el("li"); item.append(empty(t(!loaded ? "loading" : rows().length ? "noMatches" : view === "goals" ? "emptyGoals" : "emptySchedules"), loaded ? t(rows().length ? "noMatchesHint" : view === "goals" ? "emptyGoalsHint" : "emptySchedulesHint") : "", view === "goals" ? "◎" : "◷", loaded && !rows().length)); shell.list.append(item);
+          const item = el("li"); item.append(empty(t(!loaded ? "loading" : rows().length ? "noMatches" : "emptySchedules"), loaded ? t(rows().length ? "noMatchesHint" : "emptySchedulesHint") : "", "◷", loaded && !rows().length)); shell.list.append(item);
         }
         for (const row of visible) {
           const li = el("li"), item = button("", () => {
@@ -300,15 +288,17 @@
           const top = el("span", "", "wf-item-top"); top.append(el("strong", row.title), badge(row.capacityBlocked ? "waitingCapacity" : row.status || scheduleState(row)));
           const context = el("span", agentName(row.agentId) + " · " + baseName(row.cwd), "wf-item-context");
           const meta = el("span", "", "wf-item-meta");
-          if (view === "goals") { const time = el("span"); time.dataset.clock = row.id; meta.append(time); if (row.scheduleId) meta.append(el("span", t("scheduled"))); }
-          else { meta.append(el("span", scheduleLabel(row.schedule))); if (row.enabled && row.nextAt) meta.append(el("span", stamp(row.nextAt, row.schedule.timeZone))); }
+          meta.append(el("span", scheduleLabel(row.schedule))); if (row.enabled && row.nextAt) meta.append(el("span", stamp(row.nextAt, row.schedule.timeZone)));
           item.append(top, context, meta); li.append(item); shell.list.append(li);
         }
         shell.list.scrollTop = scroll; restore();
       }
       const row = current();
       shell.detail.setAttribute("aria-label", row?.title || t("selectTask"));
-      const related = view === "schedules" ? (data.runs || []).filter(run => run.scheduleId === row?.id) : [];
+      const related = (data.runs || []).filter(run => run.scheduleId === row?.id);
+      // Choose the history row shown by default before the signature, so a
+      // poll does not redraw the detail and move keyboard focus.
+      if (!related.some(run => run.id === historyId)) historyId = related.reduce((latest, run) => !latest || (run.createdAt || 0) > (latest.createdAt || 0) ? run : latest, null)?.id || null;
       const stable = value => JSON.stringify(value, (key,v) => ["elapsedMs","updatedAt","serverNow"].includes(key) ? undefined : v);
       const detailKey = stable([locale(), view, row, related, historyId, loaded]);
       if (force || detailKey !== detailSignature) {
@@ -317,8 +307,8 @@
         shell.detail.replaceChildren();
         if (row) {
           const back = button("‹ " + t("back"), () => { modal.dataset.screen = "list"; [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + selected)?.focus(); }, "ghost wf-mobile-back", "detail-back");
-          shell.detail.append(back, view === "goals" ? goalDetail(row) : scheduleDetail(row, related));
-        } else shell.detail.append(empty(t(loaded ? "selectTask" : "loading"), "", view === "goals" ? "◎" : "◷"));
+          shell.detail.append(back, scheduleDetail(row, related));
+        } else shell.detail.append(empty(t(loaded ? "selectTask" : "loading"), "", "◷"));
         for (const node of shell.detail.querySelectorAll("details")) node.open = expanded.has(node.dataset.key);
         shell.detail.scrollTop = scroll; restore();
       }
@@ -352,12 +342,6 @@
       return t(row.activity || row.status);
     }
     function result(row) { return section(t("result"), row.result ? el("pre",row.result,"wf-result") : el("p",t("resultEmpty"),"wf-muted")); }
-    function goalDetail(row) {
-      const node=el("article","","wf-inspector"); node.dataset.runId=row.id;
-      node.append(agentProject(row),el("h2",row.title),runProgress(row),section(t("objective"),el("p",row.objective,"wf-objective")),result(row));
-      const project=el("details","","wf-project-details"); project.dataset.key="project:"+row.id; project.append(el("summary",t("project")),el("code",row.cwd)); node.append(project);
-      return node;
-    }
     function scheduleDetail(row, history) {
       history = [...history].sort((a,b) => (b.createdAt || 0)-(a.createdAt || 0));
       const node=el("article","","wf-inspector"); node.dataset.scheduleId=row.id;
@@ -415,37 +399,34 @@
       else if(type!=="textarea")input.type=type;
       input.name=key;input.value=value??"";input.required=true;box.append(input);parent.append(box);return input;
     }
-    async function form(row=null, entry=null, objective="") {
+    async function form(row=null) {
       if(pending)return;
       editing=true;revision++;root.clearTimeout(timer);const token=++epoch, target=contextValue.target;
-      modal.dataset.screen="editor";const scheduling=view==="schedules";
-      modal.setAttribute("aria-label",t(row?"edit":scheduling?"newSchedule":"newGoal"));
-      const header=el("header","","wf-header wf-editor-header"),copy=el("div");copy.append(el("small",contextValue.hostName,"wf-caption"),el("h1",t(row?"edit":scheduling?"newSchedule":"newGoal")));
+      modal.dataset.screen="editor";
+      modal.setAttribute("aria-label",t(row?"edit":"newSchedule"));
+      const header=el("header","","wf-header wf-editor-header"),copy=el("div");copy.append(el("small",contextValue.hostName,"wf-caption"),el("h1",t(row?"edit":"newSchedule")));
       const back=button("‹ "+t("back"),()=>{if(token!==epoch)return;epoch++;editing=false;pending=false;buildShell();void refresh();poll();shell.add.focus();},"ghost","editor-back");
       const dismiss=button("×",close,"ghost wf-close");dismiss.setAttribute("aria-label",t("close"));header.append(back,copy,dismiss);
       const f=el("form","","wf-form"),layout=el("div","","wf-editor-layout"),main=el("section","","wf-editor-main"),settings=el("aside","","wf-editor-settings");layout.append(main,settings);f.append(layout);
       // Open invalid advanced fields before native validation tries to focus them.
       f.noValidate=true;
       const title=field(main,"title","text",row?.title||"");title.required=false;title.maxLength=120;title.placeholder=t("nameHint");
-      const prompt=field(main,"objectivePrompt","textarea",row?.objective||objective);prompt.rows=7;prompt.maxLength=16000;prompt.placeholder=t("newHint");
+      const prompt=field(main,"objectivePrompt","textarea",row?.objective||"");prompt.rows=7;prompt.maxLength=16000;prompt.placeholder=t("newHint");
       const pair=el("div","","wf-grid");main.append(pair);
-      const projects=[...new Set([...(contextValue.projects||[]),row?.cwd,entry?.record.cwd].filter(Boolean))];
-      const cwd=field(pair,"project","text",row?.cwd||entry?.record.cwd||projects[0],projects.map(path=>[path,baseName(path)]));
+      const projects=[...new Set([...(contextValue.projects||[]),row?.cwd].filter(Boolean))];
+      const cwd=field(pair,"project","text",row?.cwd||projects[0],projects.map(path=>[path,baseName(path)]));
       const projectPath=el("small",cwd.value,"wf-path");main.append(projectPath);cwd.onchange=()=>{projectPath.textContent=cwd.value;};
-      const agent=field(pair,"agent","text",row?.agentId||entry?.record.agentId,[["",t("loading")]]);
-      if(entry){cwd.disabled=true;agent.disabled=true;}
-      // A new conversation can pin a model and permission mode; an existing one keeps its own.
-      let model=null,reasoning=null,permission=null,modelHint=null,catalog=[],optionsTicket=0;
-      if(!entry){
-        const picks=el("div","","wf-grid wf-picks");main.append(picks);
-        model=field(picks,"model","text","",[["",t("agentDefault")]]);reasoning=field(picks,"reasoning","text","",[["",t("agentDefault")]]);permission=field(picks,"permission","text","",[["",t("agentDefault")]]);
-        for(const control of [model,reasoning,permission])control.required=false;
-        reasoning.parentElement.hidden=true;reasoning.disabled=true;
-        modelHint=el("small","","wf-caption");modelHint.hidden=true;main.append(modelHint);
-      }
-      const note=el("p",t(entry?"conversationNote":"modelNote"),"wf-muted");main.append(note);
+      const agent=field(pair,"agent","text",row?.agentId,[["",t("loading")]]);
+      // Each run opens a new conversation, which can pin a model and permission mode.
+      let catalog=[],optionsTicket=0;
+      const picks=el("div","","wf-grid wf-picks");main.append(picks);
+      const model=field(picks,"model","text","",[["",t("agentDefault")]]),reasoning=field(picks,"reasoning","text","",[["",t("agentDefault")]]),permission=field(picks,"permission","text","",[["",t("agentDefault")]]);
+      for(const control of [model,reasoning,permission])control.required=false;
+      reasoning.parentElement.hidden=true;reasoning.disabled=true;
+      const modelHint=el("small","","wf-caption");modelHint.hidden=true;main.append(modelHint);
+      const note=el("p",t("modelNote"),"wf-muted");main.append(note);
       let mode,repeat,at,time,zone,interval,dayInputs=[],days,preview;
-      if(scheduling){
+      {
         settings.append(el("h2",t("schedule")));
         const repeatTabs=el("div","","wf-repeat");repeat=el("input");repeat.type="hidden";repeat.value=row?.schedule.kind||"daily";
         for(const kind of ["once","daily","weekly","interval"]){const b=button(t(kind),()=>{repeat.value=kind;sync();f.dispatchEvent(new root.Event("input"));},"", "repeat:"+kind);b.dataset.repeat=kind;repeatTabs.append(b);}settings.append(repeat,repeatTabs);
@@ -469,7 +450,7 @@
         f.addEventListener("input",sync);sync();
         mode=field(settings,"mode","text",row?.mode||"task",[["task",t("task")],["goal",t("goal")]]);
         const modeHint=el("p","","wf-muted");settings.append(modeHint);mode.onchange=()=>{modeHint.textContent=t(mode.value==="goal"?"goalModeHint":"taskHint");};mode.onchange();
-      }else settings.append(el("h2",t("limits")),el("p",t("goalHint"),"wf-muted"));
+      }
       const limitBox=el("div","","wf-limit-box");settings.append(limitBox);
       const minutes=field(limitBox,"minutes","number",row?.limits.minutes||60);minutes.min=1;minutes.max=1440;minutes.step=1;
       const advanced=el("details","","wf-advanced");advanced.append(el("summary",t("limits")));const advancedFields=el("div","","wf-grid");advanced.append(advancedFields);limitBox.append(advanced);
@@ -478,7 +459,7 @@
       const approval=field(advancedFields,"approvalMinutes","number",row?.limits.approvalMinutes||30);approval.min=1;approval.max=1440;approval.step=1;
       advanced.append(el("p",t("limitsHint"),"wf-muted"),el("p",t("approvalHint"),"wf-muted"));
       const footer=el("div","","wf-editor-footer"),errorBox=el("p","","wf-error");errorBox.setAttribute("role","alert");errorBox.hidden=true;
-      const submit=el("button",t(scheduling?"save":"start"),"btn primary");submit.type="submit";submit.disabled=true;
+      const submit=el("button",t("save"),"btn primary");submit.type="submit";submit.disabled=true;
       const retry=button(t("retry"),()=>void loadAgents(),"ghost");retry.hidden=true;
       footer.append(errorBox,el("p",t(data?.keepsAwake?"hostNoteAwake":"hostNote"),"wf-muted"),retry,submit);f.append(footer);modal.replaceChildren(header,f);shell={error:errorBox};error("");(row?back:prompt).focus();
       let id=requestId(), catalogReady=false, sending=false;f.addEventListener("input",()=>{if(!sending)id=requestId();});
@@ -487,13 +468,13 @@
       const option=(value,label)=>{const node=el("option",label);node.value=value;return node;};
       const baseChoice=choice=>({model:choice.model,...(choice.provider?{provider:choice.provider}:{})});
       function syncReasoning(value=""){
-        if(!reasoning)return;const efforts=catalog.find(item=>JSON.stringify(baseChoice(item.choice))===model.value)?.efforts||[];
+        const efforts=catalog.find(item=>JSON.stringify(baseChoice(item.choice))===model.value)?.efforts||[];
         reasoning.replaceChildren(option("",t("agentDefault")),...efforts.map(effort=>option(effort,effort)));reasoning.value=value;
         reasoning.parentElement.hidden=!efforts.length;reasoning.disabled=!efforts.length;
       }
       // keep: the folder changed, so current picks stay if the agent still offers them.
       async function loadOptions(keep=false){
-        if(!model)return;const ticket=++optionsTicket,agentId=agent.value;
+        const ticket=++optionsTicket,agentId=agent.value;
         const own=row&&row.agentId===agentId?row:null;
         const wanted=keep?{choice:model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null,permission:permission.value||null}:{choice:own?.choice||null,permission:own?.permission||null};
         let result={models:[],modes:[]};
@@ -509,13 +490,13 @@
         permission.replaceChildren(option("",t("agentDefault")),...modes.map(mode=>option(mode.id,modeLabel(agentId,mode))));permission.value=wanted.permission||"";
         modelHint.textContent=result.modelsUnavailable?t("modelsUnavailable"):"";modelHint.hidden=!result.modelsUnavailable;
       }
-      if(model){model.addEventListener("change",()=>syncReasoning());agent.addEventListener("change",()=>void loadOptions());cwd.addEventListener("change",()=>void loadOptions(true));}
+      model.addEventListener("change",()=>syncReasoning());agent.addEventListener("change",()=>void loadOptions());cwd.addEventListener("change",()=>void loadOptions(true));
       async function loadAgents(){
         retry.hidden=true;
         try{
           const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!modal)return;
           agent.replaceChildren();for(const item of catalog.connectors||[])if(item.installed&&AGENTS.includes(item.id)){const option=el("option",item.label||agentName(item.id));option.value=item.id;agent.append(option);}
-          agent.value=row?.agentId||entry?.record.agentId||agent.options[0]?.value||"";catalogReady=true;
+          agent.value=row?.agentId||agent.options[0]?.value||"";catalogReady=true;
           error(!agent.value?t("noAgents"):!cwd.value?t("noProjects"):"");ready();await loadOptions();
         }catch(e){if(token===epoch){error(e.message);retry.hidden=false;}}
       }
@@ -523,9 +504,9 @@
         event.preventDefault();if(sending||!catalogReady||!agent.value||!cwd.value)return;
         if(!turns.checkValidity()||!tokens.checkValidity()||!approval.checkValidity())advanced.open=true;
         if(!f.reportValidity())return;
-        const input={requestId:id,kind:scheduling?"schedule":"goal",title:title.value.trim()||prompt.value.trim().split("\n")[0].slice(0,120),objective:prompt.value.trim(),cwd:cwd.value,agentId:agent.value,mode:mode?.value||"goal",limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value),approvalMinutes:Number(approval.value)},...(entry?{entry:entry.key}:{})};
-        if(model){input.choice=model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null;input.permission=permission.value||null;}
-        if(scheduling){const date=new Date(at.value);input.schedule={kind:repeat.value,at:repeat.value==="once"&&Number.isFinite(date.getTime())?date.toISOString():null,time:time.value,timeZone:zone.value.trim(),minutes:Number(interval.value),days:dayInputs.filter(day=>day.checked).map(day=>Number(day.value))};}
+        const input={requestId:id,kind:"schedule",title:title.value.trim()||prompt.value.trim().split("\n")[0].slice(0,120),objective:prompt.value.trim(),cwd:cwd.value,agentId:agent.value,mode:mode.value,limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value),approvalMinutes:Number(approval.value)}};
+        input.choice=model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null;input.permission=permission.value||null;
+        const date=new Date(at.value);input.schedule={kind:repeat.value,at:repeat.value==="once"&&Number.isFinite(date.getTime())?date.toISOString():null,time:time.value,timeZone:zone.value.trim(),minutes:Number(interval.value),days:dayInputs.filter(day=>day.checked).map(day=>Number(day.value))};
         if(row)Object.assign(input,{id:row.id,action:"edit",enabled:row.enabled});
         const invalid=validate(input);if(invalid){error(t(invalid.slice(invalid.indexOf(".")+1)));return;}
         sending=true;pending=true;submit.textContent=t("requestPending");ready();error("");
@@ -534,19 +515,17 @@
           const created=await call(input,target);if(token!==epoch||!modal)return;
           revision++;onChanged();if(created?.id)merge(created);loaded=true;connected=true;selected=created.id;filter="all";query="";editing=false;pending=false;
           buildShell();modal.dataset.screen="detail";await refresh();if(token!==epoch||!modal)return;poll();
-          if(!scheduling&&entry)showConversation({entry:created.entry||entry.key,title:created.title});
-          else shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();
-        }catch(e){if(token===epoch){error(e.message);sending=false;pending=false;fields.forEach((field,i)=>field.disabled=disabled[i]);submit.textContent=t(scheduling?"save":"start");ready();}}
+          shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();
+        }catch(e){if(token===epoch){error(e.message);sending=false;pending=false;fields.forEach((field,i)=>field.disabled=disabled[i]);submit.textContent=t("save");ready();}}
       };
       await loadAgents();
     }
-    async function open(which="goals",target=null,entryKey=null,objective="") {
+    async function open(target=null) {
       close();const token=++epoch;const resolved=await context(target);if(token!==epoch)return;
-      contextValue=resolved;view=which==="schedules"?"schedules":"goals";filter="all";query="";selected=null;historyId=null;loaded=false;connected=false;errorText="";received.clear();
+      contextValue=resolved;filter="all";query="";selected=null;historyId=null;loaded=false;connected=false;errorText="";received.clear();
       data={runs:[],schedules:[]};modal=el("dialog","","wf-panel");modal.setAttribute("data-i18n-ignore","");doc.body.append(modal);modal.showModal();buildShell();
       root.dispatchEvent(new root.Event("stepsemble-workflow-panel"));modal.addEventListener("cancel",event=>{event.preventDefault();close();});
       clock=root.setInterval(updateClock,1000);await refresh();if(token!==epoch||!modal)return;
-      if(entryKey){const entry=contextValue.entries?.find(item=>item.key===entryKey);if(entry){await form(null,entry,objective);return;}}
       shell.add.focus();poll();
     }
     return {open,close};

@@ -51,7 +51,7 @@ function dom() {
   document.body=new Element("body");document.activeElement=document.body;document.createElement=tag=>new Element(tag);
   return document;
 }
-async function harness({runs=[run()],schedules=[],mobile=false,crypto}={}) {
+async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[schedule()],mobile=false,crypto}={}) {
   const doc=dom(),timers=new Map();let timerId=0,uuid=0;
   const h={doc,runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],optionRequests:[],now:1700000000000,available:true};
   const root={document:doc,StepsembleWorkflowI18n:i18n,crypto:crypto||{randomUUID:()=>"request-"+(++uuid)},confirm:()=>true,
@@ -80,16 +80,18 @@ async function harness({runs=[run()],schedules=[],mobile=false,crypto}={}) {
   h.close=()=>{h.controller.close();assert.equal(timers.size,0);};
   await h.controller.open();return h;
 }
-test("Goals and Schedules share one stable New button with a contextual accessible name", async () => {
-  const h = await harness(); const add = h.byKey("new");
-  assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New Goal");
-  await h.byKey("tab:schedules").click();
-  assert.equal(h.byKey("new"), add); assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New schedule");
+test("the panel shows Schedules only, with one New schedule button and no Goals view", async () => {
+  const h = await harness({ runs: [run("in-conversation"), { ...run("scheduled-goal"), scheduleId: "schedule-1" }] }); const add = h.byKey("new");
+  assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New schedule");
+  assert.equal(h.byKey("tab:goals"), undefined); assert.equal(h.byKey("tab:schedules"), undefined);
+  assert.equal(h.find("h1").textContent, "Schedules");
+  assert.equal(h.find(".wf-list").querySelectorAll("button").length, 1, "a Goal started in a conversation is not listed");
+  assert.ok(h.byKey("history:scheduled-goal"), "a Goal-mode run appears in its schedule's history");
+  assert.equal(h.byKey("history:in-conversation"), undefined);
   h.close();
 });
 test("a blocked schedule shows capacity waiting and clears the badge when admitted", async () => {
   const h = await harness({ runs: [], schedules: [{ ...schedule(), capacityBlocked: true }] });
-  await h.byKey("tab:schedules").click();
   assert.match(h.byKey("row:schedule-1").textContent, /Waiting for capacity/);
   assert.match(h.find(".wf-detail").textContent, /Waiting for capacity/);
   h.schedules[0].capacityBlocked = false; await h.tick(4000);
@@ -124,10 +126,10 @@ test("workflow chrome is complete in all 11 locales without rewriting arbitrary 
   for(const name of ["index.html","workspace.html","sw.js"])assert.match(fs.readFileSync(path.join(__dirname,"../public",name),"utf8"),/modules\/workflows-i18n\.js/);
 });
 
-test("Goals filter out scheduled one-turn tasks and search keeps the user's focus",async()=>{
-  const h=await harness({runs:[run(),run("blocked","blocked"),{...run("scheduled"),mode:"task"}]});
+test("schedule filters narrow the list and search keeps the user's focus",async()=>{
+  const h=await harness({runs:[],schedules:[schedule(),{...schedule("schedule-2"),enabled:false}]});
   assert.equal(h.find(".wf-list").querySelectorAll("button").length,2);
-  await h.byKey("filter:attention").click();assert.equal(h.find(".wf-list").querySelectorAll("button").length,1);
+  await h.byKey("filter:paused").click();assert.equal(h.find(".wf-list").querySelectorAll("button").length,1);
   const search=h.find(".wf-search");search.focus();search.value="no match";search.oninput();
   assert.equal(h.doc.activeElement,search);assert.match(h.find(".wf-list").textContent,/No matching tasks/);h.close();
 });
@@ -141,9 +143,9 @@ test("clock polling preserves selection, focused controls and expanded project d
 
 test("an older poll cannot replace an acknowledged pause; the displayed clock then freezes",async()=>{
   const h=await harness(),pending=deferred();let reads=0;
-  h.readImpl=()=>++reads===1?pending.promise:{available:true,runs:clone(h.runs),schedules:[]};
+  h.readImpl=()=>++reads===1?pending.promise:{available:true,runs:clone(h.runs),schedules:clone(h.schedules)};
   const polling=h.tick(4000);await flush();await h.byKey("goal-1:pause").click();
-  pending.resolve({available:true,runs:[run()],schedules:[]});await polling;
+  pending.resolve({available:true,runs:[{...run(),scheduleId:"schedule-1"}],schedules:[schedule()]});await polling;
   assert.ok(h.byKey("goal-1:resume"));assert.equal(h.byKey("goal-1:pause"),undefined);
   const before=h.find(".wf-timer").textContent;h.now+=10000;await h.tick(1000);assert.equal(h.find(".wf-timer").textContent,before);h.close();
 });
@@ -156,14 +158,14 @@ test("disconnection freezes elapsed and reconnecting resumes authoritative Host 
 
 test("late mutations from an old Host do not alter a newly opened panel",async()=>{
   const h=await harness(),pending=deferred();h.postImpl=()=>pending.promise;
-  const action=h.byKey("goal-1:pause").click();await flush();h.runs=[run("new-host")];await h.controller.open("goals","host-2");
+  const action=h.byKey("goal-1:pause").click();await flush();h.runs=[{...run("new-host"),scheduleId:"schedule-1"}];await h.controller.open("host-2");
   pending.resolve(run("goal-1","paused"));await action;
   assert.equal(h.changed,0);assert.ok(h.byKey("new-host:pause"));assert.equal(h.posts[0].target,"host-1");h.close();
 });
 
 test("an editor survives a pending poll and unavailable agent selection can be changed explicitly",async()=>{
   const h=await harness({schedules:[{...schedule(),agentId:"hermes"}]}),pending=deferred();h.readImpl=()=>pending.promise;
-  const polling=h.tick(4000);await flush();await h.byKey("tab:schedules").click();await h.byKey("schedule-1:edit").click();
+  const polling=h.tick(4000);await flush();await h.byKey("schedule-1:edit").click();
   h.input("title","Unsent draft");assert.equal(h.find("form").querySelectorAll("button").at(-1).disabled,true);
   h.input("agent","codex");assert.equal(h.find("form").querySelectorAll("button").at(-1).disabled,false);
   pending.resolve({available:true,runs:[],schedules:[]});await polling;assert.equal(h.field("title").value,"Unsent draft");h.close();
@@ -174,24 +176,24 @@ test("duplicate submissions are guarded, drafts survive uncertain replies, and r
   h.postImpl=()=>pending.promise;const sending=h.submit();await h.submit();assert.equal(h.posts.length,1);
   pending.reject(Error("response lost"));await sending;assert.equal(h.field("objectivePrompt").value,"Ship and verify\nKeep the second line");
   const first=h.posts[0].body;h.postImpl=null;await h.submit();assert.equal(h.posts[1].body.requestId,first.requestId);assert.equal(first.title,"Ship and verify");assert.equal(first.limits.minutes,30);
-  assert.ok(h.byKey("created-2:pause"));h.close();
+  assert.equal(first.kind,"schedule");assert.ok(h.byKey("created-2:pause"));h.close();
 });
 
 test("editing a paused weekly schedule preserves its state, timezone, mode and exact weekdays",async()=>{
-  const h=await harness({schedules:[{...schedule(),enabled:false}]});await h.byKey("tab:schedules").click();await h.byKey("schedule-1:edit").click();
+  const h=await harness({schedules:[{...schedule(),enabled:false}]});await h.byKey("schedule-1:edit").click();
   h.input("mode","goal");h.input("time","18:30");h.input("timeZone","Europe/Berlin");await h.submit();
   const sent=h.posts[0].body;assert.equal(sent.action,"edit");assert.equal(sent.enabled,false);assert.equal(sent.mode,"goal");assert.deepEqual(sent.schedule.days,[1,3,5]);assert.equal(sent.schedule.timeZone,"Europe/Berlin");assert.equal(sent.schedule.time,"18:30");h.close();
 });
 
 test("a running schedule cannot be manually launched twice; selected history keeps its own result",async()=>{
   const h=await harness({runs:[{...run("running-history"),scheduleId:"schedule-1",mode:"task"},{...run("old-history","completed"),scheduleId:"schedule-1",mode:"task",createdAt:0,result:"Previous result"}],schedules:[schedule()]});
-  await h.byKey("tab:schedules").click();assert.equal(h.byKey("schedule-1:run").disabled,true);await h.byKey("schedule-1:run").click();assert.equal(h.posts.length,0);
+  assert.equal(h.byKey("schedule-1:run").disabled,true);await h.byKey("schedule-1:run").click();assert.equal(h.posts.length,0);
   await h.byKey("history:old-history").click();assert.match(h.find(".wf-result").textContent,/Previous result/);await h.tick(4000);assert.match(h.find(".wf-result").textContent,/Previous result/);h.close();
 });
 
 test("mobile opens detail with focus on Back and returns focus to the selected row",async()=>{
-  const h=await harness({mobile:true});await h.byKey("row:goal-1").click();assert.equal(h.find("dialog").dataset.screen,"detail");assert.equal(h.doc.activeElement,h.byKey("detail-back"));
-  await h.byKey("detail-back").click();assert.equal(h.find("dialog").dataset.screen,"list");assert.equal(h.doc.activeElement,h.byKey("row:goal-1"));h.close();
+  const h=await harness({mobile:true});await h.byKey("row:schedule-1").click();assert.equal(h.find("dialog").dataset.screen,"detail");assert.equal(h.doc.activeElement,h.byKey("detail-back"));
+  await h.byKey("detail-back").click();assert.equal(h.find("dialog").dataset.screen,"list");assert.equal(h.doc.activeElement,h.byKey("row:schedule-1"));h.close();
 });
 
 test("private-network HTTP can create an idempotent UUID without crypto.randomUUID",async()=>{
@@ -201,7 +203,7 @@ test("private-network HTTP can create an idempotent UUID without crypto.randomUU
 
 test("switching locale refreshes chrome while retaining the exact objective and result",async()=>{
   const h=await harness();h.doc.documentElement.lang="zh-Hant";await h.tick(4000);
-  assert.equal(h.byKey("tab:schedules").textContent,"排程");assert.equal(h.find(".wf-objective").textContent,"Verify keyboard access");assert.equal(h.byKey("goal-1:pause").textContent,"暫停");h.close();
+  assert.equal(h.find("h1").textContent,"排程");assert.equal(h.find(".wf-objective").textContent,"Verify keyboard access");assert.equal(h.byKey("goal-1:pause").textContent,"暫停");h.close();
 });
 
 test("validation opens invalid advanced limits and rejects blank objectives without sending",async()=>{
@@ -211,21 +213,21 @@ test("validation opens invalid advanced limits and rejects blank objectives with
 
 test("unavailable Hosts disable mutations and a finished once schedule offers a new time",async()=>{
   const h=await harness();h.available=false;await h.tick(4000);assert.equal(h.byKey("new").disabled,true);assert.equal(h.byKey("goal-1:pause").disabled,true);
-  h.available=true;h.schedules=[{...schedule(),enabled:false,nextAt:null,lastRunId:"finished",schedule:{kind:"once",at:"2000-01-01"}}];await h.tick(4000);await h.byKey("tab:schedules").click();
+  h.available=true;h.schedules=[{...schedule(),enabled:false,nextAt:null,lastRunId:"finished",schedule:{kind:"once",at:"2000-01-01"}}];await h.tick(4000);
   assert.equal(h.byKey("schedule-1:resume"),undefined);assert.ok(h.byKey("schedule-1:edit"));assert.match(h.find(".wf-plan").textContent,/Choose a new time/);h.close();
 });
 
-test("a late post-create refresh cannot reopen an old conversation after a Host switch",async()=>{
-  const h=await harness(),pending=deferred();await h.controller.open("goals","host-1","entry-1","Check the existing entry");
+test("a late post-create refresh cannot alter a panel reopened on another Host",async()=>{
+  const h=await harness(),pending=deferred();await h.byKey("new").click();h.input("objectivePrompt","Check the page");
   h.readImpl=()=>pending.promise;const saving=h.submit();await flush();
-  h.readImpl=null;h.runs=[run("host-2-run")];await h.controller.open("goals","host-2");
+  h.readImpl=null;h.runs=[{...run("host-2-run"),scheduleId:"schedule-1"}];await h.controller.open("host-2");
   pending.resolve({available:true,runs:[run("old-host")],schedules:[]});await saving;
   assert.equal(h.opened.length,0);assert.ok(h.byKey("host-2-run:pause"));h.close();
 });
 
 test("changing daily to weekly starts with working days instead of daily's seven-day metadata",async()=>{
   const h=await harness({schedules:[{...schedule(),schedule:{kind:"daily",time:"09:00",timeZone:"Asia/Taipei",days:[0,1,2,3,4,5,6]}}]});
-  await h.byKey("tab:schedules").click();await h.byKey("schedule-1:edit").click();await h.byKey("repeat:weekly").click();await h.submit();
+  await h.byKey("schedule-1:edit").click();await h.byKey("repeat:weekly").click();await h.submit();
   assert.deepEqual(h.posts[0].body.schedule.days,[1,2,3,4,5]);h.close();
 });
 
@@ -253,11 +255,11 @@ test("the Host's clock flag stops the displayed clock during approval and retry 
 });
 
 test("current activity explains project waits, retries and usage-limit waits",async()=>{
-  const h=await harness({runs:[{...run("busy","queued"),activity:"project_busy"}]});
+  const h=await harness({runs:[{...run("busy","queued"),activity:"project_busy",scheduleId:"schedule-1"}]});
   assert.match(h.find(".wf-detail").textContent,/Waiting for another task in this project/);
-  h.runs=[{...run("retry","running"),activity:"retrying",retryAt:1700000120000,clockRunning:false}];await h.tick(4000);
+  h.runs=[{...run("retry","running"),activity:"retrying",retryAt:1700000120000,clockRunning:false,scheduleId:"schedule-1"}];await h.tick(4000);
   assert.match(h.find(".wf-detail").textContent,/Retrying after a temporary error/);
-  h.runs=[{...run("quota","queued"),activity:"usage_reset",notBefore:1700007200000}];await h.tick(4000);
+  h.runs=[{...run("quota","queued"),activity:"usage_reset",notBefore:1700007200000,scheduleId:"schedule-1"}];await h.tick(4000);
   assert.match(h.find(".wf-detail").textContent,/usage limit to reset/);h.close();
 });
 
@@ -285,17 +287,11 @@ test("agent defaults send no pinned choices, and changing the agent clears earli
 test("editing keeps a pinned model and mode that the catalog no longer lists",async()=>{
   const h=await harness({schedules:[{...schedule(),agentId:"codex",choice:{model:"retired-model",effort:"low"},permission:"read-only"}]});
   h.optionsImpl=()=>({current:null,models:[],modes:[],modelsUnavailable:true});
-  await h.byKey("tab:schedules").click();await h.byKey("schedule-1:edit").click();await flush();
+  await h.byKey("schedule-1:edit").click();await flush();
   assert.equal(JSON.parse(h.field("model").value).model,"retired-model");assert.equal(h.field("permission").value,"read-only");
   await h.submit();assert.deepEqual(h.posts[0].body.choice,{model:"retired-model",effort:"low"});assert.equal(h.posts[0].body.permission,"read-only");h.close();
 });
 
-test("a Goal on an existing conversation keeps the conversation's own model and mode",async()=>{
-  const h=await harness();await h.controller.open("goals","host-1","entry-1","Check the existing entry");await flush();
-  assert.equal(h.field("model"),undefined);assert.equal(h.field("permission"),undefined);assert.equal(h.optionRequests.length,0);
-  assert.match(h.find("form").textContent,/Keeps this conversation/);
-  await h.submit();assert.equal(h.posts[0].body.choice,undefined);assert.equal(h.posts[0].body.permission,undefined);h.close();
-});
 
 test("the approval wait limit is editable, validated, and shown with a schedule's settings",async()=>{
   const h=await harness();await h.byKey("new").click();await flush();h.input("objectivePrompt","Check the page");
@@ -304,7 +300,7 @@ test("the approval wait limit is editable, validated, and shown with a schedule'
   assert.equal(ui.validate({limits:{...limits,approvalMinutes:1441}}),"goalComposer.limitsError");
   assert.equal(ui.validate({limits}),null,"older saved limits without an approval wait stay valid");
   const s=await harness({runs:[],schedules:[{...schedule(),limits:{...limits,approvalMinutes:15},choice:{model:"gpt-6"},permission:"workspace",agentId:"codex"}]});
-  await s.byKey("tab:schedules").click();const settings=s.find(".wf-detail").textContent;
+  const settings=s.find(".wf-detail").textContent;
   assert.match(settings,/Approval wait \(min\): 15/);assert.match(settings,/gpt-6/);s.close();
 });
 

@@ -151,3 +151,28 @@ test("Settings with an unavailable explicit Host never open local Host settings"
   vm.runInContext("let enterAppRequest = null; " + app.slice(from, to), context);
   assert.equal(await context.enterApp(), false); assert.equal(context.failure, "workspace_host_missing");
 });
+test("a session row marks its running, paused or blocked Goal and drops the mark when it ends", () => {
+  const span = cls => ({ className: cls, dataset: {}, hidden: false, title: "", attrs: {}, setAttribute(key, value) { this.attrs[key] = value; } });
+  const goal = span("workspace-session-goal"), indicator = span("workspace-session-status"), button = span("workspace-session");
+  const row = { querySelector: selector => ({ ".workspace-session-goal": goal, ".workspace-session-status": indicator, ".workspace-session": button })[selector] || null };
+  const labels = { goalRunning: "Goal in progress", goalPaused: "Goal paused", goalAttention: "Goal needs attention", sessionWorking: "Working" };
+  const context = vm.createContext({ t: key => labels[key] || key, plainTitle: value => value, refOf: entry => ({ title: entry.title }),
+    window: { StepsembleAgentIdentity: { lookup: () => ({ label: "Pi Agent" }) } } });
+  const from = source.indexOf("  function sessionStatus(row, entry) {"), to = source.indexOf("  function rememberSnapshot(", from);
+  vm.runInContext(source.slice(from, to), context);
+  const entry = goalState => ({ title: "Ship it", goal: goalState, working: goalState === "running", record: { agentId: "pi", status: "waiting" } });
+  for (const [state, label] of [["running", "Goal in progress"], ["paused", "Goal paused"], ["attention", "Goal needs attention"]]) {
+    context.sessionStatus(row, entry(state));
+    assert.equal(goal.hidden, false); assert.equal(goal.dataset.state, state); assert.equal(goal.title, label);
+    assert.match(button.attrs["aria-label"], new RegExp(label));
+  }
+  context.sessionStatus(row, entry(undefined));
+  assert.equal(goal.hidden, true); assert.equal(goal.dataset.state, ""); assert.doesNotMatch(button.attrs["aria-label"], /Goal/);
+});
+test("the sidebar button opens Schedules only, and Goal state changes do not rebuild the list", () => {
+  const start = source.indexOf("  function labelWorkflows()"), click = source.indexOf('$("workspace-workflows").onclick', start);
+  assert.ok(start > 0 && click > start);
+  assert.doesNotMatch(source.slice(start, source.indexOf("\n", click)), /goals/, "the panel opens on its own Schedules view");
+  assert.match(source, /entries: value\.entries\.map\(\(\{ working, completion, goal, \.\.\.row \}\)/, "a Goal mark updates in place like the activity mark");
+  assert.doesNotMatch(source, /workspace-goals?"/, "no message opens a Goals panel any more");
+});

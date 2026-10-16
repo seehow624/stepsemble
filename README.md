@@ -48,6 +48,14 @@ menu bar offers a compact limits and daily usage panel, with a configurable
 allowance, token or cost badge. Subscription allowances remain separate from estimated costs; missing
 records and prices are identified explicitly. See [docs/usage-analytics.md](docs/usage-analytics.md).
 
+Drag a session from the Workspace sidebar onto another conversation's message
+box to hand it over: a summarizer you choose in Settings (Claude Code, Codex or
+Pi, with no tools and no saved session) writes a handoff summary that is
+appended to your next message. See [docs/session-references.md](docs/session-references.md).
+When an agent delegates to subagents, a bubble above the message box counts
+them and opens each one's task, activity and result; see
+[docs/subagent-visibility.md](docs/subagent-visibility.md).
+
 ## Install on macOS
 
 Run this on every computer that should host Stepsemble:

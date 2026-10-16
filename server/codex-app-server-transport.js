@@ -791,7 +791,34 @@ function createCodexAppServerTransport({
       || !threadId && resumingTurns.has(expectedTurn));
   }
 
+  // Codex runs each sub-agent as another thread of this app-server process.
+  // A process that owns a thread owns no other, so any other thread is one it
+  // spawned. Those threads are reported for display and never change this
+  // thread's lifecycle, usage or approvals.
+  function subagentThread(params) {
+    if (!threadId) return null;
+    const id = nativeId(params?.threadId) || nativeId(params?.thread?.id);
+    return id && id !== threadId ? id : null;
+  }
+  function reportSubagent(method, id, params) {
+    const turn = plain(params?.turn) ? params.turn : null, item = plain(params?.item) ? params.item : null;
+    report({ type: "subagent.thread", method, threadId: id, parentThreadId: threadId,
+      turnId: nativeId(params?.turnId) || nativeId(turn?.id) || null,
+      ...(typeof turn?.status === "string" ? { status: turn.status } : {}),
+      ...(method === "thread/status/changed" ? { threadStatus: nativeThreadStatus(params.status)?.type || null } : {}),
+      ...(item ? { itemId: nativeId(item.id), itemType: typeof item.type === "string" ? item.type.slice(0, 64) : "" } : {}),
+      ...(item?.type === "agentMessage" && typeof item.text === "string" ? { text: item.text.slice(-32000) } : {}) });
+  }
+
   function handleApproval(id, method, params) {
+    // Stepsemble shows approvals for the conversation's own thread only.
+    // Answer a sub-agent's request so it does not wait forever, and say why.
+    const other = subagentThread(params);
+    if (other) {
+      try { void write(errorMessage(id, -32603, "Stepsemble cannot answer a sub-agent's approval")).catch(() => {}); } catch {}
+      report({ type: "subagent.approval_unavailable", threadId: other, parentThreadId: threadId, method });
+      return;
+    }
     const requestValue = normalizeApprovalRequest(id, method, params, trustedNative);
     if (!requestValue || !correlation(requestValue.threadId, requestValue.turnId) || approvals.size >= MAX_PENDING_APPROVALS
       || approvals.has(key(id))) { fail("native_approval_invalid"); return; }
@@ -810,6 +837,8 @@ function createCodexAppServerTransport({
 
   function handleNotification(method, params) {
     if (!NATIVE_LIFECYCLE_NOTIFICATIONS.has(method)) return;
+    const other = subagentThread(params);
+    if (other) { reportSubagent(method, other, params); return; }
     if (method === "thread/started") {
       const id = nativeId(params?.thread?.id); if (!id || threadId && threadId !== id) { fail("native_thread_mismatch"); return; }
       threadId = id; state = "thread_started"; report({ type: "thread.started", threadId: id }); return;

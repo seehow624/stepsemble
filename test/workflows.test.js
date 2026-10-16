@@ -155,3 +155,12 @@ test("native failures never become a successful scheduled one-turn task",async()
     assert.equal(outcome({mode:"task"},await row.promise),"failed",agent);
   }
 });
+test("a session's list row shows its latest Goal while it runs, pauses or needs attention",async t=>{
+  const f=fixture(t);f.host.create(def);await wait(10);const entry=f.get().entry;
+  assert.equal(f.host.goalState(entry),"running");assert.equal(f.host.goalState("another-entry"),null);
+  await f.host.action({id:f.get().id,action:"pause"});await wait(10);assert.equal(f.host.goalState(entry),"paused");
+  await f.host.action({id:f.get().id,action:"resume"});await wait(10);
+  const turn=f.pending.at(-1);turn.resolve({text:`Need a key.\n[[STEPSEMBLE_GOAL:${turn.run.nonce}:blocked]]`,outputTokens:10});await wait(10);
+  assert.equal(f.get().status,"blocked");assert.equal(f.host.goalState(entry),"attention");
+  await f.host.action({id:f.get().id,action:"stop"});await wait(10);assert.equal(f.host.goalState(entry),null,"a finished Goal leaves no mark");
+});

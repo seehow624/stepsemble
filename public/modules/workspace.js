@@ -410,6 +410,15 @@
     event.dataTransfer.effectAllowed = fromTab ? "move" : "copyMove";
     document.body.classList.add("workspace-dragging"); channel?.postMessage({ type: "drag", active: true }); reportDragRegions();
   }
+  function referenceSession(payload, item) {
+    const ref = payload?.ref;
+    if (!ref?.key || ref.assistant) { toast(t("referenceUnsupported")); return; }
+    if (ref.host !== item.ref.host) { toast(t("referenceOtherHost")); return; }
+    if (ref.key === item.ref.key) { toast(t("referenceSelf")); return; }
+    const entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
+    item.frame.contentWindow?.postMessage({ type: "workspace-reference-session", session: { key: ref.key, host: ref.host,
+      title: plainTitle(ref.title) || ref.title || "", agentId: entry?.record.agentId || "" } }, location.origin);
+  }
   function dragEnd() { clearTabInsertion(); renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
   addEventListener("keydown", event => { if (event.key === "Escape") dragEnd(); });
   let nativeOwnedDrag = null;
@@ -628,8 +637,18 @@
       if (n.active) slots.set(n.active, slot);
       const overlay = node("div", "", "workspace-drop");
       const edgeAt = e => { const r = pane.getBoundingClientRect(), x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height; return x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center"; };
-      pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); clearTabInsertion(); overlay.dataset.edge = edgeAt(e); };
-      pane.ondrop = e => { e.preventDefault(); try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
+      // A session dropped on the shown conversation's message box becomes a
+      // reference in that conversation instead of a new pane.
+      const referenceTarget = e => {
+        const item = n.active && frames.get(n.active), r = item?.composerRect;
+        if (!r || item.ref.assistant) return null;
+        const f = item.frame.getBoundingClientRect(), x = e.clientX - f.left, y = e.clientY - f.top;
+        return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height ? item : null;
+      };
+      overlay.dataset.label = t("referenceDrop");
+      pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); clearTabInsertion(); overlay.dataset.edge = referenceTarget(e) ? "reference" : edgeAt(e); };
+      pane.ondrop = e => { e.preventDefault(); try { const payload = JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), target = referenceTarget(e);
+        if (target) referenceSession(payload, target); else acceptTransfer(payload, n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
       // A pane with no tabs, actions or corner controls keeps no strip, so the
       // invitation to drag a session is the only thing in it.
       if (n.tabs.length || actions.length || corner) pane.append(tabs);
@@ -693,8 +712,9 @@
         b.dataset.open = String(openKeys.has(L.identity(ref)));
         b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
         if (pinned) b.append(pinMark());
-        const indicator = node("span", "", "workspace-session-status");
-        b.append(indicator);
+        const goal = node("span", "", "workspace-session-goal"), indicator = node("span", "", "workspace-session-status");
+        goal.setAttribute("aria-hidden", "true"); goal.hidden = true;
+        b.append(goal, indicator);
         reorderRow(b, row, "session", entry.key, cwd, pinned, e => dragStart(e, ref, false));
         const actions = button("⋯", () => openPaneMenu(actions, [
           ...orderActions("session", entry.key, cwd, pinned),
@@ -728,9 +748,14 @@
       : state === "attention" ? t("sessionAttention") : "";
     indicator.title = label;
     indicator.setAttribute("aria-hidden", "true");
+    // A Goal is run inside its conversation; its mark is how the list shows it.
+    const goal = row.querySelector(".workspace-session-goal");
+    const goalLabel = { running: t("goalRunning"), paused: t("goalPaused"), attention: t("goalAttention") }[entry.goal] || "";
+    if (goal) { goal.hidden = !goalLabel; goal.dataset.state = goalLabel ? entry.goal : ""; goal.title = goalLabel; }
     const identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
     const title = plainTitle(refOf(entry).title) || refOf(entry).title;
-    row.querySelector(".workspace-session").setAttribute("aria-label", `${identity.label}: ${title}${label ? " · " + label : ""}`);
+    const spoken = [goalLabel, label].filter(Boolean).join(" · ");
+    row.querySelector(".workspace-session").setAttribute("aria-label", `${identity.label}: ${title}${spoken ? " · " + spoken : ""}`);
   }
   function rememberSnapshot(target, data) {
     for (const entry of data.entries) if (entry.completion && readCompletions.has(`${target}:${entry.key}:${entry.completion.id}`)) entry.completion.read = true;
@@ -847,7 +872,7 @@
       if (JSON.stringify(data) !== JSON.stringify(snapshot)) {
         // Activity changes should not recreate the row under a finger, reset
         // its spinner, or steal keyboard focus from its menu button.
-        const structure = value => JSON.stringify({ ...value, entries: value.entries.map(({ working, completion, ...row }) => ({ ...row, record: { ...row.record, status: undefined } })) });
+        const structure = value => JSON.stringify({ ...value, entries: value.entries.map(({ working, completion, goal, ...row }) => ({ ...row, record: { ...row.record, status: undefined } })) });
         const statusOnly = structure(data) === structure(snapshot);
         snapshot = data;
         if (!document.body.classList.contains("workspace-dragging")) {
@@ -1354,6 +1379,11 @@
     }
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
+    if (event.data?.type === "workspace-composer-rect") {
+      const r = event.data.rect;
+      item.composerRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0 ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+      return;
+    }
     if (item.ref.assistant) {
       const data = event.data || {};
       if (data.type === "assistant-route" && data.route && typeof data.route === "object") updateAssistantTab(item.ref, { route: WAM.tabRoute(data.route), title: data.title, avatar: data.avatar });
@@ -1376,9 +1406,6 @@
     if (event.data?.type === "workspace-workflows-changed") {
       void refresh();
       for (const peer of frames.values()) peer.frame.contentWindow?.postMessage({ type: "workspace-workflows-changed" }, location.origin);
-    }
-    if (event.data?.type === "workspace-goal" || event.data?.type === "workspace-goals") {
-      void workflowUI.open("goals", item.ref.host, event.data.type === "workspace-goal" ? item.ref.key : null, String(event.data.objective || "").slice(0,16000)).catch(error => toast(error.message));
     }
     if (event.data?.type === "workspace-title") setRefTitle(item.ref, event.data.title);
     if (event.data?.type === "workspace-show-list" && mobile()) {
@@ -1410,15 +1437,15 @@
     restoreFocus() { document.querySelector(".workspace-limits-strip")?.focus({ preventScroll: true }); },
     onVisibility() { closeUsageTip(); document.querySelector(".workspace-limits-strip")?.setAttribute("aria-expanded", String(usageUI.isOpen())); reportDragRegions(); notificationPresence(); },
   });
-  // Goals and schedules share one panel with its own tabs, so one button opens it.
+  // A Goal runs inside its conversation; this button opens Schedules.
   function labelWorkflows() {
-    const label = window.StepsembleWorkflows.label("goals") + " · " + window.StepsembleWorkflows.label("schedules");
+    const label = window.StepsembleWorkflows.label("schedules");
     $("workspace-workflows-label").textContent = label;
     $("workspace-workflows").title = label;
     $("workspace-workflows").setAttribute("aria-label", label);
   }
   labelWorkflows();
-  $("workspace-workflows").onclick = () => workflowUI.open("goals").catch(error => toast(error.message));
+  $("workspace-workflows").onclick = () => workflowUI.open().catch(error => toast(error.message));
   $("workspace-routines").onclick = () => { if (assistantUI.machine) openAssistant(assistantUI.machine.id, { page: "routines" }); };
   function showMobileList() {
     if (!mobile()) return;
