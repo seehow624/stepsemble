@@ -208,7 +208,8 @@ export async function runAssistantMobileBrowserCases(browser, { only, screenshot
           });
           assert.ok(bounds.scrollWidth <= bounds.width + 1 && bounds.left === 0, JSON.stringify({ item, bounds }));
           assert.ok(bounds.image <= bounds.reply + 1 && bounds.inputRight <= bounds.viewport, JSON.stringify({ item, bounds }));
-          assert.equal(await page.locator(".assistant-header-action").textContent(), { en: "History", "zh-Hant": "歷史", de: "Verlauf" }[item.locale]);
+          assert.equal(await page.locator(".assistant-header-action").getAttribute("aria-label"), { en: "History", "zh-Hant": "歷史", de: "Verlauf" }[item.locale]);
+          assert.equal(await page.locator(".assistant-header-action").textContent(), "");
           const title = await page.locator(".assistant-bot-title strong").evaluate(node => ({ width: node.clientWidth, scrollWidth: node.scrollWidth }));
           assert.ok(title.scrollWidth <= title.width + 1, JSON.stringify({ item, title }));
           for (const selector of [".assistant-header-action", ".assistant-more-options", ".assistant-send", ".assistant-attach"]) {

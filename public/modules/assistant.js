@@ -4,7 +4,7 @@
   // Assistant 的頁面只經 Stepsemble API 存取 Hermes；路由和草稿都留在前端。
   const WI = window.StepsembleWorkspaceI18n, AI = window.StepsembleAssistantI18n;
   const M = window.StepsembleAssistantModel, Api = window.StepsembleAssistantApi, Guide = window.StepsembleAssistantGuide;
-  const N = window.StepsembleAssistantNavigation;
+  const N = window.StepsembleAssistantNavigation, A = window.StepsembleAssistantAvatars;
   const prefs = WI.preferences(localStorage, { prefersDark: matchMedia("(prefers-color-scheme: dark)").matches });
   const coarse = matchMedia("(pointer: coarse)").matches;
   const t = (key, vars) => AI.t(key, vars, prefs.locale);
@@ -41,6 +41,7 @@
     back: "M15 18l-6-6 6-6", plus: "M12 5v14M5 12h14", send: "M12 19V5M5 12l7-7 7 7",
     attach: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
     clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2", stop: "M6.5 6.5h11v11h-11z",
+    history: "M3 11a9 9 0 1 1 2.4 7.1M3 4v7h7M12 7v5l3 2",
   };
   function iconButton(name, label, className, onClick, type = "button") {
     const node = button("", `assistant-icon-btn ${className}`, onClick, type), svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -80,12 +81,11 @@
     location.replace(login.href);
   }
   function avatar(bot) {
-    const node = el("span", "assistant-avatar", M.initials(bot.displayName || bot.name));
-    node.style.setProperty("--assistant-avatar-color", M.colorFor(bot.name, bot.color)); node.setAttribute("aria-hidden", "true");
-    const known = allBots.find(row => row.name === bot.name);
-    if (api && (bot.hasAvatar || known?.hasAvatar)) {
+    const known = { ...allBots.find(row => row.name === bot.name), ...bot };
+    const node = A.paint(el("span", "assistant-avatar"), known);
+    if (api && A.resolve(known).kind === "custom") {
       if (!avatars.has(bot.name)) avatars.set(bot.name, api.botAvatar(bot.name).then(result => result.data).catch(() => null));
-      void avatars.get(bot.name).then(data => { if (data) { node.textContent = ""; node.style.backgroundImage = `url("${data}")`; node.classList.add("has-picture"); } });
+      void avatars.get(bot.name).then(data => { if (data) A.paint(node, known, data); });
     }
     return node;
   }
@@ -369,10 +369,9 @@
   }
   function conversationHead() {
     const head = el("header", "assistant-bot-head"); head.id = "assistant-bot-head";
-    const back = button("", "assistant-back to-list", showRoster); back.setAttribute("aria-label", t("backAssistant"));
-    back.append(el("span", "", "‹"), el("span", "assistant-back-label", t("assistant")));
+    const back = iconButton("back", t("backAssistant"), "assistant-back to-list", showRoster);
     const title = el("div", "assistant-bot-title"); title.append(el("strong", "", chat.bot.displayName), el("small", "", chat.botChat ? t("botChat") : chat.title));
-    const history = button(t("historyAction"), "assistant-header-action", () => go({ ...navigation.current, panel: "history" }));
+    const history = iconButton("history", t("historyAction"), "assistant-header-action", () => go({ ...navigation.current, panel: "history" }));
     const more = button("···", "assistant-icon-btn assistant-more-options", () => go({ ...navigation.current, panel: "menu" })); more.setAttribute("aria-label", t("moreOptions"));
     head.append(back, avatar(chat.bot), title, history, more); return head;
   }

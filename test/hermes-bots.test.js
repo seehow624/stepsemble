@@ -21,7 +21,7 @@ async function setup(t) {
   });
   await client.login("jerome", "correct horse");
   t.after(async () => { client.close(); await fake.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-  return { fake, bots: createHermesBots({ client }) };
+  return { fake, bots: createHermesBots({ client }), client };
 }
 
 test("a Bot name becomes a valid Hermes profile id", () => {
@@ -79,4 +79,34 @@ test("a Bot is created with its look, given an avatar, and deleted only by its e
   await assert.rejects(bots.remove("default", "default"), error => error.code === "default_bot");
   await bots.remove("research", "research");
   assert.equal(fake.state.profiles.some(row => row.name === "research"), false);
+});
+
+test("內建頭像保存於 Bot metadata，保留自訂圖片及其他設定", async t => {
+  const { fake, bots, client } = await setup(t);
+  const row = fake.state.profiles.find(item => item.name === "qa-reviewer");
+  row.ui_meta["hermes-bots"].pinned = true;
+  await bots.setAvatar("qa-reviewer", PNG);
+  await bots.configure("qa-reviewer", { avatarPreset: "orbit" });
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, "orbit");
+  assert.equal(row.ui_meta["hermes-bots"].pinned, true);
+  assert.deepEqual(await bots.avatar("qa-reviewer"), { data: PNG });
+  const { createHermesAssistantService } = require("../server/hermes-assistant-service");
+  const service = createHermesAssistantService({ client, installed: () => true });
+  assert.equal((await service.bots()).bots.find(item => item.name === "qa-reviewer").avatarPreset, "orbit");
+  for (const value of ["unknown", ["orbit"], {}, "<script>"]) await assert.rejects(bots.configure("qa-reviewer", { avatarPreset: value }), error => error.code === "invalid_avatar_preset");
+  await bots.configure("qa-reviewer", { avatarPreset: null });
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, null);
+  assert.deepEqual(await bots.avatar("qa-reviewer"), { data: PNG });
+  assert.equal(fake.state.prompts.length, 0);
+});
+
+test("上傳新圖片後切回自訂頭像，移除圖片不刪掉已選的內建造型", async t => {
+  const { bots } = await setup(t);
+  await bots.configure("qa-reviewer", { avatarPreset: "sprout" });
+  await bots.setAvatar("qa-reviewer", PNG);
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, null);
+  await bots.configure("qa-reviewer", { avatarPreset: "sprout" });
+  await bots.setAvatar("qa-reviewer", null);
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, "sprout");
+  assert.deepEqual(await bots.avatar("qa-reviewer"), { data: null });
 });

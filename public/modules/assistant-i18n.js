@@ -604,8 +604,22 @@
     "pt-BR": ["Voltar ao assistente", "Histórico de conversas", "Mais opções", "Pesquisar Bots ou grupos", "Gerenciar Bots", "Bot Chat", "Hoje", "Ontem", "Antes", "{count} etapas de ferramenta concluídas", "Em andamento · {count} etapas de ferramenta", "Nenhum resultado.", "Fechar painel", "Histórico"],
     "it": ["Torna all’assistente", "Cronologia delle conversazioni", "Altre opzioni", "Cerca Bot o gruppi", "Gestisci Bot", "Bot Chat", "Oggi", "Ieri", "Prima", "{count} passaggi strumento completati", "In corso · {count} passaggi strumento", "Nessun risultato.", "Chiudi pannello", "Cronologia"],
   };
+  const AVATAR_KEYS = ["presetAvatars", "presetAvatar", "useUploadedAvatar"];
+  const avatarRows = {
+    "en": ["Default avatars", "Default avatar {number}", "Use uploaded image"],
+    "zh-Hant": ["預設頭像", "預設頭像 {number}", "使用已上傳圖片"],
+    "zh-Hans": ["默认头像", "默认头像 {number}", "使用已上传图片"],
+    "ja": ["標準アバター", "標準アバター {number}", "アップロードした画像を使う"],
+    "ko": ["기본 아바타", "기본 아바타 {number}", "업로드한 이미지 사용"],
+    "tr": ["Varsayılan avatarlar", "Varsayılan avatar {number}", "Yüklenen resmi kullan"],
+    "fr": ["Avatars par défaut", "Avatar par défaut {number}", "Utiliser l’image importée"],
+    "de": ["Standardavatare", "Standardavatar {number}", "Hochgeladenes Bild verwenden"],
+    "es": ["Avatares predeterminados", "Avatar predeterminado {number}", "Usar imagen subida"],
+    "pt-BR": ["Avatares padrão", "Avatar padrão {number}", "Usar imagem enviada"],
+    "it": ["Avatar predefiniti", "Avatar predefinito {number}", "Usa l’immagine caricata"],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

@@ -138,31 +138,66 @@
     function lookSection(bot) {
       const box = section(t("look"), true);
       const title = input(bot.title), description = input(bot.description), color = input(bot.color || "#5b8def", "color");
-      const picture = el("span", "assistant-avatar assistant-manage-avatar", M.initials(bot.title));
-      picture.style.background = M.colorFor(bot.name, bot.color);
-      const showPicture = data => {
-        picture.textContent = data ? "" : M.initials(bot.title);
-        picture.style.backgroundImage = data ? `url("${data}")` : "";
-      };
-      if (bot.hasAvatar) void api.botAvatar(bot.name).then(result => showPicture(result.data)).catch(() => {});
-      const file = el("input");
-      file.type = "file";
-      file.accept = "image/png,image/jpeg,image/webp";
-      file.hidden = true;
+      const A = root.StepsembleAssistantAvatars;
+      const picture = el("span", "assistant-avatar assistant-manage-avatar");
+      const picker = el("fieldset", "assistant-avatar-picker"), grid = el("div", "assistant-avatar-grid"), choices = new Map();
+      picker.append(el("legend", "", t("presetAvatars")), grid);
+      let image = null, savingAvatar = false;
+      const file = el("input"); file.type = "file"; file.accept = "image/png,image/jpeg,image/webp"; file.hidden = true;
+      const upload = button(t("uploadAvatar"), "btn ghost", () => file.click());
+      const usePicture = button(t("useUploadedAvatar"), "btn ghost", () => void updateAvatar(async () => {
+        await api.configureBot(bot.name, { avatarPreset: null }); bot.avatarPreset = null;
+      }));
+      const removePicture = button(t("removeAvatar"), "btn ghost", () => void updateAvatar(async () => {
+        await api.setBotAvatar(bot.name, null); image = null; bot.hasAvatar = false;
+      }));
+      function syncAvatar() {
+        A.paint(picture, bot, image);
+        const selected = A.resolve(bot);
+        for (const [id, radio] of choices) {
+          radio.checked = selected.kind === "preset" && selected.id === id;
+          radio.disabled = savingAvatar && radio !== document.activeElement;
+        }
+        upload.disabled = usePicture.disabled = removePicture.disabled = savingAvatar;
+        usePicture.hidden = !bot.hasAvatar || selected.kind === "custom";
+        removePicture.hidden = !bot.hasAvatar;
+        picker.setAttribute("aria-busy", String(savingAvatar));
+      }
+      async function updateAvatar(action) {
+        if (savingAvatar) return;
+        savingAvatar = true; syncAvatar();
+        try { await action(); onChanged(bot.name); }
+        catch (error) { failed(error); }
+        finally { savingAvatar = false; syncAvatar(); }
+      }
+      for (const [index, preset] of A.presets.entries()) {
+        const option = el("label", "assistant-avatar-option"), radio = el("input", "assistant-avatar-radio");
+        option.dataset.preset = preset.id; option.title = t("presetAvatar", { number: index + 1 });
+        radio.type = "radio"; radio.name = `avatar-${bot.name}`; radio.value = preset.id;
+        radio.setAttribute("aria-label", option.title);
+        radio.addEventListener("change", () => { if (radio.checked) void updateAvatar(async () => {
+          await api.configureBot(bot.name, { avatarPreset: preset.id }); bot.avatarPreset = preset.id;
+        }); });
+        option.append(radio, A.paint(el("span", "assistant-avatar"), { name: bot.name, avatarPreset: preset.id }));
+        choices.set(preset.id, radio); grid.append(option);
+      }
       file.addEventListener("change", () => {
-        const chosen = file.files?.[0];
-        file.value = "";
-        if (!chosen) return;
+        const chosen = file.files?.[0]; file.value = "";
+        if (!chosen || savingAvatar) return;
         if (!["image/png", "image/jpeg", "image/webp"].includes(chosen.type) || chosen.size > MAX_AVATAR) { toast(t("avatarTooLarge")); return; }
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try { await api.setBotAvatar(bot.name, String(reader.result)); showPicture(String(reader.result)); onChanged(bot.name); } catch (error) { failed(error); }
-        };
-        reader.readAsDataURL(chosen);
+        void updateAvatar(async () => {
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(chosen);
+          });
+          await api.setBotAvatar(bot.name, data); image = data; bot.hasAvatar = true; bot.avatarPreset = null;
+        });
       });
-      const pictureRow = el("div", "assistant-manage-picture");
-      pictureRow.append(picture, button(t("uploadAvatar"), "btn ghost", () => file.click()),
-        button(t("removeAvatar"), "btn ghost", async () => { try { await api.setBotAvatar(bot.name, null); showPicture(null); onChanged(bot.name); } catch (error) { failed(error); } }), file);
+      const pictureRow = el("div", "assistant-manage-picture"), pictureActions = el("div", "assistant-avatar-actions");
+      pictureActions.append(upload, usePicture, removePicture); pictureRow.append(picture, pictureActions, file);
+      syncAvatar();
+      if (bot.hasAvatar) void api.botAvatar(bot.name).then(result => { image = result.data; syncAvatar(); }).catch(() => {});
       const hidden = checkbox(t("hideBot"), bot.hidden, async checked => { await api.configureBot(bot.name, { hidden: checked }); bot.hidden = checked; onChanged(bot.name); });
       const save = button(t("save"), "btn primary", async () => {
         const changes = {};
@@ -178,7 +213,7 @@
           onChanged(bot.name);
         } catch (error) { failed(error); } finally { save.disabled = false; }
       });
-      box.append(pictureRow, labeled(t("botTitle"), title), labeled(t("botDescription"), description), labeled(t("botColor"), color), hidden, save);
+      box.append(pictureRow, picker, labeled(t("botTitle"), title), labeled(t("botDescription"), description), labeled(t("botColor"), color), hidden, save);
       return box;
     }
 
