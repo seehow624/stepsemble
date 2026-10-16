@@ -8,7 +8,9 @@
 
 **Tech Stack:** 現有原生 JavaScript、CSS、marked、DOMPurify、Node `node:test`、Playwright 1.63.0、fake Hermes；不新增正式執行依賴。
 
-**Spec:** `docs/superpowers/specs/2026-10-16-assistant-conversation-first-design.md`。使用者已在對話確認規格；本次直接於同一個 session 依序實作，不委派 Agent、不自動發布或提交。
+**Spec:** `docs/superpowers/specs/2026-10-16-assistant-conversation-first-design.md`。使用者已在對話確認規格；開發階段於同一個 session 依序實作，不委派 Agent、不自動發布或提交。
+
+**發布授權：** 2026-10-16，使用者在實作與測試完成後明確要求「提交合并发布吧」；整合 master 的 Pi 修正並準備 3.9.6。下列驗證紀錄為發布前的實作快照，實際發布結果以 GitHub 的版本標籤與 Release 工作流程為準。
 
 ---
 
@@ -173,4 +175,4 @@ assert.deepEqual(N.ancestors({ page: "console" }).map(row => row.page), ["consol
 - Rolling：最終程式完整關卡 exit 0，core／workspace 均通過，包含 8 組舊版 Client／Host 相容案例、既有工作區功能及新助理回歸；本機副本的 22 個程式／測試檔與工作樹逐檔比對一致。
 - 證據位於本機 `~/.cache/stepsemble-scratch/`：`assistant-a-final-check.log`、`assistant-a-final-unit.log`、`assistant-a-final-browser.log`、`assistant-a-final-rolling.log`、`assistant-a-shots/`。
 - 限制：未做真 Hermes 互動、未送真模型請求；未驗證 WebKit、實體 iPhone 或主畫面 App 的原生邊緣手勢。
-- 交付狀態：保留開發分支與未提交變更，主工作樹仍乾淨；不合併、不 push、不發布。
+- 實作階段交付狀態：當時保留開發分支與未提交變更，主工作樹乾淨；收到上述後續發布授權後，另行提交、整合及發布。

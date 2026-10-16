@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.6
+
+- Redesign the Hermes Assistant around conversations: a searchable Bot and group list, a focused reading view, a history panel with date groups and row actions, and a quiet More menu for routines and settings. Keep the desktop two-pane layout and update the introduction and all 11 languages.
+- Keep mobile Back inside the Assistant before returning to the Workspace. Direct conversation links, history selection, panels, settings, browser Back and Forward, and sign-in returns now share a consistent navigation hierarchy.
+- Contain wide Markdown tables and code in their own scroll areas instead of letting the whole conversation slide sideways. Fold consecutive tool records into one expandable summary while keeping approvals and questions visible.
+- Preserve unsent Bot text and attachments, and group drafts, in page memory while navigating. Protect rapid Bot switching and history searches from stale replies, retain history search and scroll position, and keep pagination aligned when permanent Bot Chats are filtered out.
+- Restore saved conversation titles through the existing read-only Hermes method, fix hidden controls and narrow-screen large-text layouts, and retain the latest Pi activity and Windows path fixes from master. No real Hermes data or model calls are used by the new regression tests.
+
 ## 3.9.5
 
 - Fix Pi conversation activity indicators after reconnecting or reopening a saved conversation. The existing workspace entry now follows the current Pi process, so desktop and mobile sidebars show working status and completed-unread results consistently.
