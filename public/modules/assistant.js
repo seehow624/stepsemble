@@ -32,8 +32,9 @@
   let groupData = { supported: false, rooms: [] }, currentRoom = null, panel = null;
   let renderQueued = false, watchTimer = 0, reloadTimer = 0, routeRevision = 0, startRevision = 0, homeScroll = 0, rosterQuery = "";
   let routeTask = Promise.resolve();
-  const content = window.StepsembleAssistantContent.create();
-  const markdown = text => content.markdown(text);
+  const content = window.StepsembleAssistantContent.create({ t,
+    mediaUrl: (path, download) => `${api?.base || ""}/api/assistant/media?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}` });
+  const markdown = (text, options) => content.markdown(text, options);
 
   function el(tag, className = "", text) {
     const node = document.createElement(tag);
@@ -172,7 +173,7 @@
     if (!groupDrafts.has(next.id)) groupDrafts.set(next.id, new Map());
     groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots, drafts: groupDrafts.get(next.id),
       onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) { tell({ type: "assistant-changed" }); showRoster(); } }); } });
-    historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, M, locale: prefs.locale, showPanel,
+    historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, M, locale: prefs.locale, showPanel, plain: content.plain,
       onSelect: (profile, row) => { if (epoch === startRevision) openBot(profile, row.id, { title: row.title }); } });
     render(loadingView());
     try {
@@ -493,7 +494,7 @@
         steps.append(group);
       }
       if (steps.childElementCount) body.append(steps);
-      if (item.text) body.append(markdown(item.text));
+      if (item.text) body.append(markdown(item.text, { complete: !item.streaming }));
       if (item.streaming && !item.text) body.append(el("p", "assistant-working", t("working")));
       node.append(avatar(chat.bot), body);
     }

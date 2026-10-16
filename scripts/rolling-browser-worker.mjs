@@ -28,6 +28,7 @@ import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
 import { runAssistantBrowserCases } from "./assistant-browser-cases.mjs";
 import { runAssistantMobileBrowserCases } from "./assistant-mobile-browser-cases.mjs";
 import { runAssistantAvatarBrowserCases } from "./assistant-avatar-browser-cases.mjs";
+import { runAssistantMediaBrowserCases } from "./assistant-media-browser-cases.mjs";
 import { runAssistantWorkspaceBrowserCases } from "./assistant-workspace-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
@@ -197,6 +198,7 @@ try {
     await runAssistantBrowserCases(browser);
     await runAssistantMobileBrowserCases(browser);
     await runAssistantAvatarBrowserCases(browser);
+    await runAssistantMediaBrowserCases(browser);
     await runAssistantWorkspaceBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);

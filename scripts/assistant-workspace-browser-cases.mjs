@@ -18,7 +18,8 @@ async function seed(preview) {
   preview.fake.state.avatars.set("qa-reviewer", PICTURE_A);
   const chat = preview.fake.addSession("default", "Bot Chat", { source: "tui" });
   chat.lastActive = now - 60;
-  chat.messages.push({ role: "user", text: "Plan my day." }, { role: "assistant", text: "Start with the one thing you can finish today." });
+  preview.fake.addFile("/fake/media/plan.md", Buffer.from("# Plan\n- one thing\n"));
+  chat.messages.push({ role: "user", text: "Plan my day." }, { role: "assistant", text: "Start with the one thing you can finish today. MEDIA:/fake/media/plan.md" });
   const login = await fetch(preview.origin + "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: preview.token }) });
   const cookie = login.headers.getSetCookie().map(value => value.split(";", 1)[0]).join("; ");
   const group = await fetch(preview.origin + "/api/assistant/groups/create", { method: "POST", headers: { "content-type": "application/json", cookie },
@@ -70,6 +71,7 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
       assert.equal(await page.locator("#workspace-projects").isVisible(), false, "工作區的 session 清單收起");
       assert.equal(await page.locator("#workspace-usage").isVisible(), false, "助理模式不顯示訂閱額度");
       assert.match(await luna.textContent(), /Luna.*one thing you can finish/s, "列出 Bot 名稱與最近一則");
+      assert.equal((await luna.textContent()).includes("MEDIA:"), false, "側欄預覽不顯示附件路徑");
       assert.equal(await page.locator('#workspace-assistant .workspace-assistant-row[data-room]').count(), 1);
       const room = await page.locator("#workspace-assistant .workspace-assistant-row[data-room]").getAttribute("data-room");
       await page.locator("#workspace-assistant-search").fill("review");
@@ -86,6 +88,13 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
         assert.equal(await chat.locator(hidden).isVisible(), false, `${hidden} 不出現在分頁裡`);
       assert.match(await page.locator('#workspace-frames iframe[src*="/assistant.html"]').getAttribute("src"), /[?&]embed=1(&|$)/);
       assert.equal(await luna.getAttribute("data-open"), "true");
+      // Bot 分頁裡的附件和助理頁一樣是檔案卡片，從 Hermes 的電腦讀取。
+      const card = chat.locator(".assistant-file", { hasText: "plan.md" });
+      await card.waitFor();
+      assert.equal((await chat.locator(".assistant-transcript").textContent()).includes("MEDIA:"), false);
+      const opened = await page.request.get(new URL(await card.locator(".assistant-file-open").getAttribute("href"), page.url()).href);
+      assert.equal(opened.status(), 200);
+      assert.match(opened.headers()["content-type"], /^text\/html/);
       const lunaWatch = await watched(row => typeof row.sessionId === "string", "Bot 分頁沒有回報正在看的對話");
 
       // 分頁內的面板與頁面只走記憶體路由，不增加瀏覽器歷史；標題跟著頁面。

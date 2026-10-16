@@ -10,6 +10,7 @@
 
 const { HermesError } = require("./hermes-gateway-client");
 const { isPreset } = require("../public/modules/assistant-avatars");
+const Media = require("../public/modules/assistant-media");
 
 const BOT_CHAT_TITLE = "Bot Chat";
 const PROFILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -20,7 +21,10 @@ const COLOR = /^#[0-9a-fA-F]{3,8}$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const MIME = /^[\w.+-]+\/[\w.+-]+$/;
 const RING_EVENTS = 2048, RING_BYTES = 4 * 1024 * 1024;
-const WATCH_MS = 45_000, MAX_WATCHERS = 64, MAX_SESSIONS = 200;
+const WATCH_MS = 45_000, MAX_WATCHERS = 64, MAX_SESSIONS = 200, MAX_OFFERED = 4096;
+// Stepsemble is a graphical client: with this source Hermes teaches a Bot to
+// send files as MEDIA:/path instead of pasting the path.
+const SOURCE = "desktop";
 const MAX_TEXT = 512 * 1024, MAX_ATTACHMENTS = 4, MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const ASKS = new Set(["approval", "clarify", "sudo", "secret"]);
 const APPROVAL_CHOICES = new Set(["once", "session", "always", "deny"]);
@@ -85,9 +89,26 @@ function createHermesAssistantService({ client, installed = () => false, notify 
   const subscribers = new Set();
   const watchers = new Map();   // clientId -> { sessionId, until }
   const botNames = new Map();
+  const offered = new Map();    // paths a Bot has sent; only these can be downloaded
   let ringBytes = 0, nextEvent = 0, epoch = null, turnHold = null;
 
   const botName = profile => botNames.get(profile) || (profile === "default" ? "Hermes" : profile);
+
+  function offerMedia(text) {
+    for (const file of Media.extract(text).files) {
+      offered.delete(file.path);
+      offered.set(file.path, true);
+      if (offered.size > MAX_OFFERED) offered.delete(offered.keys().next().value);
+    }
+  }
+  function offerMessages(list) { for (const row of list) if (row.role === "assistant") offerMedia(row.text); return list; }
+
+  // Only files a Bot sent in a conversation are relayed; Hermes still applies
+  // its own path and sensitive-file rules.
+  function mediaFile(path, { range, signal } = {}) {
+    if (typeof path !== "string" || !offered.has(path)) return Promise.reject(new HermesError("assistant_media_not_found", "This file was not sent by a Bot", 404));
+    return client.download("/api/files/download", { query: { path }, headers: range ? { range: String(range).slice(0, 200) } : {}, signal });
+  }
 
   function publish(sessionId, type, payload = {}) {
     const event = Object.freeze({ id: ++nextEvent, sessionId, type, payload, at: now() });
@@ -115,7 +136,9 @@ function createHermesAssistantService({ client, installed = () => false, notify 
   }
 
   function notice(entry, kind, body) {
-    return { kind, title: botName(entry.profile), body: String(body || "").replace(/\s+/g, " ").trim().slice(0, 140),
+    const found = Media.extract(String(body || ""));
+    const text = found.text || found.files.map(file => file.name).join(", ");
+    return { kind, title: botName(entry.profile), body: text.replace(/\s+/g, " ").trim().slice(0, 140),
       sessionId: entry.storedId, profile: entry.profile,
       url: `/assistant.html?bot=${encodeURIComponent(entry.profile)}&session=${encodeURIComponent(entry.storedId)}` };
   }
@@ -145,6 +168,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     if (event.type === "request.cancel") { closeAsk(String(event.payload?.id || ""), clip(event.payload?.reason, 64) || "withdrawn"); return; }
     if (!FIELDS[event.type]) return;
     if (event.type === "message.start") { entry.running = true; updateTurnHold(); }
+    if (event.type === "message.complete") offerMedia(event.payload?.text);
     publish(entry.storedId, event.type, trimPayload(event.type, event.payload));
     if (event.type === "message.complete") {
       entry.running = false;
@@ -229,7 +253,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
 
   async function resync(entry) {
     try {
-      const resumed = await client.request("session.resume", { session_id: entry.storedId, profile: entry.profile, omit_messages: true }, { timeoutMs: 60_000 });
+      const resumed = await client.request("session.resume", { session_id: entry.storedId, profile: entry.profile, omit_messages: true, source: SOURCE }, { timeoutMs: 60_000 });
       if (typeof resumed?.session_id !== "string" || !resumed.session_id) throw new Error("resume failed");
       const sameLive = resumed.session_id === entry.liveId && entry.lastSeq !== null;
       track(entry.storedId, resumed.session_id, entry.profile);
@@ -300,7 +324,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
   async function openSession({ sessionId, profile } = {}) {
     const storedId = sessionKey(sessionId);
     const name = profile ? profileName(profile) : sessions.get(storedId)?.profile || null;
-    const resumed = await client.request("session.resume", { session_id: storedId, ...(name ? { profile: name } : {}) }, { timeoutMs: 60_000 });
+    const resumed = await client.request("session.resume", { session_id: storedId, source: SOURCE, ...(name ? { profile: name } : {}) }, { timeoutMs: 60_000 });
     if (typeof resumed?.session_id !== "string" || !resumed.session_id) throw new HermesError("hermes_session_failed", "Hermes could not open that conversation", 502);
     const key = typeof resumed.session_key === "string" && SESSION.test(resumed.session_key) ? resumed.session_key : storedId;
     const entry = track(key, resumed.session_id, name);
@@ -309,7 +333,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     updateTurnHold();
     // session.title 省略 title 時是唯讀，讓重載的歷史對話仍保有正確標題。
     const named = await client.request("session.title", { session_id: resumed.session_id }, { timeoutMs: 10_000 }).catch(() => ({ title: resumed.title }));
-    return view(entry, { botChat: false, title: clip(named?.title, 300), messages: messages(resumed.messages),
+    return view(entry, { botChat: false, title: clip(named?.title, 300), messages: offerMessages(messages(resumed.messages)),
       inflight: entry.running ? { user: clip(resumed.inflight?.user, MAX_TEXT), assistant: clip(resumed.inflight?.assistant, MAX_TEXT) } : null });
   }
 
@@ -319,7 +343,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     const row = (Array.isArray(found?.sessions) ? found.sessions : []).find(item => typeof item?.id === "string" && SESSION.test(item.id));
     if (row) return { ...(await openSession({ sessionId: row.id, profile: name })), botChat: true };
     const created = await client.request("session.create",
-      { profile: name, title: BOT_CHAT_TITLE, hidden: true, follow_profile_config: true }, { timeoutMs: 60_000 });
+      { profile: name, title: BOT_CHAT_TITLE, hidden: true, follow_profile_config: true, source: SOURCE }, { timeoutMs: 60_000 });
     if (typeof created?.session_id !== "string" || !created.session_id) throw new HermesError("hermes_session_failed", "Hermes did not open the Bot Chat", 502);
     // session.create is lazy: titling it now creates the row, so a second
     // open cannot mint another Bot Chat before the first message.
@@ -450,7 +474,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     status, login: (username, password) => client.login(username, password), logout: () => client.logout(),
     bots, openBotChat, openSession, prompt, interrupt, respond,
     pendingAsks: () => [...asks.values()].map(ask => ({ ...ask })),
-    listSessions, renameSession, markRead, deleteSession, watch, subscribe,
+    listSessions, renameSession, markRead, deleteSession, watch, subscribe, offerMedia, mediaFile,
   });
 }
 

@@ -82,6 +82,9 @@ test("列表預覽只顯示文字，不顯示 Markdown 記號與連結網址", (
   const W = model();
   assert.equal(W.preview("先把今天縮小成三件就好。\n\n### 1. 完成一件\n選**目前**最接近 [連結](https://example.test/a) 的 `作品`"),
     "先把今天縮小成三件就好。 1. 完成一件 選目前最接近 連結 的 作品");
+  assert.equal(W.preview("報告好了 MEDIA:/Users/me/每週重點.pdf"), "報告好了", "附件路徑不顯示");
+  assert.equal(W.preview("MEDIA:/Users/me/chart.png\nMEDIA:/Users/me/data.csv"), "chart.png, data.csv", "只有附件時顯示檔名");
+  assert.equal(W.preview("整理好了 MEDIA:/Users/me/很長的報"), "整理好了", "預覽截斷的半截路徑也不顯示");
   assert.equal(W.preview(""), "");
   assert.equal(W.preview(undefined), "");
 });

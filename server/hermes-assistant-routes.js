@@ -5,6 +5,27 @@
 // used, so the device relay (/r/<machine>/api/...) can carry every call, and
 // the event stream ends in /stream so the relay keeps it open.
 
+const { Readable, Transform, pipeline } = require("node:stream");
+const Media = require("../public/modules/assistant-media");
+
+const SANDBOX = "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox";
+const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+const escapeText = value => value.replace(/[&<>]/g, char => ESCAPES[char]);
+
+// A text file opens as a page laid out for the device width, with its content
+// escaped into one <pre>. latin1 maps each byte to one character, so UTF-8
+// passes through untouched and only the ASCII & < > change.
+function textPage(name) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeText(name)}</title>`
+    + "<style>:root{color-scheme:light dark;-webkit-text-size-adjust:100%}body{margin:0}pre{margin:0;padding:16px 16px 32px;white-space:pre-wrap;overflow-wrap:anywhere;font:15px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:4}</style>"
+    + "</head><body><pre>\n";
+}
+function escapedText() {
+  return new Transform({
+    transform(chunk, _encoding, done) { done(null, Buffer.from(escapeText(chunk.toString("latin1")), "latin1")); },
+    flush(done) { done(null, "</pre></body></html>\n"); },
+  });
+}
 const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024, AVATAR = 4 * 1024 * 1024, SKILL = 1024 * 1024;
 
 function createHermesAssistantRoutes({ service, routines, groups, bots, skills, console: hermesConsole, readJSON, sendJSON, sseFrame, trySseWrite }) {
@@ -33,6 +54,45 @@ function createHermesAssistantRoutes({ service, routines, groups, bots, skills, 
     req.on("close", end);
     res.on("close", end);
     res.on("error", end);
+  }
+
+  // Attachments: files a Bot sent stream from Hermes. Only types that are safe
+  // to open on this origin are shown inline; everything else downloads.
+  async function media(req, res, url) {
+    const path = url.searchParams.get("path") || "";
+    const meta = Media.describe(path), type = Media.contentType(path);
+    const download = url.searchParams.get("download") === "1" || !type;
+    const page = meta.kind === "text" && !download;
+    const controller = new AbortController();
+    res.on("close", () => { if (!res.writableEnded) controller.abort(); });
+    let upstream;
+    try { upstream = await service.mediaFile(path, { range: page ? undefined : req.headers.range, signal: controller.signal }); } catch (error) {
+      const code = { 403: "assistant_media_forbidden", 404: error?.code === "assistant_media_not_found" ? error.code : "assistant_media_missing",
+        413: "assistant_media_too_large", 416: "assistant_media_range" }[error?.statusCode];
+      if (code) error.code = code;
+      throw error;
+    }
+    const name = meta.name.replace(/[\r\n"\\]/g, "_");
+    const headers = {
+      "content-type": page ? "text/html; charset=utf-8" : type || "application/octet-stream",
+      "content-disposition": `${download ? "attachment" : "inline"}; filename="${name.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+      "x-content-type-options": "nosniff", "cache-control": "private, max-age=300", "referrer-policy": "no-referrer",
+    };
+    // PDFs go to the browser's own viewer; anything else shown inline is
+    // sandboxed and cannot run script.
+    if (meta.kind !== "pdf" || download) headers["content-security-policy"] = SANDBOX;
+    for (const key of page ? ["last-modified"] : ["content-length", "content-range", "accept-ranges", "last-modified", "etag"]) {
+      const value = upstream.headers.get(key);
+      if (value) headers[key] = value;
+    }
+    res.writeHead(upstream.status === 206 ? 206 : 200, headers);
+    if (req.method === "HEAD" || !upstream.body) { controller.abort(); res.end(); return; }
+    if (page) {
+      res.write(textPage(meta.name));
+      pipeline(Readable.fromWeb(upstream.body), escapedText(), res, () => {});
+      return;
+    }
+    pipeline(Readable.fromWeb(upstream.body), res, () => {});
   }
 
   // Bot settings and skills: reads are GET with the profile in the query,
@@ -96,6 +156,7 @@ function createHermesAssistantRoutes({ service, routines, groups, bots, skills, 
     const get = req.method === "GET", post = req.method === "POST";
     try {
       if (p === "/api/assistant/status" && get) sendJSON(res, 200, await service.status());
+      else if (p === "/api/assistant/media" && (get || req.method === "HEAD")) await media(req, res, url);
       else if (p === "/api/assistant/stream" && get) stream(req, res, url);
       else if (p === "/api/assistant/login" && post) {
         const body = await readJSON(req, LOGIN);
@@ -131,7 +192,11 @@ function createHermesAssistantRoutes({ service, routines, groups, bots, skills, 
         const capabilities = await groups.capabilities();
         sendJSON(res, 200, { ...capabilities, rooms: capabilities.supported ? (await groups.list()).rooms : [] });
       } else if (p === "/api/assistant/groups/create" && post) sendJSON(res, 200, await groups.create(await readJSON(req, SMALL)));
-      else if (p === "/api/assistant/groups/log" && get) sendJSON(res, 200, await groups.log(url.searchParams.get("room"), url.searchParams.get("since") || "0"));
+      else if (p === "/api/assistant/groups/log" && get) {
+        const log = await groups.log(url.searchParams.get("room"), url.searchParams.get("since") || "0");
+        for (const item of log.events) if (item.kind === "message.member") service.offerMedia(item.text);
+        sendJSON(res, 200, log);
+      }
       else if (p === "/api/assistant/groups/state" && get) sendJSON(res, 200, await groups.state(url.searchParams.get("room")));
       else if (/^\/api\/assistant\/groups\/(send|approve|retry|rename|stop|disband)$/.test(p) && post) {
         const body = await readJSON(req, SMALL);

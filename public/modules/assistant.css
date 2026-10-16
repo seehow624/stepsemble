@@ -522,6 +522,29 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-intro-menu span { padding: 8px 12px; border-bottom: .5px solid var(--line); font-size: .85rem; }
 .assistant-msg.system, .assistant-chip, .assistant-ask { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 
+/* Bot 傳來的附件：圖片直接看，文件與影音是可開啟、可下載的卡片。 */
+.assistant-files { display: grid; justify-items: start; gap: 8px; margin-top: 12px; }
+.assistant-file-image { display: block; max-width: 100%; border-radius: 12px; overflow: hidden; line-height: 0; }
+.assistant-file-image img { display: block; max-width: min(100%, 420px); max-height: 420px; object-fit: contain; background: var(--bubble-ai); }
+.assistant-file { box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: min(100%, 420px); min-width: 0; padding: 8px 8px 8px 12px;
+  border: .5px solid var(--line); border-radius: 14px; background: var(--milk); line-height: 1.35; }
+.assistant-file-badge { flex: 0 0 auto; min-width: 36px; padding: 6px 4px; border-radius: 8px; background: var(--bubble-user); color: var(--pine-soft);
+  font-size: .66rem; font-weight: 700; letter-spacing: .03em; text-align: center; }
+.assistant-file-copy { display: grid; flex: 1; min-width: 0; }
+.assistant-file-name { overflow: hidden; font-size: .86rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-file-copy small { color: var(--pine-soft); font-size: .76rem; }
+.assistant-file-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+.assistant-file-actions a { display: inline-grid; min-height: 34px; padding: 0 10px; place-items: center; border-radius: 9px; color: var(--ink);
+  font-size: .8rem; font-weight: 600; text-decoration: none; }
+.assistant-file-actions a:hover { background: var(--bubble-user); }
+.assistant-file.unavailable { opacity: .75; }
+.assistant-file-media { display: grid; gap: 6px; width: min(100%, 420px); margin: 0; }
+.assistant-file-media video { display: block; width: 100%; max-height: 360px; border-radius: 12px; background: #000; }
+.assistant-file-media audio { display: block; width: 100%; }
+.assistant-file-media .assistant-file { width: 100%; }
+.assistant-reply .md-body .assistant-files a { text-decoration: none; }
+@media (pointer: coarse), (max-width: 899px) { .assistant-file-actions a { min-width: 44px; min-height: 44px; } }
+
 /* 嵌在 Workspace 分頁裡：Workspace 已有切換、電腦與 Bot 列表，分頁只留頁面本身。 */
 .assistant-embedded .ios-status-strip, .assistant-embedded .assistant-top, .assistant-embedded .assistant-back.to-list { display: none !important; }
 .assistant-embedded.assistant-offline .assistant-bot-head { box-shadow: inset 0 -2px 0 var(--warn); }

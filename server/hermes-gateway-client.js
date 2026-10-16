@@ -131,6 +131,34 @@ function createHermesGatewayClient({ discovery, store, fetchImpl = fetch, WebSoc
     throw error;
   }
 
+  // A download is not timed end to end: the timeout covers Hermes's response
+  // headers, and the body streams to the caller.
+  async function download(pathname, { query = null, headers: extra = {}, signal } = {}) {
+    const found = await server();
+    const headers = { accept: "*/*", ...extra, ...(await authHeaders(found)) };
+    const url = new URL(pathname, found.url);
+    for (const [key, value] of Object.entries(query || {})) {
+      if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+    }
+    const controller = new AbortController(), abort = () => controller.abort();
+    if (signal?.aborted) abort(); else signal?.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(abort, config.restTimeoutMs);
+    let response;
+    try { response = await fetchImpl(url, { method: "GET", headers, signal: controller.signal, redirect: "manual" }); } catch {
+      signal?.removeEventListener("abort", abort);
+      throw controller.signal.aborted && !signal?.aborted ? new HermesError("hermes_timeout", "Hermes did not answer in time", 504)
+        : new HermesError("hermes_unreachable", "Could not reach Hermes", 503);
+    } finally { clearTimeout(timer); }
+    absorbCookies(response);
+    if (response.ok) return response;
+    signal?.removeEventListener("abort", abort);
+    const parsed = await readJsonResponse(response).catch(() => null);
+    const error = errorFromResponse(response.status, parsed);
+    if (error.code === "hermes_signed_out" && found.status.authRequired) signedOut(error);
+    if ([403, 404, 413, 416].includes(response.status)) error.statusCode = response.status;
+    throw error;
+  }
+
   async function status() {
     let found = null;
     try { found = await discovery.find(); } catch {}
@@ -370,7 +398,7 @@ function createHermesGatewayClient({ discovery, store, fetchImpl = fetch, WebSoc
   }
 
   return Object.freeze({
-    status, login, logout, rest, request, connect, hold, close,
+    status, login, logout, rest, download, request, connect, hold, close,
     answer: (id, result) => sendFrame({ jsonrpc: "2.0", id, result }),
     decline: (id, code, message) => sendFrame({ jsonrpc: "2.0", id, error: { code, message } }),
     onEvent(listener) { eventListeners.add(listener); return () => eventListeners.delete(listener); },

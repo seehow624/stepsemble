@@ -2,10 +2,10 @@
   "use strict";
   const node = typeof module === "object" && module.exports;
   const api = factory(node ? require("./assistant-navigation") : root.StepsembleAssistantNavigation,
-    node ? require("./assistant-avatars") : root.StepsembleAssistantAvatars);
+    node ? require("./assistant-avatars") : root.StepsembleAssistantAvatars, node ? require("./assistant-media") : root.StepsembleAssistantMedia);
   if (node) module.exports = api;
   if (root) root.StepsembleWorkspaceAssistantModel = api;
-})(typeof window !== "undefined" ? window : null, function (N, A) {
+})(typeof window !== "undefined" ? window : null, function (N, A, Media) {
   "use strict";
 
   // Workspace 裡的 Bot 分頁：一個分頁對應一個主題（某個 Bot、群組或頁面），
@@ -53,9 +53,13 @@
     url.searchParams.set("embed", "1");
     return url.pathname + url.search;
   }
-  // 列表預覽只顯示文字：去掉 Markdown 記號與連結網址，換行收成一行。
-  const preview = text => String(text || "").replace(/\]\([^)]*\)/g, "]").replace(/[#*_`~>\[\]]/g, "")
-    .replace(/\s+/g, " ").trim();
+  // 列表預覽只顯示文字：附件標記（含被截斷的半截）不顯示路徑、只有附件時列出檔名，
+  // 去掉 Markdown 記號與連結網址，換行收成一行。
+  function preview(text) {
+    const found = Media.extract(text, { partial: true });
+    return found.text.replace(/\]\([^)]*\)/g, "]").replace(/[#*_`~>\[\]]/g, "").replace(/\s+/g, " ").trim()
+      || found.files.map(file => file.name).join(", ");
+  }
   const query = (value, locale) => String(value || "").trim().toLocaleLowerCase(locale);
   function botRows(bots, text = "", locale = "en") {
     const q = query(text, locale);

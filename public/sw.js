@@ -14,6 +14,7 @@ const SHELL = [
   "/modules/assistant-api.js?v=3.9.8",
   "/modules/assistant-model.js?v=3.9.8",
   "/modules/assistant-navigation.js?v=3.9.8",
+  "/modules/assistant-media.js?v=3.9.8",
   "/modules/workspace-assistant-model.js?v=3.9.8",
   "/modules/workspace-assistant.js?v=3.9.8",
   "/modules/usage-data.js?v=3.9.8",
