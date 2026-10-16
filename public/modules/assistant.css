@@ -521,3 +521,7 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-intro-menu { display: grid; gap: 8px; width: 100%; max-width: 240px; }
 .assistant-intro-menu span { padding: 8px 12px; border-bottom: .5px solid var(--line); font-size: .85rem; }
 .assistant-msg.system, .assistant-chip, .assistant-ask { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+
+/* 嵌在 Workspace 分頁裡：Workspace 已有切換、電腦與 Bot 列表，分頁只留頁面本身。 */
+.assistant-embedded .ios-status-strip, .assistant-embedded .assistant-top, .assistant-embedded .assistant-back.to-list { display: none !important; }
+.assistant-embedded.assistant-offline .assistant-bot-head { box-shadow: inset 0 -2px 0 var(--warn); }

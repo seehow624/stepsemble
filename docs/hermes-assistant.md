@@ -7,6 +7,12 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
 ## 使用
 
 - 只要已配對的任一台電腦裝了 Hermes，工作區頂部就會出現「工作區｜助理」切換。
+- 桌面寬度下，切換直接把 Workspace 側欄換成助理，不離開 Workspace：上方是 Hermes 所在的電腦（多台時可切換，與助理頁共用選擇），
+  接著是「搜尋 Bot 或群組」、管理 Bot、新增 Bot，以及 Bot 與群組清單（最近一則預覽、等你處理的數字）；切換旁的按鈕改成「所有例行工作」，
+  訂閱額度在助理模式隱藏。側欄模式記在這個瀏覽器。手機寬度的切換仍連到助理頁。
+- 在側欄點 Bot、群組或頁面，會在目前的面板開成分頁，可以和 coding session 分割、拖曳到面板邊緣、移到新視窗。同一台電腦的同一個 Bot（或群組、頁面）
+  只有一個分頁；分頁內的歷史、設定與例行工作都在同一個分頁切換，標籤跟著顯示「名稱 · 設定」等，重新載入後回到同一個畫面。
+  分頁裡只有頁面本身：沒有頂部切換、Bot 列表與返回鍵。取消新增、刪除 Bot 或解散群組會關閉該分頁。
 - 第一次打開時，先有三步導覽說明帳號密碼從哪裡來：帳號是第一次替 Hermes 控制台設定保護時取的（預設 `admin`），存在
   `~/.hermes/config.yaml` 的 `dashboard › basic_auth › username`；密碼只存雜湊、查不到；還沒設或忘記時在那台電腦執行
   `hermes dashboard --host 0.0.0.0` 重新設定（忘記時先刪掉 `password_hash` 那一行），再重新啟動 Hermes。登入表單上的
@@ -58,6 +64,10 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   `client.capabilities {server_requests: true}`，只回答自己打開的對話；不認得的請求立即拒絕，
   不讓 Agent 空等。核准只接受 Hermes 提供的選項，絕不自動核准。
 - 斷線時自動重連，以 `session.resume` 與 `session.events.since` 接回並依序補上漏掉的事件。
+- Workspace 的 Bot 分頁載入 `assistant.html?embed=1`；只有這個嵌入版允許 Workspace 同源框架，助理頁本身仍不可嵌入。
+  分頁的路由只留在分頁記憶體，不寫入瀏覽器歷史；分頁以訊息回報目前頁面、標題與頭像，Workspace 據此更新標籤並保存版面。
+  每個分頁有自己的推播 client ID；被切走的分頁不再宣告正在看那個對話，手機推播照常。
+  Bot 分頁的版面參照以隨機 UUID 為 key 並帶著 Assistant 路由，Workspace 同步 session 清單時不會移除它，Mac App 的原生分頁拖曳也照常可用。
 - 寬表格與程式碼只在自己的區域橫向捲動；圖片依閱讀欄縮放。連續工具紀錄合成可展開摘要，核准卡仍直接顯示。
 - Bot 草稿與未送附件依機器／profile／對話分開保留，群組草稿依機器／群組分開保留；只存當前頁面的記憶體，重載後不保留。
   網址與瀏覽器歷史只保存路由識別，不放訊息內容、草稿、附件或敏感答案。
@@ -69,6 +79,8 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   `test-support/fake-hermes-gateway.cjs` 模擬 Hermes 0.22.0。
 - 瀏覽器：`node scripts/assistant-browser-cases.mjs <Playwright runtime>`；新手機回歸為
   `node scripts/assistant-mobile-browser-cases.mjs <Playwright runtime>`，兩者均納入 Rolling 的 workspace 套件。
+- Workspace 分頁：`node scripts/assistant-workspace-browser-cases.mjs <Playwright runtime>`，驗證側欄切換、Bot／群組／頁面分頁、分頁內導覽、
+  和 coding session 分割、拖曳、重新載入與推播狀態，並確認手機寬度仍連到助理頁。
 - 手機回歸涵蓋寬內容、原生瀏覽器 Back／Forward、歷史搜尋／分頁／操作／錯誤、草稿／附件／群組、競態與首次介紹。
   版面檢查包含 320／393／414px、橫向與桌面、深淺主題、繁中／英文／德文及 150% 字級。
 - Chromium 模擬手機不等於真 iPhone 或 WebKit；iPhone 主畫面模式的原生左緣滑動仍需實機確認。

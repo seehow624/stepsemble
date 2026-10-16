@@ -58,6 +58,30 @@
     return [home, route];
   }
 
+  // 嵌入 Workspace 分頁時，路由只存在這個分頁的記憶體，不寫入瀏覽器歷史；
+  // 介面與真實 history 相同：go 非同步送出 popstate，超出範圍時不動。
+  function memoryWindow(href) {
+    const entries = [{ state: null, url: String(href) }], listeners = new Set();
+    let index = 0;
+    const history = {
+      get state() { return entries[index].state; }, get length() { return entries.length; },
+      replaceState(state, _title, url = entries[index].url) { entries[index] = { state, url: String(url) }; },
+      pushState(state, _title, url = entries[index].url) { entries.splice(index + 1, entries.length, { state, url: String(url) }); index += 1; },
+      go(offset = 0) {
+        queueMicrotask(() => {
+          const next = index + offset;
+          if (!offset || next < 0 || next >= entries.length) return;
+          index = next;
+          for (const listener of [...listeners]) listener({ state: entries[index].state });
+        });
+      },
+      back() { history.go(-1); }, forward() { history.go(1); },
+    };
+    return Object.freeze({ location: { get href() { return entries[index].url; } }, history,
+      addEventListener(type, listener) { if (type === "popstate") listeners.add(listener); },
+      removeEventListener(type, listener) { if (type === "popstate") listeners.delete(listener); } });
+  }
+
   // 使用同一個 Assistant 根節點建立頁面階層；選歷史會重建同層對話，
   // 不留下「舊對話 → 面板 → 新對話」而讓返回多走一層。
   function create({ window: win = window, onChange = () => {} } = {}) {
@@ -107,5 +131,5 @@
     return Object.freeze({ initialize, go, back() { if (!destroyed) win.history.back(); },
       get current() { return current; }, destroy() { destroyed = true; pending = null; win.removeEventListener("popstate", pop); } });
   }
-  return { normalize, fromUrl, toUrl, ancestors, create };
+  return { normalize, fromUrl, toUrl, ancestors, create, memoryWindow };
 });

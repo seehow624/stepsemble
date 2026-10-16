@@ -97,3 +97,29 @@ test("有填卻非法的 session 不得悄悄開成永久 Bot Chat", () => {
   assert.deepEqual(N.normalize({ page: "bot", profile: "default", machine: "../bad" }), { page: "home" });
   assert.deepEqual(N.normalize({ page: "routines", profile: "../bad" }), { page: "home" });
 });
+
+test("嵌入 Workspace 分頁時，路由只留在記憶體，返回與面板照常運作", async () => {
+  assert.equal(typeof N.memoryWindow, "function", "需要記憶體內的歷史");
+  const win = N.memoryWindow("http://example.test/assistant.html?embed=1&machine=mini&bot=default"), changes = [];
+  const nav = N.create({ window: win, onChange: route => changes.push(route) });
+  nav.initialize();
+  assert.deepEqual(nav.current, { page: "bot", profile: "default", machine: "mini" });
+  assert.equal(win.history.length, 2, "分頁根部仍有 Assistant 首頁");
+  assert.deepEqual(win.history.state.stepsembleAssistant.route, nav.current);
+  nav.go({ ...nav.current, panel: "history" }); await flush();
+  assert.equal(nav.current.panel, "history");
+  assert.equal(new URL(win.location.href).searchParams.get("panel"), "history");
+  nav.back(); await flush();
+  assert.equal(nav.current.panel, undefined);
+  nav.go({ page: "settings", profile: "default", machine: "mini" }); await flush();
+  assert.equal(win.history.length, 3);
+  nav.back(); await flush();
+  assert.deepEqual(nav.current, { page: "bot", profile: "default", machine: "mini" });
+  nav.go({ page: "bot", profile: "qa-reviewer", session: "st-9", machine: "mini" }); await flush();
+  assert.equal(nav.current.profile, "qa-reviewer");
+  assert.equal(win.history.length, 2, "前往另一個 Bot 重建同一層，不累積");
+  win.history.go(-5); await flush();
+  assert.equal(nav.current.profile, "qa-reviewer", "超出範圍的返回不動");
+  nav.destroy();
+  assert.ok(changes.length >= 6);
+});

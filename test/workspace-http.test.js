@@ -140,6 +140,13 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const settings = await request("/index.html?settings=1");
   assert.equal(settings.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(settings.headers.get("content-security-policy"), /frame-ancestors 'self'/);
+  // A Bot tab is the assistant page embedded in the Workspace; the page on
+  // its own stays unframeable.
+  assert.equal((await request("/assistant.html")).headers.get("x-frame-options"), "DENY");
+  assert.match((await request("/assistant.html?bot=default")).headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  const embedded = await request("/assistant.html?embed=1&machine=local&bot=default");
+  assert.equal(embedded.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.match(embedded.headers.get("content-security-policy"), /frame-ancestors 'self'/);
 
   // The model menu's hidden models and providers live on the Host, so every
   // device that uses it shows the same menu.

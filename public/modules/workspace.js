@@ -2,6 +2,9 @@
 "use strict";
 (() => {
   const L = window.StepsembleLayout, I = window.StepsembleWorkspaceI18n, O = window.StepsembleWorkspaceOrder, $ = id => document.getElementById(id);
+  const WAM = window.StepsembleWorkspaceAssistantModel;
+  // Created once the helpers below exist; the first preferences pass runs before.
+  let assistantUI = null;
   const prefersDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
   const readPreferences = () => {
     try { return I.preferences(localStorage, { prefersDark: prefersDark() }); }
@@ -33,6 +36,7 @@
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
     renderHostState();
+    if (assistantUI) { renderMode(); assistantUI.render(); }
     // The Mac app matches its window, buttons and dialogs to the chosen
     // theme; "auto" follows macOS.
     window.webkit?.messageHandlers?.stepsemble?.postMessage({ type: "appearance", theme: prefs.theme });
@@ -80,6 +84,46 @@
   const mobile = () => matchMedia("(max-width:760px)").matches;
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
   function button(text, action, label = text, className = "btn") { const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
+  // Workspace | Assistant. On a desktop the switch changes the sidebar in
+  // place and a Bot opens as a tab beside the sessions; a phone keeps the
+  // assistant page of its own.
+  const SIDEBAR_KEY = "stepsemble.workspace.sidebar.v1";
+  let sidebarMode = "workspace", preferredSidebar = "workspace";
+  try { if (localStorage.getItem(SIDEBAR_KEY) === "assistant") preferredSidebar = "assistant"; } catch {}
+  const assistantTab = (host, route) => WAM.findTab(allRefs(), host, route) || assistantUI.ref(host, route);
+  assistantUI = window.StepsembleWorkspaceAssistant.create({
+    locale: () => prefs.locale, wt: t,
+    machines: () => machines.map(m => ({ id: m.id, name: m.name || m.id, self: m.id === self, base: m.id === self ? "" : `/r/${encodeURIComponent(m.id)}` })),
+    selected: () => mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean),
+    open: (target, route) => openAssistant(target, route),
+    dragStart: (event, target, route) => dragStart(event, assistantTab(target, route), false), dragEnd,
+    menu: (anchor, actions) => openPaneMenu(anchor, actions),
+    newWindow: (target, route) => newWindow(assistantTab(target, route)),
+    onInstalled(installed) {
+      $("workspace-mode").hidden = !installed;
+      if (!installed && sidebarMode === "assistant") setSidebarMode("workspace", false);
+    },
+  });
+  function renderMode() {
+    const nav = $("workspace-mode"), assistant = sidebarMode === "assistant";
+    const item = (key, href, mode, current) => {
+      const element = node(current ? "span" : "a", t(key)); element.dataset.workspaceI18n = key;
+      if (current) element.setAttribute("aria-current", "page");
+      else { element.href = href; element.onclick = event => { if (mobile()) return; event.preventDefault(); setSidebarMode(mode); }; }
+      return element;
+    };
+    nav.replaceChildren(item("workspace", "/workspace.html", "workspace", !assistant), item("assistant", "/assistant.html", "assistant", assistant));
+    const routines = $("workspace-routines"), label = assistantUI.text("allRoutines");
+    routines.title = label; routines.setAttribute("aria-label", label);
+  }
+  function setSidebarMode(mode, remember = true) {
+    if (remember) { preferredSidebar = mode; try { localStorage.setItem(SIDEBAR_KEY, mode); } catch {} }
+    sidebarMode = mode === "assistant" && !mobile() ? "assistant" : "workspace";
+    document.body.dataset.sidebar = sidebarMode;
+    renderMode();
+    if (sidebarMode === "assistant") assistantUI.activate($("workspace-assistant")); else assistantUI.deactivate();
+    reportDragRegions();
+  }
   function icon(path, className = "") {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
@@ -164,6 +208,8 @@
     try { save(); } catch (error) { toast(error.message); }
     updateTabMetadata(ref);
   }
+  // A session's tab starts with its agent's logo; a Bot tab with the Bot.
+  const tabIcon = ref => ref.assistant ? assistantUI.tabIcon(ref) : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
   function updateTabMetadata(ref) {
     const current = allRefs().find(tab => L.identity(tab) === L.identity(ref));
     if (!current) return;
@@ -171,7 +217,7 @@
       if (tab.dataset.identity !== L.identity(ref)) continue;
       const label = tab.querySelector(".workspace-tab-label");
       label.title = `${current.title} · ${hostName(current.host)}`; label.setAttribute("aria-label", label.title);
-      label.replaceChildren(window.StepsembleAgentIdentity.create(document, current.agentId || "", true), node("span", current.title, "workspace-tab-title"));
+      label.replaceChildren(tabIcon(current), node("span", current.title, "workspace-tab-title"));
       const close = tab.lastElementChild; close.title = t("closeTab", { title: current.title }); close.setAttribute("aria-label", close.title);
     }
   }
@@ -303,6 +349,36 @@
       return true;
     } catch (error) { toast(error.message); return false; }
   }
+  // A Bot, a group or an Assistant page has one tab per computer: opening it
+  // again shows that tab, moved to the page that was asked for.
+  function openAssistant(target, route) {
+    const existing = WAM.findTab(allRefs(), target, route);
+    if (!existing) return open(assistantUI.ref(target, route));
+    const fresh = assistantUI.ref(target, route);
+    if (JSON.stringify(existing.assistant) !== JSON.stringify(fresh.assistant)) {
+      updateAssistantTab(existing, { route: fresh.assistant, title: fresh.title, avatar: fresh.avatar });
+      frames.get(L.identity(existing))?.frame.contentWindow?.postMessage({ type: "assistant-navigate", route: fresh.assistant }, location.origin);
+    }
+    return open(existing);
+  }
+  // A Bot tab says which page it shows; its label and the saved layout follow.
+  function updateAssistantTab(ref, { route, title, avatar }) {
+    let checked;
+    try { checked = L.reference({ host: ref.host, key: ref.key, title: String(title || "").replace(/\s+/g, " ").trim() || ref.title, assistant: route, avatar: avatar || undefined }); }
+    catch { return; }
+    const key = L.identity(ref);
+    let changed = false;
+    for (const tab of allRefs()) if (L.identity(tab) === key) {
+      if (JSON.stringify(tab.assistant) !== JSON.stringify(checked.assistant) || tab.title !== checked.title || tab.avatar !== checked.avatar) changed = true;
+      tab.assistant = checked.assistant; tab.title = checked.title;
+      if (checked.avatar) tab.avatar = checked.avatar; else delete tab.avatar;
+    }
+    const item = frames.get(key);
+    if (item) { item.ref = allRefs().find(tab => L.identity(tab) === key) || item.ref; item.frame.title = `${checked.title} · ${hostName(ref.host)}`; }
+    if (!changed) return;
+    try { save(); } catch (error) { toast(error.message); }
+    updateTabMetadata(ref); assistantUI.mark();
+  }
   function tabInsertionIndex(list, x) {
     const tabs = [...list.querySelectorAll(".workspace-tab")];
     const index = tabs.findIndex(tab => { const r = tab.getBoundingClientRect(); return x < r.left + r.width / 2; });
@@ -396,7 +472,10 @@
     const bounds = $("workspace-stage").getBoundingClientRect();
     for (const [key, item] of frames) {
       const slot = slots.get(key);
-      const visible = slot && slot.getClientRects().length && slot.getBoundingClientRect().width > 0;
+      const visible = !!(slot && slot.getClientRects().length && slot.getBoundingClientRect().width > 0);
+      // A Bot tab that is not shown stops counting as watching its chat, so
+      // the phone still hears about a reply there.
+      if (item.ref.assistant && item.frame.hidden === visible) item.frame.contentWindow?.postMessage({ type: "workspace-visibility", visible }, location.origin);
       item.frame.hidden = !visible;
       if (!visible) continue;
       const r = slot.getBoundingClientRect();
@@ -470,7 +549,7 @@
       if (frames.has(key)) { frames.get(key).frame.title = `${ref.title} · ${hostName(ref.host)}`; continue; }
       const frame = node("iframe", "", "workspace-frame"); frame.title = `${ref.title} · ${hostName(ref.host)}`;
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
-      frame.src = url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
+      frame.src = ref.assistant ? new URL(WAM.frameUrl(ref), location.origin).href : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
     }
     const shown = (maximized && L.leaves(tree).find(p => p.id === maximized)) || tree;
     const corners = cornerPanes(shown);
@@ -499,7 +578,7 @@
         // Every tab is the same width and starts with its agent's logo; the
         // conversation below it shows no title row of its own.
         const label = button("", () => selectTab(n.id, key), `${ref.title} · ${hostName(ref.host)}`, "btn workspace-tab-label");
-        label.append(window.StepsembleAgentIdentity.create(document, ref.agentId || "", true), node("span", ref.title, "workspace-tab-title"));
+        label.append(tabIcon(ref), node("span", ref.title, "workspace-tab-title"));
         tab.append(label, button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tablist.append(tab);
       }
       tablist.onscroll = reportDragRegions;
@@ -518,7 +597,7 @@
       // buttons costs every pane a strip of height that belongs to the
       // conversation, and these actions are occasional.
       const actions = [];
-      if (active(n)) actions.push([t("rename"), () => renameSession(active(n))]);
+      if (active(n) && !active(n).assistant) actions.push([t("rename"), () => renameSession(active(n))]);
       if (!mobile() && n.tabs.length) {
         for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) actions.push([label, () => {
           if (!active(n)) { toast(t("openFirst")); return; }
@@ -636,6 +715,7 @@
       if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
     if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
+    assistantUI.mark();
   }
   function sessionStatus(row, entry) {
     const indicator = row.querySelector(".workspace-session-status");
@@ -784,7 +864,8 @@
       // A closed window can retain an old tab in its saved layout. Reconcile
       // against membership when it opens again, without touching other hosts.
       const available = new Set(data.entries.map(entry => entry.key));
-      const stale = allRefs().filter(ref => ref.host === target && !available.has(ref.key));
+      // A Bot tab is not a session of the Host's list.
+      const stale = allRefs().filter(ref => ref.host === target && !ref.assistant && !available.has(ref.key));
       if (stale.length) { let next = tree; for (const ref of stale) next = L.remove(next, ref); commit(next); }
       setConnection(true, `${hostName(host)} · ${t("connected")}`);
       // A split pane may still show a conversation from another Host.
@@ -1273,6 +1354,18 @@
     }
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
     if (!item) return;
+    if (item.ref.assistant) {
+      const data = event.data || {};
+      if (data.type === "assistant-route" && data.route && typeof data.route === "object") updateAssistantTab(item.ref, { route: WAM.tabRoute(data.route), title: data.title, avatar: data.avatar });
+      if (data.type === "assistant-close") commit(L.remove(tree, item.ref));
+      if (data.type === "assistant-changed") {
+        const profile = typeof data.profile === "string" ? data.profile : null;
+        assistantUI.changed(profile);
+        if (profile) for (const tab of allRefs()) if (tab.assistant?.profile === profile) updateTabMetadata(tab);
+      }
+      // The tab that only signed in to Hermes has done its job.
+      if (data.type === "assistant-signed-in") { assistantUI.changed(); if (item.ref.assistant.page === "home") commit(L.remove(tree, item.ref)); }
+    }
     if (event.data?.type === "workspace-select-tab" && !item.frame.hidden) {
       const pane = L.leaves(tree).find(p => p.active === L.identity(item.ref));
       if (pane) selectAdjacentTab(event.data.direction, pane.id);
@@ -1326,6 +1419,7 @@
   }
   labelWorkflows();
   $("workspace-workflows").onclick = () => workflowUI.open("goals").catch(error => toast(error.message));
+  $("workspace-routines").onclick = () => { if (assistantUI.machine) openAssistant(assistantUI.machine.id, { page: "routines" }); };
   function showMobileList() {
     if (!mobile()) return;
     document.body.classList.remove("sidebar-hidden");
@@ -1407,7 +1501,7 @@
   });
   let wasMobile = mobile();
   window.addEventListener("resize", () => {
-    if (mobile() !== wasMobile) { wasMobile = mobile(); document.body.classList.remove("sidebar-hidden"); render(); }
+    if (mobile() !== wasMobile) { wasMobile = mobile(); document.body.classList.remove("sidebar-hidden"); setSidebarMode(preferredSidebar, false); render(); }
     else layoutFrames();
   });
   window.addEventListener("pagehide", () => { try { save(); } catch {} });
@@ -1424,13 +1518,7 @@
   function retryBoot() { clearTimeout(bootTimer); bootTimer = 0; void boot(); }
   // The assistant switch appears once any computer here runs Hermes. Older
   // Hosts without the route simply answer 404 and are skipped.
-  async function checkAssistant() {
-    for (const machine of machines) {
-      try {
-        if ((await api("/api/assistant/status", undefined, machine.id))?.installed === true) { $("workspace-mode").hidden = false; return; }
-      } catch {}
-    }
-  }
+  async function checkAssistant() { await assistantUI.discover(); }
   async function boot() {
     if (booted || booting) return;
     booting = true;
@@ -1453,6 +1541,7 @@
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }
       $("workspace-host").value = host;
       booted = true;
+      setSidebarMode(preferredSidebar, false);
       await refresh(); render(); void refreshUsage(); void checkAssistant();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);
@@ -1466,7 +1555,7 @@
   }
   function visibleSessions() {
     if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".wf-panel[open], .usage-panel[open]")) return [];
-    return [...frames.values()].filter(item => !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
+    return [...frames.values()].filter(item => !item.ref.assistant && !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
   }
   function openUsageIntent(value) {
     const target = typeof value.host === "string" && machines.some(m => m.id === value.host) ? value.host : host;

@@ -11,9 +11,12 @@ import { freePort, waitForServer, stopServer } from "./host-performance-baseline
 
 const require = createRequire(import.meta.url);
 const { createFakeHermesGateway } = require("../test-support/fake-hermes-gateway.cjs");
+const { createWorkspaceRegistry } = require("../server/workspace-registry");
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-export async function createAssistantPreview({ hermes = {} } = {}) {
+// tasks: finished agent tasks shown as Workspace sessions, so a Bot tab can sit
+// beside a coding session. Their output is fixed text; no agent runs.
+export async function createAssistantPreview({ hermes = {}, tasks = [] } = {}) {
   const fake = createFakeHermesGateway(hermes);
   await fake.start();
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-assistant-preview-"));
@@ -23,10 +26,20 @@ export async function createAssistantPreview({ hermes = {} } = {}) {
   const token = "assistant-preview-local-only";
   await fs.writeFile(path.join(config, "token"), token, { mode: 0o600 });
   await fs.writeFile(path.join(bin, "hermes"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  if (tasks.length) {
+    const project = path.join(home, "Projects", "Preview");
+    await fs.mkdir(project, { recursive: true });
+    const rows = tasks.map(({ id, agentId, name, text }) => ({ id, agentId, name, cwd: project, status: "completed", startedAt: Date.now() - 5000,
+      endedAt: Date.now() - 2000, outputTail: text, settledNotified: true }));
+    await fs.writeFile(path.join(config, "agent-tasks.json"), JSON.stringify({ tasks: rows }));
+    const registry = createWorkspaceRegistry(path.join(config, "workspaces.json"));
+    for (const row of rows) registry.remember(row);
+  }
   const port = await freePort();
   const child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: home, stdio: ["ignore", "pipe", "pipe"],
     env: { ...cleanEnvironment(home), PATH: `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`, PI_HOME: home, PI_BIN: path.join(home, "missing-pi"),
-      STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0", STEPSEMBLE_HERMES_URL: fake.url, STEPSEMBLE_HERMES_ACP: "0" } });
+      STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0", STEPSEMBLE_HERMES_URL: fake.url, STEPSEMBLE_HERMES_ACP: "0",
+      STEPSEMBLE_WORKSPACE_KEYCHAIN_USAGE: "0" } });
   try { await waitForServer(child, 20_000); } catch (error) {
     await stopServer(child);
     await fake.close();

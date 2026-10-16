@@ -11,8 +11,17 @@
   const shell = document.getElementById("assistant-main"), listPane = document.getElementById("assistant-list"), main = document.getElementById("assistant-view");
   const top = document.querySelector(".assistant-top"), machineSelect = document.getElementById("assistant-machine");
   const MACHINE_KEY = "stepsemble.assistant.machine", MAX_FILE = 10 * 1024 * 1024, MAX_FILES = 4;
+  // 嵌在 Workspace 的分頁裡：只顯示這個分頁的頁面，路由留在記憶體，
+  // 以訊息告訴 Workspace 目前的頁面、標題與頭像。
+  const embedded = new URLSearchParams(location.search).get("embed") === "1";
+  const WAM = window.StepsembleWorkspaceAssistantModel, workspace = embedded && window.parent !== window ? window.parent : null;
+  const tell = message => workspace?.postMessage(message, location.origin);
+  let shown = true;
+  document.body.classList.toggle("assistant-embedded", embedded);
   const asks = new Map(), avatars = new Map(), drafts = new Map(), sessionTitles = new Map(), groupDrafts = new Map();
+  // 同一個視窗的每個 Bot 分頁各自回報正在看哪個對話。
   const clientId = (() => {
+    if (embedded) return crypto.randomUUID();
     try { const saved = sessionStorage.getItem("stepsemble.assistant.client"); if (saved) return saved; } catch {}
     const id = crypto.randomUUID();
     try { sessionStorage.setItem("stepsemble.assistant.client", id); } catch {}
@@ -56,12 +65,12 @@
     document.body.classList.toggle("assistant-detail", !listPane.hidden && screen !== "roster");
   }
   function render(node) { main.replaceChildren(node); main.scrollTop = 0; layout(); }
-  function showList(on) { listPane.hidden = !on; layout(); }
+  function showList(on) { listPane.hidden = embedded || !on; layout(); }
   function messageView(title, body, { retry, home, docs } = {}) {
     const box = el("section", "assistant-card assistant-message"); box.append(el("h1", "", title));
     if (body) box.append(el("p", "", body));
     if (retry) box.append(button(t("retry"), "btn primary", retry));
-    if (home) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
+    if (home && !embedded) { const link = el("a", "btn ghost", t("workspace")); link.href = "/workspace.html"; box.append(link); }
     if (docs) { const link = el("a", "assistant-guide-link", t("guideDocs")); link.href = docs; link.target = "_blank"; link.rel = "noopener noreferrer"; box.append(link); }
     return box;
   }
@@ -76,7 +85,10 @@
   }
   function signInToStepsemble() {
     const params = new URLSearchParams(location.search), login = new URL("/index.html", location.origin);
-    login.searchParams.set("returnWorkspace", "1"); login.searchParams.set("assistant", "1");
+    login.searchParams.set("returnWorkspace", "1");
+    // 分頁不在框架裡打開登入頁：整個 Workspace 去登入，登入後回到 Workspace。
+    if (embedded) { (window.top || window).location.replace(login.href); return; }
+    login.searchParams.set("assistant", "1");
     for (const key of ["bot", "session", "view", "machine", "room", "panel"]) if (params.get(key)) login.searchParams.set(key, params.get(key));
     location.replace(login.href);
   }
@@ -94,12 +106,18 @@
     if (entry && (!drafts.get(entry.key)?.owner || drafts.get(entry.key).owner === entry)) drafts.set(entry.key, { text: entry.draft || "", attachments: entry.attachments, owner: entry });
   }
   function go(route) { navigation?.go({ ...route, machine: route.machine || machine?.id }); }
-  function showRoster() { go({ page: "home" }); }
+  // 分頁沒有自己的首頁：回到首頁的動作（取消、刪除、解散）關閉這個分頁。
+  function showRoster() { if (embedded) tell({ type: "assistant-close" }); else go({ page: "home" }); }
+  function report() {
+    if (!embedded || !navigation) return;
+    const route = navigation.current;
+    tell({ type: "assistant-route", route, title: WAM.title(route, { bots: allBots, groups: groupData.rooms, t }), avatar: WAM.avatarFor(route, allBots) || null });
+  }
   function openBot(profile, session, { title = "", tab: page = "bot" } = {}) {
     if (session && title) sessionTitles.set(session, title);
     go({ page: page === "chat" ? "bot" : page, profile, ...(session ? { session } : {}) });
   }
-  function openGroup(room) { go({ page: "group", room: room.id }); }
+  function openGroup(room) { tell({ type: "assistant-changed" }); go({ page: "group", room: room.id }); }
   function newGroup() { go({ page: "newgroup" }); }
   async function loadBots() {
     const owner = api, data = await owner.bots(); if (api !== owner) return;
@@ -113,10 +131,11 @@
   async function boot() {
     applyPreferences(); render(loadingView());
     try {
-      const rows = await Api.machines({ onSignedOut: signInToStepsemble });
-      const checked = await Promise.all(rows.map(async row => ({ ...row, status: await Api.create({ base: row.base }).status().catch(() => null) })));
+      const rows = await Api.machines({ onSignedOut: signInToStepsemble }), wanted = new URLSearchParams(location.search).get("machine");
+      // 分頁固定在它的電腦上，不改用其他裝了 Hermes 的電腦。
+      const checked = await Promise.all((embedded ? rows.filter(row => row.id === wanted) : rows).map(async row => ({ ...row, status: await Api.create({ base: row.base }).status().catch(() => null) })));
       let saved; try { saved = localStorage.getItem(MACHINE_KEY); } catch {}
-      const choice = M.chooseHermesMachine(checked, new URLSearchParams(location.search).get("machine") || saved);
+      const choice = M.chooseHermesMachine(checked, wanted || saved);
       machines = choice.choices;
       machineSelect.replaceChildren(...machines.map(row => { const option = el("option", "", row.name); option.value = row.id; return option; }));
       machineSelect.hidden = machines.length < 2;
@@ -141,18 +160,18 @@
       openSession: (profile, session, title) => openBot(profile, session, { title }) });
     const afterBots = action => {
       if (epoch !== startRevision) return;
-      void loadBots().then(() => { if (epoch === startRevision) action(); })
+      void loadBots().then(() => { if (epoch === startRevision) { action(); report(); tell({ type: "assistant-changed" }); } })
         .catch(error => { if (epoch === startRevision) toast(t("failed", { message: error.message })); });
     };
     manageView = window.StepsembleAssistantManage.create({ api, t, el, button, toast, M, machineName: () => machine?.name || "", bots: () => bots,
       onCreated: profile => afterBots(() => openBot(profile, null, { tab: "settings" })),
       onDeleted: () => afterBots(showRoster),
-      onChanged: profile => { if (epoch !== startRevision) return; avatars.delete(profile); afterBots(() => { refreshBotHead(profile); renderRoster(); }); } });
+      onChanged: profile => { if (epoch !== startRevision) return; avatars.delete(profile); tell({ type: "assistant-changed", profile }); afterBots(() => { refreshBotHead(profile); renderRoster(); }); } });
     consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, iconButton, toast, locale: prefs.locale,
       onBack: () => { if (history.length > 1) history.back(); else location.assign("/index.html?settings=1&section=connection"); } });
     if (!groupDrafts.has(next.id)) groupDrafts.set(next.id, new Map());
     groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots, drafts: groupDrafts.get(next.id),
-      onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) showRoster(); }); } });
+      onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) { tell({ type: "assistant-changed" }); showRoster(); } }); } });
     historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, M, locale: prefs.locale, showPanel,
       onSelect: (profile, row) => { if (epoch === startRevision) openBot(profile, row.id, { title: row.title }); } });
     render(loadingView());
@@ -169,11 +188,11 @@
       for (const ask of (await api.asks()).asks || []) asks.set(ask.id, ask);
       await Promise.all([loadBots(), loadGroups()]); if (epoch !== startRevision) return;
       if (!navigation) {
-        navigation = N.create({ onChange: route => { routeTask = applyRoute(route); } });
+        navigation = N.create({ window: embedded ? N.memoryWindow(location.href) : window, onChange: route => { routeTask = applyRoute(route); } });
         navigation.initialize(); await routeTask;
       } else await applyRoute(navigation.current);
       if (epoch !== startRevision) return;
-      if (!Guide.seen("intro") && navigation.current.page !== "console" && !document.querySelector(".assistant-intro")) {
+      if (!embedded && !Guide.seen("intro") && navigation.current.page !== "console" && !document.querySelector(".assistant-intro")) {
         closePanel(false);
         guideView.intro({ bots, avatar, onDone: () => {
           Guide.mark("intro");
@@ -224,7 +243,8 @@
   }
   function pageHead(title, back = () => navigation.back(), bot = null) {
     const head = el("header", "assistant-page-head");
-    head.append(iconButton("back", t("back"), "assistant-back", back));
+    // 分頁第一層的上一頁是分頁外的 Assistant 首頁，所以不放返回。
+    if (!embedded || N.ancestors(navigation.current).length > 2) head.append(iconButton("back", t("back"), "assistant-back", back));
     if (bot) head.append(avatar(bot));
     head.append(el("h1", "", title)); return head;
   }
@@ -258,6 +278,7 @@
     }
     if (screen === "roster") homeScroll = listPane.scrollTop;
     screen = route.page === "home" ? "roster" : route.page; tab = route.page === "bot" ? "chat" : route.page;
+    report();
     currentRoom = route.page === "group" ? route.room : null;
     showList(route.page !== "console"); layout();
     if (route.page !== "group") groupsView?.close();
@@ -283,7 +304,7 @@
         const room = groupData.rooms.find(row => row.id === route.room); if (!room) throw new Error(t("noGroups"));
         groupsView.view(main, room); renderRoster(); layout();
       } else if (route.page === "newgroup") { groupsView.picker(main, openGroup); renderRoster(); layout(); }
-      else if (route.page === "newbot") { manageView.creator(main, () => navigation.back()); renderRoster(); layout(); }
+      else if (route.page === "newbot") { manageView.creator(main, () => { if (embedded) showRoster(); else navigation.back(); }); renderRoster(); layout(); }
       else if (route.page === "bots") { renderManager(); renderRoster(); }
       else if (route.page === "pending") { render(pendingView()); renderRoster(); }
       else if (route.page === "routines") {
@@ -326,7 +347,7 @@
         if (chat?.profile === bot.name || navigation?.current.profile === bot.name) row.setAttribute("aria-current", "true");
         const copy = el("span", "assistant-bot-copy"), first = el("span", "assistant-bot-first");
         first.append(el("strong", "", bot.displayName), el("time", "", M.formatWhen(bot.botChat?.lastActive, Date.now(), prefs.locale)));
-        copy.append(first, el("small", "", bot.botChat?.preview || bot.description || ""));
+        copy.append(first, el("small", "", WAM.preview(bot.botChat?.preview) || bot.description || ""));
         const badge = el("span", "assistant-badge", String(waitingFor(bot.name))); badge.hidden = !waitingFor(bot.name);
         row.append(avatar(bot), copy, badge); const li = el("li"); li.append(row); list.append(li);
       }
@@ -428,6 +449,7 @@
       password.input.value = "";
       try {
         await api.login(username.input.value, secret);
+        tell({ type: "assistant-signed-in" });
         await start(machine);
       } catch (failure) {
         const key = { hermes_invalid_credentials: "wrongPassword", hermes_rate_limited: "rateLimited", hermes_oauth_only: "oauthOnly" }[failure.code];
@@ -645,7 +667,7 @@
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(async () => {
       try { await loadBots(); } catch { return; }
-      renderRoster();
+      renderRoster(); report(); tell({ type: "assistant-changed" });
     }, 600);
   }
 
@@ -690,13 +712,32 @@
   function watchNow() {
     clearTimeout(watchTimer);
     if (!api) return;
-    const visible = document.visibilityState === "visible";
+    const visible = document.visibilityState === "visible" && shown;
     void api.watch(clientId, visible && chat ? chat.sessionId : null).catch(() => {});
     if (visible && chat) watchTimer = setTimeout(watchNow, 20_000);
   }
 
   document.addEventListener("visibilitychange", watchNow);
-  navigator.serviceWorker?.addEventListener("message", event => {
+  // 在 Workspace 分頁裡：切換分頁、聚焦面板與 Workspace 的指示都經由訊息。
+  if (embedded) {
+    addEventListener("message", event => {
+      if (event.origin !== location.origin || event.source !== window.parent) return;
+      const data = event.data || {};
+      if (data.type === "workspace-detach") { stream?.close(); shown = false; watchNow(); }
+      if (data.type === "workspace-visibility") { shown = data.visible === true; watchNow(); }
+      if (data.type === "assistant-navigate" && navigation && data.route && typeof data.route === "object") {
+        const route = N.normalize({ ...data.route, machine: machine?.id });
+        if (route.page === data.route.page) go(route);
+      }
+    });
+    addEventListener("pointerdown", () => tell({ type: "workspace-focus" }), { passive: true });
+    addEventListener("keydown", event => {
+      if (event.isComposing || !event.metaKey || !event.altKey || event.ctrlKey || event.shiftKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      tell({ type: "workspace-select-tab", direction: event.key === "ArrowLeft" ? -1 : 1 });
+    }, true);
+  }
+  if (!embedded) navigator.serviceWorker?.addEventListener("message", event => {
     if (event.data?.type !== "STEPSEMBLE_OPEN_ASSISTANT" || typeof event.data.url !== "string") return;
     const url = new URL(event.data.url, location.origin);
     if (url.origin !== location.origin || url.pathname !== "/assistant.html" || !api) return;
