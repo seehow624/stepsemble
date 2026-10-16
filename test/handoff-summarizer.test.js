@@ -132,7 +132,7 @@ test("settings persist privately and are read back", async t => {
   const f = fixture(t);
   f.service.saveSettings({ agentId: "codex", model: "gpt-6-mini", effort: "medium" });
   assert.deepEqual(f.service.settings(), { agentId: "codex", model: "gpt-6-mini", effort: "medium" });
-  assert.equal(fs.statSync(path.join(f.dir, "handoff.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(f.dir, "handoff.json")).mode & 0o777, 0o600);
   f.service.saveSettings({ agentId: null }); assert.deepEqual(f.service.settings(), { agentId: null, model: null, effort: null });
 });
 
