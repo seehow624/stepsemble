@@ -7,6 +7,7 @@
 // model, skills, toolsets and MCP servers go through profiles.configure.
 
 const { HermesError } = require("./hermes-gateway-client");
+const { isPreset } = require("../public/modules/assistant-avatars");
 
 const PROFILE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const ANY_PROFILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -53,6 +54,7 @@ function createHermesBots({ client }) {
     return {
       name: profile, isDefault: listed.is_default === true, title: clip(meta.title, 80) || clip(listed.display_name, 80) || profile,
       color: COLOR.test(String(meta.color || "")) ? meta.color : null, hidden: meta.hidden === true, hasAvatar: listed.has_avatar === true,
+      avatarPreset: isPreset(meta.avatarPreset) ? meta.avatarPreset : null,
       description: clip(detail?.description, 500), soul: clip(detail?.soul, MAX_SOUL),
       model: { provider: clip(detail?.model?.provider, 100), model: clip(detail?.model?.default, 200) },
       skills: (Array.isArray(detail?.skills) ? detail.skills : []).map(skill => ({ name: clip(skill?.name, 128), enabled: skill?.enabled !== false })),
@@ -69,14 +71,16 @@ function createHermesBots({ client }) {
   async function configure(value, changes = {}) {
     const profile = profileName(value);
     const params = { name: profile };
-    const look = ["title", "color", "hidden"].filter(key => changes[key] !== undefined);
+    const look = ["title", "color", "hidden", "avatarPreset"].filter(key => changes[key] !== undefined);
     if (look.length) {
       if (changes.color !== undefined && changes.color !== null && !COLOR.test(String(changes.color))) throw invalid("invalid_color");
+      if (changes.avatarPreset !== undefined && changes.avatarPreset !== null && !isPreset(changes.avatarPreset)) throw invalid("invalid_avatar_preset");
       const { meta, revision } = await row(profile);
       const next = { ...meta };
       if (changes.title !== undefined) next.title = title(changes.title);
       if (changes.color !== undefined) { if (changes.color) next.color = changes.color; else delete next.color; }
       if (changes.hidden !== undefined) { if (changes.hidden === true) next.hidden = true; else delete next.hidden; }
+      if (changes.avatarPreset !== undefined) { if (changes.avatarPreset) next.avatarPreset = changes.avatarPreset; else delete next.avatarPreset; }
       params.ui_meta = { [META]: next };
       params.ui_meta_expected_revisions = { [META]: revision };
     }
@@ -131,6 +135,7 @@ function createHermesBots({ client }) {
     const match = IMAGE.exec(String(data || ""));
     if (!match || Buffer.byteLength(match[1], "base64") > MAX_IMAGE) throw invalid("invalid_image");
     await rpc("profiles.set_asset", { name: profile, asset: "avatar", data });
+    await configure(profile, { avatarPreset: null });
     return { ok: true };
   }
 

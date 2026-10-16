@@ -27,6 +27,7 @@ import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
 import { runAssistantBrowserCases } from "./assistant-browser-cases.mjs";
 import { runAssistantMobileBrowserCases } from "./assistant-mobile-browser-cases.mjs";
+import { runAssistantAvatarBrowserCases } from "./assistant-avatar-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
@@ -194,6 +195,7 @@ try {
     await runUsageBrowserCases(browser);
     await runAssistantBrowserCases(browser);
     await runAssistantMobileBrowserCases(browser);
+    await runAssistantAvatarBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
   else await runCodexHistoryBrowserCases(browser, historyHelper);
