@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.8
+
+- Add `/compact` to coding agent conversations. It asks the agent for its own compaction of the same conversation: Pi's RPC compaction, Claude Code's `/compact`, Codex's thread compaction, OpenCode's summarize, and the compaction command that Oh My Pi, Kilo, Cline or Grok Build advertises for the session. Pi and Claude Code also accept a note on what to keep, such as `/compact Keep the API decisions`.
+- Show the command disabled with its reason where the connection cannot compact natively, such as Google Antigravity's headless stream, terminal-only conversations, read-only history or a conversation a Goal owns. Hermes has no compaction command, and `/clear` and the other commands are unchanged.
+- Report success only on the agent's own completion evidence, and show token counts only when the agent reports them; Pi's post-compaction count is labelled as its estimate. The draft stays until the Host accepts the request, messages sent during compaction stay in the composer, and a retried request never compacts twice. A result the agent does not confirm is reported as unconfirmed and releases the conversation.
+- Verified with real Claude Code 2.1.295 and Codex 0.162.1 against a localhost model fixture, with no provider requests. The OpenCode and ACP paths are covered by protocol tests.
+
 ## 3.9.7
 
 - Replace the Assistant conversation's Back and History text actions with quiet line icons. Keep accessible names, hover hints and full-size touch targets without taking space from the Bot name.
