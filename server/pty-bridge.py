@@ -17,6 +17,7 @@ import signal
 import struct
 import sys
 import termios
+import time
 
 
 def set_window_size(fd: int) -> None:
@@ -45,6 +46,22 @@ def write_all(fd: int, data: bytes) -> bool:
     return True
 
 
+def stop_child(child_pid: int, grace: float = 2.0) -> int:
+    """Ask the agent to stop, then insist; return its wait status."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.kill(child_pid, sig)
+        except OSError:
+            pass
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            waited_pid, status = os.waitpid(child_pid, os.WNOHANG)
+            if waited_pid == child_pid:
+                return status
+            time.sleep(0.05)
+    return os.waitpid(child_pid, 0)[1]
+
+
 def main() -> int:
     if len(sys.argv) < 2 or not sys.argv[1]:
         print("stepsemble PTY bridge: executable path required", file=sys.stderr)
@@ -52,6 +69,7 @@ def main() -> int:
 
     executable = sys.argv[1]
     argv = [executable, *sys.argv[2:]]
+    parent_pid = os.getppid()
     child_pid, master_fd = pty.fork()
     if child_pid == 0:
         # The Node supervisor already sets cwd and environment.  execv keeps
@@ -75,6 +93,18 @@ def main() -> int:
         pass
 
     child_status = None
+    stopping = False
+    orphaned = False
+
+    # Input that can no longer reach the agent is no longer watched: a pipe at
+    # end of file stays readable, and watching it would spin forever.
+    def close_stdin():
+        nonlocal stdin_open
+        stdin_open = False
+        try:
+            selector.unregister(sys.stdin.fileno())
+        except Exception:
+            pass
 
     def close_pty():
         nonlocal pty_open
@@ -87,10 +117,14 @@ def main() -> int:
             pass
 
     def terminate_child(_signum, _frame):
-        try:
-            os.kill(child_pid, signal.SIGTERM)
-        except OSError:
-            pass
+        nonlocal stopping
+        stopping = True
+        # A reaped pid may already belong to another process.
+        if child_status is None:
+            try:
+                os.kill(child_pid, signal.SIGTERM)
+            except OSError:
+                pass
 
     signal.signal(signal.SIGTERM, terminate_child)
     signal.signal(signal.SIGINT, terminate_child)
@@ -103,6 +137,13 @@ def main() -> int:
                 waited_pid, status = os.waitpid(child_pid, os.WNOHANG)
                 if waited_pid == child_pid:
                     child_status = status
+            # Asked to stop with the agent already gone: nothing is left to wait for.
+            if stopping and child_status is not None:
+                break
+            # Nobody reads this terminal once the parent is gone.
+            if os.getppid() != parent_pid:
+                orphaned = True
+                break
 
             events = selector.select(0.15)
             if not events and child_status is not None:
@@ -134,9 +175,12 @@ def main() -> int:
                     if data:
                         if not write_all(sys.stdout.fileno(), data):
                             return 0
-                    elif child_status is not None:
+                    else:
+                        # The terminal is closed; the agent, if still alive,
+                        # is waited for without watching it.
                         close_pty()
-                        break
+                        if child_status is not None:
+                            break
                 elif key.data == "stdin" and stdin_open:
                     try:
                         data = os.read(sys.stdin.fileno(), 65536)
@@ -147,15 +191,11 @@ def main() -> int:
                     if data:
                         try:
                             if not write_all(master_fd, data):
-                                stdin_open = False
+                                close_stdin()
                         except OSError:
-                            stdin_open = False
+                            close_stdin()
                     else:
-                        stdin_open = False
-                        try:
-                            selector.unregister(sys.stdin.fileno())
-                        except Exception:
-                            pass
+                        close_stdin()
                         # EOF from the browser should behave like Ctrl-D, not
                         # keep a child alive forever waiting for more input.
                         try:
@@ -176,7 +216,7 @@ def main() -> int:
             pass
 
     if child_status is None:
-        _pid, child_status = os.waitpid(child_pid, 0)
+        child_status = stop_child(child_pid) if orphaned else os.waitpid(child_pid, 0)[1]
     if os.WIFEXITED(child_status):
         return os.WEXITSTATUS(child_status)
     if os.WIFSIGNALED(child_status):
