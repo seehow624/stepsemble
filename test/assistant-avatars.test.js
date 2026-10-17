@@ -20,15 +20,16 @@ function webp(file) {
   return { size: data.length, alpha: (data[20] & 0x10) !== 0, width: 1 + data.readUIntLE(24, 3), height: 1 + data.readUIntLE(27, 3) };
 }
 
-test("內建頭像分成 A–Z 毛絨字母、個性角色與元素精靈三類，共 46 款", () => {
+test("內建頭像以八款抽象精靈為首，保留毛絨字母、個性角色與元素精靈，共 54 款", () => {
   const A = library();
-  assert.deepEqual(A.groups.map(group => group.id), ["letters", "characters", "elements"]);
-  assert.deepEqual(A.groups.map(group => group.presets.length), [26, 10, 10]);
-  assert.deepEqual(A.groups[0].presets.map(preset => preset.name), [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"]);
-  assert.deepEqual(A.groups[1].presets.map(preset => preset.name), ["Atlas", "Pixel", "Nova", "Bolt", "Echo", "Orbit", "Muse", "Prism", "Buzz", "Ledger"]);
-  assert.deepEqual(A.groups[2].presets.map(preset => preset.name), ["metal", "wood", "water", "fire", "earth", "wind", "thunder", "ice", "light", "shadow"]);
+  assert.deepEqual(A.groups.map(group => group.id), ["abstract", "letters", "characters", "elements"]);
+  assert.deepEqual(A.groups.map(group => group.presets.length), [8, 26, 10, 10]);
+  assert.deepEqual(A.groups[0].presets.map(preset => preset.name), ["Void", "Mercury", "Fold", "Orbit", "Prism", "Ink", "Bloom", "Echo"]);
+  assert.deepEqual(A.groups[1].presets.map(preset => preset.name), [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"]);
+  assert.deepEqual(A.groups[2].presets.map(preset => preset.name), ["Atlas", "Pixel", "Nova", "Bolt", "Echo", "Orbit", "Muse", "Prism", "Buzz", "Ledger"]);
+  assert.deepEqual(A.groups[3].presets.map(preset => preset.name), ["metal", "wood", "water", "fire", "earth", "wind", "thunder", "ice", "light", "shadow"]);
   assert.deepEqual(A.presets, A.groups.flatMap(group => group.presets));
-  assert.equal(new Set(A.presets.map(preset => preset.id)).size, 46);
+  assert.equal(new Set(A.presets.map(preset => preset.id)).size, 54);
   for (const preset of A.presets) {
     assert.equal(A.isPreset(preset.id), true);
     assert.equal(A.groups.find(group => group.presets.includes(preset)).id, preset.group);
@@ -49,31 +50,31 @@ test("每款頭像都是本機的透明 WebP，大小有上限，資料夾沒有
   assert.deepEqual(fs.readdirSync(folder).sort(), A.presets.map(preset => `${preset.id}.webp`).sort());
 });
 
-test("沒選頭像時，英文字母開頭的名稱用同一個字母，其他名稱固定配一款角色或元素精靈", () => {
+test("預設從白色 Void 開始，依 Bot 序號循環使用八款頭像，不跟著顯示名稱改變", () => {
   const A = library();
-  assert.equal(A.defaultFor({ name: "default", displayName: "Luna" }), "letter-l");
-  assert.equal(A.defaultFor({ name: "x", displayName: "  Émile" }), "letter-e", "去掉重音符號後取字母");
-  assert.equal(A.defaultFor({ name: "image-artist" }), "letter-i", "沒有顯示名稱時看設定檔 ID");
-  assert.equal(A.defaultFor("hermes"), "letter-h");
-  const other = A.defaultFor({ name: "qa-reviewer", displayName: "審稿夥伴" });
-  assert.equal(other, A.defaultFor({ name: "qa-reviewer", displayName: "審稿夥伴" }), "同一個 Bot 每次都一樣");
-  const picked = new Set();
-  for (let index = 0; index < 200; index += 1) {
-    const id = A.defaultFor({ name: `bot-${index}`, displayName: `助理 ${index}` });
-    assert.match(id, /^(character|element)-/);
-    picked.add(id);
+  for (const bot of [undefined, "hermes", { name: "default", displayName: "Luna" }, { name: "唯一夥伴" }]) {
+    assert.equal(A.defaultFor(bot), "abstract-void");
   }
-  assert.ok(picked.size >= 15, "不同 Bot 會分散到不同角色與元素精靈");
-  assert.match(A.defaultFor({ name: "artist", displayName: "3D Artist" }), /^(character|element)-/, "開頭不是字母時不硬配字母");
+  const expected = ["void", "mercury", "fold", "orbit", "prism", "ink", "bloom", "echo"];
+  for (let avatarIndex = 0; avatarIndex < 24; avatarIndex += 1) {
+    const id = `abstract-${expected[avatarIndex % 8]}`;
+    assert.equal(A.defaultFor({ name: `bot-${avatarIndex}`, displayName: "Luna", avatarIndex }), id);
+    assert.equal(A.defaultFor({ name: `bot-${avatarIndex}`, displayName: "改名後", avatarIndex }), id);
+  }
+  for (const avatarIndex of [-1, 1.5, "2", null, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal(A.defaultFor({ avatarIndex }), "abstract-void");
+  }
 });
 
 test("舊版 20 款造型已移除；先前選過的舊造型改用預設頭像，自訂圖片保留", () => {
   const A = library();
   for (const old of ["orbit", "sprout", "pebble", "bloom", "cloud", "lumen"]) assert.equal(A.isPreset(old), false, old);
   assert.equal(A.svg, undefined, "不再內嵌向量圖");
-  assert.deepEqual(A.resolve({ name: "default", displayName: "Luna", avatarPreset: "orbit" }), { kind: "preset", id: "letter-l" });
+  assert.deepEqual(A.resolve({ name: "default", displayName: "Luna", avatarPreset: "orbit" }), { kind: "preset", id: "abstract-void" });
   assert.deepEqual(A.resolve({ name: "default", displayName: "Luna", avatarPreset: "orbit", hasAvatar: true }), { kind: "custom" });
-  assert.deepEqual(A.resolve({ name: "default", displayName: "Luna", avatarPreset: "element-fire", hasAvatar: true }), { kind: "preset", id: "element-fire" });
+  for (const avatarPreset of ["abstract-ink", "letter-l", "character-orbit", "element-fire"]) {
+    assert.deepEqual(A.resolve({ name: "default", avatarIndex: 0, avatarPreset, hasAvatar: true }), { kind: "preset", id: avatarPreset });
+  }
 });
 
 test("頭像識別不接受陣列、物件或任意標記，網址只指向內建檔案", () => {

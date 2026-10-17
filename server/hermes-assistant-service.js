@@ -10,7 +10,7 @@
 
 const { HermesError } = require("./hermes-gateway-client");
 const { isPreset } = require("../public/modules/assistant-avatars");
-const { displayNameOf } = require("./hermes-bots");
+const { displayNameOf, avatarIndexesFor } = require("./hermes-bots");
 const Media = require("../public/modules/assistant-media");
 
 const BOT_CHAT_TITLE = "Bot Chat";
@@ -306,7 +306,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
 
   async function bots() {
     const result = await client.request("profiles.list", { include_sessions: true }, { timeoutMs: 30_000 });
-    const rows = [];
+    const rows = [], avatarIndexes = avatarIndexesFor(result?.profiles);
     for (const row of Array.isArray(result?.profiles) ? result.profiles : []) {
       if (!row || typeof row.name !== "string" || !PROFILE.test(row.name)) continue;
       const meta = row.ui_meta && typeof row.ui_meta === "object" && row.ui_meta["hermes-bots"] && typeof row.ui_meta["hermes-bots"] === "object" ? row.ui_meta["hermes-bots"] : {};
@@ -315,7 +315,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
       botNames.set(row.name, displayName);
       rows.push({ name: row.name, displayName, description: clip(row.description, 500) || clip(meta.description, 500),
         isDefault: row.is_default === true, hidden: meta.hidden === true, hasAvatar: row.has_avatar === true, color: COLOR.test(String(meta.color || "")) ? meta.color : null,
-        avatarPreset: isPreset(meta.avatarPreset) ? meta.avatarPreset : null,
+        avatarPreset: isPreset(meta.avatarPreset) ? meta.avatarPreset : null, avatarIndex: avatarIndexes.get(row.name),
         model: clip(row.model, 200), provider: clip(row.provider, 100),
         botChat: chat ? { id: clip(chat.resolved_id, 200) || clip(chat.id, 200), preview: clip(chat.preview, 300), lastActive: count(chat.last_active) } : null });
     }

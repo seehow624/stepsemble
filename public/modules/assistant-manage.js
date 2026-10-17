@@ -170,8 +170,7 @@
         catch (error) { failed(error); }
         finally { savingAvatar = false; syncAvatar(); }
       }
-      // 三類各自成組，但共用同一組選項，方向鍵可以從字母一路選到元素精靈。
-      const titles = { letters: "avatarLetters", characters: "avatarCharacters", elements: "avatarElements" };
+      const titles = { abstract: "avatarAbstract", letters: "avatarLetters", characters: "avatarCharacters", elements: "avatarElements" };
       const label = preset => preset.group === "elements" ? t(`element${preset.name[0].toUpperCase()}${preset.name.slice(1)}`) : preset.name;
       for (const group of A.groups) {
         const box = el("div", "assistant-avatar-group"), heading = el("p", "assistant-avatar-group-title", t(titles[group.id])), grid = el("div", "assistant-avatar-grid");
@@ -218,7 +217,6 @@
         try {
           await api.configureBot(bot.name, changes);
           Object.assign(bot, { title: changes.title ?? bot.title, description: changes.description ?? bot.description, color: changes.color ?? bot.color });
-          // 沒選頭像時，預設字母跟著新名稱。
           if (changes.title) { bot.displayName = changes.title; syncAvatar(); }
           toast(t("saved"));
           onChanged(bot.name);

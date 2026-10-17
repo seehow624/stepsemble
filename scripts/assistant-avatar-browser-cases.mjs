@@ -7,6 +7,7 @@ import { createAssistantPreview } from "./assistant-preview.mjs";
 export async function runAssistantAvatarBrowserCases(browser, { screenshots } = {}) {
   for (const width of [393, 320, 1440]) {
     const preview = await createAssistantPreview({ hermes: { authRequired: false } });
+    preview.fake.state.profiles.splice(1);
     const context = await browser.newContext({ viewport: { width, height: width === 320 ? 640 : 900 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
     try {
       await context.addInitScript(() => {
@@ -16,6 +17,19 @@ export async function runAssistantAvatarBrowserCases(browser, { screenshots } = 
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      for (const name of ["zebra", "alpha", "yarrow", "bravo", "xray", "charlie", "willow"]) {
+        const created = await context.request.post(preview.origin + "/api/assistant/bot/create", { data: { fields: { name, title: name } } });
+        assert.equal(created.status(), 200);
+      }
+      await page.goto(preview.origin + "/assistant.html");
+      await page.locator("#assistant-list .assistant-bot-row").nth(7).waitFor();
+      assert.deepEqual(await page.locator("#assistant-list .assistant-bot-row .assistant-avatar").evaluateAll(nodes => nodes.map(node => node.dataset.avatarPreset)),
+        ["abstract-void", "abstract-mercury", "abstract-fold", "abstract-orbit", "abstract-prism", "abstract-ink", "abstract-bloom", "abstract-echo"]);
+      if (screenshots) {
+        await fs.mkdir(screenshots, { recursive: true });
+        await page.waitForFunction(() => [...document.querySelectorAll("#assistant-list .assistant-bot-row img")].every(img => img.naturalWidth > 0));
+        await page.screenshot({ path: path.join(screenshots, `assistant-avatar-roster-${width}.png`) });
+      }
       await page.goto(preview.origin + "/assistant.html?bot=default");
       await page.locator(".assistant-input").waitFor();
       for (const selector of [".assistant-back.to-list", ".assistant-header-action"]) {
@@ -31,28 +45,36 @@ export async function runAssistantAvatarBrowserCases(browser, { screenshots } = 
         return { background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow, preset: node.dataset.avatarPreset,
           src: new URL(img.src).pathname, imageRadius: getComputedStyle(img).borderTopLeftRadius };
       });
-      assert.deepEqual(frame, { background: "rgba(0, 0, 0, 0)", border: "0px", shadow: "none", preset: "letter-l",
-        src: "/assistant-avatars/v1/letter-l.webp", imageRadius: "0px" }, "Luna 沒選頭像時用毛絨字母 L，沒有底框也不裁圓角");
+      assert.deepEqual(frame, { background: "rgba(0, 0, 0, 0)", border: "0px", shadow: "none", preset: "abstract-void",
+        src: "/assistant-avatars/v1/abstract-void.webp", imageRadius: "0px" }, "第一個 Bot 用白色 Void，沒有底框也不裁圓角");
       await page.getByRole("button", { name: "More options", exact: true }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Settings", exact: true }).click();
-      await page.locator(".assistant-avatar-option").nth(45).waitFor();
-      assert.equal(await page.locator(".assistant-avatar-option input[type=radio]").count(), 46);
-      // 還沒選頭像：設定頁和名單算出同一個預設頭像；改名後預設字母跟著換。
-      await page.locator(".assistant-avatar-option input[value=letter-l]:checked").waitFor();
-      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "letter-l");
+      await page.locator(".assistant-avatar-option").nth(53).waitFor();
+      assert.equal(await page.locator(".assistant-avatar-option input[type=radio]").count(), 54);
+      await page.locator(".assistant-avatar-option input[value=abstract-void]:checked").waitFor();
+      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "abstract-void");
       const look = page.locator(".assistant-manage-section").first();
-      for (const [name, letter] of [["Ember", "letter-e"], ["Luna", "letter-l"]]) {
+      for (const name of ["Ember", "Luna"]) {
         await look.getByLabel("Name", { exact: true }).fill(name);
         await look.getByRole("button", { name: "Save", exact: true }).click();
-        await page.waitForFunction(id => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === id, letter);
-        await page.locator(`.assistant-avatar-option input[value=${letter}]:checked`).waitFor();
+        await page.waitForFunction(name => document.querySelector(".assistant-page-head")?.textContent.includes(name), name);
+        await page.locator(".assistant-avatar-option input[value=abstract-void]:checked").waitFor();
+        assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "abstract-void");
       }
       const groups = await page.locator(".assistant-avatar-group").evaluateAll(nodes => nodes.map(node => ({
         id: node.dataset.group, title: document.getElementById(node.getAttribute("aria-labelledby"))?.textContent, role: node.getAttribute("role"),
         count: node.querySelectorAll("input[type=radio]").length })));
-      assert.deepEqual(groups, [{ id: "letters", title: "Letters A–Z", role: "group", count: 26 }, { id: "characters", title: "Characters", role: "group", count: 10 },
+      assert.deepEqual(groups, [{ id: "abstract", title: "Abstract spirits", role: "group", count: 8 },
+        { id: "letters", title: "Letters A–Z", role: "group", count: 26 }, { id: "characters", title: "Characters", role: "group", count: 10 },
         { id: "elements", title: "Element spirits", role: "group", count: 10 }]);
-      for (const name of ["L", "Nova", "Fire", "Shadow"]) assert.equal(await page.getByRole("radio", { name, exact: true }).count(), 1, `${name} 需要可讀的名稱`);
+      assert.deepEqual(await page.locator('.assistant-avatar-group[data-group="abstract"] input').evaluateAll(nodes => nodes.map(node => node.value)),
+        ["abstract-void", "abstract-mercury", "abstract-fold", "abstract-orbit", "abstract-prism", "abstract-ink", "abstract-bloom", "abstract-echo"]);
+      for (const name of ["Void", "Mercury", "L", "Nova", "Fire", "Shadow"]) assert.equal(await page.getByRole("radio", { name, exact: true }).count(), 1, `${name} 需要可讀的名稱`);
+      if (screenshots) {
+        await fs.mkdir(screenshots, { recursive: true });
+        await page.locator(".assistant-manage-avatar").scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(screenshots, `assistant-avatar-default-${width}.png`) });
+      }
       if (width === 1440) for (const id of await page.locator(".assistant-avatar-option input").evaluateAll(nodes => nodes.map(node => node.value))) {
         const asset = await context.request.get(`${preview.origin}/assistant-avatars/v1/${id}.webp`);
         assert.equal(asset.status(), 200, id);
@@ -67,21 +89,21 @@ export async function runAssistantAvatarBrowserCases(browser, { screenshots } = 
         await page.locator(".assistant-avatar-option input:checked").waitFor();
         assert.equal(await page.locator(".assistant-avatar-option input:checked").inputValue(), id);
       };
-      await pick("character-nova");
-      assert.equal(preview.fake.state.profiles[0].ui_meta["hermes-bots"].avatarPreset, "character-nova");
+      for (const id of ["abstract-void", "abstract-mercury", "abstract-fold", "abstract-orbit", "abstract-prism", "abstract-ink", "abstract-bloom", "abstract-echo"]) await pick(id);
+      assert.equal(preview.fake.state.profiles[0].ui_meta["hermes-bots"].avatarPreset, "abstract-echo");
       await page.reload();
-      await page.locator(".assistant-avatar-option input[value=character-nova]:checked").waitFor();
-      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "character-nova");
+      await page.locator(".assistant-avatar-option input[value=abstract-echo]:checked").waitFor();
+      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "abstract-echo");
       await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar img")?.naturalWidth > 0);
       if (width === 393) {
         const ids = await page.locator(".assistant-avatar-option input").evaluateAll(nodes => nodes.map(node => node.value));
         for (const id of ids) await pick(id);
         await page.locator(".assistant-avatar-option input:checked").focus();
         await page.keyboard.press("ArrowRight");
-        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "letter-a");
-        assert.equal(await page.evaluate(() => document.activeElement.value), "letter-a", "儲存頭像後仍可繼續用方向鍵選擇，三類之間連續");
+        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "abstract-void");
+        assert.equal(await page.evaluate(() => document.activeElement.value), "abstract-void", "儲存頭像後仍可繼續用方向鍵選擇，四類之間連續");
         await page.keyboard.press("ArrowRight");
-        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "letter-b");
+        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "abstract-mercury");
       }
       await pick("character-nova");
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `assistant-avatar-picker-${width}.png`) }); }

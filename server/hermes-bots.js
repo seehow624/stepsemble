@@ -19,11 +19,25 @@ const MAX_SOUL = 256 * 1024, MAX_IMAGE = 2_000_000;
 const invalid = code => new HermesError(code, code, 400);
 const clip = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
 
-// The name a Bot goes by: its Bot Mode title, then Hermes's own display name;
-// the default Bot is called Hermes. The Bot list and the settings share this
-// rule, so both pick the same default avatar.
 function displayNameOf(row, meta = {}) {
   return clip(meta.title, 120) || clip(row.display_name, 120) || (row.is_default === true ? "Hermes" : row.name);
+}
+function avatarIndexesFor(profiles) {
+  const rows = (Array.isArray(profiles) ? profiles : []).filter(row => row && typeof row.name === "string" && ANY_PROFILE.test(row.name));
+  const indexes = new Map(), used = new Set();
+  for (const row of rows) {
+    const index = row.ui_meta?.[META]?.avatarIndex;
+    if (Number.isSafeInteger(index) && index >= 0) { indexes.set(row.name, index); used.add(index); }
+  }
+  // 舊設定檔不寫入 metadata，依固定順序補位；新增 Bot 已存的序號不會擠動它們。
+  rows.sort((a, b) => Number(b.is_default === true) - Number(a.is_default === true) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  let index = 0;
+  for (const row of rows) {
+    if (indexes.has(row.name)) continue;
+    while (used.has(index)) index += 1;
+    indexes.set(row.name, index); used.add(index++);
+  }
+  return indexes;
 }
 function profileIdFor(label) {
   return String(label || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64);
@@ -45,23 +59,24 @@ function names(list) {
 
 function createHermesBots({ client }) {
   const rpc = (method, params, timeoutMs = 30_000) => client.request(method, params, { timeoutMs });
+  let creating = Promise.resolve();
 
   async function row(profile) {
     const result = await rpc("profiles.list", { include_sessions: false });
     const found = (Array.isArray(result?.profiles) ? result.profiles : []).find(item => item?.name === profile);
     if (!found) throw new HermesError("hermes_not_found", `There is no Bot called ${profile}`, 404);
     const meta = found.ui_meta?.[META] && typeof found.ui_meta[META] === "object" ? found.ui_meta[META] : {};
-    return { row: found, meta, revision: Number(found.ui_meta_revisions?.[META]) || 0 };
+    return { row: found, meta, revision: Number(found.ui_meta_revisions?.[META]) || 0, avatarIndex: avatarIndexesFor(result.profiles).get(profile) };
   }
 
   async function describe(value) {
     const profile = profileName(value);
-    const [{ row: listed, meta }, detail] = await Promise.all([row(profile), rpc("profiles.describe", { name: profile })]);
+    const [{ row: listed, meta, avatarIndex }, detail] = await Promise.all([row(profile), rpc("profiles.describe", { name: profile })]);
     return {
       name: profile, isDefault: listed.is_default === true, title: clip(meta.title, 80) || clip(listed.display_name, 80) || profile,
       displayName: displayNameOf(listed, meta),
       color: COLOR.test(String(meta.color || "")) ? meta.color : null, hidden: meta.hidden === true, hasAvatar: listed.has_avatar === true,
-      avatarPreset: isPreset(meta.avatarPreset) ? meta.avatarPreset : null,
+      avatarPreset: isPreset(meta.avatarPreset) ? meta.avatarPreset : null, avatarIndex,
       description: clip(detail?.description, 500), soul: clip(detail?.soul, MAX_SOUL),
       model: { provider: clip(detail?.model?.provider, 100), model: clip(detail?.model?.default, 200) },
       skills: (Array.isArray(detail?.skills) ? detail.skills : []).map(skill => ({ name: clip(skill?.name, 128), enabled: skill?.enabled !== false })),
@@ -114,7 +129,13 @@ function createHermesBots({ client }) {
     return { ok: true, confirm: null };
   }
 
-  async function create({ name, title: label, description, soul, color, cloneFrom, model } = {}) {
+  function create(fields) {
+    // 建立與序號分配必須一起排隊，避免同時讀到相同的下一個序號。
+    const result = creating.then(() => createProfile(fields));
+    creating = result.catch(() => {});
+    return result;
+  }
+  async function createProfile({ name, title: label, description, soul, color, cloneFrom, model } = {}) {
     const profile = profileName(name, { strict: true });
     const shown = title(label || profile);
     if (color !== undefined && color !== null && color !== "" && !COLOR.test(String(color))) throw invalid("invalid_color");
@@ -126,9 +147,11 @@ function createHermesBots({ client }) {
       if (!NAME.test(String(model.provider)) || !NAME.test(String(model.model))) throw invalid("invalid_model");
       Object.assign(params, { provider: String(model.provider), model: String(model.model) });
     }
+    const listed = await rpc("profiles.list", { include_sessions: false });
+    const avatarIndex = Math.max(-1, ...avatarIndexesFor(listed?.profiles).values()) + 1;
     const result = await rpc("profiles.create", params, 120_000);
     const created = typeof result?.name === "string" && ANY_PROFILE.test(result.name) ? result.name : profile;
-    await rpc("profiles.configure", { name: created, ui_meta: { [META]: { title: shown, ...(color ? { color } : {}) } }, ui_meta_expected_revisions: { [META]: 0 } });
+    await rpc("profiles.configure", { name: created, ui_meta: { [META]: { title: shown, ...(color ? { color } : {}), avatarIndex } }, ui_meta_expected_revisions: { [META]: 0 } });
     return { name: created };
   }
 
@@ -170,4 +193,4 @@ function createHermesBots({ client }) {
   return Object.freeze({ describe, configure, create, avatar, setAvatar, remove, models });
 }
 
-module.exports = { createHermesBots, profileIdFor, displayNameOf };
+module.exports = { createHermesBots, profileIdFor, displayNameOf, avatarIndexesFor };

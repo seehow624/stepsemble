@@ -68,7 +68,7 @@ test("a Bot is created with its look, given an avatar, and deleted only by its e
   const created = await bots.create({ name: "research", title: "Research Buddy", description: "Finds papers", soul: "Cite sources.", color: "#22aa66", cloneFrom: "default" });
   assert.equal(created.name, "research");
   assert.deepEqual(fake.state.botCalls.find(call => call.method === "create"), { method: "create", name: "research", description: "Finds papers", soul: "Cite sources.", clone_from: "default" });
-  assert.deepEqual(fake.state.profiles.at(-1).ui_meta, { "hermes-bots": { title: "Research Buddy", color: "#22aa66" } });
+  assert.deepEqual(fake.state.profiles.at(-1).ui_meta, { "hermes-bots": { title: "Research Buddy", color: "#22aa66", avatarIndex: 3 } });
   await assert.rejects(bots.create({ name: "Bad Name", title: "x" }), error => error.code === "invalid_profile");
   await bots.setAvatar("research", PNG);
   assert.deepEqual(await bots.avatar("research"), { data: PNG });
@@ -120,6 +120,61 @@ test("Bot metadata 裡留著舊版造型時，名單與設定都當成沒有選�
   const service = createHermesAssistantService({ client, installed: () => true });
   assert.equal((await service.bots()).bots.find(item => item.name === "qa-reviewer").avatarPreset, null);
   assert.equal(fake.state.profiles.find(item => item.name === "qa-reviewer").ui_meta["hermes-bots"].avatarPreset, "orbit", "只讀取，不改寫 Hermes 的資料");
+});
+
+test("預設頭像在清單與設定頁一致，單一 Bot 用白色，新 Bot 依建立順序分配八款", async t => {
+  const { fake, bots, client } = await setup(t);
+  const A = require("../public/modules/assistant-avatars");
+  const { createHermesAssistantService } = require("../server/hermes-assistant-service");
+  const service = createHermesAssistantService({ client, installed: () => true });
+  fake.state.profiles.splice(1);
+  const original = structuredClone(fake.state.profiles);
+  assert.equal(A.defaultFor((await service.bots()).bots[0]), "abstract-void");
+  assert.equal(A.defaultFor(await bots.describe("default")), "abstract-void");
+  assert.deepEqual(fake.state.profiles, original, "讀取不會寫入 Hermes metadata");
+  for (const name of ["zebra", "alpha", "yarrow", "bravo", "xray", "charlie", "willow", "delta"]) {
+    await bots.create({ name, title: name });
+  }
+  const expected = ["void", "mercury", "fold", "orbit", "prism", "ink", "bloom", "echo", "void"];
+  for (const [index, row] of fake.state.profiles.entries()) {
+    const detail = await bots.describe(row.name);
+    const listed = (await service.bots()).bots.find(bot => bot.name === row.name);
+    assert.equal(detail.avatarIndex, index);
+    assert.equal(listed.avatarIndex, index);
+    assert.equal(A.defaultFor(detail), `abstract-${expected[index]}`);
+    assert.equal(A.defaultFor(listed), `abstract-${expected[index]}`);
+  }
+  await bots.configure("zebra", { title: "新名字", avatarPreset: "letter-z" });
+  fake.state.profiles.reverse();
+  assert.equal(A.defaultFor(await bots.describe("zebra")), "abstract-mercury");
+  assert.deepEqual(A.resolve(await bots.describe("zebra")), { kind: "preset", id: "letter-z" });
+  await bots.remove("alpha", "alpha");
+  assert.equal(A.defaultFor(await bots.describe("yarrow")), "abstract-orbit");
+  assert.equal((await bots.describe("default")).avatarIndex, 0);
+  assert.equal(fake.state.prompts.length, 0);
+});
+
+test("同時新增多個 Bot 仍依序分配，不會拿到重複的預設序號", async t => {
+  const { fake, bots } = await setup(t);
+  fake.state.profiles.splice(1);
+  const names = ["zebra", "alpha", "yarrow", "bravo", "xray", "charlie", "willow"];
+  await Promise.all(names.map(name => bots.create({ name, title: name })));
+  assert.deepEqual(fake.state.profiles.slice(1).map(row => row.ui_meta["hermes-bots"].avatarIndex), [1, 2, 3, 4, 5, 6, 7]);
+  await assert.rejects(bots.create({ name: "alpha" }));
+  await bots.create({ name: "next-bot" });
+  assert.equal((await bots.describe("next-bot")).avatarIndex, 8, "建立失敗後，後續 Bot 仍可建立");
+});
+
+test("舊 Bot 按穩定設定檔順序分配，新 Bot 不會讓既有預設頭像移位", async t => {
+  const { fake, bots, client } = await setup(t);
+  const { createHermesAssistantService } = require("../server/hermes-assistant-service");
+  const service = createHermesAssistantService({ client, installed: () => true });
+  const indexes = async () => Object.fromEntries((await service.bots()).bots.map(bot => [bot.name, bot.avatarIndex]));
+  assert.deepEqual(await indexes(), { default: 0, "qa-reviewer": 2, "image-artist": 1 });
+  await bots.create({ name: "aaa-first-alphabetically", title: "New Bot" });
+  assert.equal((await bots.describe("aaa-first-alphabetically")).avatarIndex, 3);
+  fake.state.profiles.reverse();
+  assert.deepEqual(await indexes(), { "aaa-first-alphabetically": 3, "image-artist": 1, "qa-reviewer": 2, default: 0 });
 });
 
 test("設定頁讀到的顯示名稱和名單一致，沒選頭像時兩邊算出同一個預設頭像", async t => {

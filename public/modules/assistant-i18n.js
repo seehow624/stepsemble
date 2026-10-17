@@ -605,19 +605,19 @@
     "it": ["Torna all’assistente", "Cronologia delle conversazioni", "Altre opzioni", "Cerca Bot o gruppi", "Gestisci Bot", "Bot Chat", "Oggi", "Ieri", "Prima", "{count} passaggi strumento completati", "In corso · {count} passaggi strumento", "Nessun risultato.", "Chiudi pannello", "Cronologia"],
   };
   const AVATAR_KEYS = ["presetAvatars", "useUploadedAvatar", "avatarLetters", "avatarCharacters", "avatarElements",
-    "elementMetal", "elementWood", "elementWater", "elementFire", "elementEarth", "elementWind", "elementThunder", "elementIce", "elementLight", "elementShadow"];
+    "elementMetal", "elementWood", "elementWater", "elementFire", "elementEarth", "elementWind", "elementThunder", "elementIce", "elementLight", "elementShadow", "avatarAbstract"];
   const avatarRows = {
-    "en": ["Default avatars", "Use uploaded image", "Letters A–Z", "Characters", "Element spirits", "Metal", "Wood", "Water", "Fire", "Earth", "Wind", "Thunder", "Ice", "Light", "Shadow"],
-    "zh-Hant": ["預設頭像", "使用已上傳圖片", "A–Z 字母", "個性角色", "元素精靈", "金", "木", "水", "火", "土", "風", "雷", "冰", "光", "暗"],
-    "zh-Hans": ["默认头像", "使用已上传图片", "A–Z 字母", "个性角色", "元素精灵", "金", "木", "水", "火", "土", "风", "雷", "冰", "光", "暗"],
-    "ja": ["標準アバター", "アップロードした画像を使う", "A–Z の文字", "キャラクター", "元素の精霊", "金", "木", "水", "火", "土", "風", "雷", "氷", "光", "闇"],
-    "ko": ["기본 아바타", "업로드한 이미지 사용", "A–Z 알파벳", "캐릭터", "원소 정령", "금", "나무", "물", "불", "흙", "바람", "번개", "얼음", "빛", "어둠"],
-    "tr": ["Varsayılan avatarlar", "Yüklenen resmi kullan", "A–Z harfler", "Karakterler", "Element ruhları", "Metal", "Ağaç", "Su", "Ateş", "Toprak", "Rüzgâr", "Gök gürültüsü", "Buz", "Işık", "Gölge"],
-    "fr": ["Avatars par défaut", "Utiliser l’image importée", "Lettres A–Z", "Personnages", "Esprits élémentaires", "Métal", "Bois", "Eau", "Feu", "Terre", "Vent", "Tonnerre", "Glace", "Lumière", "Ombre"],
-    "de": ["Standardavatare", "Hochgeladenes Bild verwenden", "Buchstaben A–Z", "Charaktere", "Elementargeister", "Metall", "Holz", "Wasser", "Feuer", "Erde", "Wind", "Donner", "Eis", "Licht", "Schatten"],
-    "es": ["Avatares predeterminados", "Usar imagen subida", "Letras A–Z", "Personajes", "Espíritus elementales", "Metal", "Madera", "Agua", "Fuego", "Tierra", "Viento", "Trueno", "Hielo", "Luz", "Sombra"],
-    "pt-BR": ["Avatares padrão", "Usar imagem enviada", "Letras A–Z", "Personagens", "Espíritos elementais", "Metal", "Madeira", "Água", "Fogo", "Terra", "Vento", "Trovão", "Gelo", "Luz", "Sombra"],
-    "it": ["Avatar predefiniti", "Usa l’immagine caricata", "Lettere A–Z", "Personaggi", "Spiriti elementali", "Metallo", "Legno", "Acqua", "Fuoco", "Terra", "Vento", "Tuono", "Ghiaccio", "Luce", "Ombra"],
+    "en": ["Default avatars", "Use uploaded image", "Letters A–Z", "Characters", "Element spirits", "Metal", "Wood", "Water", "Fire", "Earth", "Wind", "Thunder", "Ice", "Light", "Shadow", "Abstract spirits"],
+    "zh-Hant": ["預設頭像", "使用已上傳圖片", "A–Z 字母", "個性角色", "元素精靈", "金", "木", "水", "火", "土", "風", "雷", "冰", "光", "暗", "抽象精靈"],
+    "zh-Hans": ["默认头像", "使用已上传图片", "A–Z 字母", "个性角色", "元素精灵", "金", "木", "水", "火", "土", "风", "雷", "冰", "光", "暗", "抽象精灵"],
+    "ja": ["標準アバター", "アップロードした画像を使う", "A–Z の文字", "キャラクター", "元素の精霊", "金", "木", "水", "火", "土", "風", "雷", "氷", "光", "闇", "抽象の精霊"],
+    "ko": ["기본 아바타", "업로드한 이미지 사용", "A–Z 알파벳", "캐릭터", "원소 정령", "금", "나무", "물", "불", "흙", "바람", "번개", "얼음", "빛", "어둠", "추상 정령"],
+    "tr": ["Varsayılan avatarlar", "Yüklenen resmi kullan", "A–Z harfler", "Karakterler", "Element ruhları", "Metal", "Ağaç", "Su", "Ateş", "Toprak", "Rüzgâr", "Gök gürültüsü", "Buz", "Işık", "Gölge", "Soyut ruhlar"],
+    "fr": ["Avatars par défaut", "Utiliser l’image importée", "Lettres A–Z", "Personnages", "Esprits élémentaires", "Métal", "Bois", "Eau", "Feu", "Terre", "Vent", "Tonnerre", "Glace", "Lumière", "Ombre", "Esprits abstraits"],
+    "de": ["Standardavatare", "Hochgeladenes Bild verwenden", "Buchstaben A–Z", "Charaktere", "Elementargeister", "Metall", "Holz", "Wasser", "Feuer", "Erde", "Wind", "Donner", "Eis", "Licht", "Schatten", "Abstrakte Geister"],
+    "es": ["Avatares predeterminados", "Usar imagen subida", "Letras A–Z", "Personajes", "Espíritus elementales", "Metal", "Madera", "Agua", "Fuego", "Tierra", "Viento", "Trueno", "Hielo", "Luz", "Sombra", "Espíritus abstractos"],
+    "pt-BR": ["Avatares padrão", "Usar imagem enviada", "Letras A–Z", "Personagens", "Espíritos elementais", "Metal", "Madeira", "Água", "Fogo", "Terra", "Vento", "Trovão", "Gelo", "Luz", "Sombra", "Espíritos abstratos"],
+    "it": ["Avatar predefiniti", "Usa l’immagine caricata", "Lettere A–Z", "Personaggi", "Spiriti elementali", "Metallo", "Legno", "Acqua", "Fuoco", "Terra", "Vento", "Tuono", "Ghiaccio", "Luce", "Ombra", "Spiriti astratti"],
   };
   const FILE_KEYS = ["fileOpen", "fileDownload", "fileUnavailable"];
   const fileRows = {
