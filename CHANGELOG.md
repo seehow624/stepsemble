@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.17
+
+- Let a Claude Code or Codex conversation hold its agent process only while it works. Once a turn ends and nothing in it is running, the Host lets the process go; the history stays readable, a page showing the reply draws its end, and the next message starts the agent again on the same conversation and is sent once, without reloading the page. Opening a saved Claude Code conversation shows its history without starting Claude.
+- Keep a process while a turn, a permission or approval, a background task or subagent, a Goal or a compaction is in progress, or after Claude used `CronCreate`, `ScheduleWakeup` or `Monitor`, whose work lives in its process. The model, reasoning level and permission mode can be changed while no process runs and apply to the next one; a chosen alias such as `opus[1m]` is kept. `STEPSEMBLE_IDLE_RELEASE_SECONDS` sets a delay, and `off` restores the previous behavior.
+- Allow eight working Claude Code conversations and eight working Codex threads at once, instead of four opened ones. When every Claude slot is working, a message stays in the composer with its draft and a localized note. The Claude desktop helper reports this capacity, and an older helper is reinstalled after the update once no Claude conversation is working.
+- Reopen sessions that stayed unavailable after a Host restart: a Codex thread whose app-server never became ready now reads its saved history and gets a new app-server with its next message, and a Claude conversation refused for capacity opens from its history instead of failing.
+- Show each subagent's execution tool (such as Claude Code, Codex or Pi Agent), reported model and thinking mode in the subagent list and detail panel, with Not provided for values an agent does not report.
+
 ## 3.9.16
 
 - Keep Bot photos visible in the conversation at their original aspect ratio, with a click opening the full original image. Put icon-only Open, Download and Share controls above photos and on document cards, with accessible names and localized tooltips in all 11 languages.
