@@ -484,6 +484,17 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 .session-ref-meta { margin: 0 0 10px; color: var(--pine-soft); font-size: 12.5px; }
 .session-ref-editor { box-sizing: border-box; width: 100%; min-height: 40vh; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; font-size: 13px; resize: vertical; }
 .session-ref-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.session-ref-search { box-sizing: border-box; width: 100%; margin: 8px 0 6px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; font-size: 14px; }
+.session-ref-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.session-ref-pick-status { min-height: 1.2em; margin: 2px 2px 6px; color: var(--pine-soft); font-size: 12.5px; }
+.session-ref-pick-status:empty { display: none; }
+.session-ref-pick-list { display: grid; gap: 2px; max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.session-ref-pick { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.session-ref-pick strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 600; }
+.session-ref-pick small { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pine-soft); font-size: 12px; }
+.session-ref-pick:hover:not(:disabled), .session-ref-pick:focus-visible { background: var(--bubble-user); outline: none; }
+.session-ref-pick:disabled { cursor: default; opacity: .6; }
+.session-ref-pick-added { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--pine-soft); font-size: 12px; }
 @media (max-width: 700px) {
   .subagent-drawer { top: auto; left: 0; width: auto; max-height: 85vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -12px 32px rgba(0, 0, 0, .14); }
 }
@@ -2354,6 +2365,8 @@ html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { anima
 }
 .agent-task-center-empty { margin: 24px 0; color: var(--pine-soft); font-size: 12px; text-align: center; }
 .agent-approval-card { display: grid; gap: 7px; min-width: min(100%, 420px); padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--accent) 44%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 7%, var(--paper)); }
+.agent-approval-from { display: block; margin: 2px 0 4px; color: var(--pine-soft); font-size: .76rem; }
+.agent-approval-from[hidden] { display: none; }
 .agent-approval-card strong { font-size: 12px; }
 .agent-approval-card p { margin: 0; color: var(--ink-soft); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .agent-approval-card small { color: var(--pine-soft); font-size: 10.5px; }
@@ -6164,6 +6177,13 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 #view-chat .context-ring-btn::after { content: ""; position: absolute; inset: -4px; }
 
 #view-chat .approval-control { position: relative; min-width: 0; flex: 0 1 auto; display: flex; }
+#view-chat .composer-add { position: relative; flex: 0 0 auto; display: flex; }
+#view-chat .composer-add.hidden, #view-chat .composer-add-menu.hidden { display: none; }
+#view-chat .composer-add-menu { position: absolute; left: -4px; bottom: calc(100% + 10px); z-index: 30; display: grid; gap: 2px; min-width: 220px; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); box-shadow: 0 16px 40px rgba(0,0,0,.28); }
+#view-chat .composer-add-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); font: inherit; font-size: .84rem; text-align: left; white-space: nowrap; cursor: pointer; }
+#view-chat .composer-add-item:hover, #view-chat .composer-add-item:focus-visible { background: var(--bubble-user); outline: none; }
+#view-chat .composer-add-item.hidden { display: none; }
+#view-chat .composer-add-item .icon { width: 17px; height: 17px; flex: 0 0 auto; color: var(--pine-soft); }
 #view-chat .approval-control.hidden { display: none; }
 #view-chat .composer-approval {
   position: relative;

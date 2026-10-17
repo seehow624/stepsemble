@@ -50,10 +50,22 @@ record does not hold.
 ## Codex connection
 
 A Codex sub-agent's notifications and approval requests arrive on the parent's
-app-server connection under the child thread's id. The Host reports them as
-subagent events instead of failing the parent connection. Stepsemble cannot yet
-answer a sub-agent's approval: the request is declined and its detail panel
+app-server connection under the child thread's id. The Host reports the
+notifications as subagent events instead of failing the parent connection.
+
+A sub-agent's approval request (a command, a file change or a permission) is
+shown in the parent conversation as an approval card that names the sub-agent
+asking ("Requested by subagent Kant"). The answer goes back on the same
+connection to that request, and Codex's closure of the request is matched to
+the sub-agent's thread. A Goal counts the wait as an approval wait of its own
+conversation. A request that cannot be shown, such as one missing its item, is
+declined at once so the sub-agent does not wait forever, and its detail panel
 says so.
+
+Verified with real Codex 0.163.0 against a localhost model fixture: a
+sub-agent asked for an escalated command, a denial reached Codex as "rejected
+by user", an approval ran the command, and the parent's turn completed in both
+cases.
 
 ## Host interface
 

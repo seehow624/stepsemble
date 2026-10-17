@@ -94,3 +94,57 @@ test("the plain digest lists each turn's request, the files touched and the last
   assert.match(text, /2\. 好/); assert.match(text, /src\/auth\.js/); assert.match(text, /test\/login\.test\.js/); assert.doesNotMatch(text, /npm test/, "commands are not files");
   assert.match(text, /Stored the URL in the session; tests pass\./); assert.doesNotMatch(text, /Looking\./);
 });
+
+const piEntry = (id, parentId, role, text, extra = {}) => ({ type: "message", id, parentId, message: { role, content: [{ type: "text", text }] }, ...extra });
+test("Pi: the turns a compaction kept are sent in full, and only the turns before its kept boundary count as summarized", async () => {
+  const { transcripts } = fixture({ agentId: "pi", file: "kept.jsonl" }, { pi: { "kept.jsonl": piLines([
+    { type: "session", id: "s" },
+    piEntry("u1", null, "user", "Old request"), piEntry("a1", "u1", "assistant", "Old answer"),
+    piEntry("u2", "a1", "user", "Recent request the compaction kept"), piEntry("a2", "u2", "assistant", "Recent answer it kept"),
+    { type: "compaction", id: "c1", parentId: "a2", summary: "Earlier: the old request.", firstKeptEntryId: "u2", tokensBefore: 9000 },
+  ]) } });
+  const value = await transcripts.read(KEY);
+  assert.deepEqual(value.nativeSummary, { text: "Earlier: the old request.", throughTurn: 1 });
+  const text = render(value);
+  assert.match(text, /Recent request the compaction kept/); assert.match(text, /Recent answer it kept/); assert.doesNotMatch(text, /Old answer/);
+  assert.equal(chunks(value, { maxChars: 120000 }).length, 1, "the kept turn still needs summarizing");
+});
+
+test("Pi: only the active branch is read; an abandoned branch and its compaction stay out", async () => {
+  const { transcripts } = fixture({ agentId: "pi", file: "tree.jsonl" }, { pi: { "tree.jsonl": piLines([
+    { type: "session", id: "s" },
+    piEntry("u1", null, "user", "Start"), piEntry("a1", "u1", "assistant", "Two ways to go"),
+    piEntry("u2", "a1", "user", "Try the abandoned way"), piEntry("a2", "u2", "assistant", "Abandoned work"),
+    { type: "compaction", id: "c-old", parentId: "a2", summary: "Summary of the abandoned branch", firstKeptEntryId: "u2" },
+    { type: "branch_summary", id: "b1", parentId: "a1", summary: "Tried the other way; it broke the tests.", fromId: "c-old" },
+    piEntry("u3", "b1", "user", "Take the kept way"), piEntry("a3", "u3", "assistant", "Kept work"),
+  ]) } });
+  const value = await transcripts.read(KEY);
+  const text = render(value);
+  assert.deepEqual(value.turns.map(turn => turn.user), ["Start", "Take the kept way"]);
+  assert.doesNotMatch(text, /Abandoned work|Summary of the abandoned branch/); assert.equal(value.nativeSummary, null);
+  assert.match(text, /Tried the other way; it broke the tests\./, "the branch summary on the path is kept as context");
+});
+
+test("Pi: a compaction that kept nothing covers every turn before it", async () => {
+  const { transcripts } = fixture({ agentId: "pi", file: "none.jsonl" }, { pi: { "none.jsonl": piLines([
+    { type: "session", id: "s" }, piEntry("u1", null, "user", "Request"), piEntry("a1", "u1", "assistant", "Answer"),
+    { type: "compaction", id: "c1", parentId: "a1", summary: "All of it.", firstKeptEntryId: "c1" },
+  ]) } });
+  const value = await transcripts.read(KEY);
+  assert.deepEqual(value.nativeSummary, { text: "All of it.", throughTurn: 1 }); assert.equal(chunks(value, { maxChars: 120000 }).length, 0);
+});
+
+test("Claude Code: the catalog's tool calls join the reply they follow, so the digest can list the files", async () => {
+  const { digest } = require("../server/session-transcript");
+  const id = "11111111-2222-4333-8444-555555555555";
+  const { transcripts } = fixture({ agentId: "claude-code", nativeSessionId: id, cwd: "/owned" }, { catalog: { [`claude-history:${id}`]: {
+    kind: "native_history_transcript", messages: [{ role: "user", text: "Fix the login redirect" }, { role: "assistant", text: "Looking." }, { role: "assistant", text: "Fixed." }],
+    tools: [{ name: "Read", input: { file_path: "/owned/src/auth.js" }, output: "x".repeat(5000), after: 1 }, { name: "Edit", input: { file_path: "/owned/src/auth.js" }, after: 2 },
+      { name: "Bash", input: { command: "npm test" }, after: 2 }, { name: "Read", input: { file_path: "/owned/early.js" }, after: 0 }] } } });
+  const value = await transcripts.read(KEY);
+  assert.deepEqual(value.turns[0].tools, ["Read /owned/src/auth.js", "Edit /owned/src/auth.js", "Bash npm test"]);
+  assert.deepEqual(value.turns[0].replies, ["Looking.", "Fixed."]);
+  assert.doesNotMatch(render(value), /xxxx/, "tool output is never copied");
+  assert.match(digest(value), /Files touched:\n- \/owned\/src\/auth\.js/);
+});

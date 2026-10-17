@@ -259,7 +259,13 @@
           <textarea id="input" rows="1" placeholder="Write a message…" data-i18n-placeholder-key="agentHub.messagePlaceholder"></textarea>
         </div>
         <div class="composer-toolbar" aria-label="Conversation tools">
-          <button id="btn-img" class="btn ghost icon-btn composer-icon-btn" title="Add attachment" aria-label="Add attachment"><svg class="icon"><use href="#i-plus"></use></svg></button>
+          <div id="composer-add" class="composer-add">
+            <button id="btn-img" class="btn ghost icon-btn composer-icon-btn" title="Add attachment" aria-label="Add attachment"><svg class="icon"><use href="#i-plus"></use></svg></button>
+            <div id="composer-add-menu" class="composer-add-menu hidden" role="menu" aria-labelledby="btn-img" data-i18n-ignore>
+              <button type="button" class="composer-add-item" role="menuitem" data-add="images"><svg class="icon" aria-hidden="true"><use href="#i-image"></use></svg><span>Add images</span></button>
+              <button type="button" class="composer-add-item" role="menuitem" data-add="reference"><svg class="icon" aria-hidden="true"><use href="#i-link"></use></svg><span>Reference a session…</span></button>
+            </div>
+          </div>
           <div id="approval-control" class="approval-control hidden">
             <button id="btn-approval" class="composer-approval" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="approval-menu"><svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg><span id="approval-label" class="composer-approval-label" data-i18n-ignore></span><svg class="icon composer-approval-chevron" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
             <div id="approval-menu" class="approval-menu hidden" role="menu" aria-labelledby="approval-menu-title">

@@ -18,11 +18,23 @@ const ACTIVE = new Set(["queued", "running"]);
 const DEFAULTS = Object.freeze({ chunkChars: 120000, confirmTokens: 300000, timeoutMs: 10 * 60 * 1000, maxOutput: 4 * 1024 * 1024, concurrency: 2, cacheSize: 50, jobs: 100 });
 const failure = (code, statusCode = 409, message = code) => Object.assign(new Error(message), { code, statusCode });
 
-function commandFor(agentId, { command, model = null, effort = null }) {
+// `codex features list`: name, stage, enabled. A removed feature is gone.
+function parseCodexFeatures(text) {
+  const names = new Set();
+  for (const line of String(text || "").split("\n")) {
+    const match = /^([a-z0-9_]+)\s+(.+?)\s+(?:true|false)\s*$/.exec(line.trim());
+    if (match && match[2] !== "removed") names.add(match[1]);
+  }
+  return names;
+}
+
+// features: the names this Codex knows. Codex refuses to start when told to
+// turn off a feature it does not have, and the list changes between versions.
+function commandFor(agentId, { command, model = null, effort = null, features = null }) {
   if (agentId === "claude-code") return { file: command, args: ["-p", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--output-format", "json",
     ...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : [])] };
   if (agentId === "codex") return { file: command, args: ["exec", "--ephemeral", "--skip-git-repo-check", "--ignore-rules", "-s", "read-only", "--json",
-    ...CODEX_OFF.flatMap(name => ["--disable", name]), "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
+    ...CODEX_OFF.filter(name => !features || features.has(name)).flatMap(name => ["--disable", name]), "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
     ...(model ? ["-m", model] : []), ...(effort ? ["-c", `model_reasoning_effort="${effort}"`] : []), "-"] };
   if (agentId === "pi") return { file: command, rpc: true, args: ["--mode", "rpc", "--no-session", "--no-tools", "--no-extensions", "--no-mcp", "--no-skills",
     ...(model ? ["--model", model] : []), ...(effort ? ["--thinking", effort] : [])] };
@@ -113,7 +125,7 @@ function createHandoffSummarizer({ transcripts, resolve, configFile, commands, i
   }
   function runOnce(job, input) {
     return new Promise((resolve, reject) => {
-      const command = commandFor(job.agentId, { command: commands()[job.agentId], model: job.model, effort: job.effort });
+      const command = commandFor(job.agentId, { command: commands()[job.agentId], model: job.model, effort: job.effort, features: job.codexFeatures || null });
       if (!command.file) { reject(failure("summarizer_unavailable")); return; }
       let cwd;
       if (workdir) { fs.mkdirSync(workdir, { recursive: true, mode: 0o700 }); cwd = workdir; }
@@ -144,10 +156,32 @@ function createHandoffSummarizer({ transcripts, resolve, configFile, commands, i
       else child.stdin.end(input);
     });
   }
+  // What this Codex executable can turn off, kept until the file changes. A
+  // Codex that cannot say is refused: running it would leave its tools on.
+  const featureCache = new Map();
+  function codexFeatures(command) {
+    let stamp = ""; try { stamp = String(fs.statSync(command).mtimeMs); } catch {}
+    const key = command + "\n" + stamp;
+    if (featureCache.has(key)) return featureCache.get(key);
+    const pending = new Promise((resolve, reject) => {
+      let stdout = "", child = null, done = false;
+      const end = (error, value) => { if (done) return; done = true; clearTimeout(timer); if (error) { featureCache.delete(key); reject(error); } else resolve(value); };
+      const timer = setTimeout(() => { try { child?.kill(); } catch {} end(failure("summarizer_codex_features", 502)); }, 15000);
+      try { child = spawnImpl(command, ["features", "list"], { cwd: os.tmpdir(), env: env("codex"), stdio: ["pipe", "pipe", "pipe"], shell: false, windowsHide: true }); }
+      catch { end(failure("summarizer_codex_features", 502)); return; }
+      child.stdout?.on("data", chunk => { stdout += chunk; if (stdout.length > 1024 * 1024) { try { child.kill(); } catch {} end(failure("summarizer_codex_features", 502)); } });
+      child.once("error", () => end(failure("summarizer_codex_features", 502)));
+      child.once("close", code => { const names = parseCodexFeatures(stdout); if (code === 0 && names.size) end(null, names); else end(failure("summarizer_codex_features", 502)); });
+      try { child.stdin?.end(); } catch {}
+    });
+    featureCache.set(key, pending);
+    return pending;
+  }
   async function work(job) {
     running++;
     try {
       job.status = "running";
+      if (job.agentId === "codex") job.codexFeatures = await codexFeatures(commands().codex);
       let summary = job.value.nativeSummary?.text || "";
       for (const [index, part] of job.parts.entries()) {
         if (job.cancelled) throw failure("summarizer_cancelled");
@@ -230,4 +264,4 @@ function createHandoffRoutes({ service, readJSON, sendJSON, agents }) {
   };
 }
 
-module.exports = { createHandoffSummarizer, createHandoffRoutes, commandFor, parseOutput, AGENTS };
+module.exports = { createHandoffSummarizer, createHandoffRoutes, commandFor, parseOutput, parseCodexFeatures, AGENTS };

@@ -4,9 +4,11 @@
   "use strict";
   const MAX=3, ACTIVE=new Set(["starting","running","queued"]), DONE=new Set(["completed"]);
   const codeOf=error=>{const code=error?.code||error?.data?.code||error?.message;return typeof code==="string"&&/^[a-z_]+$/.test(code)?code:"reference_failed";};
-  function create({document,container,request,getContext,t,reason=code=>t(code),schedule=fn=>setTimeout(fn,1500),cancel=id=>clearTimeout(id),onChange=()=>{}}){
+  // listSessions: the Host's other sessions for the picker, the way to add a
+  // reference without dragging (keyboard, phone).
+  function create({document,container,request,getContext,t,reason=code=>t(code),schedule=fn=>setTimeout(fn,1500),cancel=id=>clearTimeout(id),onChange=()=>{},listSessions=null}){
     const el=(tag,cls="",text="")=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text)node.textContent=text;return node;};
-    let refs=[],stamp=null,waiters=[],dialog=null;
+    let refs=[],stamp=null,waiters=[],dialog=null,picker=null;
     const fenceOf=()=>{const context=getContext();return `${context.context||""}\n${context.entry||""}`;};
     // A conversation switch leaves the old draft's references behind.
     function sync(){const current=fenceOf();if(stamp!==null&&stamp!==current&&refs.length){for(const ref of refs)stop(ref);refs=[];settle();}stamp=current;}
@@ -59,7 +61,7 @@
       refs.push(ref);void start(ref);return {added:true};
     }
     function remove(key){const ref=refs.find(item=>item.key===key);if(!ref)return;stop(ref);refs=refs.filter(item=>item!==ref);changed();}
-    function clear(){for(const ref of refs)stop(ref);refs=[];dialog?.close?.();changed();}
+    function clear(){for(const ref of refs)stop(ref);refs=[];dialog?.close?.();picker?.close?.();changed();}
     function count(){sync();return refs.length;}
     function ready(){sync();return refs.every(ref=>DONE.has(ref.state));}
     function whenReady(){sync();return new Promise(resolve=>{waiters.push(resolve);settle();});}
@@ -80,6 +82,43 @@
       dialog.replaceChildren(el("h2","",`${t("previewTitle")} · ${ref.title}`),el("p","session-ref-meta",meta),editor,actions);
       dialog.showModal?.();editor.focus?.();
     }
+    function available(){return typeof listSessions==="function";}
+    async function pick(){
+      if(!available())return;
+      sync();const fence=fenceOf(),self=getContext().entry;
+      if(!picker){picker=el("dialog","session-ref-dialog session-ref-picker");document.body.append(picker);}
+      const search=el("input","session-ref-search");search.type="search";search.placeholder=t("pickSearch");search.setAttribute("aria-label",t("pickSearch"));
+      const status=el("p","session-ref-pick-status");status.setAttribute("role","status");
+      const list=el("div","session-ref-pick-list");
+      const dismiss=button("btn ghost session-ref-close",t("close"),()=>picker.close());
+      const actions=el("div","session-ref-actions");actions.append(dismiss);
+      picker.replaceChildren(el("h2","",t("pickTitle")),search,status,list,actions);
+      let sessions=[];
+      const draw=()=>{
+        const query=String(search.value||"").trim().toLowerCase();
+        const shown=sessions.filter(row=>!query||[row.title,row.agentLabel,row.agentId,row.cwd].some(value=>String(value||"").toLowerCase().includes(query)));
+        list.replaceChildren(...shown.map(row=>{
+          const added=refs.some(ref=>ref.key===row.key);
+          const item=button("session-ref-pick","",()=>{
+            const result=add(row);
+            if(result.added)picker.close();else status.textContent=t(result.reason==="unsupported"?"reference_source_unavailable":result.reason);
+          });
+          item.append(el("strong","",row.title||row.key.slice(0,8)),el("small","",[row.agentLabel||row.agentId,row.cwd].filter(Boolean).join(" · ")));
+          if(added){item.disabled=true;item.append(el("span","session-ref-pick-added",t("added")));}
+          return item;
+        }));
+        if(!sessions.length)status.textContent=t("pickEmpty");
+      };
+      search.addEventListener("input",draw);
+      status.textContent=t("pickLoading");
+      picker.showModal?.();search.focus?.();
+      try{
+        const rows=await listSessions();
+        if(fence!==fenceOf())return;
+        sessions=(Array.isArray(rows)?rows:[]).filter(row=>row?.key&&row.key!==self);
+        status.textContent="";draw();
+      }catch{if(fence===fenceOf())status.textContent=t("pickFailed");}
+    }
     function button(cls,label,fn){const node=el("button",cls,label);node.type="button";node.addEventListener("click",fn);return node;}
     function render(){
       container.replaceChildren();container.hidden=!refs.length;container.classList?.toggle?.("hidden",!refs.length);
@@ -98,7 +137,7 @@
       }
     }
     render();
-    return {add,remove,clear,count,ready,whenReady,compose,render};
+    return {add,remove,clear,count,ready,whenReady,compose,render,pick,available};
   }
   return {create};
 });

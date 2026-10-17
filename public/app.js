@@ -169,7 +169,7 @@ const el = {
   harnessUpdateTitle: $("harness-update-title"), harnessUpdateNote: $("harness-update-note"), harnessUpdateCheckAll: $("harness-update-check-all"), harnessUpdateApplyAll: $("harness-update-apply-all"), harnessUpdateSummary: $("harness-update-summary"), harnessUpdateList: $("harness-update-list"), harnessUpdateMissing: $("harness-update-missing"),
   syncBaseDevice: $("sync-base-device"), syncCompareDevice: $("sync-compare-device"), syncCompare: $("sync-compare"), syncCompareStatus: $("sync-compare-status"), syncResult: $("sync-result"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"),
-  btnImg: $("btn-img"), fileInput: $("file-input"), imgPreview: $("img-preview"),
+  btnImg: $("btn-img"), composerAdd: $("composer-add"), composerAddMenu: $("composer-add-menu"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
   modelListToolbar: $("model-list-toolbar"),
@@ -6148,6 +6148,8 @@ function renderCodexNativeApprovals(connection, permissions) {
             const shell = makeMsgShell("assistant", "Codex CLI");
             const card = document.createElement("div"); card.className = "agent-approval-card";
             const title = document.createElement("strong"); title.textContent = browseText("Codex permission required");
+            // A sub-agent's request names the sub-agent asking.
+            const from = document.createElement("small"); from.className = "agent-approval-from"; from.hidden = !row.subagentThreadId;
             const summary = document.createElement("p"); summary.textContent = row.summary;
             const details = document.createElement("pre"); details.className = "agent-approval-details";
             details.textContent = row.details;
@@ -6160,8 +6162,12 @@ function renderCodexNativeApprovals(connection, permissions) {
               button.addEventListener("click", () => void connection.codexApprovals.decide(row.key, decision));
               actions.appendChild(button); buttons.push(button);
             }
-            card.append(title, summary, details, state, actions); shell.bubble.appendChild(card);
-            view = { state, buttons, wrap: shell.wrap }; cards.set(row.key, view);
+            card.append(title, from, summary, details, state, actions); shell.bubble.appendChild(card);
+            view = { state, buttons, wrap: shell.wrap, from }; cards.set(row.key, view);
+          }
+          if (row.subagentThreadId) {
+            const name = subagentTracker?.get(row.subagentThreadId)?.name;
+            view.from.textContent = name ? subagentCopy("requestedBy", { name }) : subagentCopy("requestedByUnknown");
           }
           const labels = { pending: "Waiting for your decision", sending: "Sending decision…", written: "Decision sent; waiting for Codex", closed: "Request closed by Codex", uncertain: "Delivery uncertain; check Codex before retrying" };
           view.state.textContent = browseText(row.available === false ? "Approval status unavailable; reconnect to continue"
@@ -11103,7 +11109,7 @@ function setStreaming(on) {
   el.btnModel?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
   // Attachments follow the connector's wire format, not the Pi/generic split:
   // OpenCode, Claude Code and the ACP agents all carry image content blocks.
-  el.btnImg?.classList.toggle("hidden", !connectorAcceptsImages(rpc));
+  syncComposerAdd();
   // The gauge is driven by whatever usage the connector reports: OpenCode
   // supplies per-turn token counts and ACP returns them on the prompt reply.
   el.contextDashboard?.classList.toggle("hidden", !rpc);
@@ -11130,6 +11136,7 @@ let conversationGoal = null;
 let agentCompaction = null;
 let subagentTracker = null, subagentPanel = null;
 let sessionReferences = null;
+const REFERENCE_SOURCES = new Set(["pi", "claude-code", "codex", "opencode"]);
 // Tool names whose card is a subagent: Claude Code, Pi (pi-subagents), Codex and OpenCode.
 const SUBAGENT_TOOL_NAMES = new Set(["Task", "Agent", "subagent", "task"]);
 const composerIme = window.stepsembleComposerIme?.createGuard();
@@ -11256,7 +11263,54 @@ async function addImageFiles(files) {
   else if (added) quietToast(tKey(added === 1 ? "composer.imageAdded" : "composer.imagesAdded", { count: added }));
 }
 
-el.btnImg.addEventListener("click", () => el.fileInput.click());
+// The + button adds images, references another session, or offers both.
+// A reference made here needs no drag, so a keyboard or a phone can add one.
+function referencesAvailable() { return !!(WORKSPACE_ENTRY_KEY && rpc && sessionReferences?.available()); }
+function syncComposerAdd() {
+  const images = connectorAcceptsImages(rpc), references = referencesAvailable(), menu = images && references;
+  el.composerAdd?.classList.toggle("hidden", !images && !references);
+  if (!el.btnImg) return;
+  el.btnImg.dataset.imageLabel ||= el.btnImg.getAttribute("aria-label") || "Add attachment";
+  const label = menu ? referenceCopy("addMenu") : references ? referenceCopy("pickSession") : el.btnImg.dataset.imageLabel;
+  el.btnImg.setAttribute("aria-label", label); el.btnImg.title = label;
+  if (menu) el.btnImg.setAttribute("aria-haspopup", "menu"); else { el.btnImg.removeAttribute("aria-haspopup"); setComposerAddMenu(false); }
+}
+function setComposerAddMenu(open) {
+  const menu = el.composerAddMenu;
+  if (!menu || !el.btnImg) return;
+  menu.classList.toggle("hidden", !open);
+  if (el.btnImg.hasAttribute("aria-haspopup")) el.btnImg.setAttribute("aria-expanded", String(!!open)); else el.btnImg.removeAttribute("aria-expanded");
+  if (!open) return;
+  for (const [kind, key] of [["images", "addImages"], ["reference", "pickSession"]]) {
+    const label = menu.querySelector(`[data-add="${kind}"] span`); if (label) label.textContent = referenceCopy(key);
+  }
+  menu.querySelector("[data-add]")?.focus({ preventScroll: true });
+}
+el.btnImg.addEventListener("click", (event) => {
+  const images = connectorAcceptsImages(rpc), references = referencesAvailable();
+  if (images && references) { event.stopPropagation(); setComposerAddMenu(el.composerAddMenu?.classList.contains("hidden")); }
+  else if (references) void sessionReferences.pick();
+  else el.fileInput.click();
+});
+el.composerAddMenu?.addEventListener("click", (event) => {
+  const item = event.target instanceof Element ? event.target.closest("[data-add]") : null;
+  if (!item) return;
+  setComposerAddMenu(false);
+  if (item.dataset.add === "images") el.fileInput.click(); else void sessionReferences?.pick();
+});
+el.composerAddMenu?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setComposerAddMenu(false); el.btnImg?.focus(); return; }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const items = [...el.composerAddMenu.querySelectorAll("[data-add]")];
+  event.preventDefault();
+  const index = items.indexOf(document.activeElement);
+  items[event.key === "ArrowDown" ? (index + 1) % items.length : (index <= 0 ? items.length - 1 : index - 1)]?.focus({ preventScroll: true });
+});
+document.addEventListener("click", (event) => {
+  if (!el.composerAddMenu || el.composerAddMenu.classList.contains("hidden")) return;
+  if (event.target instanceof Element && event.target.closest("#composer-add")) return;
+  setComposerAddMenu(false);
+});
 el.fileInput.addEventListener("change", () => {
   void addImageFiles(el.fileInput.files);
   el.fileInput.value = "";
@@ -19194,7 +19248,15 @@ const sessionReferenceBox = document.getElementById("session-references");
 sessionReferences = sessionReferenceBox && window.StepsembleSessionReference?.create({ document, container: sessionReferenceBox,
   request: (path, body) => body === undefined ? api(path) : post(path, body),
   getContext: () => ({ context: apiBase + ":" + viewGeneration, entry: WORKSPACE_ENTRY_KEY, host: PAGE_QUERY.get("host") || "" }),
-  t: referenceCopy, reason: code => window.StepsembleSessionReferenceI18n?.reason(code, referenceLocale()) || code }) || null;
+  t: referenceCopy, reason: code => window.StepsembleSessionReferenceI18n?.reason(code, referenceLocale()) || code,
+  // The agents whose history the Host can read for a summary (server/session-transcript.js).
+  listSessions: WORKSPACE_ENTRY_KEY ? async () => {
+    const data = await api("/api/workspace"), host = PAGE_QUERY.get("host") || "";
+    return (Array.isArray(data?.entries) ? data.entries : []).filter(row => REFERENCE_SOURCES.has(row?.record?.agentId)).map(row => ({
+      key: row.key, host, title: String(row.record.name || "").replace(/\s+/g, " ").trim().slice(0, 200), agentId: row.record.agentId,
+      agentLabel: window.StepsembleAgentIdentity?.lookup(row.record.agentId)?.label || row.record.agentId, cwd: String(row.record.cwd || "") }));
+  } : null }) || null;
+syncComposerAdd();
 // The Workspace learns where the message box is, so a session dropped on it
 // becomes a reference instead of a new pane.
 if (WORKSPACE_PANE) {

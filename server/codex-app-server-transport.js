@@ -811,12 +811,21 @@ function createCodexAppServerTransport({
   }
 
   function handleApproval(id, method, params) {
-    // Stepsemble shows approvals for the conversation's own thread only.
-    // Answer a sub-agent's request so it does not wait forever, and say why.
+    // A sub-agent's request is shown in this conversation, named as the
+    // sub-agent's, and answered on this connection. It never enters the
+    // observer (a journal bound to this thread's own turn). One that cannot
+    // be shown is answered at once so the sub-agent does not wait forever.
     const other = subagentThread(params);
     if (other) {
-      try { void write(errorMessage(id, -32603, "Stepsemble cannot answer a sub-agent's approval")).catch(() => {}); } catch {}
-      report({ type: "subagent.approval_unavailable", threadId: other, parentThreadId: threadId, method });
+      const requestValue = normalizeApprovalRequest(id, method, params, trustedNative);
+      if (!requestValue || requestValue.threadId !== other || approvals.size >= MAX_PENDING_APPROVALS || approvals.has(key(id))) {
+        try { void write(errorMessage(id, -32603, "Stepsemble cannot answer this sub-agent's approval")).catch(() => {}); } catch {}
+        report({ type: "subagent.approval_unavailable", threadId: other, parentThreadId: threadId, method });
+        return;
+      }
+      requestValue.parentThreadId = threadId;
+      approvals.set(key(id), { request: requestValue, subagent: true, responded: false, resolved: false, dispatch: null, response: null });
+      report({ type: "approval.requested", request: clone(requestValue) });
       return;
     }
     const requestValue = normalizeApprovalRequest(id, method, params, trustedNative);
@@ -837,6 +846,18 @@ function createCodexAppServerTransport({
 
   function handleNotification(method, params) {
     if (!NATIVE_LIFECYCLE_NOTIFICATIONS.has(method)) return;
+    if (method === "serverRequest/resolved") {
+      const requestId = idValue(params?.requestId), row = requestId === null ? null : approvals.get(key(requestId));
+      if (row?.subagent) {
+        const tid = nativeId(params?.threadId);
+        if (tid !== row.request.threadId) { fail("native_approval_mismatch"); return; }
+        row.resolved = true;
+        report({ type: "approval.resolved", requestId, threadId: tid, parentThreadId: row.request.parentThreadId, turnId: row.request.turnId, itemId: row.request.itemId,
+          responseWritten: row.responded, dispatch: row.dispatch ? clone(row.dispatch) : null,
+          authority: { sourceAuthenticated: trustedNative === true, approvalAcknowledged: false, resumeAllowed: false } });
+        approvals.delete(key(requestId)); return;
+      }
+    }
     const other = subagentThread(params);
     if (other) { reportSubagent(method, other, params); return; }
     if (method === "thread/started") {

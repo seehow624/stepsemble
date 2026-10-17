@@ -4,6 +4,7 @@
 // the replies in full, each tool call as one line, tool output never copied.
 const crypto = require("node:crypto");
 const presentation = require("../public/modules/agent-transcript-presentation.js");
+const { activePathIds } = require("./stream-safety");
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const HISTORY_ID = /^[a-f0-9-]{36}$/i;
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -39,19 +40,43 @@ function turnsFrom(rows) {
   return { turns, nativeSummary };
 }
 
+const isUser = entry => entry?.type === "message" && entry.message?.role === "user";
 function piRows(content) {
-  const rows = []; let name = "";
+  const entries = []; let name = "";
   for (const line of String(content).split("\n")) {
     if (!line.trim()) continue;
     let entry; try { entry = JSON.parse(line); } catch { continue; }
     if (entry?.type === "session_info" && typeof entry.name === "string") name = entry.name.trim();
-    if (entry?.type === "compaction" && typeof entry.summary === "string") rows.push({ summary: entry.summary });
-    const message = entry?.message;
-    if (!message || !["user", "assistant"].includes(message.role)) continue;
+    if (entry && typeof entry.id === "string" && entry.type !== "session") entries.push(entry);
+  }
+  // Pi keeps a session as a tree; the active branch runs from the newest
+  // entry back through parentId. Abandoned branches stay out.
+  let path = entries;
+  const linked = entries.filter(entry => Object.hasOwn(entry, "parentId"));
+  if (linked.length) {
+    const ids = activePathIds(new Map(entries.map(entry => [entry.id, entry])), linked.at(-1));
+    path = entries.filter(entry => ids.has(entry.id));
+  }
+  // The newest compaction already folds in earlier ones. It covers the turns
+  // before its kept boundary; the turns it kept are sent in full. A boundary
+  // inside a turn starts at that turn's request.
+  const compaction = path.filter(entry => entry.type === "compaction" && typeof entry.summary === "string").at(-1);
+  let boundary = -1;
+  if (compaction) {
+    const at = path.indexOf(compaction), kept = path.findIndex(entry => entry.id === compaction.firstKeptEntryId);
+    boundary = kept >= 0 && kept < at ? kept : at;
+    if (boundary < at) while (boundary > 0 && !isUser(path[boundary])) boundary--;
+  }
+  const rows = [];
+  path.forEach((entry, index) => {
+    if (index === boundary) rows.push({ summary: compaction.summary });
+    if (entry.type === "branch_summary" && typeof entry.summary === "string") { rows.push({ role: "assistant", text: `(Summary of an abandoned branch) ${entry.summary}` }); return; }
+    const message = entry.type === "message" ? entry.message : null;
+    if (!message || !["user", "assistant"].includes(message.role)) return;
     const parts = Array.isArray(message.content) ? message.content : [];
     rows.push({ role: message.role, text: message.role === "user" ? textOf(message.content) : parts.filter(part => part?.type === "text").map(part => part.text || "").join("\n\n"),
       tools: parts.filter(part => part?.type === "toolCall").map(part => toolLine(part.name, part.arguments || {})) });
-  }
+  });
   return { rows, name };
 }
 
@@ -59,7 +84,14 @@ function createSessionTranscripts({ resolve, catalog, readPiSession, openCode })
   async function fromCatalog(id) {
     const value = await catalog.read(id);
     if (value?.kind !== "native_history_transcript" || !Array.isArray(value.messages)) throw failure("reference_source_unavailable", 409);
-    return { rows: value.messages.map(message => ({ role: message.role, text: message.text })), name: value.name || "", cwd: value.cwd || "" };
+    // A tool call came after `after` messages; it joins the turn as one line.
+    const tools = Array.isArray(value.tools) ? value.tools : [], rows = [];
+    value.messages.forEach((message, index) => {
+      rows.push({ role: message.role, text: message.text });
+      const calls = tools.filter(tool => tool?.after === index + 1).map(tool => toolLine(tool.name, tool.input && typeof tool.input === "object" ? tool.input : {}));
+      if (calls.length) rows.push({ role: "assistant", text: "", tools: calls });
+    });
+    return { rows, name: value.name || "", cwd: value.cwd || "" };
   }
   async function source(record) {
     if (record.agentId === "pi" && typeof record.file === "string" && record.file) return piRows(await readPiSession(record.file));

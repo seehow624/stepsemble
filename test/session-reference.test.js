@@ -20,7 +20,8 @@ function dom() {
     querySelectorAll(selector) { const cls = selector.slice(1); return this.all().filter(node => String(node.className).split(" ").includes(cls)); }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
     focus() { document.activeElement = this; }
-    click() { for (const fn of this.listeners.click || []) fn({ preventDefault() {} }); }
+    click() { if (this.disabled) return; for (const fn of this.listeners.click || []) fn({ preventDefault() {} }); }
+    fire(type, event = {}) { for (const fn of this.listeners[type] || []) fn({ preventDefault() {}, ...event }); }
     showModal() { this.open = true; } close() { this.open = false; }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(node => node !== this); }
   }
@@ -28,7 +29,7 @@ function dom() {
   document.body = new Element("body");
   return document;
 }
-function setup({ server } = {}) {
+function setup({ server, sessions } = {}) {
   const document = dom(), container = document.createElement("div"); document.body.append(container);
   const calls = [], timers = []; let context = { context: "host-1:1", entry: ENTRY, host: "host-1" };
   const jobs = new Map(); let next = 0;
@@ -38,7 +39,8 @@ function setup({ server } = {}) {
     throw new Error("unexpected " + path);
   });
   const controller = create({ document, container, request: async (path, body) => { calls.push([path, body]); return handler(path, body, jobs); },
-    getContext: () => context, t: (key, vars) => i18n.t(key, vars, "en"), schedule: fn => { timers.push(fn); return timers.length; }, cancel() {} });
+    getContext: () => context, t: (key, vars) => i18n.t(key, vars, "en"), schedule: fn => { timers.push(fn); return timers.length; }, cancel() {},
+    listSessions: sessions === undefined ? undefined : async () => { if (sessions instanceof Error) throw sessions; return sessions; } });
   return { document, container, controller, calls, jobs, timers, tick: async () => { const fn = timers.shift(); if (fn) await fn(); await flush(); }, setContext: value => { context = { ...context, ...value }; } };
 }
 const session = (key = A, fields = {}) => ({ key, host: "host-1", title: "Fix login", agentId: "pi", ...fields });
@@ -130,6 +132,43 @@ test("a reply from an earlier conversation never lands on the new one, and clear
   assert.equal(f.controller.count(), 0); assert.equal(f.container.querySelectorAll(".session-ref").length, 0);
 });
 
+test("without dragging, a session is picked from a searchable list of this Host's sessions", async () => {
+  const list = [session(A, { title: "Fix login", agentId: "pi", cwd: "/owned/app" }), session(B, { title: "Ship docs", agentId: "codex", cwd: "/owned/docs" }), session(ENTRY, { title: "This one" })];
+  const f = setup({ sessions: list });
+  await f.controller.pick();
+  const dialog = f.document.body.querySelector(".session-ref-picker");
+  assert.equal(dialog.open, true); assert.match(dialog.textContent, /Reference a session/);
+  let rows = dialog.querySelectorAll(".session-ref-pick");
+  assert.deepEqual(rows.map(row => row.textContent), ["Fix loginpi · /owned/app", "Ship docscodex · /owned/docs"], "the conversation itself is not offered");
+  const search = dialog.querySelector(".session-ref-search");
+  assert.equal(f.document.activeElement, search, "typing starts filtering at once");
+  search.value = "DOCS"; search.fire("input");
+  rows = dialog.querySelectorAll(".session-ref-pick");
+  assert.deepEqual(rows.map(row => row.textContent), ["Ship docscodex · /owned/docs"]);
+  rows[0].click(); await flush();
+  assert.equal(dialog.open, false, "picking closes the list"); assert.equal(f.controller.count(), 1);
+  assert.deepEqual(f.calls[0], ["/api/handoff/summary", { source: B, target: ENTRY }]);
+  await f.controller.pick();
+  const added = dialog.querySelectorAll(".session-ref-pick").find(row => /Ship docs/.test(row.textContent));
+  assert.equal(added.disabled, true); assert.match(added.textContent, /Added/);
+});
+
+test("the picker says why when nothing can be picked, the list fails, or the limit is reached", async () => {
+  let f = setup({ sessions: [] }); await f.controller.pick();
+  assert.match(f.document.body.querySelector(".session-ref-picker").textContent, /No other sessions on this Host/);
+  f = setup({ sessions: new Error("offline") }); await f.controller.pick();
+  assert.match(f.document.body.querySelector(".session-ref-picker").textContent, /Sessions could not be loaded/);
+  const many = ["c3", "d4", "e5", "f6"].map(id => session(`00000000-0000-4000-8000-0000000000${id}`, { title: "S " + id }));
+  f = setup({ sessions: many });
+  for (const row of many.slice(0, 3)) f.controller.add(row);
+  await f.controller.pick();
+  const dialog = f.document.body.querySelector(".session-ref-picker");
+  dialog.querySelectorAll(".session-ref-pick").find(row => /f6/.test(row.textContent)).click();
+  assert.equal(dialog.open, true); assert.match(dialog.querySelector(".session-ref-pick-status").textContent, /Up to 3/);
+  assert.equal(f.controller.available(), true);
+  assert.equal(setup().controller.available(), false, "no list, no picker");
+});
+
 test("reference chrome is complete in all 11 locales with matching placeholders", () => {
   const keys = Object.keys(i18n.tables.en); assert.equal(i18n.locales.length, 11);
   for (const locale of i18n.locales) { assert.deepEqual(Object.keys(i18n.tables[locale]), keys);
@@ -137,4 +176,5 @@ test("reference chrome is complete in all 11 locales with matching placeholders"
   assert.equal(i18n.reason("summarizer_unavailable", "zh-Hant"), i18n.t("summarizer_unavailable", {}, "zh-Hant"));
   assert.equal(i18n.reason("something_unknown", "en"), i18n.t("reference_failed", {}, "en"));
   assert.equal(i18n.reason("summarizer_not_installed", "en"), "The summarizer chosen in Settings is not installed on this Host.");
+  assert.equal(i18n.reason("reference_too_large", "zh-Hant"), "這個 session 的紀錄太大，無法讀取");
 });

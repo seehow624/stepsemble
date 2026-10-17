@@ -1232,15 +1232,42 @@ test("a sub-agent thread's notifications are reported without touching the paren
   assert.equal(transport.tokenUsage("native-typed"), null, "a child's usage is not the parent's context");
 });
 
-test("a sub-agent's approval request is declined as unsupported without failing the connection", async t => {
+const childApproval = (extra = {}) => ({ id: "child-approval", method: "item/commandExecution/requestApproval", params: { threadId: "child-thread", turnId: "child-turn",
+  itemId: "child-item", startedAtMs: now, command: "owned", cwd: "/owned", kind: "command", ...extra } });
+test("a sub-agent's approval is shown as the sub-agent's, answered on this connection and closed by Codex", async t => {
+  const events = [], observed = [];
+  const { child, transport, writes } = await readyOwnedTransport(t, { onEvent: event => events.push(event), onApprovalRequest: request => { observed.push(request); return { kind: "observed" }; } });
+  frame(child, childApproval());
+  await new Promise(resolve => setImmediate(resolve));
+  const [pending] = transport.pendingApprovals();
+  assert.deepEqual([pending.requestId, pending.threadId, pending.parentThreadId, pending.turnId], ["child-approval", "child-thread", "native-typed", "child-turn"]);
+  assert.equal(events.find(event => event.type === "approval.requested").request.parentThreadId, "native-typed");
+  assert.deepEqual(observed, [], "the observer is bound to this thread's own turn and never sees a sub-agent's request");
+  assert.equal((await transport.respondApproval("child-approval", { decision: "denied" })).kind, "written");
+  const reply = await writes.next();
+  assert.equal(reply.id, "child-approval"); assert.deepEqual(reply.result, { decision: "decline" });
+  frame(child, { method: "serverRequest/resolved", params: { threadId: "child-thread", requestId: "child-approval" } });
+  await new Promise(resolve => setImmediate(resolve));
+  const resolved = events.find(event => event.type === "approval.resolved");
+  assert.deepEqual([resolved.threadId, resolved.parentThreadId, resolved.responseWritten], ["child-thread", "native-typed", true]);
+  assert.deepEqual(transport.pendingApprovals(), []);
+  const state = transport.state();
+  assert.equal(state.failure, null); assert.equal(state.threadId, "native-typed"); assert.equal(state.turnId, "turn-typed");
+});
+
+test("a sub-agent's request that cannot be shown is declined at once, and a closure naming another thread fails closed", async t => {
   const events = [];
   const { child, transport, writes } = await readyOwnedTransport(t, { onEvent: event => events.push(event) });
-  frame(child, { id: "child-approval", method: "item/commandExecution/requestApproval", params: { threadId: "child-thread", turnId: "child-turn",
-    itemId: "child-item", startedAtMs: now, command: "owned", cwd: "/owned", kind: "command" } });
+  frame(child, childApproval({ itemId: undefined }));
   const reply = await writes.next();
   assert.equal(reply.id, "child-approval"); assert.ok(reply.error); assert.equal(reply.result, undefined);
   assert.equal(transport.state().failure, null); assert.deepEqual(transport.pendingApprovals(), []);
   assert.ok(events.some(event => event.type === "subagent.approval_unavailable" && event.threadId === "child-thread"));
+  frame(child, { ...childApproval(), id: "child-approval-2" });
+  await new Promise(resolve => setImmediate(resolve));
+  frame(child, { method: "serverRequest/resolved", params: { threadId: "native-typed", requestId: "child-approval-2" } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, "native_approval_mismatch");
 });
 
 test("a connection that owns no thread still refuses another thread's notifications", async t => {

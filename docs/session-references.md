@@ -25,11 +25,17 @@ and the referenced session is not changed.
   1. Goal …
   ```
 
+Without dragging, the message box's **+** button offers **Reference a
+session…**: a searchable list of the other sessions on the same Host whose
+history can be read. It works with a keyboard (Enter opens the menu, the arrow
+keys move, typing filters the list) and on a phone. When the agent takes no
+images, **+** opens the list directly.
+
 Drop targets: a session on the same Host as the conversation, other than the
 conversation itself. A conversation's agent must be a coding agent; Hermes
 Assistant tabs do not take references. The source must have a readable history
 (Pi, Claude Code, Codex or OpenCode). On a phone the sidebar and the
-conversation are not on screen together, so there is nothing to drag onto.
+conversation are not on screen together; use **+** instead of dragging.
 
 ## The summarizer
 
@@ -45,8 +51,14 @@ Each run has no tools, no MCP servers, no extensions and saves no session:
 | Agent | Command |
 | --- | --- |
 | Claude Code | `claude -p --no-session-persistence --tools "" --strict-mcp-config --disable-slash-commands --output-format json` |
-| Codex | `codex exec --ephemeral --skip-git-repo-check --ignore-rules -s read-only --json`, every tool-bearing feature disabled, `web_search="disabled"`, no MCP servers |
+| Codex | `codex exec --ephemeral --skip-git-repo-check --ignore-rules -s read-only --json`, every tool-bearing feature this Codex has disabled, `web_search="disabled"`, no MCP servers |
 | Pi | `pi --mode rpc --no-session --no-tools --no-extensions --no-mcp --no-skills` |
+
+Codex refuses to start when told to turn off a feature it does not have, and
+the list changes between versions. Stepsemble therefore asks each Codex
+executable for its features (`codex features list`, kept until the file
+changes) and turns off only the tool-bearing ones it has. A Codex that cannot
+list its features is refused instead of being run with its tools on.
 
 Runs start in one empty Stepsemble folder with the Host's `STEPSEMBLE_*`
 variables removed. The prompt treats the record as data, never as
@@ -56,10 +68,16 @@ and abandoned, open items and cautions, relevant files.
 ## What the summarizer reads
 
 - The person's messages and the replies in full. Each tool call is one line
-  (its name and main argument); tool output is never copied.
-- After a native compaction (Claude Code's continuation summary or Pi's
-  `compaction` entry) only the turns after it are sent, with the agent's own
-  summary in front.
+  (its name and main argument); tool output is never copied. Pi and Claude
+  Code records include their tool calls; Codex's saved history has none, so
+  a Codex summary relies on the conversation alone.
+- Pi keeps a session as a tree; only the active branch is read. A branch
+  summary Pi wrote when you left a branch is kept as context.
+- After a native compaction, the agent's own summary goes first. Claude Code's
+  continuation summary covers every turn before it. Pi's covers the turns
+  before its kept boundary (`firstKeptEntryId`); the recent turns Pi kept are
+  sent in full.
+- A Pi session file over 128 MiB is refused as too large to read.
 - A record is split into parts of up to 120,000 characters along turn
   boundaries. Each part updates the summary so far, so a session larger than
   the summarizer's context window still fits.

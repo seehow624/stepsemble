@@ -2152,7 +2152,9 @@ const codexNative = createCodexNativePool({ adapterOptions: {
     while (subagentApprovalUnavailable.size > 256) subagentApprovalUnavailable.delete(subagentApprovalUnavailable.values().next().value);
   }
   if (event?.type === "subagent.thread" || event?.type === "subagent.approval_unavailable") return;
-  hostRates.codex(event); workflowEvents.emit("codex", event.threadId || event.request?.threadId, event);
+  // A sub-agent's approval holds up this conversation's turn, so it counts
+  // for the conversation (a Goal pauses its clock while it waits).
+  hostRates.codex(event); workflowEvents.emit("codex", event.parentThreadId || event.request?.parentThreadId || event.threadId || event.request?.threadId, event);
 } });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is

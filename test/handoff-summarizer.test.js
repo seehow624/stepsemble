@@ -147,3 +147,36 @@ test("a shared working folder is reused by every run and kept", async t => {
   for (let i = 0; i < 2; i++) { const job = await service.start({ source: SOURCE, target: TARGET }); await settle(service, job.id); }
   assert.equal(spawn.runs.length, 2); assert.ok(spawn.runs.every(run => run.options.cwd === workdir)); assert.equal(fs.existsSync(workdir), true);
 });
+
+const FEATURES = ["agent_message_board                      under development  false", "apply_patch_freeform                     removed            false",
+  ...["shell_tool", "unified_exec", "multi_agent", "goals", "apps", "plugins", "hooks", "image_generation", "browser_use", "browser_use_external", "computer_use", "skill_search", "tool_suggest", "in_app_browser", "workspace_dependencies"]
+    .map(name => name.padEnd(41) + "stable             true")].join("\n") + "\n";
+test("Codex: only the features this Codex has are turned off, asked once per executable", async t => {
+  const { parseCodexFeatures } = require("../server/handoff-summarizer");
+  const known = parseCodexFeatures(FEATURES);
+  assert.equal(known.has("shell_tool"), true); assert.equal(known.has("agent_message_board"), true);
+  assert.equal(known.has("apply_patch_freeform"), false, "a removed feature is not offered");
+  const args = commandFor("codex", { command: "/bin/codex", features: known }).args.join(" ");
+  assert.match(args, /--disable shell_tool/); assert.match(args, /--disable computer_use/);
+  assert.doesNotMatch(args, /view_image|sleep_tool|worktrees/, "an older Codex refuses a feature it does not know");
+  const f = fixture(t, { reply: run => {
+    if (run.args[0] === "features") answer(run, FEATURES);
+    else answer(run, '{"type":"item.completed","item":{"type":"agent_message","text":"Codex summary"}}\n');
+  } });
+  f.service.saveSettings({ agentId: "codex" });
+  const done = await settle(f.service, (await f.service.start({ source: SOURCE, target: TARGET })).id);
+  assert.equal(done.status, "completed"); assert.equal(done.summary, "Codex summary");
+  const exec = f.spawn.runs.find(run => run.args[0] === "exec");
+  assert.ok(exec.args.join(" ").includes("--disable shell_tool")); assert.doesNotMatch(exec.args.join(" "), /view_image/);
+  f.service.saveSettings({ agentId: "codex", effort: "low" });
+  await settle(f.service, (await f.service.start({ source: SOURCE, target: TARGET })).id);
+  assert.equal(f.spawn.runs.filter(run => run.args[0] === "features").length, 1, "the list is kept for the same executable");
+});
+
+test("Codex: a Codex that cannot list its features is refused rather than run with its tools on", async t => {
+  const f = fixture(t, { reply: run => { if (run.args[0] === "features") { run.answered = true; setImmediate(() => { run.child.stdout.end("error: unknown command\n"); run.child.emit("close", 2, null); }); } } });
+  f.service.saveSettings({ agentId: "codex" });
+  const done = await settle(f.service, (await f.service.start({ source: SOURCE, target: TARGET })).id);
+  assert.equal(done.status, "failed"); assert.equal(done.error, "summarizer_codex_features");
+  assert.equal(f.spawn.runs.some(run => run.args[0] === "exec"), false);
+});

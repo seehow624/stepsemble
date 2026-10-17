@@ -18,13 +18,15 @@
       const present = new Set();
       for (const value of (Array.isArray(values) ? values : []).slice(0, 64)) {
         const key = keyOf(value?.requestId);
-        if (!key || value.threadId !== threadId || !METHODS.has(value.method) || value.authority?.sourceAuthenticated !== true) continue;
+        // A sub-agent of this conversation asks under its own thread id.
+        const subagent = value.threadId !== threadId && value.parentThreadId === threadId && typeof value.threadId === "string" ? value.threadId : null;
+        if (!key || value.threadId !== threadId && !subagent || !METHODS.has(value.method) || value.authority?.sourceAuthenticated !== true) continue;
         present.add(key);
         const old = rows.get(key);
         let details = "";
         try { if (value.params && typeof value.params === "object") details = JSON.stringify(value.params, null, 2); } catch {}
         const reviewable = details.length > 0 && details.length <= 32768;
-        rows.set(key, { key, requestId: value.requestId, threadId, method: value.method,
+        rows.set(key, { key, requestId: value.requestId, threadId, subagentThreadId: subagent, method: value.method,
           summary: String(value.summary || "Codex is requesting permission.").slice(0, 2000),
           details: details.slice(0, 32768), reviewable,
           scope: value.method === "item/permissions/requestApproval" ? "run" : "once",

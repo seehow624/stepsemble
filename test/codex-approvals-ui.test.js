@@ -48,3 +48,15 @@ test("reload of a written decision and uncertain delivery never silently retries
   assert.equal(calls, 1);
   assert.equal(c.snapshot().find(row => row.key === "n:2").state, "uncertain");
 });
+
+test("a sub-agent's request in this conversation is shown as the sub-agent's; another conversation's never is", async () => {
+  const sent = [];
+  const c = createController({ threadId: "thread-a", isCurrent: () => true, request: async body => { sent.push(body); return { kind: "written" }; } });
+  c.sync([permission(7, { threadId: "child-1", parentThreadId: "thread-a" }), permission(8, { threadId: "child-2", parentThreadId: "thread-b" }), permission(9, { threadId: "child-3" })]);
+  const rows = c.snapshot();
+  assert.deepEqual(rows.map(row => [row.requestId, row.subagentThreadId]), [[7, "child-1"]]);
+  await c.decide("n:7", "denied");
+  assert.deepEqual(sent, [{ threadId: "thread-a", requestId: 7, decision: "denied", scope: "once" }], "answered on the conversation's own connection");
+  assert.equal(c.snapshot()[0].subagentThreadId, "child-1");
+  assert.equal(createController({ threadId: "thread-a", isCurrent: () => true, request: async () => ({}) }).sync([permission(1)]) ?? null, null);
+});
