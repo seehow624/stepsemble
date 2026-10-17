@@ -73,6 +73,9 @@ export async function openFromSidebar(page, title) {
   await showWorkspaceList(page);
   await page.locator("#workspace-refresh").click();
   const row = page.locator("button.workspace-session").filter({ hasText: title }).first();
+  await row.waitFor({ state: "attached" });
+  // A long project shows three sessions; open the rest as a person would.
+  if (!await row.isVisible()) await page.locator("section.workspace-project", { has: row }).locator(".workspace-session-more").click();
   await row.waitFor();
   await row.click();
   return paneFrame(page, title);

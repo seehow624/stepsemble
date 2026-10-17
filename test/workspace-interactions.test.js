@@ -151,6 +151,34 @@ test("Settings with an unavailable explicit Host never open local Host settings"
   vm.runInContext("let enterAppRequest = null; " + app.slice(from, to), context);
   assert.equal(await context.enterApp(), false); assert.equal(context.failure, "workspace_host_missing");
 });
+test("a long project shows three sessions and one small control for the rest, which marks hidden activity", () => {
+  const labels = { showFewerSessions: "Show fewer" };
+  const context = vm.createContext({ t: (key, vars = {}) => key === "showMoreSessions" ? `Show ${vars.count} more` : labels[key] || key });
+  const from = source.indexOf("  function syncSessionMore(section) {"), to = source.indexOf("  function rememberSnapshot(", from);
+  assert.ok(from > 0, "syncSessionMore exists");
+  vm.runInContext(source.slice(from, to), context);
+  const row = (state = "idle", open = false) => { const parts = { ".workspace-session": { dataset: { open: String(open) } }, ".workspace-session-status": { dataset: { state } } };
+    return { hidden: false, querySelector: selector => parts[selector] || null }; };
+  const more = { attrs: { "aria-expanded": "false" }, dataset: {}, hidden: false, textContent: "", title: "", getAttribute(key) { return this.attrs[key] ?? null; }, setAttribute(key, value) { this.attrs[key] = String(value); } };
+  let rows = [row(), row()];
+  const section = { querySelector: selector => selector === ".workspace-session-more" ? more : null, querySelectorAll: selector => selector === ".workspace-session-row[data-overflow]" ? rows : [] };
+  context.syncSessionMore(section);
+  assert.deepEqual(rows.map(item => item.hidden), [true, true]); assert.equal(more.textContent, "Show 2 more"); assert.equal(more.attrs["aria-label"], "Show 2 more"); assert.equal(more.dataset.attention, "");
+  rows = [row("idle", true), row("working")];
+  context.syncSessionMore(section);
+  assert.deepEqual(rows.map(item => item.hidden), [false, true], "the session open in a pane stays in view");
+  assert.equal(more.textContent, "Show 1 more"); assert.equal(more.dataset.attention, "working", "a hidden session at work is still signalled");
+  more.attrs["aria-expanded"] = "true"; context.syncSessionMore(section);
+  assert.deepEqual(rows.map(item => item.hidden), [false, false]); assert.equal(more.textContent, "Show fewer"); assert.equal(more.dataset.attention, "");
+  more.attrs["aria-expanded"] = "false"; rows = [row("unread", true)]; context.syncSessionMore(section);
+  assert.equal(more.hidden, true, "nothing left to show"); context.syncSessionMore(null);
+});
+test("a hidden session row is really hidden: the row's own display rule must not override [hidden]", () => {
+  const css = fs.readFileSync(require.resolve("../public/modules/workspace.css"), "utf8");
+  assert.match(css, /\.workspace-session-row\[hidden\] \{ display: none; \}/);
+  assert.match(css, /\.workspace-session-more\[hidden\] \{ display: none; \}/);
+});
+
 test("a session row marks its running, paused or blocked Goal and drops the mark when it ends", () => {
   const span = cls => ({ className: cls, dataset: {}, hidden: false, title: "", attrs: {}, setAttribute(key, value) { this.attrs[key] = value; } });
   const goal = span("workspace-session-goal"), indicator = span("workspace-session-status"), button = span("workspace-session");

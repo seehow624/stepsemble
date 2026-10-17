@@ -72,6 +72,11 @@
     }
     return collapsedProjects.get(target);
   }
+  // A long project shows its first sessions; the rest wait behind one small
+  // control until the person opens them, for as long as this page lives.
+  const SESSIONS_SHOWN = 3;
+  const expandedProjects = new Map();
+  function expandedFor(target = host) { if (!expandedProjects.has(target)) expandedProjects.set(target, new Set()); return expandedProjects.get(target); }
   function saveCollapsed(target = host) {
     try { localStorage.setItem(`stepsemble.workspace.collapsed.v1.${target}`, JSON.stringify([...collapsedFor(target)])); } catch {}
   }
@@ -706,11 +711,13 @@
         actions.setAttribute("aria-haspopup", "menu"); header.append(actions);
       }
       section.append(header, contents);
-      for (const entry of rows) {
+      const overflow = !search && rows.length > SESSIONS_SHOWN;
+      rows.forEach((entry, index) => {
         const ref = refOf(entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
         const displayTitle = plainTitle(ref.title) || ref.title;
         const row = node("div", "", "workspace-session-row");
         row.dataset.entry = entry.key;
+        if (overflow && index >= SESSIONS_SHOWN) row.dataset.overflow = "true";
         const pinned = presentation.pinnedSessions.includes(entry.key);
         const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
         b.dataset.open = String(openKeys.has(L.identity(ref)));
@@ -735,6 +742,15 @@
         b.oncontextmenu = e => { e.preventDefault(); actions.click(); };
         row.append(b, actions); contents.append(row);
         sessionStatus(row, entry);
+      });
+      if (overflow) {
+        const more = button("", () => {
+          const expanded = expandedFor(), open = !expanded.has(cwd);
+          if (open) expanded.add(cwd); else expanded.delete(cwd);
+          more.setAttribute("aria-expanded", String(open)); syncSessionMore(section);
+        }, "", "btn workspace-session-more");
+        more.setAttribute("aria-expanded", String(expandedFor().has(cwd)));
+        contents.append(more); syncSessionMore(section);
       }
       if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
@@ -756,10 +772,31 @@
     const goal = row.querySelector(".workspace-session-goal");
     const goalLabel = { running: t("goalRunning"), paused: t("goalPaused"), attention: t("goalAttention") }[entry.goal] || "";
     if (goal) { goal.hidden = !goalLabel; goal.dataset.state = goalLabel ? entry.goal : ""; goal.title = goalLabel; }
+    syncSessionMore(row.closest?.(".workspace-project"));
     const identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
     const title = plainTitle(refOf(entry).title) || refOf(entry).title;
     const spoken = [goalLabel, label].filter(Boolean).join(" · ");
     row.querySelector(".workspace-session").setAttribute("aria-label", `${identity.label}: ${title}${spoken ? " · " + spoken : ""}`);
+  }
+  // The overflow sessions hide unless their project is opened up; the one
+  // open in a pane stays in view, and a hidden session at work or with an
+  // unread result marks the control.
+  function syncSessionMore(section) {
+    const more = section?.querySelector(".workspace-session-more");
+    if (!more) return;
+    const expanded = more.getAttribute("aria-expanded") === "true";
+    let hidden = 0, attention = "";
+    for (const row of section.querySelectorAll(".workspace-session-row[data-overflow]")) {
+      row.hidden = !expanded && row.querySelector(".workspace-session")?.dataset.open !== "true";
+      if (!row.hidden) continue;
+      hidden += 1;
+      const state = row.querySelector(".workspace-session-status")?.dataset.state;
+      if (!attention && ["working", "unread", "attention"].includes(state)) attention = state;
+    }
+    const label = expanded ? t("showFewerSessions") : t("showMoreSessions", { count: hidden });
+    more.textContent = label; more.title = label; more.setAttribute("aria-label", label);
+    more.dataset.attention = attention;
+    more.hidden = !expanded && hidden === 0;
   }
   function rememberSnapshot(target, data) {
     for (const entry of data.entries) if (entry.completion && readCompletions.has(`${target}:${entry.key}:${entry.completion.id}`)) entry.completion.read = true;
