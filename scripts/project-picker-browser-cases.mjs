@@ -48,10 +48,15 @@ export async function runProjectPickerBrowserCases(browser) {
         stage = 'keyboard End';
         await list.focus(); await page.keyboard.press('End');
         await page.waitForFunction(() => { const e = document.querySelector('.workspace-folder-list'); return e.scrollTop + e.clientHeight >= e.scrollHeight - 2; });
-        // Let the End scroll animation settle, as a person would, before Home.
-        await page.waitForTimeout(200);
+        // Let the End scroll come to rest, as a person would, before Home. A
+        // fixed pause was not always enough on a busy runner.
+        await page.evaluate(() => new Promise(resolve => {
+          const e = document.querySelector('.workspace-folder-list'); let last = NaN, still = 0, frames = 0;
+          const tick = () => { frames += 1; if (e.scrollTop === last) still += 1; else { still = 0; last = e.scrollTop; } if (still >= 6 || frames > 600) resolve(); else requestAnimationFrame(tick); };
+          tick();
+        }));
         stage = 'keyboard Home';
-        await page.keyboard.press('Home');
+        await list.focus(); await page.keyboard.press('Home');
         await page.waitForFunction(() => document.querySelector('.workspace-folder-list').scrollTop === 0);
         stage = 'filter';
         await page.locator('.workspace-folder-browse-head input').fill('Folder 01');
@@ -142,10 +147,10 @@ export async function runProjectPickerBrowserCases(browser) {
         console.log(JSON.stringify({ case: 'Workspace add project', viewport, folders: 200, nestedWheel: true,
           keyboard: true, filter: true, resetAndEmpty: true, refusedFolder: true, backForward: true, typedPath: true, initialWorkerPreservesDialog: true, pageErrors: 0, result: 'passed' }));
       } catch (error) {
-        const geometry = await page.evaluate(() => Object.fromEntries(['.workspace-folder-list', '#workspace-dialog'].map(selector => {
+        const geometry = await page.evaluate(() => ({ ...Object.fromEntries(['.workspace-folder-list', '#workspace-dialog'].map(selector => {
           const e = document.querySelector(selector);
           return [selector, e ? { rows: e.children.length, height: e.clientHeight, total: e.scrollHeight, top: e.scrollTop, bounds: e.getBoundingClientRect().toJSON() } : null];
-        }))).catch(() => ({}));
+        })), focused: document.activeElement ? `${document.activeElement.tagName}#${document.activeElement.id}.${document.activeElement.className}` : null })).catch(() => ({}));
         throw new Error('Workspace add project ' + viewport.width + 'x' + viewport.height + ' at ' + stage + ': ' + error.message.replace(/\b[a-f0-9]{64}\b/gi, '[redacted-test-key]') + ' ' + JSON.stringify(geometry), { cause: error });
       } finally { await context.close(); }
     } finally { await f.close(); }

@@ -255,6 +255,10 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.getByRole("textbox", { name: "Delete this Bot" }).fill("research-buddy");
       await forever.click();
       await page.getByRole("button", { name: "New Bot", exact: true }).waitFor();
+      // A wide screen shows the list while the app is still going back to it
+      // through history; leaving before that ends races the traversal, which
+      // aborts the next navigation or returns to this page after it.
+      await page.waitForURL(url => !["bot", "session", "room", "view", "panel"].some(key => url.searchParams.has(key)));
       assert.equal(preview.fake.state.profiles.some(row => row.name === "research-buddy"), false);
 
       stage = "Hermes console";
