@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.16
+
+- Keep Bot photos visible in the conversation at their original aspect ratio, with a click opening the full original image. Put icon-only Open, Download and Share controls above photos and on document cards, with accessible names and localized tooltips in all 11 languages.
+- Share original file bytes through the system Web Share API on supported secure browsers, without first saving a download or sharing a private file URL. Unsupported browsers or file types retain their download option and explain why direct sharing is unavailable.
+- Handle canceled shares without an error, report unavailable files and share failures, retain a prepared file when another user gesture is needed, and avoid opening a share sheet after leaving the conversation. Preserve keyboard focus for a retry.
+- Keep photo controls aligned with the image and touch targets at least 44 pixels on mobile. Verify original-image viewing, downloads, file-share payloads, narrow layouts, Chinese light mode and existing Workspace and avatar flows using isolated browser fixtures; native system share sheets remain platform-dependent.
+
 ## 3.9.15
 
 - Add eight transparent abstract-spirit avatars as the default Hermes Bot set: Void, Mercury, Fold, Orbit, Prism, Ink, Bloom and Echo. The first Bot uses white Void; additional Bots receive the avatars in order, cycling after eight.
