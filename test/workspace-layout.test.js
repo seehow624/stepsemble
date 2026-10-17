@@ -59,7 +59,7 @@ test("a tab keeps its agent for the logo, and a tab saved without one still load
 });
 
 test("an assistant tab keeps its route and avatar through moves, splits and saves", () => {
-  const bot = { host: "mini", key: crypto.randomUUID(), title: "Luna", avatar: "orbit",
+  const bot = { host: "mini", key: crypto.randomUUID(), title: "Luna", avatar: "character-nova",
     assistant: { page: "bot", profile: "default", session: "20261016_1", machine: "mini", panel: "history" } };
   let tree = L.pane();
   tree = L.insert(tree, tree.id, bot);
@@ -68,7 +68,7 @@ test("an assistant tab keeps its route and avatar through moves, splits and save
   const saved = L.normalize(JSON.parse(JSON.stringify(tree)));
   const tab = L.leaves(saved).flatMap(p => p.tabs).find(r => r.key === bot.key);
   assert.deepEqual(tab.assistant, { page: "bot", profile: "default", session: "20261016_1" }, "the computer is the tab's host and panels are not kept");
-  assert.equal(tab.avatar, "orbit");
+  assert.equal(tab.avatar, "character-nova");
   assert.equal(L.identity(tab), JSON.stringify(["mini", bot.key]));
   for (const assistant of [{ page: "group", room: "room-1" }, { page: "routines" }, { page: "bots" }, { page: "newbot" }, { page: "newgroup" }, { page: "pending" }, { page: "home" }, { page: "settings", profile: "qa" }])
     assert.deepEqual(L.reference({ host: "mini", key: crypto.randomUUID(), title: "x", assistant }).assistant, assistant);

@@ -604,19 +604,20 @@
     "pt-BR": ["Voltar ao assistente", "Histórico de conversas", "Mais opções", "Pesquisar Bots ou grupos", "Gerenciar Bots", "Bot Chat", "Hoje", "Ontem", "Antes", "{count} etapas de ferramenta concluídas", "Em andamento · {count} etapas de ferramenta", "Nenhum resultado.", "Fechar painel", "Histórico"],
     "it": ["Torna all’assistente", "Cronologia delle conversazioni", "Altre opzioni", "Cerca Bot o gruppi", "Gestisci Bot", "Bot Chat", "Oggi", "Ieri", "Prima", "{count} passaggi strumento completati", "In corso · {count} passaggi strumento", "Nessun risultato.", "Chiudi pannello", "Cronologia"],
   };
-  const AVATAR_KEYS = ["presetAvatars", "presetAvatar", "useUploadedAvatar"];
+  const AVATAR_KEYS = ["presetAvatars", "useUploadedAvatar", "avatarLetters", "avatarCharacters", "avatarElements",
+    "elementMetal", "elementWood", "elementWater", "elementFire", "elementEarth", "elementWind", "elementThunder", "elementIce", "elementLight", "elementShadow"];
   const avatarRows = {
-    "en": ["Default avatars", "Default avatar {number}", "Use uploaded image"],
-    "zh-Hant": ["預設頭像", "預設頭像 {number}", "使用已上傳圖片"],
-    "zh-Hans": ["默认头像", "默认头像 {number}", "使用已上传图片"],
-    "ja": ["標準アバター", "標準アバター {number}", "アップロードした画像を使う"],
-    "ko": ["기본 아바타", "기본 아바타 {number}", "업로드한 이미지 사용"],
-    "tr": ["Varsayılan avatarlar", "Varsayılan avatar {number}", "Yüklenen resmi kullan"],
-    "fr": ["Avatars par défaut", "Avatar par défaut {number}", "Utiliser l’image importée"],
-    "de": ["Standardavatare", "Standardavatar {number}", "Hochgeladenes Bild verwenden"],
-    "es": ["Avatares predeterminados", "Avatar predeterminado {number}", "Usar imagen subida"],
-    "pt-BR": ["Avatares padrão", "Avatar padrão {number}", "Usar imagem enviada"],
-    "it": ["Avatar predefiniti", "Avatar predefinito {number}", "Usa l’immagine caricata"],
+    "en": ["Default avatars", "Use uploaded image", "Letters A–Z", "Characters", "Element spirits", "Metal", "Wood", "Water", "Fire", "Earth", "Wind", "Thunder", "Ice", "Light", "Shadow"],
+    "zh-Hant": ["預設頭像", "使用已上傳圖片", "A–Z 字母", "個性角色", "元素精靈", "金", "木", "水", "火", "土", "風", "雷", "冰", "光", "暗"],
+    "zh-Hans": ["默认头像", "使用已上传图片", "A–Z 字母", "个性角色", "元素精灵", "金", "木", "水", "火", "土", "风", "雷", "冰", "光", "暗"],
+    "ja": ["標準アバター", "アップロードした画像を使う", "A–Z の文字", "キャラクター", "元素の精霊", "金", "木", "水", "火", "土", "風", "雷", "氷", "光", "闇"],
+    "ko": ["기본 아바타", "업로드한 이미지 사용", "A–Z 알파벳", "캐릭터", "원소 정령", "금", "나무", "물", "불", "흙", "바람", "번개", "얼음", "빛", "어둠"],
+    "tr": ["Varsayılan avatarlar", "Yüklenen resmi kullan", "A–Z harfler", "Karakterler", "Element ruhları", "Metal", "Ağaç", "Su", "Ateş", "Toprak", "Rüzgâr", "Gök gürültüsü", "Buz", "Işık", "Gölge"],
+    "fr": ["Avatars par défaut", "Utiliser l’image importée", "Lettres A–Z", "Personnages", "Esprits élémentaires", "Métal", "Bois", "Eau", "Feu", "Terre", "Vent", "Tonnerre", "Glace", "Lumière", "Ombre"],
+    "de": ["Standardavatare", "Hochgeladenes Bild verwenden", "Buchstaben A–Z", "Charaktere", "Elementargeister", "Metall", "Holz", "Wasser", "Feuer", "Erde", "Wind", "Donner", "Eis", "Licht", "Schatten"],
+    "es": ["Avatares predeterminados", "Usar imagen subida", "Letras A–Z", "Personajes", "Espíritus elementales", "Metal", "Madera", "Agua", "Fuego", "Tierra", "Viento", "Trueno", "Hielo", "Luz", "Sombra"],
+    "pt-BR": ["Avatares padrão", "Usar imagem enviada", "Letras A–Z", "Personagens", "Espíritos elementais", "Metal", "Madeira", "Água", "Fogo", "Terra", "Vento", "Trovão", "Gelo", "Luz", "Sombra"],
+    "it": ["Avatar predefiniti", "Usa l’immagine caricata", "Lettere A–Z", "Personaggi", "Spiriti elementali", "Metallo", "Legno", "Acqua", "Fuoco", "Terra", "Vento", "Tuono", "Ghiaccio", "Luce", "Ombra"],
   };
   const FILE_KEYS = ["fileOpen", "fileDownload", "fileUnavailable"];
   const fileRows = {

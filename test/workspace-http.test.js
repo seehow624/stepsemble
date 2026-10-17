@@ -136,6 +136,11 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const pane = await request("/index.html?pane=1");
   assert.equal(pane.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(pane.headers.get("content-security-policy"), /frame-ancestors 'self'/);
+  // Built-in Bot avatars are WebP images served with their own type.
+  const avatar = await request("/assistant-avatars/v1/letter-a.webp");
+  assert.equal(avatar.status, 200);
+  assert.equal(avatar.headers.get("content-type"), "image/webp");
+  assert.equal(Buffer.from(await avatar.arrayBuffer()).toString("ascii", 8, 12), "WEBP");
   // Settings open in a frame over the Workspace as well.
   const settings = await request("/index.html?settings=1");
   assert.equal(settings.headers.get("x-frame-options"), "SAMEORIGIN");

@@ -12,7 +12,7 @@ const PICTURE_B = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAAD
 async function seed(preview) {
   const now = Math.floor(Date.now() / 1000);
   for (const profile of preview.fake.state.profiles) {
-    const look = { default: ["Luna", "orbit"], "qa-reviewer": ["Reviewer", null], "image-artist": ["Artist", "bloom"] }[profile.name];
+    const look = { default: ["Luna", "letter-l"], "qa-reviewer": ["Reviewer", null], "image-artist": ["Artist", "element-fire"] }[profile.name];
     if (look) profile.ui_meta["hermes-bots"] = { ...profile.ui_meta["hermes-bots"], title: look[0], avatarPreset: look[1], hidden: false };
   }
   preview.fake.state.avatars.set("qa-reviewer", PICTURE_A);
@@ -72,6 +72,13 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
       assert.equal(await page.locator("#workspace-usage").isVisible(), false, "助理模式不顯示訂閱額度");
       assert.match(await luna.textContent(), /Luna.*one thing you can finish/s, "列出 Bot 名稱與最近一則");
       assert.equal((await luna.textContent()).includes("MEDIA:"), false, "側欄預覽不顯示附件路徑");
+      // 內建毛絨頭像是透明圖：不裁成圓形，也沒有框線。
+      await page.waitForFunction(() => document.querySelector('.workspace-assistant-row[data-profile="default"] .workspace-assistant-avatar img')?.naturalWidth > 0);
+      const lunaFace = await luna.locator(".workspace-assistant-avatar").evaluate(node => {
+        const style = getComputedStyle(node);
+        return { preset: node.dataset.avatarPreset, src: new URL(node.querySelector("img").src).pathname, radius: style.borderTopLeftRadius, overflow: style.overflow, shadow: style.boxShadow };
+      });
+      assert.deepEqual(lunaFace, { preset: "letter-l", src: "/assistant-avatars/v1/letter-l.webp", radius: "0px", overflow: "visible", shadow: "none" });
       assert.equal(await page.locator('#workspace-assistant .workspace-assistant-row[data-room]').count(), 1);
       const room = await page.locator("#workspace-assistant .workspace-assistant-row[data-room]").getAttribute("data-room");
       await page.locator("#workspace-assistant-search").fill("review");

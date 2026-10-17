@@ -10,6 +10,7 @@
 
 const { HermesError } = require("./hermes-gateway-client");
 const { isPreset } = require("../public/modules/assistant-avatars");
+const { displayNameOf } = require("./hermes-bots");
 const Media = require("../public/modules/assistant-media");
 
 const BOT_CHAT_TITLE = "Bot Chat";
@@ -309,7 +310,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     for (const row of Array.isArray(result?.profiles) ? result.profiles : []) {
       if (!row || typeof row.name !== "string" || !PROFILE.test(row.name)) continue;
       const meta = row.ui_meta && typeof row.ui_meta === "object" && row.ui_meta["hermes-bots"] && typeof row.ui_meta["hermes-bots"] === "object" ? row.ui_meta["hermes-bots"] : {};
-      const displayName = clip(meta.title, 120) || clip(row.display_name, 120) || (row.is_default === true ? "Hermes" : row.name);
+      const displayName = displayNameOf(row, meta);
       const chat = row.canonical_session && typeof row.canonical_session === "object" ? row.canonical_session : null;
       botNames.set(row.name, displayName);
       rows.push({ name: row.name, displayName, description: clip(row.description, 500) || clip(meta.description, 500),

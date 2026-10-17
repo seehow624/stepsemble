@@ -13,7 +13,7 @@ function model() {
 }
 const t = (key, vars) => AI.t(key, vars, "zh-Hant");
 const bots = [
-  { name: "default", displayName: "Luna", avatarPreset: "orbit", botChat: { lastActive: 10, preview: "早安" } },
+  { name: "default", displayName: "Luna", avatarPreset: "character-nova", botChat: { lastActive: 10, preview: "早安" } },
   { name: "qa-reviewer", displayName: "審稿夥伴", hasAvatar: true, botChat: { lastActive: 30, preview: "看完了" }, description: "細節" },
   { name: "image-artist", displayName: "視覺搭檔", isDefault: false, botChat: null, description: "找方向" },
 ];
@@ -57,9 +57,9 @@ test("分頁參照帶著路由與內建頭像，框架網址只用嵌入版助�
   const W = model();
   const ref = W.ref("mini", { page: "bot", profile: "default", machine: "mini", panel: "history" }, { bots, groups, t, uuid });
   assert.match(ref.key, /^[a-f0-9-]{36}$/);
-  assert.deepEqual(ref, { host: "mini", key: ref.key, title: "Luna", assistant: { page: "bot", profile: "default" }, avatar: "orbit" });
+  assert.deepEqual(ref, { host: "mini", key: ref.key, title: "Luna", assistant: { page: "bot", profile: "default" }, avatar: "character-nova" });
   assert.equal(W.ref("mini", { page: "bot", profile: "qa-reviewer" }, { bots, groups, t, uuid }).avatar, "custom", "上傳的圖片只記下要向 API 讀取");
-  assert.equal(W.ref("mini", { page: "bot", profile: "image-artist" }, { bots, groups, t, uuid }).avatar, A.defaultFor("image-artist"), "沒選造型時用預設造型");
+  assert.equal(W.ref("mini", { page: "bot", profile: "image-artist" }, { bots, groups, t, uuid }).avatar, A.defaultFor(bots[2]), "沒選造型時用預設造型");
   assert.equal(W.ref("mini", { page: "group", room: "room-1" }, { bots, groups, t, uuid }).avatar, undefined);
   const url = new URL(W.frameUrl({ host: "mini", assistant: { page: "bot", profile: "default", session: "s-1" } }), "http://example.test");
   assert.equal(url.pathname, "/assistant.html");
