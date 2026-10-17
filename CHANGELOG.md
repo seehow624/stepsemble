@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.9.13
+
+- Show at most three sessions per project in the Workspace sidebar. The rest wait behind one small Show N more line; one click shows them all, and Show fewer folds them again for as long as the page is open. A session open in a pane stays listed while folded, a folded session that is working or has an unread result puts a dot on the line, and a search lists every match.
+- Replace the 20 built-in vector avatars with 46 plush avatars in three groups: letters A–Z, ten characters (Atlas, Pixel, Nova, Bolt, Echo, Orbit, Muse, Prism, Buzz and Ledger) and ten element spirits. The images are transparent 256-pixel WebP files served by the Host, about 550 KB in total, and are shown whole without a frame or rounded crop; uploaded pictures keep their frame.
+- Give a Bot without a chosen avatar the letter its name starts with, ignoring accents, and give a name that does not start with a Latin letter a fixed character or spirit. The Bot list, settings and Workspace tabs use the same display name, so they always show the same default, and renaming a Bot updates its default letter.
+- Group the avatar picker by kind with translated names in all 11 languages; arrow keys still move through every avatar. Bots that chose one of the removed avatars show their default until another is chosen, and Stepsemble does not rewrite the value stored in Hermes.
+- Stop the Bot settings page from scrolling sideways on phones when the picker had more columns than the screen, and serve WebP images with their own content type.
+- Keep a Hermes console section open when you open it while the page is reloading after a save. The console read which sections were open before asking Hermes, so one opened while Hermes was answering snapped shut. This race also failed the browser test on busy macOS CI runners; the test now holds the reload back to cover it.
+
 ## 3.9.12
 
 - Close a Workspace tab with a middle click, as in a browser. The press no longer starts the platform's autoscroll, and the tab closes the same way as with its × button.
