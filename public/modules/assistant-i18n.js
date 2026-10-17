@@ -619,19 +619,19 @@
     "pt-BR": ["Avatares padrão", "Usar imagem enviada", "Letras A–Z", "Personagens", "Espíritos elementais", "Metal", "Madeira", "Água", "Fogo", "Terra", "Vento", "Trovão", "Gelo", "Luz", "Sombra", "Espíritos abstratos"],
     "it": ["Avatar predefiniti", "Usa l’immagine caricata", "Lettere A–Z", "Personaggi", "Spiriti elementali", "Metallo", "Legno", "Acqua", "Fuoco", "Terra", "Vento", "Tuono", "Ghiaccio", "Luce", "Ombra", "Spiriti astratti"],
   };
-  const FILE_KEYS = ["fileOpen", "fileDownload", "fileUnavailable"];
+  const FILE_KEYS = ["fileOpen", "fileDownload", "fileUnavailable", "fileShare", "fileShareUnavailable", "fileShareFailed", "fileShareReady"];
   const fileRows = {
-    "en": ["Open", "Download", "This file is no longer available."],
-    "zh-Hant": ["開啟", "下載", "這個檔案已無法開啟。"],
-    "zh-Hans": ["打开", "下载", "这个文件已无法打开。"],
-    "ja": ["開く", "ダウンロード", "このファイルは開けなくなりました。"],
-    "ko": ["열기", "다운로드", "이 파일은 더 이상 열 수 없습니다."],
-    "tr": ["Aç", "İndir", "Bu dosya artık açılamıyor."],
-    "fr": ["Ouvrir", "Télécharger", "Ce fichier n’est plus disponible."],
-    "de": ["Öffnen", "Herunterladen", "Diese Datei ist nicht mehr verfügbar."],
-    "es": ["Abrir", "Descargar", "Este archivo ya no está disponible."],
-    "pt-BR": ["Abrir", "Baixar", "Este arquivo não está mais disponível."],
-    "it": ["Apri", "Scarica", "Questo file non è più disponibile."],
+    "en": ["Open", "Download", "This file is no longer available.", "Share", "This browser cannot share this file directly. Use the download icon instead.", "Could not share this file. Try again or use the download icon.", "File ready. Tap the share icon again."],
+    "zh-Hant": ["開啟", "下載", "這個檔案已無法開啟。", "分享", "這個瀏覽器無法直接分享此檔案，請改用下載圖示。", "無法分享此檔案，請重試或使用下載圖示。", "檔案已準備好，請再點一下分享圖示。"],
+    "zh-Hans": ["打开", "下载", "这个文件已无法打开。", "分享", "此浏览器无法直接分享该文件，请改用下载图标。", "无法分享该文件，请重试或使用下载图标。", "文件已准备好，请再次点击分享图标。"],
+    "ja": ["開く", "ダウンロード", "このファイルは開けなくなりました。", "共有", "このブラウザーではファイルを直接共有できません。ダウンロードアイコンを使ってください。", "ファイルを共有できませんでした。再試行するか、ダウンロードアイコンを使ってください。", "ファイルの準備ができました。共有アイコンをもう一度タップしてください。"],
+    "ko": ["열기", "다운로드", "이 파일은 더 이상 열 수 없습니다.", "공유", "이 브라우저에서는 이 파일을 직접 공유할 수 없습니다. 다운로드 아이콘을 사용하세요.", "파일을 공유하지 못했습니다. 다시 시도하거나 다운로드 아이콘을 사용하세요.", "파일이 준비되었습니다. 공유 아이콘을 다시 누르세요."],
+    "tr": ["Aç", "İndir", "Bu dosya artık açılamıyor.", "Paylaş", "Bu tarayıcı dosyayı doğrudan paylaşamıyor. İndirme simgesini kullanın.", "Dosya paylaşılamadı. Yeniden deneyin veya indirme simgesini kullanın.", "Dosya hazır. Paylaşım simgesine tekrar dokunun."],
+    "fr": ["Ouvrir", "Télécharger", "Ce fichier n’est plus disponible.", "Partager", "Ce navigateur ne peut pas partager ce fichier directement. Utilisez l’icône de téléchargement.", "Impossible de partager ce fichier. Réessayez ou utilisez l’icône de téléchargement.", "Fichier prêt. Touchez à nouveau l’icône de partage."],
+    "de": ["Öffnen", "Herunterladen", "Diese Datei ist nicht mehr verfügbar.", "Teilen", "Dieser Browser kann die Datei nicht direkt teilen. Nutze das Download-Symbol.", "Die Datei konnte nicht geteilt werden. Versuche es erneut oder nutze das Download-Symbol.", "Datei bereit. Tippe erneut auf das Teilen-Symbol."],
+    "es": ["Abrir", "Descargar", "Este archivo ya no está disponible.", "Compartir", "Este navegador no puede compartir el archivo directamente. Usa el icono de descarga.", "No se pudo compartir el archivo. Inténtalo de nuevo o usa el icono de descarga.", "Archivo listo. Toca de nuevo el icono de compartir."],
+    "pt-BR": ["Abrir", "Baixar", "Este arquivo não está mais disponível.", "Compartilhar", "Este navegador não pode compartilhar este arquivo diretamente. Use o ícone de download.", "Não foi possível compartilhar o arquivo. Tente de novo ou use o ícone de download.", "Arquivo pronto. Toque no ícone de compartilhar novamente."],
+    "it": ["Apri", "Scarica", "Questo file non è più disponibile.", "Condividi", "Questo browser non può condividere il file direttamente. Usa l’icona di download.", "Impossibile condividere il file. Riprova o usa l’icona di download.", "File pronto. Tocca di nuovo l’icona di condivisione."],
   };
   const tables = {};
   for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows]]) {

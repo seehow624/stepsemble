@@ -32,7 +32,7 @@
   let groupData = { supported: false, rooms: [] }, currentRoom = null, panel = null;
   let renderQueued = false, watchTimer = 0, reloadTimer = 0, routeRevision = 0, startRevision = 0, homeScroll = 0, rosterQuery = "";
   let routeTask = Promise.resolve();
-  const content = window.StepsembleAssistantContent.create({ t,
+  const content = window.StepsembleAssistantContent.create({ t, icon, toast,
     mediaUrl: (path, download) => `${api?.base || ""}/api/assistant/media?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}` });
   const markdown = (text, options) => content.markdown(text, options);
 
@@ -52,12 +52,19 @@
     attach: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
     clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2", stop: "M6.5 6.5h11v11h-11z",
     history: "M3 11a9 9 0 1 1 2.4 7.1M3 4v7h7M12 7v5l3 2",
+    open: "M14 3h7v7M10 14L21 3M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5",
+    download: "M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5",
+    share: "M12 16V3m-4 4 4-4 4 4M8 10H5v11h14V10h-3",
   };
+  function icon(name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", ICONS[name]); svg.append(path);
+    return svg;
+  }
   function iconButton(name, label, className, onClick, type = "button") {
-    const node = button("", `assistant-icon-btn ${className}`, onClick, type), svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", ICONS[name]); svg.append(path); node.append(svg);
-    node.setAttribute("aria-label", label); node.title = label;
+    const node = button("", `assistant-icon-btn ${className}`, onClick, type);
+    node.append(icon(name)); node.setAttribute("aria-label", label); node.title = label;
     return node;
   }
   function toast(text) { const note = el("p", "assistant-toast", text); note.setAttribute("role", "status"); document.body.append(note); setTimeout(() => note.remove(), 4000); }
