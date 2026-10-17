@@ -18,6 +18,9 @@ const DEFAULT_MAX_CHILDREN = 4;
 // A proven-idle child is eligible immediately when capacity is needed.  A
 // caller may provide a positive idleMs to retain recently-used idle children.
 const DEFAULT_IDLE_MS = 0;
+const IDLE_SWEEP_MS = 15_000;
+// A child resumed without a turn is let go after this long.
+const UNUSED_CHILD_MS = 2 * 60_000;
 const CLOSE_TIMEOUT_MS = 5_000;
 const MAX_THREAD_ID = 256;
 const THREAD_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -170,6 +173,15 @@ function createCodexNativePool({
   childJournalDir = null,
   clock = () => Date.now(),
   onEvent = null,
+  // A thread's app-server is let go this long after its turn ends and it is
+  // idle (0: at once); null keeps children until capacity needs them.
+  releaseIdleMs = null,
+  // A thread a Goal or a compaction is working through keeps its app-server.
+  holdThread = () => false,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+  setRepeat = setInterval,
+  clearRepeat = clearInterval,
 } = {}) {
   const baseOptions = adapterOptions && typeof adapterOptions === "object" && !Array.isArray(adapterOptions)
     ? { ...adapterOptions } : {};
@@ -178,6 +190,8 @@ function createCodexNativePool({
     ? Math.min(32, configuredMax) : DEFAULT_MAX_CHILDREN;
   const idleWindow = Number.isFinite(Number(idleMs)) && Number(idleMs) >= 0
     ? Number(idleMs) : DEFAULT_IDLE_MS;
+  const releaseWindow = releaseIdleMs !== null && Number.isFinite(Number(releaseIdleMs)) && Number(releaseIdleMs) >= 0
+    ? Number(releaseIdleMs) : null;
 
   // Keep context observations in one bounded, pool-owned namespace.  Child
   // adapters receive per-thread mutation journals, so deriving this after a
@@ -246,6 +260,41 @@ function createCodexNativePool({
   function poolError(code, message, statusCode = 503, details = {}) {
     return new CodexNativePoolError(code, message, statusCode, details);
   }
+
+  function held(threadId) {
+    try { return holdThread(threadId) === true; } catch { return true; }
+  }
+  function releasable(entry) {
+    return !closed && entries.has(entry) && !entry.closeRequested && !!entry.threadId
+      && entry.activeCalls === 0 && childIsBusy(entry) === false && !held(entry.threadId);
+  }
+  // Once a turn has ended and the child is idle, its app-server is let go; the
+  // thread reads from history and resumes with its next message.
+  function noteIdle(entry) {
+    if (releaseWindow === null || closed || entry.idleTimer || entry.closeRequested || !entry.turnEnded) return;
+    entry.idleTimer = setTimer(() => {
+      entry.idleTimer = null;
+      if (entry.turnEnded && releasable(entry)) void releaseEntry(entry);
+    }, releaseWindow);
+    entry.idleTimer?.unref?.();
+  }
+  function noteChildEvent(entry, event) {
+    if (event?.type === "turn.started") entry.turnEnded = false;
+    else if (event?.type === "turn.completed" || event?.type === "turn.interrupted") { entry.turnEnded = true; noteIdle(entry); }
+  }
+  // A child resumed without a turn, or one whose end no event announced, is
+  // let go after it has been quiet for a while.
+  function sweepIdle() {
+    if (closed) return;
+    const now = nowValue(clock);
+    for (const entry of [...entries]) {
+      if (entry.idleTimer) continue;
+      const quiet = entry.turnEnded ? releaseWindow : Math.max(releaseWindow, UNUSED_CHILD_MS);
+      if (now - entry.lastUsedAt >= quiet && releasable(entry)) void releaseEntry(entry);
+    }
+  }
+  const idleSweeper = releaseWindow === null ? null : setRepeat(sweepIdle, IDLE_SWEEP_MS);
+  idleSweeper?.unref?.();
 
   function journalFileFor(threadId) {
     return path.join(resolvedJournalRoot, `${hashThreadId(threadId)}-mutations.json`);
@@ -393,9 +442,12 @@ function createCodexNativePool({
         threadId,
       });
     }
-    if (typeof onEvent === "function") {
+    if (typeof onEvent === "function" || releaseWindow !== null) {
       childOptions.onEvent = event => {
-        try { onEvent({ ...(event || {}), threadId: event?.threadId || threadId }); } catch {}
+        if (typeof onEvent === "function") {
+          try { onEvent({ ...(event || {}), threadId: event?.threadId || threadId }); } catch {}
+        }
+        noteChildEvent(entry, event);
       };
     }
     return childOptions;
@@ -403,8 +455,8 @@ function createCodexNativePool({
 
   async function ensureChild(entry) {
     if (!entry) throw poolError("native_thread_missing", "Codex native thread is not loaded", 404);
-    if (entry.adapter) return entry.adapter;
     if (entry.readyPromise) return entry.readyPromise;
+    if (entry.adapter) return entry.adapter;
     entry.readyPromise = (async () => {
       if (closed || entry.closeRequested) throw poolError("native_pool_closed", "Codex native pool is closed", 503);
       let adapter;
@@ -424,6 +476,7 @@ function createCodexNativePool({
         if (childStatus && childStatus.ready === false && typeof adapter.refresh === "function") {
           await adapter.refresh();
         }
+        if (safeStatus(adapter)?.ready === false) throw poolError("native_not_ready", "Codex native child is not ready", 503);
         return adapter;
       } catch (error) {
         if (adapter && !adapterClosed) {
@@ -466,6 +519,7 @@ function createCodexNativePool({
       entry.activeCalls = Math.max(0, entry.activeCalls - 1);
       entry.lastUsedAt = nowValue(clock);
       if (entry.retireRequested && entry.activeCalls === 0 && !entry.closeRequested) scheduleRetire(entry);
+      else if (entry.turnEnded && entry.activeCalls === 0) noteIdle(entry);
     }
   }
 
@@ -514,7 +568,7 @@ function createCodexNativePool({
         turnId: cleanThreadId(native?.turnId),
         busy: childIsBusy(entry),
         pendingApprovals: pending === null ? null : pending.length,
-        ready: !!entry.adapter,
+        ready: safeStatus(entry.adapter)?.ready === true && !entry.closeRequested,
         lastUsedAt: entry.lastUsedAt,
       };
     });
@@ -561,34 +615,44 @@ function createCodexNativePool({
   // A branch is a new thread; the thread it comes from stays as it is.
   async function forkThread(params = {}) { return historyCall("forkThread", [params]); }
 
-  async function readThread(threadId, options = {}) {
-    if (!validThreadId(threadId)) return historyCall("readThread", [threadId, options]);
-    const entry = byThread.get(threadId);
-    if (entry && !entry.closeRequested) return invokeEntry(entry, "readThread", [threadId, options]);
-    return historyCall("readThread", [threadId, options]);
+  async function readFromThread(method, threadId, ...params) {
+    const args = [threadId, ...params];
+    const entry = validThreadId(threadId) ? byThread.get(threadId) : null;
+    if (entry && !entry.closeRequested) {
+      try { return await invokeEntry(entry, method, args); }
+      catch (error) {
+        const code = String(error?.code || "");
+        if (code !== "native_not_ready" && !FATAL_CHILD_CODES.has(code)) throw error;
+        if (code === "native_not_ready") {
+          const native = safeNativeState(entry.adapter), pending = safePendingApprovals(entry.adapter);
+          const journal = entry.adapter?.mutationStatus?.();
+          // Transport loss does not prove that a committed write never ran.
+          const settled = Array.isArray(journal?.operations) && journal.operations.every(row => row.state === "succeeded");
+          if (native?.state === "not_ready" && !native.threadId && !native.turnId
+            && pending?.length === 0 && settled && entry.activeCalls === 0) {
+            entry.failed = true;
+            scheduleRetire(entry);
+          }
+        }
+      }
+    }
+    return historyCall(method, args);
   }
 
-  // Routed like readThread. Without it the thread route failed before any
-  // read, so a new thread (no rollout on disk yet) could not be opened.
+  async function readThread(threadId, options = {}) {
+    return readFromThread("readThread", threadId, options);
+  }
+
   async function getThreadGoal(threadId) {
-    if (!validThreadId(threadId)) return historyCall("getThreadGoal", [threadId]);
-    const entry = byThread.get(threadId);
-    if (entry && !entry.closeRequested) return invokeEntry(entry, "getThreadGoal", [threadId]);
-    return historyCall("getThreadGoal", [threadId]);
+    return readFromThread("getThreadGoal", threadId);
   }
 
   async function listThreadTurns(threadId, params = {}) {
-    if (!validThreadId(threadId)) return historyCall("listThreadTurns", [threadId, params]);
-    const entry = byThread.get(threadId);
-    if (entry && !entry.closeRequested) return invokeEntry(entry, "listThreadTurns", [threadId, params]);
-    return historyCall("listThreadTurns", [threadId, params]);
+    return readFromThread("listThreadTurns", threadId, params);
   }
 
   async function listThreadItems(threadId, params = {}) {
-    if (!validThreadId(threadId)) return historyCall("listThreadItems", [threadId, params]);
-    const entry = byThread.get(threadId);
-    if (entry && !entry.closeRequested) return invokeEntry(entry, "listThreadItems", [threadId, params]);
-    return historyCall("listThreadItems", [threadId, params]);
+    return readFromThread("listThreadItems", threadId, params);
   }
 
   async function listModels(params = {}) { return historyCall("listModels", [params]); }
@@ -933,6 +997,8 @@ function createCodexNativePool({
   async function close() {
     if (closePromise) return closePromise;
     closed = true;
+    if (idleSweeper) clearRepeat(idleSweeper);
+    for (const entry of entries) if (entry.idleTimer) { clearTimer(entry.idleTimer); entry.idleTimer = null; }
     closePromise = (async () => {
       for (const entry of entries) entry.closeRequested = true;
       const childResults = await Promise.allSettled([...entries].map(entry => closeEntry(entry)));

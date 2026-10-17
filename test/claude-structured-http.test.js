@@ -18,7 +18,10 @@ const PEER_SOURCE = String.raw`"use strict";
 const readline = require("node:readline");
 const sessionId = "native-session";
 const model = "synthetic-sonnet";
+// The model a set_model request switched to answers from then on.
+let current = model;
 let permissionPending = false;
+if (process.env.CLAUDE_PEER_LAUNCH_LOG) require("node:fs").appendFileSync(process.env.CLAUDE_PEER_LAUNCH_LOG, JSON.stringify(process.argv.slice(2)) + "\n");
 
 function write(value) {
   process.stdout.write(JSON.stringify({ session_id: sessionId, ...value }) + "\n");
@@ -27,8 +30,8 @@ function controlResponse(requestId, response = {}) {
   write({ type: "control_response", response: { subtype: "success", request_id: requestId, response } });
 }
 function reply(text) {
-  write({ type: "assistant", message: { id: "assistant-1", role: "assistant", model, content: [{ type: "text", text }], usage: { input_tokens: 10, output_tokens: 5, context_window: 1000 } } });
-  write({ type: "result", subtype: "success", result: text, modelUsage: { [model]: { contextWindow: 1000 } } });
+  write({ type: "assistant", message: { id: "assistant-1", role: "assistant", model: current, content: [{ type: "text", text }], usage: { input_tokens: 10, output_tokens: 5, context_window: 1000 } } });
+  write({ type: "result", subtype: "success", result: text, modelUsage: { [current]: { contextWindow: 1000 } } });
 }
 
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -38,11 +41,15 @@ input.on("line", raw => {
   if (frame.type === "control_request") {
     const subtype = frame.request?.subtype;
     if (subtype === "initialize") {
-      controlResponse(frame.request_id, { models: [{ value: model, displayName: "Synthetic Sonnet", contextWindow: 1000, supportsEffort: true, supportedEffortLevels: ["low", "high"] }], model, currentModel: model, effort: "low" });
+      controlResponse(frame.request_id, { models: [{ value: model, displayName: "Synthetic Sonnet", contextWindow: 1000, supportsEffort: true, supportedEffortLevels: ["low", "high"] },
+        { value: "synthetic-opus", displayName: "Synthetic Opus", contextWindow: 1000, supportsEffort: true, supportedEffortLevels: ["low", "high"] }], model, currentModel: model, effort: "low" });
     } else if (subtype === "set_model") {
-      controlResponse(frame.request_id, { model: frame.request?.model || model, currentModel: frame.request?.model || model });
+      current = frame.request?.model || current;
+      controlResponse(frame.request_id, { model: current, currentModel: current });
     } else if (subtype === "apply_flag_settings") {
       controlResponse(frame.request_id, {});
+    } else if (subtype === "set_permission_mode") {
+      controlResponse(frame.request_id, { mode: frame.request?.mode });
     } else if (subtype === "interrupt") {
       controlResponse(frame.request_id, {});
     }
@@ -71,6 +78,10 @@ input.on("line", raw => {
     write({ type: "tool_use_summary", summary: "Waited for a command", preceding_tool_use_ids: ["toolu_wait"], uuid: "00000000-0000-4000-8000-000000000031" });
     write({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_wait", content: [{ type: "text", text: "done" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgoAAAANSUhEUg==" } }] }] } });
     reply("command finished");
+  } else if (prompt === "schedule") {
+    // A scheduled prompt runs inside this process after the turn ends.
+    write({ type: "assistant", message: { id: "assistant-cron", role: "assistant", model, content: [{ type: "tool_use", id: "toolu_cron", name: "CronCreate", input: { cron: "*/5 * * * *", prompt: "check" } }] } });
+    reply("scheduled");
   } else if (prompt === "crash") {
     process.exit(3);
   } else if (prompt === "ask permission") {
@@ -80,7 +91,9 @@ input.on("line", raw => {
 });
 `;
 
-async function startHost(t) {
+// A live conversation keeps its Claude between turns only when idle release is
+// off; the tests of a live process say so, and the release tests do not.
+async function startHost(t, { idleRelease = "off" } = {}) {
   if (process.platform === "win32") { t.skip("native Claude stream fixture uses a POSIX-compatible launcher"); return null; }
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-claude-structured-http-"));
   const bin = path.join(home, "bin");
@@ -111,6 +124,9 @@ async function startHost(t) {
     STEPSEMBLE_HOST: "127.0.0.1",
     STEPSEMBLE_SECURE_COOKIE: "0",
     STEPSEMBLE_CLAUDE_STRUCTURED: "1",
+    ...(idleRelease === null ? {} : { STEPSEMBLE_IDLE_RELEASE_SECONDS: idleRelease }),
+    // Each Claude process the Host starts adds a line, so a test counts them.
+    CLAUDE_PEER_LAUNCH_LOG: path.join(home, "claude-launches.log"),
   };
   const child = spawn(process.execPath, [path.resolve(__dirname, "../server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
@@ -179,8 +195,9 @@ test("real HTTP Claude structured session covers model/prompt/permission/context
 
   const models = await f.request(`/api/claude/structured/models?sessionId=${encodeURIComponent(sessionId)}`, { cookie });
   assert.equal(models.status, 200, models.raw);
-  assert.deepEqual(models.body.models.map(row => row.id), ["synthetic-sonnet"]);
+  assert.deepEqual(models.body.models.map(row => row.id), ["synthetic-sonnet", "synthetic-opus"]);
   assert.equal(models.body.currentModel, "synthetic-sonnet");
+  assert.equal(models.body.nativeSessionId, "native-session");
 
   const model = await f.request("/api/claude/structured/model", { method: "POST", cookie, body: { sessionId, model: "synthetic-sonnet" } });
   assert.equal(model.status, 200, model.raw);
@@ -234,6 +251,44 @@ test("real HTTP Claude structured session covers model/prompt/permission/context
   assert.equal(close.body.kind, "closed");
   assert.equal(close.body.cleanupConfirmed, true);
   assert.equal((await f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}`, { cookie })).status, 404);
+  const savedId = afterPermission.body.status.nativeSessionId;
+  const parked = await f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(savedId)}`, { cookie });
+  assert.equal(parked.status, 200, parked.raw);
+  assert.deepEqual(parked.body.events, []);
+  assert.equal(parked.body.status.needsLoad, true);
+  assert.equal(parked.body.status.nativeSessionId, savedId);
+  const savedPending = await f.request(`/api/claude/structured/pending?sessionId=${encodeURIComponent(savedId)}`, { cookie });
+  assert.equal(savedPending.status, 200);
+  assert.deepEqual(savedPending.body.permissions, []);
+  assert.equal(savedPending.body.status.needsLoad, true);
+  assert.equal((await f.request("/api/claude/structured/events?sessionId=unowned-id", { cookie })).status, 404);
+});
+
+test("a message arriving after idle parking attaches the saved conversation before sending it exactly once", async t => {
+  const f = await startHost(t);
+  if (!f) return;
+  const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+  const opened = await f.request("/api/agent/open", { method: "POST", cookie,
+    body: { agentId: "claude-code", cwd: f.home, name: "Retained title" } });
+  const localId = opened.body.nativeSessionId;
+  await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: localId, text: "original turn" } });
+  const original = await waitFor(() => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(localId)}`, { cookie }),
+    response => response.body?.events?.some(event => event.type === "result"));
+  const nativeId = original.body.status.nativeSessionId;
+  assert.equal((await f.request("/api/claude/structured/close", { method: "POST", cookie, body: { sessionId: nativeId } })).body.cleanupConfirmed, true);
+  const sent = await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: nativeId, text: "after parking" } });
+  assert.equal(sent.status, 200, sent.raw);
+  const result = await waitFor(() => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(nativeId)}`, { cookie }),
+    response => response.body?.events?.some(event => event.type === "result"));
+  assert.equal(result.body.events.filter(event => event.type === "user" && JSON.stringify(event.message).includes("after parking")).length, 1);
+  const workspace = await f.request("/api/workspace", { cookie });
+  assert.equal(workspace.body.entries.length, 1);
+  assert.equal(workspace.body.entries[0].key, opened.body.workspaceEntry.key);
+  assert.equal(workspace.body.entries[0].record.name, "Retained title");
+  const before = (await f.request("/api/claude/structured", { cookie })).body.adapter.sessionCount;
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: "not-recorded", text: "never launch" } })).status, 404);
+  assert.equal((await f.request("/api/claude/structured", { cookie })).body.adapter.sessionCount, before);
 });
 
 test("resuming an attached conversation reuses it instead of starting a second process", async t => {
@@ -349,4 +404,91 @@ test("a long command's progress events keep Claude going, and a Claude that stop
   );
   assert.ok(answered.body.events.some(event => event.result === "synthetic reply"), answered.raw);
   assert.equal((await f.request("/api/workspace", { cookie })).body.entries.length, 1);
+});
+
+test("an idle conversation lets Claude go after its turn, stays readable and keeps its choices for the next message", async t => {
+  const f = await startHost(t, { idleRelease: null });
+  if (!f) return;
+  const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+  // Conversation processes only; the Host also asks Claude what it supports.
+  const launches = async () => (await fs.readFile(path.join(f.home, "claude-launches.log"), "utf8").catch(() => "")).split("\n")
+    .filter(line => line.includes("stream-json")).length;
+  const events = id => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(id)}`, { cookie });
+
+  const opened = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "Released" } });
+  assert.equal(opened.status, 201, opened.raw);
+  const localId = opened.body.nativeSessionId;
+  assert.equal((await f.request(`/api/claude/structured/models?sessionId=${encodeURIComponent(localId)}`, { cookie })).status, 200);
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: localId, text: "hello" } })).body.kind, "sent");
+
+  // The turn ended, so Claude is let go; its last events stay readable.
+  const released = await waitFor(() => events(localId), response => response.body?.status?.released === true);
+  assert.equal(released.status, 200, released.raw);
+  assert.equal(released.body.status.needsLoad, true);
+  assert.equal(released.body.status.state, "waiting");
+  assert.ok(released.body.events.some(event => event.type === "result" && event.result === "synthetic reply"));
+  const nativeId = released.body.status.nativeSessionId;
+  assert.equal(nativeId, "native-session");
+  assert.equal((await events(nativeId)).body.status.released, true);
+  const listed = await f.request("/api/claude/structured", { cookie });
+  assert.equal(listed.body.adapter.sessionCount, 0, "no Claude process is kept");
+  const rows = listed.body.sessions.filter(row => row.nativeSessionId === nativeId);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].needsLoad, true);
+  assert.equal(await launches(), 1);
+
+  // What is picked while Claude is not running applies when it starts again.
+  const models = await f.request(`/api/claude/structured/models?sessionId=${encodeURIComponent(nativeId)}`, { cookie });
+  assert.equal(models.status, 200, models.raw);
+  assert.deepEqual(models.body.models.map(row => row.id), ["synthetic-sonnet", "synthetic-opus"]);
+  assert.equal(models.body.appliesNextTurn, true);
+  const model = await f.request("/api/claude/structured/model", { method: "POST", cookie, body: { sessionId: nativeId, model: "synthetic-opus" } });
+  assert.deepEqual(model.body, { kind: "changed", model: "synthetic-opus", effort: models.body.currentEffort, appliesNextTurn: true });
+  const effort = await f.request("/api/claude/structured/effort", { method: "POST", cookie, body: { sessionId: nativeId, effort: "high" } });
+  assert.deepEqual(effort.body, { kind: "changed", effort: "high", appliesNextTurn: true });
+  const mode = await f.request(`/api/agent-mode?agentId=claude-code&sessionId=${encodeURIComponent(nativeId)}`, { cookie });
+  assert.equal(mode.body.supported, true, mode.raw);
+  assert.equal(mode.body.appliesNextTurn, true);
+  const changed = await f.request("/api/agent-mode", { method: "POST", cookie, body: { agentId: "claude-code", sessionId: nativeId, mode: "plan" } });
+  assert.equal(changed.status, 200, changed.raw);
+  assert.equal(changed.body.current, "plan");
+  const context = await f.request(`/api/claude/structured/context?sessionId=${encodeURIComponent(nativeId)}`, { cookie });
+  assert.equal(context.status, 200, context.raw);
+  assert.equal(context.body.contextTokens, 10);
+  assert.equal(await launches(), 1, "picking does not start Claude");
+
+  // The next message starts Claude again on the conversation and goes once.
+  const again = await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: nativeId, text: "again" } });
+  assert.equal(again.status, 200, again.raw);
+  assert.equal(again.body.kind, "sent");
+  const answered = await waitFor(() => events(nativeId), response => response.body?.status?.released === true
+    && response.body.events.some(event => event.type === "user" && JSON.stringify(event.message).includes("again")));
+  assert.equal(answered.body.events.filter(event => event.type === "user" && JSON.stringify(event.message).includes("again")).length, 1);
+  assert.ok(answered.body.events.some(event => event.type === "result" && event.result === "synthetic reply"));
+  assert.equal(answered.body.status.model, "synthetic-opus");
+  assert.equal(answered.body.status.effort, "high");
+  assert.equal(answered.body.status.permissionMode, "plan");
+  assert.equal(await launches(), 2);
+  const workspace = await f.request("/api/workspace", { cookie });
+  assert.equal(workspace.body.entries.length, 1);
+  assert.equal(workspace.body.entries[0].record.name, "Released");
+});
+
+test("a conversation with a scheduled prompt keeps its Claude after the turn", async t => {
+  const f = await startHost(t, { idleRelease: null });
+  if (!f) return;
+  const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+  const opened = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "Scheduled" } });
+  const sessionId = opened.body.nativeSessionId;
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId, text: "schedule" } })).body.kind, "sent");
+  const done = await waitFor(() => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}`, { cookie }),
+    response => response.body?.events?.some(event => event.result === "scheduled"));
+  assert.ok(done.body.events.some(event => event.result === "scheduled"), done.raw);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const later = await f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}`, { cookie });
+  assert.equal(later.body.status.released, undefined);
+  assert.equal(later.body.status.closed, false);
+  assert.equal((await f.request("/api/claude/structured", { cookie })).body.adapter.sessionCount, 1);
 });

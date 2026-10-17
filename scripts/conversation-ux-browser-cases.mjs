@@ -173,8 +173,136 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
   }
 }
 
+export async function runSessionRecoveryBrowserCases(browser, { screenshots } = {}) {
+  for (const width of [393, 1280]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(locale => {
+        localStorage.setItem("stepsemble.onboarding.v1", "complete");
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true }));
+      }, width === 393 ? "zh-Hant" : "en");
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
+      const claude = entries.find(entry => entry.record.agentId === "claude-code").record;
+      const codexReads = { turns: 0, items: 0 }, opens = [], prompts = [];
+      let historyReads = 0, capacity = true;
+      // The Host's side of one conversation: Claude not running ("parked"),
+      // a running process numbered by its start, or one let go after its turn.
+      const host = { phase: "parked", epoch: 0, startedAt: null, reply: "" };
+      const start = reply => { host.phase = "live"; host.epoch += 1; host.startedAt = Date.now() - 1000 + host.epoch; host.reply = reply; };
+      const events = () => [
+        { type: "system", subtype: "init", hostSeq: 0 },
+        { type: "assistant", hostSeq: 1, message: { id: `answer-${host.epoch}`, content: [{ type: "text", text: host.reply }] } },
+        { type: "result", subtype: "success", result: host.reply, hostSeq: 2 },
+      ];
+      await context.route("**/api/workspace/entry?**", async route => {
+        const response = await route.fetch(), body = await response.json();
+        if (body.record?.agentId === "claude-code") body.record.needsLoad = true;
+        await route.fulfill({ response, json: body });
+      });
+      for (const kind of ["turns", "items"]) await context.route(`**/api/codex/${kind}?**`, async route => {
+        if (++codexReads[kind] === 1) return route.fulfill({ status: 503, json: { error: "native_not_ready" } });
+        await route.continue();
+      });
+      await context.route("**/api/agent/open", async route => {
+        opens.push(route.request().postDataJSON());
+        await route.fulfill({ status: 500, json: { error: "a saved conversation opens without starting Claude" } });
+      });
+      await context.route("**/api/native-history/session?**", route => { historyReads += 1; return route.fulfill({ json: {
+        kind: "native_history_transcript", messages: [
+          { id: "saved-question", role: "user", text: "Earlier saved question" },
+          { id: "saved-answer", role: "assistant", text: "The original saved Claude history is readable." },
+        ], tools: [],
+      } }); });
+      for (const kind of ["events", "pending"]) await context.route(`**/api/claude/structured/${kind}?**`, async route => {
+        const after = Number(new URL(route.request().url()).searchParams.get("after")) || 0;
+        const base = { nativeSessionId: claude.nativeSessionId };
+        const status = host.phase === "parked" ? { ...base, state: "available", needsLoad: true, persisted: true }
+          : { ...base, state: "waiting", closed: false, failed: null, startedAt: host.startedAt, turnStartedAt: host.startedAt, turnEndedAt: host.startedAt + 500,
+            lastActivityAt: host.startedAt + 500, ...(host.phase === "released" ? { released: true, needsLoad: true } : {}) };
+        const rows = host.phase === "parked" ? [] : events().filter(event => event.hostSeq >= after);
+        await route.fulfill({ json: kind === "events" ? { events: rows, status } : { permissions: [], status } });
+      });
+      await context.route("**/api/claude/structured/prompt", async route => {
+        prompts.push(route.request().postDataJSON());
+        if (capacity) return route.fulfill({ status: 409, json: { error: "desktop_capacity" } });
+        start(`Reply ${host.epoch + 1} from the Claude this message started.`);
+        await route.fulfill({ json: { kind: "sent", nativeSessionId: claude.nativeSessionId } });
+      });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      let ui = await openFromSidebar(page, "Codex composer fixture");
+      await ui.waitForFunction(() => !!rpc?.nativeCodex && !rpc.nativeLoading && !rpc.connectionLost);
+      assert.ok(codexReads.turns >= 2 && codexReads.items >= 2, "transient page errors reach the bounded connection retry");
+      assert.match(await ui.locator("#messages").innerText(), /Synthetic Codex response/);
+
+      // A saved conversation opens from its history; Claude is not started.
+      ui = await openFromSidebar(page, "Claude composer fixture");
+      await ui.waitForFunction(() => rpc?.claudeNeedsLoad === true && !rpc.nativeLoading && genericInputBlock() === null);
+      assert.match(await ui.locator("#messages").innerText(), /original saved Claude history/);
+      assert.equal(opens.length, 0, "opening reads history only");
+      assert.equal(await ui.locator("#task-replay-note").isVisible(), false);
+      assert.equal(await ui.locator("#btn-model").isVisible(), true, "the model can be picked before Claude starts");
+      const reads = historyReads;
+
+      // Every Claude slot is working: the message stays in the composer.
+      await ui.locator("#input").fill("Keep this draft while capacity is full");
+      const refused = page.waitForResponse(response => response.url().endsWith("/api/claude/structured/prompt") && response.status() === 409);
+      await ui.locator("#btn-send").click(); await refused;
+      await ui.waitForFunction(() => document.querySelector("#input")?.value === "Keep this draft while capacity is full");
+      assert.equal(await ui.locator("#messages .msg.user").filter({ hasText: "Keep this draft while capacity is full" }).count(), 0);
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `session-capacity-${width}.png`) }); }
+
+      // The message starts Claude on the conversation; its reply joins the page.
+      capacity = false;
+      const sent = page.waitForResponse(response => response.url().endsWith("/api/claude/structured/prompt") && response.ok());
+      await ui.locator("#btn-send").click(); await sent;
+      assert.equal(prompts.at(-1).sessionId, claude.nativeSessionId);
+      assert.equal(prompts.at(-1).text, "Keep this draft while capacity is full");
+      await ui.waitForFunction(expected => rpc?.claudeNeedsLoad === false && rpc.claudeStartedAt === expected, host.startedAt);
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Reply 1 from the Claude this message started."));
+      assert.equal(historyReads, reads, "the page goes on without reading the history again");
+      assert.equal(opens.length, 0);
+
+      // The turn ended and the Host let Claude go: the page stays as it is.
+      host.phase = "released";
+      await ui.waitForFunction(() => rpc?.claudeNeedsLoad === true && rpc.taskStatus === "waiting" && genericInputBlock() === null);
+      const text = await ui.locator("#messages").innerText();
+      assert.equal(text.split("Reply 1 from the Claude this message started.").length - 1, 1, "the reply is drawn once");
+      assert.equal(await ui.locator("#messages .msg.user").filter({ hasText: "Keep this draft while capacity is full" }).count(), 1);
+      assert.equal(await ui.locator("#task-replay-note").isVisible(), false);
+
+      // Another window starts Claude again; nothing is sent from here.
+      await ui.locator("#input").fill("Draft survives another window reconnecting");
+      const sentCount = prompts.length;
+      start("Reply from a Claude another window started.");
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Reply from a Claude another window started."));
+      assert.equal(prompts.length, sentCount, "joining a restarted Claude never resends a message");
+      assert.equal(await ui.locator("#input").inputValue(), "Draft survives another window reconnecting");
+
+      // Let go again, the next message starts Claude once more and goes once.
+      host.phase = "released";
+      await ui.waitForFunction(() => rpc?.claudeNeedsLoad === true);
+      await ui.locator("#input").fill("One message after Claude was let go");
+      const again = page.waitForResponse(response => response.url().endsWith("/api/claude/structured/prompt") && response.ok());
+      await ui.locator("#btn-send").click(); await again;
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("from the Claude this message started.") && rpc?.claudeNeedsLoad === false);
+      assert.equal(prompts.length, sentCount + 1);
+      assert.equal(await ui.locator("#messages .msg.user").filter({ hasText: "One message after Claude was let go" }).count(), 1);
+      assert.equal(historyReads, reads);
+      assert.equal(opens.length, 0);
+      assert.deepEqual(errors, []);
+      if (screenshots) await page.screenshot({ path: path.join(screenshots, `session-reconnected-${width}.png`) });
+      console.log(JSON.stringify({ case: "Session recovery", width, result: "passed", nativeCalls: 0, promptCount: prompts.length }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
+  await runSessionRecoveryBrowserCases(browser, options);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-conversation-ux-")));
     let child, context, stage = "fixture";

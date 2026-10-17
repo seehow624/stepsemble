@@ -99,6 +99,67 @@ test("Claude permission modes are read from Claude, changed live and put back af
   await session.close();
 });
 
+test("idle suspension protects turns, permissions, pending input and background tasks", async t => {
+  const child = childFixture(), frames = [];
+  observeControlWire(child, message => {
+    frames.push(message);
+    if (message.type === "control_request") child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: {},
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/synthetic/claude", cwd: "/tmp", env: {}, sessionId: "saved-session", spawnImpl: () => child, requestTimeoutMs: 100 });
+  t.after(() => session.close());
+  assert.equal(session.isIdle(), false);
+  await session.models();
+  child.stdout.write(JSON.stringify({ type: "system", subtype: "task_started", task_id: "historical-background", isReplay: true }) + "\n");
+  assert.equal(session.isIdle(), true);
+  const send = session.send("one message");
+  assert.equal((await session.suspend()).kind, "reject", "a prompt waiting on the initialized promise already owns the session");
+  await send;
+  assert.equal(session.isIdle(), false);
+  const emit = event => child.stdout.write(JSON.stringify({ session_id: "saved-session", ...event }) + "\n");
+  emit({ type: "control_request", request_id: "permission-a", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "synthetic" } } });
+  emit({ type: "result", subtype: "success", result: "done" });
+  assert.equal(session.isIdle(), false);
+  emit({ type: "control_cancel_request", request_id: "permission-a" });
+  assert.equal(session.isIdle(), true);
+  emit({ type: "system", subtype: "task_started", task_id: "background-a" });
+  emit({ type: "system", subtype: "task_started", task_id: "background-b" });
+  emit({ type: "result", subtype: "success", result: "parent is waiting" });
+  assert.equal(session.isIdle(), false, "an idle parent can still own background work");
+  assert.equal((await session.suspend()).code, "claude_session_busy");
+  emit({ type: "system", subtype: "task_notification", task_id: "background-a", status: "completed" });
+  assert.equal(session.isIdle(), false);
+  emit({ type: "system", subtype: "task_updated", task_id: "background-b", patch: { status: "failed" } });
+  assert.equal(session.isIdle(), true);
+  assert.equal((await session.suspend()).cleanupConfirmed, true);
+  assert.equal(frames.filter(frame => frame.type === "user").length, 1);
+});
+
+test("a scheduled prompt or monitor keeps its Claude process, while one in replayed history does not", async t => {
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type === "control_request") child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: {},
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/synthetic/claude", cwd: "/tmp", env: {}, sessionId: "saved-session", spawnImpl: () => child, requestTimeoutMs: 100 });
+  t.after(() => session.close());
+  await session.models();
+  const emit = event => child.stdout.write(JSON.stringify({ session_id: "saved-session", ...event }) + "\n");
+  const tool = name => ({ type: "assistant", message: { id: `assistant-${name}`, role: "assistant", content: [{ type: "tool_use", id: `toolu-${name}`, name, input: {} }] } });
+  emit({ ...tool("CronCreate"), isReplay: true });
+  emit({ type: "result", subtype: "success", result: "history" });
+  assert.equal(session.isIdle(), true, "a schedule from before this process is not in it");
+  emit(tool("Read"));
+  emit({ type: "result", subtype: "success", result: "read" });
+  assert.equal(session.isIdle(), true);
+  emit(tool("ScheduleWakeup"));
+  emit({ type: "result", subtype: "success", result: "scheduled" });
+  assert.equal(session.isIdle(), false);
+  assert.equal((await session.suspend()).code, "claude_session_busy");
+});
+
 test("Claude structured gateway sessions expose the refreshed OpenCodex catalog and settings merge", async t => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-gateway-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -777,6 +838,19 @@ test("closing Claude forces a process that ignores the request to exit", async (
   assert.equal(closed.cleanupConfirmed, true);
   assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
   assert.equal(session.status().state, "closed");
+});
+
+test("rechecking a closed Claude confirms cleanup only after its process exit is observed", async () => {
+  const child = childFixture();
+  child.kill = () => { child.killed = true; };
+  const session = createClaudeStructuredSession({ command: "/synthetic/claude", cwd: "/tmp", env: {}, spawnImpl: () => child });
+  const closing = session.close();
+  const sameClose = session.close();
+  assert.equal(sameClose, closing);
+  assert.equal(session.status().cleanupConfirmed, false);
+  child.emit("close", 0, null);
+  assert.equal((await closing).cleanupConfirmed, true);
+  assert.equal((await session.close()).cleanupConfirmed, true);
 });
 
 test("Claude model ids reject tabs and overlong values without truncation", async t => {

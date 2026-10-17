@@ -4967,20 +4967,24 @@ async function resumeStoppedClaude(connection, text, images) {
   if (connection.claudeResuming) return false;
   connection.claudeResuming = true;
   connection.nativeLoading = true; syncGenericInputState();
+  let resumedConnection = null;
   try {
     const task = await post("/api/agent/open", { agentId: "claude-code", cwd: connection.cwd, name: connection.name,
       resumeSessionId: connection.claudeNativeSessionId || connection.nativeSessionId });
     if (rpc !== connection) return false;
     if (!(task?.kind === "claude-structured" || task?.nativeClaudeStructured === true)) throw new Error("Claude resume returned no task");
-    await openClaudeStructuredTask({ ...task, name: connection.name, needsLoad: false });
+    const opening = openClaudeStructuredTask({ ...task, name: connection.name, needsLoad: false });
+    resumedConnection = rpc;
+    await opening;
   } catch (error) {
     if (rpc === connection) {
       connection.claudeResuming = false; connection.nativeLoading = false; syncGenericInputState();
-      toast(tKey("runtime.openChatFailed", { detail: String(error?.message || "resume failed").slice(0, 160) }), true);
+      const capacity = String(error?.code || error?.message) === "desktop_capacity";
+      toast(capacity ? agentHubText("claudeCapacity") : tKey("runtime.openChatFailed", { detail: String(error?.message || "resume failed").slice(0, 160) }), !capacity);
     }
     return false;
   }
-  if (!rpc?.nativeClaudeStructured || rpc === connection || claudeResumable(rpc)) return false;
+  if (rpc !== resumedConnection || !rpc?.nativeClaudeStructured || rpc === connection || claudeResumable(rpc)) return false;
   el.input.value = text;
   pendingImages = images;
   renderImgPreview();
@@ -5933,6 +5937,9 @@ async function loadCodexNativeTranscript(threadId, {
       page[kind] = { error: String(error?.code || error?.message || "codex_history_unavailable").slice(0, 128) };
     }
   }
+  if (!older && page.turns?.error && page.items?.error && isCodexNativeTransientError({ code: page.items.error })) {
+    throw Object.assign(new Error(page.items.error), { code: page.items.error });
+  }
   return page;
 }
 
@@ -6784,7 +6791,7 @@ async function openGrokAcpTask(task, generationOverride = null) {
   }
 }
 
-function renderClaudeStructuredEvents(connection, events, { replace = false } = {}) {
+function renderClaudeStructuredEvents(connection, events, { replace = false, live = !replace } = {}) {
   if (rpc !== connection || !connection?.nativeClaudeStructured) return;
   const rows = Array.isArray(events) ? events : [];
   if (replace) {
@@ -6859,7 +6866,7 @@ function renderClaudeStructuredEvents(connection, events, { replace = false } = 
       connection.claudeReplyNode = rpc.genericOutputNode;
       if (connection.claudeCurrentMessageId) connection.claudeReplyMessageId = connection.claudeCurrentMessageId;
     }
-    if (event?.type === "result" && !skip) finishClaudeReply(connection, !replace);
+    if (event?.type === "result" && !skip) finishClaudeReply(connection, live);
   }
   connection.claudeEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
@@ -6981,22 +6988,40 @@ function renderClaudeStructuredPermissions(connection, permissions) {
   }
 }
 
-async function refreshClaudeStructuredSnapshot(connection, { initial = false } = {}) {
+async function refreshClaudeStructuredSnapshot(connection, { initial = false, restart = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeClaudeStructured) return;
   if (connection.nativeRefreshInFlight) return;
   connection.nativeRefreshInFlight = true;
   const askedAt = Date.now();
+  let restartNeeded = false;
   try {
     // After the first read, only the events not drawn yet (a Host from before
-    // this sends them all, and the page reads on the same way).
-    const after = !initial && Number.isSafeInteger(connection.claudeEventSeq) && connection.claudeEventSeq > 0
+    // this sends them all, and the page reads on the same way). A Claude
+    // started again numbers its events from the start.
+    const fromStart = initial || restart;
+    const after = !fromStart && Number.isSafeInteger(connection.claudeEventSeq) && connection.claudeEventSeq > 0
       ? `&after=${connection.claudeEventSeq}` : "";
+    const sessionId = connection.claudeNativeSessionId || connection.nativeSessionId;
     const [snapshot, pending] = await Promise.all([
-      api(`/api/claude/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}${after}`),
-      api(`/api/claude/structured/pending?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
+      api(`/api/claude/structured/events?sessionId=${encodeURIComponent(sessionId)}${after}`),
+      api(`/api/claude/structured/pending?sessionId=${encodeURIComponent(sessionId)}`),
     ]);
     if (rpc !== connection) return;
-    renderClaudeStructuredEvents(connection, snapshot?.events, { replace: initial });
+    const status = snapshot?.status || {};
+    // The Host lets Claude go once a turn has ended; the conversation reads
+    // from its history and starts Claude again with the next message.
+    const parked = status.needsLoad === true;
+    // Claude started again on this conversation, with a message from here or
+    // another device: its new events are drawn from their start, below the
+    // conversation already shown.
+    if (!fromStart && !parked && (connection.claudeNeedsLoad
+      || connection.claudeStartedAt && status.startedAt && connection.claudeStartedAt !== status.startedAt)) {
+      restartNeeded = true;
+      return;
+    }
+    if (status.startedAt) connection.claudeStartedAt = status.startedAt;
+    connection.claudeNeedsLoad = parked;
+    renderClaudeStructuredEvents(connection, snapshot?.events, { replace: fromStart, live: !initial });
     renderClaudeStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
     // A look begun before Claude took a message can still find it waiting;
@@ -7006,11 +7031,10 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     // SSE connection. Reconcile the authoritative adapter status on every
     // poll so a resumed/native session cannot look idle forever, and so the
     // task center receives the real lifecycle timestamps and native id.
-    const status = snapshot?.status || {};
     // Claude's own id for the conversation, which it reports after the
     // Host's local key; resuming uses it.
     if (typeof status.nativeSessionId === "string" && status.nativeSessionId) connection.claudeNativeSessionId = status.nativeSessionId;
-    connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed"
+    connection.taskStatus = parked ? "waiting" : status.closed ? "stopped" : status.failed ? "failed"
       : status.state === "running" ? "running" : "waiting";
     // A turn Claude ended with an error is shown once, below that turn; the
     // conversation goes on. One from before this view opened is not repeated.
@@ -7031,12 +7055,13 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
       // conversation was opened, which can be hours before this turn.
       startedAt: status.turnStartedAt,
       lastActivityAt: status.lastActivityAt,
-      endedAt: status.closed ? (status.lastActivityAt || Date.now()) : status.state !== "running" ? status.turnEndedAt : undefined,
+      endedAt: parked ? status.turnEndedAt || status.lastActivityAt || undefined
+        : status.closed ? (status.lastActivityAt || Date.now()) : status.state !== "running" ? status.turnEndedAt : undefined,
       nativeStatus: status,
       // Said once, below the turn it ended.
       ...(connection.taskStatus === "failed" ? { error: agentHubText("claudeStopped") } : {}),
     });
-    void syncNativeContext(connection);
+    if (!parked) void syncNativeContext(connection);
     syncGenericInputState();
   } catch (error) {
     if (rpc !== connection) return;
@@ -7044,14 +7069,23 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false } =
     if (initial) throw error;
   } finally {
     connection.nativeRefreshInFlight = false;
+    if (restartNeeded && rpc === connection) void refreshClaudeStructuredSnapshot(connection, { restart: true });
   }
 }
 
 async function syncClaudeStructuredModelCatalog(connection = rpc, { force = false } = {}) {
   if (!connection?.nativeClaudeStructured || rpc !== connection || !connection.nativeSessionId) return null;
   if (!force && connection.claudeModelsLoaded && Array.isArray(connection.claudeModels)) return connection.claudeModels;
-  const result = await api(`/api/claude/structured/models?sessionId=${encodeURIComponent(connection.nativeSessionId)}`);
+  let result;
+  try { result = await api(`/api/claude/structured/models?sessionId=${encodeURIComponent(connection.claudeNativeSessionId || connection.nativeSessionId)}`); }
+  catch (error) {
+    if (rpc !== connection || String(error?.code || error?.message) !== "claude_session_unavailable") throw error;
+    await refreshClaudeStructuredSnapshot(connection);
+    if (connection.claudeNeedsLoad) return null;
+    throw error;
+  }
   if (rpc !== connection) return null;
+  if (typeof result?.nativeSessionId === "string" && result.nativeSessionId) connection.claudeNativeSessionId = result.nativeSessionId;
   const { models, current: currentModel } = claudeCatalogFrom(result);
   connection.claudeModels = models;
   connection.claudeModelsLoaded = true;
@@ -7072,6 +7106,12 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   const nativeSessionId = String(task.nativeSessionId || task.id || task.taskId || "").replace(/^claude-code:/, "");
   if (!nativeSessionId) return;
   const cwd = task.cwd || ""; const name = task.name || "Claude Code";
+  // A saved conversation opens from its history without starting Claude;
+  // Claude starts with the next message. One whose history cannot be read
+  // here starts Claude to show it.
+  if (task.needsLoad === true && task.attach !== true) {
+    return openClaudeStructuredTask({ ...task, needsLoad: false, deferred: true }, generationOverride);
+  }
   if (task.needsLoad === true) {
     const generation = generationOverride === null ? ++viewGeneration : generationOverride;
     if (rpc) closeChat(true);
@@ -7097,6 +7137,7 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
+    claudeNeedsLoad: task.deferred === true, claudeStartedAt: null,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
     genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null, claudeEffort: "auto",
     // Native Claude transcript discovery is independent from the live
@@ -7115,16 +7156,25 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
     // after it and add only the replies it does not show yet.
     await loadClaudeNativeHistory(connection);
     if (rpc !== connection || generation !== viewGeneration) return;
+    if (task.deferred === true && !connection.claudeHistoryLoaded) {
+      return openClaudeStructuredTask({ ...task, deferred: false, needsLoad: true, attach: true }, generation);
+    }
     await refreshClaudeStructuredSnapshot(connection, { initial: true });
     if (rpc !== connection || generation !== viewGeneration) return;
-    // Hydrate the native catalog before enabling the composer. This performs
-    // the control handshake once and exposes model/effort controls before the
-    // first prompt can be submitted.
+    // Hydrate the model catalog before enabling the composer; a conversation
+    // without its Claude running gets the one the Host keeps, and its choice.
     await syncClaudeStructuredModelCatalog(connection);
     if (rpc !== connection || generation !== viewGeneration) return;
+    if (connection.claudeNeedsLoad) void syncNativeContext(connection);
     claudeStructuredPollTimer = setInterval(() => void refreshClaudeStructuredSnapshot(connection), 2000); syncGenericInputState();
   } catch (error) {
-    if (rpc === connection && generation === viewGeneration) { closeChat(true); failChatOpen(error, "claude-code"); }
+    if (rpc === connection && generation === viewGeneration) {
+      // A conversation this Host does not keep starts Claude to open it.
+      if (task.deferred === true && String(error?.code || error?.message) === "claude_session_unavailable") {
+        return openClaudeStructuredTask({ ...task, deferred: false, needsLoad: true, attach: true }, generation);
+      }
+      closeChat(true); failChatOpen(error, "claude-code");
+    }
   }
 }
 
@@ -11602,7 +11652,7 @@ async function sendCurrent() {
           : rpc?.nativeAcp
             ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeClaudeStructured
-            ? await post("/api/claude/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
+            ? await post("/api/claude/structured/prompt", { sessionId: rpc.claudeNativeSessionId || rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeAntigravityStructured
               ? await post("/api/antigravity/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
             : rpc?.nativeCodexMutation
@@ -11702,7 +11752,9 @@ async function sendCurrent() {
       // The agent's own reason, such as "You need to sign in to use this
       // model", follows when the Host passed one on with its code.
       const reason = e?.code && typeof e.message === "string" && e.message !== e.code && /\s/.test(e.message) ? e.message.slice(0, 300) : "";
-      toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
+      // Every Claude slot is working; the message waits in the composer.
+      if (sendConnection?.nativeClaudeStructured && String(e?.code || e?.message) === "desktop_capacity") toast(agentHubText("claudeCapacity"));
+      else toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
       if (codexSendConnection) appendTurnErrorNotice(codexSendConnection, e?.message || e?.code || tKey("codexRecovery.unknownError"));
     }
   } finally {

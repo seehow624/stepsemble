@@ -84,7 +84,8 @@ const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-h
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
 const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
 const { CLAUDE_STRUCTURED_VERSION, CLAUDE_PERMISSION_MODES, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
-const { launchClaudeStructuredSession } = require("./server/claude-structured-launch");
+const { launchClaudeStructuredSession, parkIdleClaudeStructuredSession } = require("./server/claude-structured-launch");
+const { createClaudeIdleRelease, idleReleaseDelay } = require("./server/claude-idle-release");
 const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = require("./server/claude-desktop-upgrade");
 const { desktopPaths } = require("./server/claude-desktop-state");
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
@@ -2156,11 +2157,23 @@ void openCodeNative.refresh();
 // version and an owner-only intent journal, without changing account settings.
 // Sub-agent threads whose approval request Stepsemble could not answer.
 const subagentApprovalUnavailable = new Set();
+// A conversation's agent process runs while it works and is let go once it
+// is idle; its history stays readable (docs/session-idle-release.md).
+const idleReleaseMs = idleReleaseDelay(settingFromEnv("IDLE_RELEASE_SECONDS"));
 const codexNative = createCodexNativePool({ adapterOptions: {
   env: process.env,
   cwd: APP_HOME,
   journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
-}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"), onEvent: event => {
+}, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"),
+// Eight threads can work at once; each holds its app-server only while it works.
+maxChildren: 8,
+releaseIdleMs: idleReleaseMs < 0 ? null : idleReleaseMs,
+holdThread: threadId => {
+  const entry = workspaceRegistry.list().entries.find(row => row.record.agentId === "codex"
+    && (row.record.nativeThreadId === threadId || row.record.id === `codex:${threadId}`));
+  return !!entry && (workflows.locked(entry.key) || compactions.locked(entry.key));
+},
+onEvent: event => {
   if (event?.type === "subagent.approval_unavailable" && typeof event.threadId === "string") {
     subagentApprovalUnavailable.delete(event.threadId); subagentApprovalUnavailable.add(event.threadId);
     while (subagentApprovalUnavailable.size > 256) subagentApprovalUnavailable.delete(subagentApprovalUnavailable.values().next().value);
@@ -2363,6 +2376,9 @@ const claudeStructuredSessions = new Map();
 const claudeResumeGates = new Map();
 const claudeStructuredSessionRegistryFile = path.join(CONFIG_DIR, "claude-structured-sessions.json");
 const claudeStructuredKnownSessions = readSessionRegistry(claudeStructuredSessionRegistryFile);
+const claudeIdleRelease = createClaudeIdleRelease({ sessions: claudeStructuredSessions, delayMs: idleReleaseMs,
+  canRelease: (localId, session, status) => claudeReleaseAllowed(localId, status),
+  beforeRelease: keepClaudeSessionSettings });
 function claudeStructuredStatus() {
   return { adapter: CLAUDE_STRUCTURED_VERSION, version: CLAUDE_STRUCTURED_VERSION, state: claudeStructuredEnabled && claudeStructuredCommand ? "configured" : "disabled",
     configured: claudeStructuredEnabled && !!claudeStructuredCommand, ready: claudeStructuredSessions.size > 0,
@@ -3381,6 +3397,66 @@ function resolveClaudeStructuredSession(value) {
     } catch {}
   }
   return null;
+}
+
+// The workspace entry of a live Claude conversation, by its local key or
+// Claude's own id.
+function claudeWorkspaceEntry(localId, nativeSessionId) {
+  return workspaceRegistry.list().entries.find(row => row.record.agentId === "claude-code"
+    && (row.record.id === `claude-code:${localId}` || nativeSessionId && row.record.nativeSessionId === nativeSessionId)) || null;
+}
+
+// Only a conversation Claude can open again is let go: Stepsemble knows where
+// it runs and Claude has written its transcript. A Goal or a compaction in
+// progress keeps it.
+function claudeReleaseAllowed(localId, status) {
+  const id = status?.nativeSessionId;
+  if (!id || shutdownState || !claudeStructuredKnownSessions.has(id)) return false;
+  if (!(status.turnEndedAt > 0 || nativeHistoryCatalog.updatedAt("claude-code", id) > 0)) return false;
+  const entry = claudeWorkspaceEntry(localId, id);
+  return !(entry && (workflows.locked(entry.key) || compactions.locked(entry.key)));
+}
+
+// What the next process of a conversation starts with. The model and level
+// stay as the person chose them ("opus[1m]" is not replaced by the name Claude
+// reports); one from before choices were kept takes what it ran with. The
+// mode is the one it ran with last, which Claude changes itself when it
+// leaves plan mode.
+function keepClaudeSessionSettings(status) {
+  const id = status?.nativeSessionId;
+  if (!id) return;
+  if (!agentChoices.session("claude-code", id)?.model && status.model) {
+    agentChoices.record("claude-code", id, { model: status.model, ...(status.effort ? { effort: status.effort } : {}) }, { agent: false });
+  }
+  if (status.permissionMode) agentModes.set("claude-code", id, status.permissionMode);
+}
+
+// The live session a message goes to. A conversation whose process was let
+// go, or has stopped, starts again on its transcript first.
+async function claudeSessionForSend(value) {
+  const sessionId = String(value || "").replace(/^claude-code:/, "");
+  const resolved = resolveClaudeStructuredSession(sessionId);
+  if (resolved && !resolved.session.status().closed) return resolved;
+  const nativeId = resolved?.session.status().nativeSessionId || claudeIdleRelease.released(sessionId)?.nativeSessionId || sessionId;
+  const saved = publicClaudeStructuredResumeTask(claudeStructuredKnownSessions.get(nativeId));
+  if (!saved) return resolved;
+  const entry = workspaceRegistry.list().entries.find(row => row.record.agentId === "claude-code" && row.record.nativeSessionId === nativeId);
+  await openAgentTask({ agentId: "claude-code", cwd: saved.cwd, name: entry?.record.name || saved.name, resumeSessionId: nativeId });
+  return resolveClaudeStructuredSession(nativeId);
+}
+
+// Sends to a conversation, starting its process again when it was let go. A
+// process let go between finding it and sending never took the message, so
+// the message goes once to the process that starts in its place.
+async function sendToClaudeStructured(sessionId, text, options = {}) {
+  let resolved = await claudeSessionForSend(sessionId);
+  if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+  let result = await resolved.session.send(text, options);
+  if (result?.kind === "reject" && result.code === "claude_session_closed") {
+    resolved = await claudeSessionForSend(resolved.session.status().nativeSessionId || sessionId);
+    if (resolved) result = await resolved.session.send(text, options);
+  }
+  return result;
 }
 
 function rememberClaudeStructuredSession(nativeSessionId, { cwd, name = null, lastActivityAt = Date.now(), fork = null } = {}) {
@@ -5210,6 +5286,11 @@ async function openAgentTask(body, { signal } = {}) {
         ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
       let launchedClaude = null;
       const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
+        onCapacity: () => parkIdleClaudeStructuredSession({ sessions: claudeStructuredSessions, excludeSessionId: resumeSessionId,
+          canResume: (id, status) => claudeStructuredKnownSessions.has(id)
+            && (status.turnEndedAt > 0 || nativeHistoryCatalog.updatedAt("claude-code", id) > 0),
+          beforeSuspend: keepClaudeSessionSettings,
+        }),
         onRateEvent: event => { hostRates.claude(localId, event); workflowEvents.emit("claude-code", localId, event); },
         command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
         // The desktop helper asks its own Claude CLI the same question.
@@ -5218,7 +5299,7 @@ async function openAgentTask(body, { signal } = {}) {
         initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
         name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
         fork: claudeFork ? { at: claudeFork.at, sessionId: claudeFork.sessionId } : null,
-        onEvent: event => { try { if (event?.sessionId) {
+        onEvent: event => { claudeIdleRelease.note(localId); try { if (event?.sessionId) {
           rememberClaudeStructuredSession(event.sessionId, { cwd: sessionCwd, name: sessionName });
           const owned = workspaceRegistry.list().entries.find(row => row.record.id === `claude-code:${localId}`);
           if (owned && owned.record.nativeSessionId !== event.sessionId) workspaceRegistry.update(owned.key, { nativeSessionId: event.sessionId, persisted: true });
@@ -5235,6 +5316,8 @@ async function openAgentTask(body, { signal } = {}) {
       if (claudeFork) rememberClaudeStructuredSession(claudeFork.sessionId, { cwd: sessionCwd, name: sessionName, fork: { from: claudeFork.from, at: claudeFork.at } });
       else if (resumeSessionId) rememberClaudeStructuredSession(resumeSessionId, { cwd: sessionCwd, name: sessionName });
       claudeStructuredSessions.set(localId, session);
+      // The events of a process let go earlier give way to this one's.
+      claudeIdleRelease.forget(resumeSessionId);
       if (gone()) {
         const result = await session.close();
         if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
@@ -5484,16 +5567,36 @@ const handleSubagentDetailRoute = require("./server/subagent-detail").createSuba
   detail: require("./server/subagent-detail").createSubagentDetail({ resolve: key => workspaceRegistry.get(key), codex: codexNative, openCode: openCodeNative,
     approvalUnavailable: id => subagentApprovalUnavailable.has(id) }) });
 
+// The models a live Claude listed last, in full, for a conversation whose
+// process was let go; the saved list keeps names only.
+let claudeModelCatalog = null;
+// A Claude conversation whose process was let go, by its local key or Claude's
+// own id: what its next process starts with.
+function savedClaudeConversation(value) {
+  const id = String(value || "").replace(/^claude-code:/, "");
+  const released = claudeIdleRelease.released(id);
+  const nativeSessionId = released?.nativeSessionId || id;
+  if (!released && !claudeStructuredKnownSessions.has(nativeSessionId)) return null;
+  return { nativeSessionId, choice: choiceForSession("claude-code", nativeSessionId),
+    models: claudeModelCatalog || agentModelCache.get("claude-code").models,
+    context: released ? () => released.session.contextUsage() : null };
+}
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
   codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
-  onModels: (agentId, models) => agentModelCache.record(agentId, models),
+  onModels: (agentId, models) => {
+    if (agentId === "claude-code" && Array.isArray(models) && models.length) claudeModelCatalog = models;
+    return agentModelCache.record(agentId, models);
+  },
   onChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice),
+  savedClaude: savedClaudeConversation,
+  onSessionChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice, { agent: false }),
 });
 const handleAgentModeRoute = createAgentModeRoutes({
   store: agentModes, codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  savedClaude: value => savedClaudeConversation(value)?.nativeSessionId || null,
   // Claude conversations launched through a desktop helper from before 3.6.0
   // cannot enter Bypass permissions until the helper is updated.
   claudeHelperOutdated: async () => !!desktopClaude && !(await desktopClaude.bypassSupported().catch(() => false)),
@@ -6446,29 +6549,33 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 200, { adapter: claudeStructuredStatus(), sessions });
         return;
       }
-      if (p === "/api/claude/structured/events" && req.method === "GET") {
-        const resolved = resolveClaudeStructuredSession(url.searchParams.get("sessionId") || "");
-        if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+      if ((p === "/api/claude/structured/events" || p === "/api/claude/structured/pending") && req.method === "GET") {
+        const sessionId = url.searchParams.get("sessionId") || "";
+        const resolved = resolveClaudeStructuredSession(sessionId);
         // A page reading on asks only for the events from the number it has
         // not drawn yet.
         const after = Number(url.searchParams.get("after"));
-        const events = resolved.session.events();
-        sendJSON(res, 200, { events: Number.isSafeInteger(after) && after > 0 ? events.filter(event => !(event.hostSeq < after)) : events,
-          status: resolved.session.status() });
-        return;
-      }
-      if (p === "/api/claude/structured/pending" && req.method === "GET") {
-        const resolved = resolveClaudeStructuredSession(url.searchParams.get("sessionId") || "");
-        if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
-        sendJSON(res, 200, { permissions: resolved.session.pendingPermissions(), status: resolved.session.status() });
+        const since = events => Number.isSafeInteger(after) && after > 0 ? events.filter(event => !(event.hostSeq < after)) : events;
+        if (!resolved) {
+          // A process let go once its turn ended keeps its last events for a
+          // while, so a page that was showing the reply draws its end. The
+          // conversation waits for its next message either way.
+          const released = claudeIdleRelease.released(sessionId);
+          const task = publicClaudeStructuredResumeTask(claudeStructuredKnownSessions.get(released?.nativeSessionId || sessionId.replace(/^claude-code:/, "")));
+          if (!released && !task) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
+          const status = released ? { ...released.session.status(), closed: false, state: "waiting", released: true, needsLoad: true }
+            : { ...task.nativeStatus, needsLoad: true };
+          sendJSON(res, 200, p.endsWith("/events") ? { events: released ? since(released.session.events()) : [], status } : { permissions: [], status });
+          return;
+        }
+        sendJSON(res, 200, p.endsWith("/events") ? { events: since(resolved.session.events()), status: resolved.session.status() }
+          : { permissions: resolved.session.pendingPermissions(), status: resolved.session.status() });
         return;
       }
       if (p === "/api/claude/structured/prompt" && req.method === "POST") {
         try {
           const body = await readJSON(req, PROMPT_ROUTE_BYTES);
-          const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
-          if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
-          const result = await resolved.session.send(body?.text || body?.message || "", { images: body?.images });
+          const result = await sendToClaudeStructured(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
           sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
         return;
@@ -7996,8 +8103,9 @@ const server = http.createServer(async (req, res) => {
             const message = await acpAdapterForAgent(agentId).prompt(taskId.slice(agentId.length + 1), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
-          } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
-            const message = await resolveClaudeStructuredSession(taskId).session.send(body?.message || "", { images: body?.images });
+          } else if (taskId.startsWith("claude-code:") && (resolveClaudeStructuredSession(taskId) || claudeIdleRelease.released(taskId)
+            || claudeStructuredKnownSessions.has(taskId.slice("claude-code:".length)))) {
+            const message = await sendToClaudeStructured(taskId, body?.message || "", { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
@@ -8368,6 +8476,7 @@ function shutdown(signal) {
   let historyDrained = false, historyFailed = false, pendingFinish = null;
   // Stop admission/revoke synchronously; do not exit ahead of owned reader
   // actual-close cleanup. Never stop a native agent task through this path.
+  claudeIdleRelease.close();
   const claudeStructuredCleanup = Promise.all([...claudeStructuredSessions.entries()].map(async ([id, session]) => {
     try { return await session.close(); }
     finally { claudeStructuredSessions.delete(id); }

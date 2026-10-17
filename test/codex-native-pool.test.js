@@ -93,7 +93,7 @@ function childFactoryHarness({ delayResume = 0, onCreate = null } = {}) {
       async listThreadTurns(threadId) { calls.push(["turns", id, threadId]); return { kind: "thread_turns", threadId, data: [{ id: `live-turn-${id}` }] }; },
       async listThreadItems(threadId) { calls.push(["items", id, threadId]); return { kind: "thread_items", threadId, data: [{ id: `live-item-${id}` }] }; },
       async contextUsage(threadId) { calls.push(["usage", id, threadId]); return { model: `live-${threadId}` }; },
-      async mutationStatus() { return { enabled: true, ready: true, journalFile: "owner-only", operations: [{ operationId: `op-${id}`, state: "succeeded" }] }; },
+      mutationStatus() { return { enabled: true, ready: true, journalFile: "owner-only", operations: [{ operationId: `op-${id}`, state: "succeeded" }] }; },
       async listTasks() { return [{ id: `codex:${id}`, taskId: `codex:${id}`, nativeThreadId: id, source: "live" }]; },
       async close() { calls.push(["close", id]); state.state = "closed"; return { kind: "closed", cleanupConfirmed: true }; },
       addApproval(request) { pending.push({ ...request, threadId: id }); },
@@ -284,6 +284,131 @@ test("an unconfirmed child close is quarantined as a capacity slot and close rep
   assert.equal(result.cleanupConfirmed, false);
 });
 
+test("a failed child readiness probe releases capacity before any resume is attempted", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  let probes = 0;
+  const factory = async options => {
+    const child = await harness.factory(options);
+    if (harness.created.length === 1) {
+      child.status = () => ({ ready: false, lastError: "native_not_ready" });
+      child.refresh = async () => { probes++; return child.status(); };
+    }
+    return child;
+  };
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), createThreadAdapter: factory, maxChildren: 1, journalRoot: root });
+  t.after(() => pool.close());
+  await assert.rejects(pool.resumeThread({ threadId: "thread-a" }), error => error.code === "native_not_ready");
+  assert.equal(probes, 1);
+  assert.equal(harness.calls.filter(row => row[0] === "resume").length, 0);
+  assert.equal(pool.status().childCount, 0);
+  await pool.resumeThread({ threadId: "thread-a" });
+  assert.equal(harness.created.length, 2);
+});
+
+for (const method of ["readThread", "getThreadGoal", "listThreadTurns", "listThreadItems"]) {
+  test(`an unready owned ${method} falls back to the same thread's history and retires only its empty connection`, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+    const history = historyFixture(), harness = childFactoryHarness();
+    const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, maxChildren: 2, journalRoot: root });
+    t.after(() => pool.close());
+    await pool.resumeThread({ threadId: "thread-a" });
+    await pool.resumeThread({ threadId: "thread-b" });
+    await pool.startTurn([{ type: "text", text: "busy" }], {}, "thread-b");
+    const child = harness.created[0];
+    child.nativeState = () => ({ state: "not_ready", threadId: null, turnId: null });
+    child.status = () => ({ ready: false, state: "degraded" });
+    child[method] = async () => { throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+    assert.equal(pool.status().children.find(row => row.threadId === "thread-a").ready, false);
+    await pool[method]("thread-a");
+    assert.equal(history.calls.some(row => row[0] === method && row[1] === "thread-a"), true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(harness.calls.filter(row => row[0] === "close").map(row => row[1]), ["thread-a"]);
+    assert.equal(pool.nativeState("thread-b").turnId, "turn-thread-b");
+    await pool.resumeThread({ threadId: "thread-a" });
+    assert.equal(harness.created.length, 3);
+    assert.equal(harness.calls.filter(row => row[0] === "turn").length, 1);
+  });
+}
+
+test("an unready read never retires a child with a turn or approval, and a write is never replayed", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const history = historyFixture(), harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  const child = harness.created[0];
+  child.addApproval({ requestId: "approval-a" });
+  child.nativeState = () => ({ state: "turn_running", threadId: "thread-a", turnId: "turn-active" });
+  child.readThread = async () => { throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+  await pool.readThread("thread-a");
+  let writes = 0;
+  child.startTurn = async () => { writes++; throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+  await assert.rejects(pool.startTurn([{ type: "text", text: "once" }], {}, "thread-a"), error => error.code === "native_not_ready");
+  assert.equal(writes, 1);
+  assert.equal(harness.calls.some(row => row[0] === "close"), false);
+  assert.equal(pool.pendingApprovals("thread-a").length, 1);
+});
+
+test("an unready child with unconfirmed writes keeps its connection and never replays them", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  const child = harness.created[0];
+  child.nativeState = () => ({ state: "not_ready", threadId: null, turnId: null });
+  child.status = () => ({ ready: false });
+  child.mutationStatus = () => ({ operations: [{ state: "dispatching" }, { state: "awaiting_confirmation" }] });
+  child.readThread = async () => { throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+  assert.equal((await pool.readThread("thread-a")).thread.id, "thread-a");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.calls.some(row => row[0] === "close"), false);
+  assert.equal(harness.calls.filter(row => row[0] === "resume").length, 1);
+  assert.equal(pool.status().childCount, 1);
+});
+
+test("reads wait for an in-flight child readiness probe instead of using its half-initialized adapter", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  let release, ready = false;
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), journalRoot: root, createThreadAdapter: async options => {
+    const child = await harness.factory(options);
+    child.status = () => ({ ready });
+    child.refresh = async () => { await new Promise(resolve => { release = resolve; }); ready = true; };
+    return child;
+  } });
+  t.after(() => pool.close());
+  const resume = pool.resumeThread({ threadId: "thread-a" });
+  for (let i = 0; i < 10 && !release; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(typeof release, "function");
+  const read = pool.readThread("thread-a");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.calls.some(row => row[0] === "read"), false);
+  release();
+  await Promise.all([resume, read]);
+  assert.equal(harness.created.length, 1);
+});
+
+test("owned semantic read failures are not hidden by a history fallback", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const history = historyFixture(), harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  const reads = history.calls.length;
+  harness.created[0].listThreadItems = async () => { throw Object.assign(new Error("not owned"), { code: "native_thread_mismatch" }); };
+  await assert.rejects(pool.listThreadItems("thread-a"), error => error.code === "native_thread_mismatch");
+  assert.equal(history.calls.length, reads);
+  assert.equal(harness.calls.some(row => row[0] === "close"), false);
+});
+
 test("fatal child transport failures retire the child so a bounded pool can recover", async t => {
   const history = historyFixture();
   const harness = childFactoryHarness();
@@ -292,7 +417,7 @@ test("fatal child transport failures retire the child so a bounded pool can reco
   await pool.resumeThread({ threadId: "thread-a" });
   const child = harness.created[0];
   child.listThreadItems = async () => { throw Object.assign(new Error("dead"), { code: "native_transport_ended" }); };
-  await assert.rejects(() => pool.listThreadItems("thread-a"), error => error.code === "native_transport_ended");
+  assert.equal((await pool.listThreadItems("thread-a")).data[0].id, "history-item-thread-a");
   await new Promise(resolve => setImmediate(resolve));
   await pool.resumeThread({ threadId: "thread-b" });
   assert.equal(harness.created.length, 2);
@@ -430,4 +555,133 @@ test("compaction stays on the requested Codex worker and never uses the history 
   const called=[];for(const child of h.created)child.compactThread=async id=>{called.push([child.options.threadId,id]);return {kind:"completed",completed:true,threadId:id};};
   assert.equal((await pool.compactThread("thread-a")).completed,true);assert.deepEqual(called,[["thread-a","thread-a"]]);
   assert.equal((await pool.compactThread("thread-c")).code,"native_thread_missing");assert.equal(called.length,1);
+});
+
+function releaseTimers() {
+  let now = 1_000_000;
+  const timers = new Map();
+  let next = 1, sweep = null;
+  return {
+    clock: () => now,
+    advance(ms) { now += ms; },
+    setTimer(fn, ms) { const id = next++; timers.set(id, { fn, at: now + ms }); return id; },
+    clearTimer(id) { timers.delete(id); },
+    setRepeat(fn) { sweep = fn; return "sweep"; },
+    clearRepeat() { sweep = null; },
+    async run() {
+      for (let round = 0; round < 10; round += 1) {
+        const due = [...timers].filter(([, row]) => row.at <= now);
+        if (!due.length) break;
+        for (const [id, row] of due) { timers.delete(id); row.fn(); }
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      await new Promise(resolve => setImmediate(resolve));
+    },
+    async sweep() { sweep?.(); await new Promise(resolve => setImmediate(resolve)); },
+    pending: () => timers.size,
+    sweeping: () => !!sweep,
+  };
+}
+
+function releasePool(t, { releaseIdleMs = 0, holdThread = () => false } = {}) {
+  const timers = releaseTimers();
+  const history = historyFixture();
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, maxChildren: 4,
+    journalRoot: fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-")), clock: timers.clock, releaseIdleMs, holdThread,
+    setTimer: timers.setTimer, clearTimer: timers.clearTimer, setRepeat: timers.setRepeat, clearRepeat: timers.clearRepeat });
+  t.after(() => pool.close());
+  // The turn a message started ends as Codex reports it.
+  async function turn(threadId = "thread-a") {
+    await pool.resumeThread({ threadId });
+    await pool.startTurn([{ type: "text", text: "hi" }], {}, threadId);
+    const child = harness.created.at(-1);
+    return {
+      child,
+      complete(type = "turn.completed") {
+        const state = child.nativeState();
+        child.nativeState = () => ({ ...state, state: "thread_started", turnId: null });
+        // With release off and no listener the pool does not watch events.
+        child.options.onEvent?.({ type, threadId, turnId: `turn-${threadId}` });
+      },
+    };
+  }
+  return { timers, history, harness, pool, turn };
+}
+
+test("a thread's app-server is let go once its turn ends and it is idle; the thread then reads from history", async t => {
+  const { timers, history, harness, pool, turn } = releasePool(t);
+  const { complete } = await turn();
+  assert.equal(pool.status().childCount, 1);
+  complete();
+  await timers.run();
+  assert.equal(harness.calls.filter(row => row[0] === "close" && row[1] === "thread-a").length, 1);
+  assert.equal(pool.status().childCount, 0);
+  assert.equal((await pool.listThreadItems("thread-a")).data[0].id, "history-item-thread-a");
+  assert.ok(history.calls.some(row => row[0] === "listThreadItems" && row[1] === "thread-a"));
+  // The next message resumes the thread in a new app-server.
+  await pool.resumeThread({ threadId: "thread-a" });
+  assert.equal(harness.created.length, 2);
+  // A turn Stop ended is an ended turn too.
+  const stopped = await turn("thread-b");
+  stopped.complete("turn.interrupted");
+  await timers.run();
+  assert.equal(harness.calls.filter(row => row[0] === "close" && row[1] === "thread-b").length, 1);
+});
+
+test("an app-server with an approval waiting, a new turn, a call in flight or a Goal is kept", async t => {
+  const approval = releasePool(t);
+  const waiting = await approval.turn();
+  waiting.complete();
+  waiting.child.addApproval({ requestId: "approval-1" });
+  await approval.timers.run();
+  assert.equal(approval.pool.status().childCount, 1, "an approval holds the thread");
+
+  const again = releasePool(t);
+  const next = await again.turn();
+  next.complete();
+  next.child.options.onEvent({ type: "turn.started", threadId: "thread-a", turnId: "turn-next" });
+  await again.timers.run();
+  assert.equal(again.pool.status().childCount, 1, "a turn started again before the release");
+
+  const goal = releasePool(t, { holdThread: threadId => threadId === "thread-a" });
+  const held = await goal.turn();
+  held.complete();
+  await goal.timers.run();
+  await goal.timers.sweep();
+  assert.equal(goal.pool.status().childCount, 1, "a Goal working through the thread keeps it");
+
+  const reading = releasePool(t);
+  const busy = await reading.turn();
+  let finish;
+  busy.child.listThreadItems = threadId => new Promise(resolve => { finish = () => resolve({ kind: "thread_items", threadId, data: [] }); });
+  const read = reading.pool.listThreadItems("thread-a");
+  await new Promise(resolve => setImmediate(resolve));
+  busy.complete();
+  await reading.timers.run();
+  assert.equal(reading.pool.status().childCount, 1, "a call in flight finishes first");
+  finish();
+  await read;
+  await reading.timers.run();
+  assert.equal(reading.pool.status().childCount, 0, "and the app-server goes once it returns");
+});
+
+test("an app-server resumed without a turn goes after it has been unused, and release can stay off", async t => {
+  const { timers, pool } = releasePool(t);
+  await pool.resumeThread({ threadId: "thread-a" });
+  await timers.run();
+  assert.equal(pool.status().childCount, 1);
+  timers.advance(2 * 60_000 - 1);
+  await timers.sweep();
+  assert.equal(pool.status().childCount, 1);
+  timers.advance(1);
+  await timers.sweep();
+  assert.equal(pool.status().childCount, 0);
+
+  const off = releasePool(t, { releaseIdleMs: null });
+  assert.equal(off.timers.sweeping(), false);
+  const kept = await off.turn();
+  kept.complete();
+  await off.timers.run();
+  assert.equal(off.pool.status().childCount, 1, "children wait for capacity to need them");
 });

@@ -48,20 +48,20 @@ function createClaudeDesktopUpgradeService({ desktopClient, isBusy = () => false
       if (isBusy() || status.blockedReason || status.canStart !== true
         || health.activeStructured !== undefined && health.activeStructured !== 0) throw failure("active_tasks");
       // Older helpers lack the structured stream, the sign-in terminal, the
-      // Bypass permissions option, branching a conversation or starting
-      // Claude with its own updater off; any one is a reason to install the
-      // current helper runtime.
+      // Bypass permissions option, branching a conversation, starting Claude
+      // with its own updater off or room for eight working conversations; any
+      // one is a reason to install the current helper runtime.
       const outdated = health.structuredStreamVersion !== 1 || health.terminalVersion !== 1 || health.bypassVersion !== 1
-        || health.forkVersion !== 1 || health.pinnedVersion !== 1;
+        || health.forkVersion !== 1 || health.pinnedVersion !== 1 || health.capacityVersion !== 1;
       // A current helper still missing a folder is installed again with it.
       const roots = rootsToAdd();
       if (outdated || roots.length) await runUpgrade(roots);
       const verified = await desktopClient.health();
       if (verified.context !== "Aqua" || verified.structuredStreamVersion !== 1 || verified.terminalVersion !== 1
-        || verified.bypassVersion !== 1 || verified.forkVersion !== 1 || verified.pinnedVersion !== 1) throw failure("desktop_upgrade_unconfirmed");
+        || verified.bypassVersion !== 1 || verified.forkVersion !== 1 || verified.pinnedVersion !== 1 || verified.capacityVersion !== 1) throw failure("desktop_upgrade_unconfirmed");
       if (roots.length && rootsToAdd().length) throw failure("desktop_upgrade_unconfirmed");
       desktopClient.resetTerminalCheck?.();
-      return { upgraded: outdated || roots.length > 0, rootsAdded: roots.length, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1 };
+      return { upgraded: outdated || roots.length > 0, rootsAdded: roots.length, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 };
     } finally { running = false; }
   }
   return Object.freeze({ upgrade, isRunning: () => running, missingRoots: rootsToAdd });
@@ -86,11 +86,12 @@ function createClaudeHelperAutoUpdate({ desktopClient, upgradeService, setTimer 
     if (done || stopped()) return;
     try {
       desktopClient.resetTerminalCheck?.();
-      const [terminal, bypass, fork, pinned] = await Promise.all([desktopClient.terminalSupported(), desktopClient.bypassSupported(),
+      const [terminal, bypass, fork, pinned, capacity] = await Promise.all([desktopClient.terminalSupported(), desktopClient.bypassSupported(),
         typeof desktopClient.forkSupported === "function" ? desktopClient.forkSupported() : true,
-        typeof desktopClient.pinnedSupported === "function" ? desktopClient.pinnedSupported() : true]);
+        typeof desktopClient.pinnedSupported === "function" ? desktopClient.pinnedSupported() : true,
+        typeof desktopClient.capacitySupported === "function" ? desktopClient.capacitySupported() : true]);
       const rootsMissing = typeof upgradeService.missingRoots === "function" && upgradeService.missingRoots().length > 0;
-      if (terminal && bypass && fork && pinned && !rootsMissing) { done = true; return; }
+      if (terminal && bypass && fork && pinned && capacity && !rootsMissing) { done = true; return; }
       const result = await upgradeService.upgrade({ confirm: true });
       done = true;
       if (result?.upgraded !== false) log("updated");

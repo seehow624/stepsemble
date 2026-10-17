@@ -18,7 +18,25 @@ function effortValue(value) {
 
 // Called only inside the main authenticated/origin-checked API block.
 function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null,
-  codexPermissions = null, onChoice = null }) {
+  codexPermissions = null, onChoice = null, savedClaude = null, onSessionChoice = null }) {
+  // A Claude conversation whose process was let go keeps the model and level
+  // picked for it; Claude starts with them on the next message.
+  function savedClaudeResponse(p, saved, body) {
+    if (p.endsWith("/models")) {
+      return { models: Array.isArray(saved.models) ? saved.models : [], currentModel: saved.choice?.model || null,
+        currentEffort: saved.choice?.effort || null, nativeSessionId: saved.nativeSessionId, appliesNextTurn: true };
+    }
+    if (p.endsWith("/context")) return saved.context?.() || null;
+    if (p.endsWith("/effort")) {
+      const effort = effortValue(body?.effort);
+      if (effort === "auto") onSessionChoice?.("claude-code", saved.nativeSessionId, { effort });
+      else onChoice?.("claude-code", saved.nativeSessionId, { effort });
+      return { kind: "changed", effort, appliesNextTurn: true };
+    }
+    const model = modelValue(body?.model);
+    onChoice?.("claude-code", saved.nativeSessionId, { model });
+    return { kind: "changed", model, effort: saved.choice?.effort || null, appliesNextTurn: true };
+  }
   const routes = new Set([
     "GET /api/codex/models", "GET /api/codex/context", "POST /api/codex/mutation/turn", "POST /api/codex/mutation/interrupt",
     "GET /api/claude/structured/models", "GET /api/claude/structured/context", "POST /api/claude/structured/model", "POST /api/claude/structured/effort",
@@ -29,8 +47,15 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
       const p = url.pathname;
       if (p.startsWith("/api/claude/")) {
         const body = req.method === "POST" ? await readJSON(req, 4096) : null;
-        const resolved = resolveClaude(body?.sessionId || url.searchParams.get("sessionId") || "");
-        if (!resolved) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return true; }
+        const sessionId = body?.sessionId || url.searchParams.get("sessionId") || "";
+        const resolved = resolveClaude(sessionId);
+        if (!resolved) {
+          const saved = savedClaude?.(sessionId);
+          const response = saved ? savedClaudeResponse(p, saved, body) : null;
+          if (!response) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return true; }
+          sendJSON(res, 200, response);
+          return true;
+        }
         const catalog = p.endsWith("/models") ? await gateway?.refreshClaudeGatewayCache() : null;
         const result = p.endsWith("/models") ? await resolved.session.models()
           : p.endsWith("/context") ? await resolved.session.contextUsage()
@@ -46,8 +71,10 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
             if (choice.effort !== "auto") onChoice?.("claude-code", nativeSessionId, choice);
           } catch {}
         }
-        sendJSON(res, result?.kind === "reject" ? 409 : 200, catalog && result.models?.some(model => model.gateway === "opencodex")
-          ? { ...result, catalog: { source: catalog.source, checkedAt: catalog.checkedAt, stale: catalog.stale } } : result);
+        const nativeSessionId = p.endsWith("/models") ? resolved.session.status?.()?.nativeSessionId : null;
+        const response = typeof nativeSessionId === "string" && nativeSessionId ? { ...result, nativeSessionId } : result;
+        sendJSON(res, result?.kind === "reject" ? 409 : 200, catalog && response.models?.some(model => model.gateway === "opencodex")
+          ? { ...response, catalog: { source: catalog.source, checkedAt: catalog.checkedAt, stale: catalog.stale } } : response);
         return true;
       }
       if (p === "/api/codex/context") {

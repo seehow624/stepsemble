@@ -18,6 +18,10 @@ const FORK_VERSION = 1;
 // Claude starts with its own updater off (DISABLE_AUTOUPDATER): Stepsemble
 // installs only Claude Code releases it has checked.
 const PINNED_VERSION = 1;
+// Eight Claude conversations can work at once. A conversation holds its
+// process only while it works (docs/session-idle-release.md), so the limit
+// counts working conversations, not opened ones.
+const CAPACITY_VERSION = 1;
 const { claudeSessionEnvOverrides } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
@@ -32,9 +36,9 @@ const {
   writeFrameWithDrain,
 } = require("./claude-desktop-structured-stream");
 
-const MAX_STRUCTURED_CHILDREN = 4;
-const MAX_STRUCTURED_TICKETS = 8;
-const MAX_STRUCTURED_CONNECTIONS = 8;
+const MAX_STRUCTURED_CHILDREN = 8;
+const MAX_STRUCTURED_TICKETS = 16;
+const MAX_STRUCTURED_CONNECTIONS = 16;
 const STRUCTURED_TICKET_TTL_MS = 60000;
 const STRUCTURED_CLOSE_GRACE_MS = 1500;
 const STRUCTURED_CLOSE_KILL_MS = 1500;
@@ -352,12 +356,12 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
           : op === "auth/start" || op === "auth/cancel" ? ["id"] : [])) throw failure("invalid_request");
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION,
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION,
       activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");

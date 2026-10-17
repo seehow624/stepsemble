@@ -45,6 +45,8 @@ function createAgentModeRoutes({
   codex = null,
   ensureCodex = async () => {},
   resolveClaude = () => null,
+  // Claude's own id for a conversation whose process was let go, else null.
+  savedClaude = () => null,
   claudeHelperOutdated = async () => false,
   openCode = null,
   openCodeDirectory = value => value || null,
@@ -65,7 +67,14 @@ function createAgentModeRoutes({
 
   async function claudeState(sessionId) {
     const resolved = resolveClaude(sessionId);
-    if (!resolved) return { supported: false };
+    if (!resolved) {
+      // The mode is kept for the conversation and Claude starts in it with
+      // the next message.
+      const nativeSessionId = savedClaude(sessionId);
+      if (!nativeSessionId) return { supported: false };
+      return { supported: true, agentId: "claude-code", sessionId, modes: CLAUDE_PERMISSION_MODES.map(id => ({ id })),
+        current: store.get("claude-code", nativeSessionId) || null, appliesNextTurn: true };
+    }
     const state = await resolved.session.permissionState();
     return { supported: true, agentId: "claude-code", sessionId, modes: CLAUDE_PERMISSION_MODES.map(id => ({ id })),
       current: state.permissionMode || null, appliesNextTurn: false };
@@ -123,7 +132,13 @@ function createAgentModeRoutes({
     }
     if (agentId === "claude-code") {
       const resolved = resolveClaude(sessionId);
-      if (!resolved) throw failure("claude_session_unavailable", 404);
+      if (!resolved) {
+        const nativeSessionId = savedClaude(sessionId);
+        if (!nativeSessionId) throw failure("claude_session_unavailable", 404);
+        if (!CLAUDE_PERMISSION_MODES.includes(mode)) throw failure("mode_invalid");
+        store.set("claude-code", nativeSessionId, mode);
+        return claudeState(sessionId);
+      }
       let result;
       try { result = await resolved.session.setPermissionMode(mode); }
       catch (error) {

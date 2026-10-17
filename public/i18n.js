@@ -5160,6 +5160,20 @@
     it: "Claude Code si è fermato. Invia un messaggio per continuare questa conversazione.",
   };
   for (const [id, value] of Object.entries(CLAUDE_STOPPED_TRANSLATIONS)) AGENT_HUB_TRANSLATIONS[id]["agentHub.claudeStopped"] = value;
+  const CLAUDE_CAPACITY_TRANSLATIONS = {
+    en: "Claude connection capacity is full. Your message was not sent; your draft is kept.",
+    "zh-Hant": "Claude 連線名額已滿，訊息尚未送出，草稿已保留。",
+    "zh-Hans": "Claude 连接名额已满，消息尚未发送，草稿已保留。",
+    ja: "Claude の接続数が上限に達しています。メッセージは未送信で、下書きは保持されています。",
+    ko: "Claude 연결 한도에 도달했습니다. 메시지는 전송되지 않았으며 초안은 보관됩니다.",
+    tr: "Claude bağlantı kapasitesi dolu. Mesajınız gönderilmedi; taslağınız korundu.",
+    fr: "La capacité de connexion Claude est atteinte. Le message n’a pas été envoyé ; le brouillon est conservé.",
+    de: "Die Claude-Verbindungskapazität ist erreicht. Die Nachricht wurde nicht gesendet; der Entwurf bleibt erhalten.",
+    es: "Se alcanzó el límite de conexiones Claude. El mensaje no se envió; el borrador se conserva.",
+    "pt-BR": "O limite de conexões Claude foi atingido. A mensagem não foi enviada; o rascunho foi mantido.",
+    it: "Il limite di connessioni Claude è stato raggiunto. Il messaggio non è stato inviato; la bozza è conservata.",
+  };
+  for (const [id, value] of Object.entries(CLAUDE_CAPACITY_TRANSLATIONS)) AGENT_HUB_TRANSLATIONS[id]["agentHub.claudeCapacity"] = value;
   const AGENT_CAPABILITY_TRANSLATIONS = {
     en: {
       "agentCapability.feature.followUp": "Continue", "agentCapability.feature.model": "Model", "agentCapability.feature.reasoning": "Reasoning",

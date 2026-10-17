@@ -6,7 +6,7 @@ const { once } = require("node:events");
 const { createHttpUtils } = require("../server/http-utils");
 const { createNativeComposerRoutes, PROMPT_BODY_BYTES } = require("../server/native-composer-routes");
 
-async function fixture(t, { codexContextError = null, observedContext = null, codexPermissions = null } = {}) {
+async function fixture(t, { codexContextError = null, observedContext = null, codexPermissions = null, savedClaude = null } = {}) {
   const calls = [];
   let threadId = "thread-a";
   const context = { model: "model-a", contextTokens: 4500, contextWindow: 10000, contextPercent: 45, usage: { inputTokens: 4500 } };
@@ -26,7 +26,9 @@ async function fixture(t, { codexContextError = null, observedContext = null, co
   };
   const { readJSON, sendJSON } = createHttpUtils();
   const handle = createNativeComposerRoutes({ codex, ensureCodex: async () => {}, observeCodex: async () => observedContext ? { context: observedContext } : null,
-    resolveClaude: id => id === "claude-a" ? { session } : null, codexPermissions,
+    resolveClaude: id => id === "claude-a" ? { session } : null, codexPermissions, savedClaude,
+    onChoice: (agentId, sessionId, choice) => calls.push(["choice", agentId, sessionId, choice]),
+    onSessionChoice: (agentId, sessionId, choice) => calls.push(["session-choice", agentId, sessionId, choice]),
     validateDirectory: cwd => { if (cwd !== "/owned/project") throw Object.assign(new Error("outside"), { code: "agent_directory_invalid", statusCode: 400 }); return cwd; }, readJSON, sendJSON });
   const server = http.createServer(async (req, res) => {
     if (req.headers.authorization !== "Bearer synthetic-composer") { sendJSON(res, 401, { error: "unauthorized" }); return; }
@@ -109,4 +111,21 @@ test("Claude model controls use the exact live session and preserve unknown cont
   assert.equal(context.data.contextTokens, 4500);
   assert.equal(context.data.contextPercent, null);
   assert.equal(context.data.contextWindow, null);
+});
+
+test("a Claude conversation whose process was let go keeps its catalog and the choices made for its next process", async t => {
+  const saved = { nativeSessionId: "native-b", choice: { model: "opus[1m]", effort: "high" }, models: [{ id: "opus[1m]", name: "Opus" }],
+    context: () => ({ model: "opus[1m]", contextTokens: 12 }) };
+  const f = await fixture(t, { savedClaude: id => id === "claude-b" ? saved : id === "claude-c" ? { ...saved, context: null } : null });
+  const models = await f.request("/api/claude/structured/models?sessionId=claude-b");
+  assert.deepEqual(models.data, { models: saved.models, currentModel: "opus[1m]", currentEffort: "high", nativeSessionId: "native-b", appliesNextTurn: true });
+  assert.equal((await f.request("/api/claude/structured/context?sessionId=claude-b")).data.contextTokens, 12);
+  assert.equal((await f.request("/api/claude/structured/context?sessionId=claude-c")).status, 404, "a process gone longer has no reading");
+  assert.deepEqual((await f.request("/api/claude/structured/model", { sessionId: "claude-b", model: "sonnet" })).data,
+    { kind: "changed", model: "sonnet", effort: "high", appliesNextTurn: true });
+  assert.deepEqual(f.calls.pop(), ["choice", "claude-code", "native-b", { model: "sonnet" }]);
+  assert.deepEqual((await f.request("/api/claude/structured/effort", { sessionId: "claude-b", effort: "auto" })).data, { kind: "changed", effort: "auto", appliesNextTurn: true });
+  assert.deepEqual(f.calls.pop(), ["session-choice", "claude-code", "native-b", { effort: "auto" }], "auto is kept for this conversation only");
+  assert.equal((await f.request("/api/claude/structured/effort", { sessionId: "claude-b", effort: "huge" })).status, 400);
+  assert.equal((await f.request("/api/claude/structured/models?sessionId=claude-unknown")).status, 404);
 });

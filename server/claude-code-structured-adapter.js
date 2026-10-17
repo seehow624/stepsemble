@@ -34,6 +34,8 @@ const FORCE_KILL_AFTER_MS = 3000;
 // How long to wait for Claude to report the model and level it runs with.
 const SETTINGS_READ_TIMEOUT_MS = 3000;
 const CLAUDE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
+// Tools whose work goes on inside the Claude process after its turn ends.
+const PROCESS_BOUND_TOOLS = new Set(["CronCreate", "ScheduleWakeup", "Monitor"]);
 // Keep a single Claude stream-json input frame and its ordered write queue
 // bounded like the Codex native transport. The HTTP prompt route admits up to
 // 28 MiB so a prompt with its full 24 MiB image budget can reach this adapter;
@@ -539,6 +541,11 @@ function createClaudeStructuredSession({
   const pendingPermissions = new Map();
   const pendingInterrupts = new Set();
   const pendingControls = new Map();
+  const backgroundTasks = new Set();
+  // Scheduled prompts and monitors live in this process and end with it.
+  let processBoundWork = false;
+  let pendingUserInputs = 0;
+  let closePromise = null;
   let compactionPending = null;
   let initializationPromise = null;
   let initializationResult = null;
@@ -924,6 +931,14 @@ function createClaudeStructuredSession({
   const parser = createClaudeStructuredParser({
     onEvent(event) {
       observeCompaction(event);
+      const taskId = safeId(event.task_id);
+      if (event.type === "system" && taskId && event.isReplay !== true) {
+        if (event.subtype === "task_started") backgroundTasks.add(taskId);
+        else if (["task_updated", "task_notification"].includes(event.subtype)
+          && ["completed", "failed", "error", "killed", "stopped", "cancelled"].includes(event.patch?.status || event.status)) backgroundTasks.delete(taskId);
+      }
+      if (event.type === "assistant" && event.isReplay !== true && Array.isArray(event.message?.content)
+        && event.message.content.some(block => block?.type === "tool_use" && PROCESS_BOUND_TOOLS.has(block.name))) processBoundWork = true;
       lastActivityAt = Date.now();
       const interrupted = event.type === "result" && (interruptRequested || /^aborted/.test(String(event.terminal_reason || "")));
       // init and status events report the mode, including changes Claude
@@ -1203,32 +1218,47 @@ function createClaudeStructuredSession({
     return enqueueJson({ type: "control_request", request_id: requestId, request: { subtype: "interrupt" } })
       .then(result => result.kind === "reject" ? result : ({ kind: "sent", requestId }));
   }
-  async function close() {
-    if (closed) return { kind: "closed" };
+  function close() {
+    if (closed && childExited) return Promise.resolve({ kind: "closed", cleanupConfirmed: true });
+    if (closePromise) return closePromise;
     finishCompaction("claude_session_closed");
     closed = true; parser.close();
     state = "closed";
     rejectControls(controlError("claude_session_closed"));
     pendingPermissions.clear(); pendingInterrupts.clear();
-    endProcess();
-    let cleanupConfirmed = false;
-    let cleanupTimer;
-    try {
-      await Promise.race([childClosed, new Promise(resolve => {
-        cleanupTimer = setTimeout(resolve, forceKillAfterMs + 1000);
-        cleanupTimer.unref?.();
-      })]);
-      cleanupConfirmed = childExited;
-    } catch {} finally {
-      if (cleanupTimer) clearTimeout(cleanupTimer);
-    }
-    return { kind: "closed", cleanupConfirmed };
+    closePromise = (async () => {
+      endProcess();
+      let cleanupConfirmed = false;
+      let cleanupTimer;
+      try {
+        await Promise.race([childClosed, new Promise(resolve => {
+          cleanupTimer = setTimeout(resolve, forceKillAfterMs + 1000);
+          cleanupTimer.unref?.();
+        })]);
+        cleanupConfirmed = childExited;
+      } catch {} finally {
+        if (cleanupTimer) clearTimeout(cleanupTimer);
+      }
+      return { kind: "closed", cleanupConfirmed };
+    })();
+    return closePromise;
+  }
+  function isIdle() {
+    return !!initializationResult && !closed && !processError && !parser.status().failed && state === "waiting"
+      && !compactionPending && !pendingUserInputs && !queuedInputBytes && !child.stdin?.writableLength
+      && !pendingControls.size && !pendingInterrupts.size && !pendingPermissions.size && !backgroundTasks.size && !processBoundWork;
   }
   return Object.freeze({
     version: CLAUDE_STRUCTURED_VERSION,
     cwd,
     name: safeText(name, 120) || null,
-    send: (text, options) => compactionPending ? Promise.resolve(reject("compaction_busy")) : sendUser(text, options),
+    send(text, options) {
+      if (compactionPending) return Promise.resolve(reject("compaction_busy"));
+      pendingUserInputs++;
+      return sendUser(text, options).finally(() => { pendingUserInputs--; });
+    },
+    isIdle,
+    suspend: () => isIdle() ? close() : Promise.resolve(reject("claude_session_busy")),
     compact,
     models,
     setModel,
