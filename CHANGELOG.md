@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.15
+
+- Add eight transparent abstract-spirit avatars as the default Hermes Bot set: Void, Mercury, Fold, Orbit, Prism, Ink, Bloom and Echo. The first Bot uses white Void; additional Bots receive the avatars in order, cycling after eight.
+- Keep all 46 existing avatars, manually selected presets and uploaded pictures. The new set appears first in the avatar picker, with group labels in all 11 interface languages.
+- Save the default avatar sequence for newly created Bots so renaming or reordering them does not change their look, and serialize simultaneous Bot creation to avoid duplicate sequence numbers. Existing profile metadata is not rewritten when read.
+- Verify desktop and mobile avatar selection, reloads, keyboard navigation, uploaded-picture switching and Workspace integration; refresh versioned assets and rolling-compatibility pins for this release.
+
 ## 3.9.14
 
 - List a project's sessions by their latest activity: pinned sessions first, then a session at work, then the one with the latest turn or reply, down to the one unused longest. Together with the three-session limit, a project shows its three most recent sessions. The Host records each turn's start and end, including a Goal's; a session not used in Stepsemble yet takes the time of its own history.
