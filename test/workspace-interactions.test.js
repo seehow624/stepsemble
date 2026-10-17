@@ -169,6 +169,13 @@ test("a session row marks its running, paused or blocked Goal and drops the mark
   context.sessionStatus(row, entry(undefined));
   assert.equal(goal.hidden, true); assert.equal(goal.dataset.state, ""); assert.doesNotMatch(button.attrs["aria-label"], /Goal/);
 });
+test("Schedules and the Assistant's routines share the calendar icon; other apps' history is a chat bubble, not a clock", () => {
+  const html = fs.readFileSync(require.resolve("../public/workspace.html"), "utf8");
+  const icon = id => (html.match(new RegExp(`id="${id}"[^>]*>(<svg[\\s\\S]*?</svg>)`)) || [])[1];
+  assert.ok(icon("workspace-workflows")); assert.equal(icon("workspace-workflows"), icon("workspace-routines"), "the same slot means the same thing in both sidebars");
+  assert.doesNotMatch(icon("workspace-history"), /<circle|A8\.5 8\.5/, "no clock face or circular arrow, which the Refresh button already uses");
+  assert.notEqual(icon("workspace-history"), icon("workspace-workflows"));
+});
 test("the sidebar button opens Schedules only, and Goal state changes do not rebuild the list", () => {
   const start = source.indexOf("  function labelWorkflows()"), click = source.indexOf('$("workspace-workflows").onclick', start);
   assert.ok(start > 0 && click > start);
