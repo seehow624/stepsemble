@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.14
+
+- List a project's sessions by their latest activity: pinned sessions first, then a session at work, then the one with the latest turn or reply, down to the one unused longest. Together with the three-session limit, a project shows its three most recent sessions. The Host records each turn's start and end, including a Goal's; a session not used in Stepsemble yet takes the time of its own history.
+- Keep the list still under the pointer: a session that moves up while the pointer is over the list, or while a menu is open, waits until the pointer leaves, and a redraw keeps keyboard focus on the same control. Sessions are no longer reordered by hand; dragging one places it in a pane, its menu keeps Pin, and projects keep their manual order.
+- Reference a session on another computer: drag it from that computer's list onto a conversation's message box, or pick it from the + list, which now shows every computer's sessions. The computer that has the session reads it and writes the summary with its own summarizer setting; only the summary travels, and the chip and the appended block name that computer.
+
 ## 3.9.13
 
 - Show at most three sessions per project in the Workspace sidebar. The rest wait behind one small Show N more line; one click shows them all, and Show fewer folds them again for as long as the page is open. A session open in a pane stays listed while folded, a folded session that is working or has an unread result puts a dot on the line, and a search lists every match.
