@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.11
+
+- Fix a terminal bridge that could spin a full CPU core after its agent exited, and ignore SIGTERM. A keystroke that arrived after the agent was gone left the bridge watching input it could no longer deliver; test runs left such bridges running for a day and set fans spinning. The bridge now exits with its agent, on SIGTERM once the agent is gone, and when its parent is gone, and never signals a process id it already reaped.
+- Reference a session without dragging: the message box's + button offers Reference a session…, a searchable list of the other sessions on the same Host, usable with a keyboard and on a phone. With images too, + opens a small menu.
+- Show a Codex sub-agent's approval request in the parent conversation, naming the sub-agent asking, and send the answer back to it on the same connection. Such requests were declined before. A Goal counts the wait as its own approval wait. Verified with real Codex 0.163.0 against a localhost model fixture.
+- Make handoff summaries more complete: read only Pi's active branch, send the recent turns a Pi compaction kept instead of dropping them, and include Claude Code's tool calls so the digest lists the files touched. A Codex summarizer now turns off only the tool-bearing features that Codex has, so an older Codex no longer refuses the run; one that cannot list its features is refused rather than run with its tools on.
+- Give Schedules a calendar icon, matching the Assistant's routines in the same place, and History from other apps a chat bubble with clock hands, so the two no longer look like the same clock.
+
 ## 3.9.10
 
 - Drag a session from the Workspace sidebar onto another conversation's message box to hand it over. A handoff summary of the dragged session is appended to your next message, naming its agent, project and the turn it covers. Preview and edit the summary before sending; nothing is written to disk and the referenced session is not changed. Up to three sessions on the same Host per message.
