@@ -658,10 +658,12 @@ body:not([data-sidebar="assistant"]) #workspace-routines { display: none; }
 .btn.workspace-workflows#workspace-routines { width: 34px; padding: 0; }
 .workspace-assistant { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; }
 .workspace-assistant-row { min-height: 52px; }
-.workspace-assistant-avatar, .workspace-tab-avatar { display: grid; flex: 0 0 28px; width: 28px; height: 28px; place-items: center; overflow: hidden; border-radius: 50%; }
-.workspace-assistant-avatar > svg, .workspace-tab-avatar > svg { display: block; width: 100%; height: 100%; }
-.workspace-assistant-avatar > img, .workspace-tab-avatar > img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.workspace-assistant-avatar.has-picture, .workspace-tab-avatar.has-picture { box-shadow: 0 0 0 .5px var(--line); }
+/* Built-in avatars are transparent plush figures, shown whole; only an
+   uploaded picture is cropped into a framed circle. */
+.workspace-assistant-avatar, .workspace-tab-avatar { display: grid; flex: 0 0 28px; width: 28px; height: 28px; place-items: center; }
+.workspace-assistant-avatar > img, .workspace-tab-avatar > img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.workspace-assistant-avatar.has-picture, .workspace-tab-avatar.has-picture { overflow: hidden; border-radius: 50%; box-shadow: 0 0 0 .5px var(--line); }
+.workspace-assistant-avatar.has-picture > img, .workspace-tab-avatar.has-picture > img { object-fit: cover; }
 .workspace-assistant-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
 .workspace-assistant-copy strong { font-size: .81rem; font-weight: 650; }
 .workspace-assistant-copy small { display: block; overflow: hidden; color: var(--pine-soft); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }

@@ -25,37 +25,65 @@ export async function runAssistantAvatarBrowserCases(browser, { screenshots } = 
       const history = page.getByRole("button", { name: "History", exact: true });
       await history.click(); await page.getByRole("dialog").waitFor();
       await page.goBack(); await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await page.waitForFunction(() => document.querySelector(".assistant-bot-head .assistant-avatar img")?.naturalWidth > 0);
       const frame = await page.locator(".assistant-bot-head .assistant-avatar").evaluate(node => {
-        const style = getComputedStyle(node);
-        return { background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow, svg: !!node.querySelector("svg") };
+        const style = getComputedStyle(node), img = node.querySelector("img");
+        return { background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow, preset: node.dataset.avatarPreset,
+          src: new URL(img.src).pathname, imageRadius: getComputedStyle(img).borderTopLeftRadius };
       });
-      assert.deepEqual(frame, { background: "rgba(0, 0, 0, 0)", border: "0px", shadow: "none", svg: true });
+      assert.deepEqual(frame, { background: "rgba(0, 0, 0, 0)", border: "0px", shadow: "none", preset: "letter-l",
+        src: "/assistant-avatars/v1/letter-l.webp", imageRadius: "0px" }, "Luna 沒選頭像時用毛絨字母 L，沒有底框也不裁圓角");
       await page.getByRole("button", { name: "More options", exact: true }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Settings", exact: true }).click();
-      await page.locator(".assistant-avatar-option").nth(19).waitFor();
-      assert.equal(await page.locator(".assistant-avatar-option input[type=radio]").count(), 20);
+      await page.locator(".assistant-avatar-option").nth(45).waitFor();
+      assert.equal(await page.locator(".assistant-avatar-option input[type=radio]").count(), 46);
+      // 還沒選頭像：設定頁和名單算出同一個預設頭像；改名後預設字母跟著換。
+      await page.locator(".assistant-avatar-option input[value=letter-l]:checked").waitFor();
+      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "letter-l");
+      const look = page.locator(".assistant-manage-section").first();
+      for (const [name, letter] of [["Ember", "letter-e"], ["Luna", "letter-l"]]) {
+        await look.getByLabel("Name", { exact: true }).fill(name);
+        await look.getByRole("button", { name: "Save", exact: true }).click();
+        await page.waitForFunction(id => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === id, letter);
+        await page.locator(`.assistant-avatar-option input[value=${letter}]:checked`).waitFor();
+      }
+      const groups = await page.locator(".assistant-avatar-group").evaluateAll(nodes => nodes.map(node => ({
+        id: node.dataset.group, title: document.getElementById(node.getAttribute("aria-labelledby"))?.textContent, role: node.getAttribute("role"),
+        count: node.querySelectorAll("input[type=radio]").length })));
+      assert.deepEqual(groups, [{ id: "letters", title: "Letters A–Z", role: "group", count: 26 }, { id: "characters", title: "Characters", role: "group", count: 10 },
+        { id: "elements", title: "Element spirits", role: "group", count: 10 }]);
+      for (const name of ["L", "Nova", "Fire", "Shadow"]) assert.equal(await page.getByRole("radio", { name, exact: true }).count(), 1, `${name} 需要可讀的名稱`);
+      if (width === 1440) for (const id of await page.locator(".assistant-avatar-option input").evaluateAll(nodes => nodes.map(node => node.value))) {
+        const asset = await context.request.get(`${preview.origin}/assistant-avatars/v1/${id}.webp`);
+        assert.equal(asset.status(), 200, id);
+        assert.equal(asset.headers()["content-type"], "image/webp", id);
+      }
+      if (width < 900) for (const box of await page.locator(".assistant-avatar-option").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()))) {
+        assert.ok(box.width >= 44 && box.height >= 44, "手機上每個頭像都要好按");
+      }
       const pick = async id => {
         await page.locator(`.assistant-avatar-option[data-preset=${id}]`).click();
         await page.waitForFunction(id => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === id, id);
         await page.locator(".assistant-avatar-option input:checked").waitFor();
         assert.equal(await page.locator(".assistant-avatar-option input:checked").inputValue(), id);
       };
-      await pick("sprout");
-      assert.equal(preview.fake.state.profiles[0].ui_meta["hermes-bots"].avatarPreset, "sprout");
+      await pick("character-nova");
+      assert.equal(preview.fake.state.profiles[0].ui_meta["hermes-bots"].avatarPreset, "character-nova");
       await page.reload();
-      await page.locator(".assistant-avatar-option input[value=sprout]:checked").waitFor();
-      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "sprout");
+      await page.locator(".assistant-avatar-option input[value=character-nova]:checked").waitFor();
+      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "character-nova");
+      await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar img")?.naturalWidth > 0);
       if (width === 393) {
         const ids = await page.locator(".assistant-avatar-option input").evaluateAll(nodes => nodes.map(node => node.value));
         for (const id of ids) await pick(id);
         await page.locator(".assistant-avatar-option input:checked").focus();
         await page.keyboard.press("ArrowRight");
-        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "orbit");
-        assert.equal(await page.evaluate(() => document.activeElement.value), "orbit", "儲存頭像後仍可繼續用方向鍵選擇");
+        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "letter-a");
+        assert.equal(await page.evaluate(() => document.activeElement.value), "letter-a", "儲存頭像後仍可繼續用方向鍵選擇，三類之間連續");
         await page.keyboard.press("ArrowRight");
-        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "sprout");
+        await page.waitForFunction(() => document.querySelector(".assistant-manage-avatar")?.dataset.avatarPreset === "letter-b");
       }
-      await pick("sprout");
+      await pick("character-nova");
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `assistant-avatar-picker-${width}.png`) }); }
       let failNext = true;
       await page.route("**/api/assistant/bot/configure", async route => {
@@ -63,17 +91,17 @@ export async function runAssistantAvatarBrowserCases(browser, { screenshots } = 
           failNext = false; await route.fulfill({ status: 409, json: { error: "bot_changed", message: "Changed elsewhere" } });
         } else await route.continue();
       });
-      await page.locator(".assistant-avatar-option[data-preset=orbit]").click();
+      await page.locator(".assistant-avatar-option[data-preset=element-fire]").click();
       await page.locator(".assistant-toast").waitFor();
-      await page.locator(".assistant-avatar-option input[value=sprout]:checked").waitFor();
-      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "sprout");
+      await page.locator(".assistant-avatar-option input[value=character-nova]:checked").waitFor();
+      assert.equal(await page.locator(".assistant-manage-avatar").getAttribute("data-avatar-preset"), "character-nova");
       const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       await page.locator(".assistant-manage-picture input[type=file]").setInputFiles({ name: "avatar.png", mimeType: "image/png", buffer: png });
       await page.locator(".assistant-manage-avatar.has-picture img").waitFor();
       const image = await page.locator(".assistant-manage-avatar img").getAttribute("src");
       const border = await page.locator(".assistant-manage-avatar").evaluate(node => Number.parseFloat(getComputedStyle(node).borderTopWidth));
       assert.ok(border > 0, "只有自訂圖片保留框線");
-      await pick("orbit");
+      await pick("element-fire");
       const asset = await context.request.get(preview.origin + "/api/assistant/bot/avatar?profile=default");
       assert.equal((await asset.json()).data, image, "選內建造型不刪掉已上傳圖片");
       await page.getByRole("button", { name: "Use uploaded image", exact: true }).click();
@@ -81,6 +109,9 @@ export async function runAssistantAvatarBrowserCases(browser, { screenshots } = 
       assert.equal(await page.locator(".assistant-manage-avatar img").getAttribute("src"), image);
       const layout = await page.locator(".assistant-view").evaluate(node => ({ width: node.clientWidth, scrollWidth: node.scrollWidth }));
       assert.ok(layout.scrollWidth <= layout.width + 1, JSON.stringify(layout));
+      // 設定頁本身也不能左右捲動：頭像格線要跟著螢幕寬度減少欄數。
+      const settings = await page.locator(".assistant-page-body").evaluate(node => ({ width: node.clientWidth, scrollWidth: node.scrollWidth, scrollLeft: node.scrollLeft }));
+      assert.deepEqual(settings, { width: settings.width, scrollWidth: settings.width, scrollLeft: 0 }, "設定頁不能左右捲動");
       assert.deepEqual(errors, []);
       assert.equal(preview.fake.state.prompts.length, 0);
       console.log(JSON.stringify({ case: "Assistant avatars and icon navigation", width, result: "passed", modelCalls: 0 }));

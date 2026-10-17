@@ -19,6 +19,12 @@ const MAX_SOUL = 256 * 1024, MAX_IMAGE = 2_000_000;
 const invalid = code => new HermesError(code, code, 400);
 const clip = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
 
+// The name a Bot goes by: its Bot Mode title, then Hermes's own display name;
+// the default Bot is called Hermes. The Bot list and the settings share this
+// rule, so both pick the same default avatar.
+function displayNameOf(row, meta = {}) {
+  return clip(meta.title, 120) || clip(row.display_name, 120) || (row.is_default === true ? "Hermes" : row.name);
+}
 function profileIdFor(label) {
   return String(label || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64);
 }
@@ -53,6 +59,7 @@ function createHermesBots({ client }) {
     const [{ row: listed, meta }, detail] = await Promise.all([row(profile), rpc("profiles.describe", { name: profile })]);
     return {
       name: profile, isDefault: listed.is_default === true, title: clip(meta.title, 80) || clip(listed.display_name, 80) || profile,
+      displayName: displayNameOf(listed, meta),
       color: COLOR.test(String(meta.color || "")) ? meta.color : null, hidden: meta.hidden === true, hasAvatar: listed.has_avatar === true,
       avatarPreset: isPreset(meta.avatarPreset) ? meta.avatarPreset : null,
       description: clip(detail?.description, 500), soul: clip(detail?.soul, MAX_SOUL),
@@ -163,4 +170,4 @@ function createHermesBots({ client }) {
   return Object.freeze({ describe, configure, create, avatar, setAvatar, remove, models });
 }
 
-module.exports = { createHermesBots, profileIdFor };
+module.exports = { createHermesBots, profileIdFor, displayNameOf };

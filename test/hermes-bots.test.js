@@ -86,14 +86,15 @@ test("內建頭像保存於 Bot metadata，保留自訂圖片及其他設定", a
   const row = fake.state.profiles.find(item => item.name === "qa-reviewer");
   row.ui_meta["hermes-bots"].pinned = true;
   await bots.setAvatar("qa-reviewer", PNG);
-  await bots.configure("qa-reviewer", { avatarPreset: "orbit" });
-  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, "orbit");
+  await bots.configure("qa-reviewer", { avatarPreset: "character-orbit" });
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, "character-orbit");
   assert.equal(row.ui_meta["hermes-bots"].pinned, true);
   assert.deepEqual(await bots.avatar("qa-reviewer"), { data: PNG });
   const { createHermesAssistantService } = require("../server/hermes-assistant-service");
   const service = createHermesAssistantService({ client, installed: () => true });
-  assert.equal((await service.bots()).bots.find(item => item.name === "qa-reviewer").avatarPreset, "orbit");
-  for (const value of ["unknown", ["orbit"], {}, "<script>"]) await assert.rejects(bots.configure("qa-reviewer", { avatarPreset: value }), error => error.code === "invalid_avatar_preset");
+  assert.equal((await service.bots()).bots.find(item => item.name === "qa-reviewer").avatarPreset, "character-orbit");
+  // 3.9.7 的 20 款舊造型已移除，不能再寫入。
+  for (const value of ["unknown", "orbit", "sprout", ["character-orbit"], {}, "<script>"]) await assert.rejects(bots.configure("qa-reviewer", { avatarPreset: value }), error => error.code === "invalid_avatar_preset");
   await bots.configure("qa-reviewer", { avatarPreset: null });
   assert.equal((await bots.describe("qa-reviewer")).avatarPreset, null);
   assert.deepEqual(await bots.avatar("qa-reviewer"), { data: PNG });
@@ -102,11 +103,38 @@ test("內建頭像保存於 Bot metadata，保留自訂圖片及其他設定", a
 
 test("上傳新圖片後切回自訂頭像，移除圖片不刪掉已選的內建造型", async t => {
   const { bots } = await setup(t);
-  await bots.configure("qa-reviewer", { avatarPreset: "sprout" });
+  await bots.configure("qa-reviewer", { avatarPreset: "element-fire" });
   await bots.setAvatar("qa-reviewer", PNG);
   assert.equal((await bots.describe("qa-reviewer")).avatarPreset, null);
-  await bots.configure("qa-reviewer", { avatarPreset: "sprout" });
+  await bots.configure("qa-reviewer", { avatarPreset: "element-fire" });
   await bots.setAvatar("qa-reviewer", null);
-  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, "sprout");
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, "element-fire");
   assert.deepEqual(await bots.avatar("qa-reviewer"), { data: null });
+});
+
+test("Bot metadata 裡留著舊版造型時，名單與設定都當成沒有選擇", async t => {
+  const { fake, bots, client } = await setup(t);
+  fake.state.profiles.find(item => item.name === "qa-reviewer").ui_meta["hermes-bots"].avatarPreset = "orbit";
+  assert.equal((await bots.describe("qa-reviewer")).avatarPreset, null);
+  const { createHermesAssistantService } = require("../server/hermes-assistant-service");
+  const service = createHermesAssistantService({ client, installed: () => true });
+  assert.equal((await service.bots()).bots.find(item => item.name === "qa-reviewer").avatarPreset, null);
+  assert.equal(fake.state.profiles.find(item => item.name === "qa-reviewer").ui_meta["hermes-bots"].avatarPreset, "orbit", "只讀取，不改寫 Hermes 的資料");
+});
+
+test("設定頁讀到的顯示名稱和名單一致，沒選頭像時兩邊算出同一個預設頭像", async t => {
+  const { fake, bots, client } = await setup(t);
+  const { createHermesAssistantService } = require("../server/hermes-assistant-service");
+  const service = createHermesAssistantService({ client, installed: () => true });
+  const listed = async name => (await service.bots()).bots.find(item => item.name === name).displayName;
+  assert.equal((await bots.describe("default")).displayName, "Luna");
+  assert.equal(await listed("default"), "Luna");
+  for (const name of ["default", "qa-reviewer"]) {
+    const row = fake.state.profiles.find(item => item.name === name);
+    delete row.ui_meta["hermes-bots"].title; row.display_name = "";
+  }
+  assert.equal((await bots.describe("default")).displayName, "Hermes", "沒有標題的預設 Bot 叫 Hermes");
+  assert.equal(await listed("default"), "Hermes");
+  assert.equal((await bots.describe("qa-reviewer")).displayName, "qa-reviewer");
+  assert.equal(await listed("qa-reviewer"), "qa-reviewer");
 });

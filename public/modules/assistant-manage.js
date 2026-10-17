@@ -140,8 +140,8 @@
       const title = input(bot.title), description = input(bot.description), color = input(bot.color || "#5b8def", "color");
       const A = root.StepsembleAssistantAvatars;
       const picture = el("span", "assistant-avatar assistant-manage-avatar");
-      const picker = el("fieldset", "assistant-avatar-picker"), grid = el("div", "assistant-avatar-grid"), choices = new Map();
-      picker.append(el("legend", "", t("presetAvatars")), grid);
+      const picker = el("fieldset", "assistant-avatar-picker"), choices = new Map();
+      picker.append(el("legend", "", t("presetAvatars")));
       let image = null, savingAvatar = false;
       const file = el("input"); file.type = "file"; file.accept = "image/png,image/jpeg,image/webp"; file.hidden = true;
       const upload = button(t("uploadAvatar"), "btn ghost", () => file.click());
@@ -170,16 +170,25 @@
         catch (error) { failed(error); }
         finally { savingAvatar = false; syncAvatar(); }
       }
-      for (const [index, preset] of A.presets.entries()) {
-        const option = el("label", "assistant-avatar-option"), radio = el("input", "assistant-avatar-radio");
-        option.dataset.preset = preset.id; option.title = t("presetAvatar", { number: index + 1 });
-        radio.type = "radio"; radio.name = `avatar-${bot.name}`; radio.value = preset.id;
-        radio.setAttribute("aria-label", option.title);
-        radio.addEventListener("change", () => { if (radio.checked) void updateAvatar(async () => {
-          await api.configureBot(bot.name, { avatarPreset: preset.id }); bot.avatarPreset = preset.id;
-        }); });
-        option.append(radio, A.paint(el("span", "assistant-avatar"), { name: bot.name, avatarPreset: preset.id }));
-        choices.set(preset.id, radio); grid.append(option);
+      // 三類各自成組，但共用同一組選項，方向鍵可以從字母一路選到元素精靈。
+      const titles = { letters: "avatarLetters", characters: "avatarCharacters", elements: "avatarElements" };
+      const label = preset => preset.group === "elements" ? t(`element${preset.name[0].toUpperCase()}${preset.name.slice(1)}`) : preset.name;
+      for (const group of A.groups) {
+        const box = el("div", "assistant-avatar-group"), heading = el("p", "assistant-avatar-group-title", t(titles[group.id])), grid = el("div", "assistant-avatar-grid");
+        heading.id = `assistant-avatar-${group.id}-${bot.name}`;
+        box.dataset.group = group.id; box.setAttribute("role", "group"); box.setAttribute("aria-labelledby", heading.id);
+        for (const preset of group.presets) {
+          const option = el("label", "assistant-avatar-option"), radio = el("input", "assistant-avatar-radio");
+          option.dataset.preset = preset.id; option.title = label(preset);
+          radio.type = "radio"; radio.name = `avatar-${bot.name}`; radio.value = preset.id;
+          radio.setAttribute("aria-label", option.title);
+          radio.addEventListener("change", () => { if (radio.checked) void updateAvatar(async () => {
+            await api.configureBot(bot.name, { avatarPreset: preset.id }); bot.avatarPreset = preset.id;
+          }); });
+          option.append(radio, A.paint(el("span", "assistant-avatar"), { name: bot.name, avatarPreset: preset.id }, null, { lazy: true }));
+          choices.set(preset.id, radio); grid.append(option);
+        }
+        box.append(heading, grid); picker.append(box);
       }
       file.addEventListener("change", () => {
         const chosen = file.files?.[0]; file.value = "";
@@ -209,6 +218,8 @@
         try {
           await api.configureBot(bot.name, changes);
           Object.assign(bot, { title: changes.title ?? bot.title, description: changes.description ?? bot.description, color: changes.color ?? bot.color });
+          // 沒選頭像時，預設字母跟著新名稱。
+          if (changes.title) { bot.displayName = changes.title; syncAvatar(); }
           toast(t("saved"));
           onChanged(bot.name);
         } catch (error) { failed(error); } finally { save.disabled = false; }
