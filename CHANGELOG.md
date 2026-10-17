@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.12
+
+- Close a Workspace tab with a middle click, as in a browser. The press no longer starts the platform's autoscroll, and the tab closes the same way as with its × button.
+- Load earlier messages by scrolling up: reading back to near the top of a conversation loads the next earlier page by itself and keeps your place, as chat apps do. Only your own scrolling (wheel, touch, keys or scroll bar) triggers it, one page at a time. The Load earlier messages button stays for keyboards, screen readers and a retry, and a page that failed to load is not retried by scrolling.
+- Fix a browser test that failed on most macOS CI runs since 2026-10-17: after deleting a Bot, the Assistant was still going back to its list through history when the test left for Settings, which aborted that navigation or returned to the Assistant afterwards. The test now waits for the Assistant's home address. The project picker test also waits for the End scroll to come to rest before pressing Home, and reports which element had focus if it fails.
+
 ## 3.9.11
 
 - Fix a terminal bridge that could spin a full CPU core after its agent exited, and ignore SIGTERM. A keystroke that arrived after the agent was gone left the bridge watching input it could no longer deliver; test runs left such bridges running for a day and set fans spinning. The bridge now exits with its agent, on SIGTERM once the agent is gone, and when its parent is gone, and never signals a process id it already reaped.
