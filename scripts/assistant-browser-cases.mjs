@@ -293,6 +293,13 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await keysBox.locator("li[data-key='OPENAI_API_KEY']", { hasText: "sk-...3456" }).waitFor();
       await keysBox.getByRole("combobox", { name: "Key" }).selectOption("ANTHROPIC_API_KEY");
       await keysBox.getByRole("textbox", { name: "Value" }).fill("sk-ant-browser-secret");
+      // The redraw after this save is held back; a section opened meanwhile
+      // must still be open when it lands.
+      let holdConsole = true, redrawn = false;
+      await page.route("**/api/assistant/console", async route => {
+        if (!holdConsole || route.request().method() !== "GET") return route.continue();
+        holdConsole = false; await new Promise(resolve => setTimeout(resolve, 2500)); await route.continue(); redrawn = true;
+      });
       await keysBox.getByRole("button", { name: "Save", exact: true }).click();
       for (let tries = 0; tries < 50 && preview.fake.state.env.ANTHROPIC_API_KEY !== "sk-ant-browser-secret"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
       assert.equal(preview.fake.state.env.ANTHROPIC_API_KEY, "sk-ant-browser-secret");
@@ -302,6 +309,11 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
 
       stage = "Hermes usage and gateway";
       await page.locator("summary", { hasText: "Usage" }).click();
+      for (let tries = 0; tries < 60 && !redrawn; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.ok(redrawn, "the held redraw landed");
+      await page.waitForTimeout(300);
+      assert.equal(await sectionOf("Usage").getAttribute("open"), "", "a section opened while the page reloads stays open");
+      await page.unroute("**/api/assistant/console");
       await page.locator(".assistant-usage-totals").waitFor();
       await page.getByRole("button", { name: "30 days", exact: true }).click();
       for (let tries = 0; tries < 50 && preview.fake.state.consoleCalls.at(-1)?.days !== 30; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));

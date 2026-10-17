@@ -61,8 +61,6 @@
     }
 
     async function show(container) {
-      // A save redraws the page from Hermes; the sections that were open stay open.
-      const opened = new Set([...container.querySelectorAll(".assistant-manage-section[open] > summary")].map(node => node.textContent));
       if (!container.querySelector(".assistant-console")) container.replaceChildren(el("p", "assistant-empty", t("loading")));
       let view;
       try { view = await api.console(); } catch (error) {
@@ -77,6 +75,9 @@
       const reload = () => void show(container);
       page.append(gatewaySection(view.gateway), modelSection(view, reload), auxiliarySection(view, reload), fallbackSection(view, reload),
         keysSection(view, reload), endpointsSection(view, reload), usageSection());
+      // A save redraws the page from Hermes; the sections open at that moment
+      // stay open, including one opened while Hermes was answering.
+      const opened = new Set([...container.querySelectorAll(".assistant-manage-section[open] > summary")].map(node => node.textContent));
       for (const details of page.querySelectorAll(".assistant-manage-section")) {
         if (opened.has(details.querySelector("summary").textContent)) { details.open = true; details.dispatchEvent(new Event("toggle")); }
       }
