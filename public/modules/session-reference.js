@@ -13,7 +13,7 @@
     // A conversation switch leaves the old draft's references behind.
     function sync(){const current=fenceOf();if(stamp!==null&&stamp!==current&&refs.length){for(const ref of refs)stop(ref);refs=[];settle();}stamp=current;}
     const alive=(ref,fence)=>fence===fenceOf()&&refs.includes(ref);
-    function stop(ref){if(ref.timer){cancel(ref.timer);ref.timer=null;}if(ACTIVE.has(ref.state)&&ref.jobId)void Promise.resolve(request("/api/handoff/summary/cancel",{id:ref.jobId})).catch(()=>{});}
+    function stop(ref){if(ref.timer){cancel(ref.timer);ref.timer=null;}if(ACTIVE.has(ref.state)&&ref.jobId)void Promise.resolve(request("/api/handoff/summary/cancel",{id:ref.jobId},ref.host)).catch(()=>{});}
     function settle(){
       const waiting=refs.some(ref=>ACTIVE.has(ref.state)),blocked=refs.some(ref=>["failed","needs_confirm"].includes(ref.state));
       if(waiting)return;
@@ -32,20 +32,21 @@
     async function poll(ref,fence){
       ref.timer=null;
       if(!alive(ref,fence)){sync();return;}
-      try{const job=await request(`/api/handoff/summary?id=${encodeURIComponent(ref.jobId)}`);if(alive(ref,fence))apply(ref,job,fence);else sync();}
+      try{const job=await request(`/api/handoff/summary?id=${encodeURIComponent(ref.jobId)}`,undefined,ref.host);if(alive(ref,fence))apply(ref,job,fence);else sync();}
       catch{if(alive(ref,fence))ref.timer=schedule(()=>poll(ref,fence));}
     }
     async function start(ref,{confirm=false}={}){
       const fence=fenceOf(),target=getContext().entry;
       ref.state="starting";ref.error="";changed();
-      try{const job=await request("/api/handoff/summary",{source:ref.key,target,...(confirm?{confirm:true}:{})});if(alive(ref,fence))apply(ref,job,fence);}
+      // A session on another computer is summarized by that computer.
+      try{const job=await request("/api/handoff/summary",{source:ref.key,target,...(confirm?{confirm:true}:{}),...(ref.remote?{remoteTarget:true}:{})},ref.host);if(alive(ref,fence))apply(ref,job,fence);}
       catch(error){if(alive(ref,fence)){ref.state="failed";ref.error=reason(codeOf(error));changed();}}
     }
     async function plain(ref){
       const fence=fenceOf(),target=getContext().entry;
       ref.state="starting";changed();
       try{
-        const value=await request(`/api/handoff/digest?source=${encodeURIComponent(ref.key)}&target=${encodeURIComponent(target)}`);
+        const value=await request(`/api/handoff/digest?source=${encodeURIComponent(ref.key)}&target=${encodeURIComponent(target)}${ref.remote?"&remote=1":""}`,undefined,ref.host);
         if(!alive(ref,fence))return;
         Object.assign(ref,{state:"completed",summary:String(value?.summary||""),plain:true,coveredTurns:value?.coveredTurns??ref.coveredTurns,cwd:String(value?.sourceCwd||ref.cwd||"").slice(0,1000)});changed();
       }catch(error){if(alive(ref,fence)){ref.state="failed";ref.error=reason(codeOf(error));changed();}}
@@ -54,10 +55,11 @@
       sync();const context=getContext();
       if(!session?.key)return {added:false,reason:"unsupported"};
       if(session.key===context.entry)return {added:false,reason:"self"};
-      if(session.host&&context.host&&session.host!==context.host)return {added:false,reason:"otherHost"};
       if(refs.some(ref=>ref.key===session.key))return {added:false,reason:"duplicate"};
       if(refs.length>=MAX)return {added:false,reason:"limit"};
-      const ref={key:session.key,title:String(session.title||"").slice(0,200)||session.key.slice(0,8),agentId:String(session.agentId||""),state:"starting",progress:{done:0,total:1},summary:"",edited:null,plain:false,coveredTurns:0,error:"",timer:null,jobId:null};
+      const remote=!!(session.host&&context.host&&session.host!==context.host);
+      const ref={key:session.key,title:String(session.title||"").slice(0,200)||session.key.slice(0,8),agentId:String(session.agentId||""),
+        host:session.host||context.host||"",remote,hostName:remote?String(session.hostName||session.host).slice(0,120):"",state:"starting",progress:{done:0,total:1},summary:"",edited:null,plain:false,coveredTurns:0,error:"",timer:null,jobId:null};
       refs.push(ref);void start(ref);return {added:true};
     }
     function remove(key){const ref=refs.find(item=>item.key===key);if(!ref)return;stop(ref);refs=refs.filter(item=>item!==ref);changed();}
@@ -68,7 +70,7 @@
     function compose(text){
       sync();
       // Same Host: the source's project path is one the reader can open too.
-      const blocks=refs.filter(ref=>DONE.has(ref.state)).map(ref=>`---\nReference: session "${ref.title}" (${[ref.agentId||"agent",ref.cwd].filter(Boolean).join(", ")}), ${ref.plain?"plain digest":"handoff summary"} through turn ${ref.coveredTurns}:\n${ref.edited??ref.summary}`);
+      const blocks=refs.filter(ref=>DONE.has(ref.state)).map(ref=>`---\nReference: session "${ref.title}" (${[ref.agentId||"agent",ref.cwd,ref.remote?`on ${ref.hostName}`:""].filter(Boolean).join(", ")}), ${ref.plain?"plain digest":"handoff summary"} through turn ${ref.coveredTurns}:\n${ref.edited??ref.summary}`);
       return [String(text||""),...blocks].filter(Boolean).join("\n\n");
     }
     function preview(ref){
@@ -96,14 +98,14 @@
       let sessions=[];
       const draw=()=>{
         const query=String(search.value||"").trim().toLowerCase();
-        const shown=sessions.filter(row=>!query||[row.title,row.agentLabel,row.agentId,row.cwd].some(value=>String(value||"").toLowerCase().includes(query)));
+        const shown=sessions.filter(row=>!query||[row.title,row.agentLabel,row.agentId,row.hostName,row.cwd].some(value=>String(value||"").toLowerCase().includes(query)));
         list.replaceChildren(...shown.map(row=>{
           const added=refs.some(ref=>ref.key===row.key);
           const item=button("session-ref-pick","",()=>{
             const result=add(row);
             if(result.added)picker.close();else status.textContent=t(result.reason==="unsupported"?"reference_source_unavailable":result.reason);
           });
-          item.append(el("strong","",row.title||row.key.slice(0,8)),el("small","",[row.agentLabel||row.agentId,row.cwd].filter(Boolean).join(" · ")));
+          item.append(el("strong","",row.title||row.key.slice(0,8)),el("small","",[row.agentLabel||row.agentId,row.host&&row.host!==getContext().host?row.hostName||row.host:"",row.cwd].filter(Boolean).join(" · ")));
           if(added){item.disabled=true;item.append(el("span","session-ref-pick-added",t("added")));}
           return item;
         }));
@@ -124,7 +126,7 @@
       container.replaceChildren();container.hidden=!refs.length;container.classList?.toggle?.("hidden",!refs.length);
       for(const ref of refs){
         const chip=el("div","session-ref");chip.dataset.state=ref.state==="starting"?"running":ref.state;chip.dataset.plain=String(!!ref.plain);
-        chip.append(el("strong","session-ref-name",t("referenceOf",{name:ref.title})));
+        chip.append(el("strong","session-ref-name",t("referenceOf",{name:ref.remote?`${ref.title} · ${ref.hostName}`:ref.title})));
         const total=ref.progress?.total||1;
         const status=ref.state==="completed"?t(ref.plain?"plainReady":"ready"):ref.state==="needs_confirm"?t("needsConfirm",{tokens:Number(ref.estimatedTokens||0).toLocaleString()})
           :ref.state==="failed"?t("failed",{reason:ref.error}):total>1?t("summarizingProgress",{done:ref.progress?.done||0,total}):t("summarizing");

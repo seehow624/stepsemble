@@ -19263,15 +19263,35 @@ function setReferenceWait(on, cancel = null) {
 }
 const sessionReferenceBox = document.getElementById("session-references");
 sessionReferences = sessionReferenceBox && window.StepsembleSessionReference?.create({ document, container: sessionReferenceBox,
-  request: (path, body) => body === undefined ? api(path) : post(path, body),
+  // A referenced session on another computer is read and summarized there.
+  request: async (path, body, host) => {
+    const base = !host || host === (PAGE_QUERY.get("host") || "") ? apiBase : host === selfId ? "" : "/r/" + host;
+    const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    await protocolConnections.ensure(base);
+    return hostClient.request(base, path, opts);
+  },
   getContext: () => ({ context: apiBase + ":" + viewGeneration, entry: WORKSPACE_ENTRY_KEY, host: PAGE_QUERY.get("host") || "" }),
   t: referenceCopy, reason: code => window.StepsembleSessionReferenceI18n?.reason(code, referenceLocale()) || code,
   // The agents whose history the Host can read for a summary (server/session-transcript.js).
+  // Every connected computer's sessions, this conversation's computer first;
+  // one that cannot answer is left out rather than failing the list.
   listSessions: WORKSPACE_ENTRY_KEY ? async () => {
-    const data = await api("/api/workspace"), host = PAGE_QUERY.get("host") || "";
-    return (Array.isArray(data?.entries) ? data.entries : []).filter(row => REFERENCE_SOURCES.has(row?.record?.agentId)).map(row => ({
-      key: row.key, host, title: String(row.record.name || "").replace(/\s+/g, " ").trim().slice(0, 200), agentId: row.record.agentId,
-      agentLabel: window.StepsembleAgentIdentity?.lookup(row.record.agentId)?.label || row.record.agentId, cwd: String(row.record.cwd || "") }));
+    const here = PAGE_QUERY.get("host") || "";
+    const hosts = [...new Set([here, ...machines.map(machine => machine.id)].filter(Boolean))];
+    const lists = await Promise.all(hosts.map(async host => {
+      try {
+        const base = host === here ? apiBase : host === selfId ? "" : "/r/" + host;
+        await protocolConnections.ensure(base);
+        const data = await hostClient.request(base, "/api/workspace", {}), hostName = machines.find(machine => machine.id === host)?.name || host;
+        // Latest activity first, as the sidebar lists them.
+        const sorted = (Array.isArray(data?.entries) ? data.entries : []).slice()
+          .sort((a, b) => Number(b.working === true) - Number(a.working === true) || (b.activityAt || 0) - (a.activityAt || 0));
+        return sorted.filter(row => REFERENCE_SOURCES.has(row?.record?.agentId)).map(row => ({
+          key: row.key, host, hostName, title: String(row.record.name || "").replace(/\s+/g, " ").trim().slice(0, 200), agentId: row.record.agentId,
+          agentLabel: window.StepsembleAgentIdentity?.lookup(row.record.agentId)?.label || row.record.agentId, cwd: String(row.record.cwd || "") }));
+      } catch (error) { if (host === here) throw error; return []; }
+    }));
+    return lists.flat();
   } : null }) || null;
 syncComposerAdd();
 // The Workspace learns where the message box is, so a session dropped on it

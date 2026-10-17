@@ -31,17 +31,17 @@ function dom() {
 }
 function setup({ server, sessions } = {}) {
   const document = dom(), container = document.createElement("div"); document.body.append(container);
-  const calls = [], timers = []; let context = { context: "host-1:1", entry: ENTRY, host: "host-1" };
+  const calls = [], hosts = [], timers = []; let context = { context: "host-1:1", entry: ENTRY, host: "host-1" };
   const jobs = new Map(); let next = 0;
   const handler = server || (async (path, body) => {
     if (path === "/api/handoff/summary" && body) { const id = "job-" + (++next); jobs.set(id, { id, status: "running", progress: { done: 0, total: 2 }, summary: "", agentId: "claude-code", coveredTurns: 4, sourceCwd: "/owned/app" }); return jobs.get(id); }
     if (path.startsWith("/api/handoff/summary?id=")) return jobs.get(decodeURIComponent(path.split("=")[1]));
     throw new Error("unexpected " + path);
   });
-  const controller = create({ document, container, request: async (path, body) => { calls.push([path, body]); return handler(path, body, jobs); },
+  const controller = create({ document, container, request: async (path, body, host) => { calls.push([path, body]); hosts.push(host); return handler(path, body, jobs); },
     getContext: () => context, t: (key, vars) => i18n.t(key, vars, "en"), schedule: fn => { timers.push(fn); return timers.length; }, cancel() {},
     listSessions: sessions === undefined ? undefined : async () => { if (sessions instanceof Error) throw sessions; return sessions; } });
-  return { document, container, controller, calls, jobs, timers, tick: async () => { const fn = timers.shift(); if (fn) await fn(); await flush(); }, setContext: value => { context = { ...context, ...value }; } };
+  return { document, container, controller, calls, hosts, jobs, timers, tick: async () => { const fn = timers.shift(); if (fn) await fn(); await flush(); }, setContext: value => { context = { ...context, ...value }; } };
 }
 const session = (key = A, fields = {}) => ({ key, host: "host-1", title: "Fix login", agentId: "pi", ...fields });
 
@@ -73,11 +73,25 @@ test("a chip follows its job to completion, then can be previewed and edited bef
 test("limits, duplicates, itself and another Host are refused with a reason", async () => {
   const f = setup();
   assert.deepEqual(f.controller.add(session(ENTRY)), { added: false, reason: "self" });
-  assert.deepEqual(f.controller.add(session(A, { host: "host-2" })), { added: false, reason: "otherHost" });
   f.controller.add(session(A)); assert.deepEqual(f.controller.add(session(A)), { added: false, reason: "duplicate" });
   f.controller.add(session(B)); f.controller.add(session("00000000-0000-4000-8000-0000000000c3"));
   assert.deepEqual(f.controller.add(session("00000000-0000-4000-8000-0000000000d4")), { added: false, reason: "limit" });
   assert.equal(f.controller.count(), 3);
+});
+
+test("a session on another computer is summarized there and named by its computer", async () => {
+  const f = setup();
+  assert.deepEqual(f.controller.add(session(A, { host: "host-2", hostName: "Mac Mini", cwd: "/Users/other/app" })), { added: true });
+  await flush();
+  assert.deepEqual(f.calls[0], ["/api/handoff/summary", { source: A, target: ENTRY, remoteTarget: true }]);
+  assert.equal(f.hosts[0], "host-2", "the summary is asked of the computer that has the session");
+  assert.match(f.container.querySelector(".session-ref").textContent, /Fix login · Mac Mini/);
+  Object.assign(f.jobs.get("job-1"), { status: "completed", summary: "Done there." }); await f.tick();
+  assert.equal(f.hosts.at(-1), "host-2", "polling asks the same computer");
+  assert.match(f.controller.compose(""), /Reference: session "Fix login" \(pi, \/owned\/app, on Mac Mini\), handoff summary through turn 4:\nDone there\./);
+  f.controller.add(session(B)); await flush();
+  assert.deepEqual(f.calls.at(-1), ["/api/handoff/summary", { source: B, target: ENTRY }]);
+  assert.equal(f.hosts.at(-1), "host-1");
 });
 
 test("a large record waits for the person's go-ahead, and a failure offers retry or the plain digest", async () => {

@@ -180,3 +180,15 @@ test("Codex: a Codex that cannot list its features is refused rather than run wi
   assert.equal(done.status, "failed"); assert.equal(done.error, "summarizer_codex_features");
   assert.equal(f.spawn.runs.some(run => run.args[0] === "exec"), false);
 });
+
+test("a conversation on another computer can ask this one for a summary of its own session", async t => {
+  const f = fixture(t), elsewhere = "00000000-0000-4000-8000-0000000000ee";
+  await assert.rejects(f.service.start({ source: SOURCE, target: elsewhere }), error => error.code === "workspace_entry_not_found", "a target here must exist here");
+  const job = await f.service.start({ source: SOURCE, target: elsewhere, remoteTarget: true });
+  assert.equal((await settle(f.service, job.id)).status, "completed");
+  await assert.rejects(f.service.start({ source: SOURCE, target: SOURCE, remoteTarget: true }), error => error.code === "reference_self");
+  await assert.rejects(f.service.start({ source: "bad", target: elsewhere, remoteTarget: true }), error => error.statusCode === 400);
+  const digest = await f.service.digest({ source: SOURCE, target: elsewhere, remoteTarget: true });
+  assert.equal(digest.plain, true);
+  await assert.rejects(f.service.digest({ source: SOURCE, target: elsewhere }), error => error.code === "workspace_entry_not_found");
+});

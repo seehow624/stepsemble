@@ -26,13 +26,18 @@ and the referenced session is not changed.
   ```
 
 Without dragging, the message box's **+** button offers **Reference a
-session…**: a searchable list of the other sessions on the same Host whose
-history can be read. It works with a keyboard (Enter opens the menu, the arrow
+session…**: a searchable list of the other sessions whose history can be read,
+on this computer and on the other computers in the Workspace, latest activity
+first. It works with a keyboard (Enter opens the menu, the arrow
 keys move, typing filters the list) and on a phone. When the agent takes no
 images, **+** opens the list directly.
 
-Drop targets: a session on the same Host as the conversation, other than the
-conversation itself. A conversation's agent must be a coding agent; Hermes
+Drop targets: any session other than the conversation itself, on this
+computer or another one. A session on another computer (for example, a
+MacBook Pro session referenced from a conversation on a Mac mini) is read and
+summarized by the computer that has it, with that computer's summarizer
+setting; only the summary travels. Its chip and the appended block name that
+computer ("on MacBook Pro"). The session itself stays where it is. A conversation's agent must be a coding agent; Hermes
 Assistant tabs do not take references. The source must have a readable history
 (Pi, Claude Code, Codex or OpenCode). On a phone the sidebar and the
 conversation are not on screen together; use **+** instead of dragging.

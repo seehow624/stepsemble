@@ -199,13 +199,17 @@ function createHandoffSummarizer({ transcripts, resolve, configFile, commands, i
     }
   }
   function pump() { while (!closed && running < config.concurrency && queue.length) void work(queue.shift()); }
-  async function start({ source, target, confirm = false } = {}) {
+  // remoteTarget: the conversation asking lives on another computer, which
+  // checked it; this Host only reads and summarizes its own session.
+  async function start({ source, target, confirm = false, remoteTarget = false } = {}) {
     if (closed) throw failure("summarizer_closed", 503);
     if (!UUID.test(String(source || "")) || !UUID.test(String(target || ""))) throw failure("reference_invalid", 400);
     if (source === target) throw failure("reference_self");
-    const destination = resolve(target);
-    if (!destination?.record) throw failure("workspace_entry_not_found", 404);
-    if (destination.record.agentId === "hermes") throw failure("reference_target_unsupported");
+    if (remoteTarget !== true) {
+      const destination = resolve(target);
+      if (!destination?.record) throw failure("workspace_entry_not_found", 404);
+      if (destination.record.agentId === "hermes") throw failure("reference_target_unsupported");
+    }
     const value = await transcripts.read(source);
     const chosen = summarizer();
     const key = crypto.createHash("sha256").update(JSON.stringify([source, value.revision, chosen.agentId, chosen.model, chosen.effort])).digest("hex");
@@ -224,10 +228,10 @@ function createHandoffSummarizer({ transcripts, resolve, configFile, commands, i
     return view(job);
   }
   // The plain digest needs no summarizer and spends no tokens.
-  async function digest({ source, target } = {}) {
+  async function digest({ source, target, remoteTarget = false } = {}) {
     if (!UUID.test(String(source || "")) || !UUID.test(String(target || ""))) throw failure("reference_invalid", 400);
     if (source === target) throw failure("reference_self");
-    if (!resolve(target)?.record) throw failure("workspace_entry_not_found", 404);
+    if (remoteTarget !== true && !resolve(target)?.record) throw failure("workspace_entry_not_found", 404);
     const value = await transcripts.read(source);
     return { summary: plainDigest(value), plain: true, coveredTurns: value.turns.at(-1)?.index || 0, sourceName: value.name, sourceAgent: value.agentId, sourceCwd: value.cwd };
   }
@@ -253,8 +257,8 @@ function createHandoffRoutes({ service, readJSON, sendJSON, agents }) {
       if (url.pathname === "/api/handoff/settings" && req.method === "GET") { sendJSON(res, 200, { settings: service.settings(), agents: agents() }); return true; }
       if (url.pathname === "/api/handoff/settings" && req.method === "POST") { sendJSON(res, 200, { settings: service.saveSettings(await readJSON(req, 4096)) }); return true; }
       if (url.pathname === "/api/handoff/summary" && req.method === "GET") { sendJSON(res, 200, service.get(url.searchParams.get("id"))); return true; }
-      if (url.pathname === "/api/handoff/summary" && req.method === "POST") { const body = await readJSON(req, 4096); sendJSON(res, 202, await service.start({ source: body?.source, target: body?.target, confirm: body?.confirm === true })); return true; }
-      if (url.pathname === "/api/handoff/digest" && req.method === "GET") { sendJSON(res, 200, await service.digest({ source: url.searchParams.get("source"), target: url.searchParams.get("target") })); return true; }
+      if (url.pathname === "/api/handoff/summary" && req.method === "POST") { const body = await readJSON(req, 4096); sendJSON(res, 202, await service.start({ source: body?.source, target: body?.target, confirm: body?.confirm === true, remoteTarget: body?.remoteTarget === true })); return true; }
+      if (url.pathname === "/api/handoff/digest" && req.method === "GET") { sendJSON(res, 200, await service.digest({ source: url.searchParams.get("source"), target: url.searchParams.get("target"), remoteTarget: url.searchParams.get("remote") === "1" })); return true; }
       if (url.pathname === "/api/handoff/summary/cancel" && req.method === "POST") { const body = await readJSON(req, 4096); sendJSON(res, 200, service.cancel(body?.id)); return true; }
       sendJSON(res, 405, { error: "method_not_allowed" }); return true;
     } catch (error) {
