@@ -625,6 +625,14 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     } finally { if (timer) clearTimeout(timer); }
   }
 
+  // The newest record time known for one history, without waiting: a stale
+  // index refreshes in the background and answers on a later call.
+  function updatedAt(provider, sessionId) {
+    if (closed || typeof sessionId !== "string") return null;
+    if (!entries.size || Number(clock()) - lastRefresh >= REFRESH_MS) void boundedRefresh().catch(() => {});
+    return entries.get(`${provider}:${sessionId}`)?.updatedAt || null;
+  }
+
   async function listTasks() {
     await ensureFresh();
     return [...entries.values()].map(taskFromMeta).sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0) || a.id.localeCompare(b.id));
@@ -666,7 +674,7 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
 
   function status() { return { enabled: POSIX, state: closed ? "closed" : "ready", lastRefresh: lastRefresh || null, entries: entries.size, lastError, refreshing: !!flight }; }
   async function shutdown() { closed = true; entries = new Map(); await flight?.catch?.(() => {}); return { cleanupConfirmed: true }; }
-  return Object.freeze({ refresh, listTasks, read, status, shutdown });
+  return Object.freeze({ refresh, listTasks, read, status, shutdown, updatedAt });
 }
 
 module.exports = { createNativeHistoryCatalog, recordsFromBytes, claudeMessages, codexMessages, taskFromMeta, LIMITS: Object.freeze({ MAX_FILES_PER_PROVIDER, MAX_TRANSCRIPT_BYTES, MAX_MESSAGES }) };

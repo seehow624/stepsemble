@@ -25,7 +25,8 @@ function pushBody(notice, hostName) {
 
 // Recent lifecycle facts, not transcripts. Only explicit workspace members
 // can cause an alert; a replay or subagent must not repeat a root task's alert.
-function createNotifications({ entries, host, publish = () => {}, now = Date.now, quietCompletion = () => false }) {
+// touch(key, at): a turn of the session's own work started or ended.
+function createNotifications({ entries, host, publish = () => {}, now = Date.now, quietCompletion = () => false, touch = () => {} }) {
   const boot = randomUUID(), runs = new Map(), recent = [];
   let sequence = 0;
   function entryFor(agent, id) {
@@ -42,6 +43,7 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
     try { publish(structuredClone(event)); } catch {}
     return event;
   }
+  function mark(agent, id) { const entry = entryFor(agent, id); if (entry) { try { touch(entry.key, now()); } catch {} } }
   function observe(agent, id, event = {}) {
     if (!id || typeof id !== "string" || id.length > 512 || event.isReplay || event.parentToolUseId || event.parent_tool_use_id) return;
     const key = `${agent}:${id}`, type = event.type;
@@ -50,6 +52,7 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
       if (prior?.active && (!turn || turn === prior.turn)) return;
       runs.delete(key); runs.set(key, { active: true, turn, outcome: "completed", requests: new Set() });
       while (runs.size > 512) runs.delete(runs.keys().next().value);
+      mark(agent, id);
     }
     const run = runs.get(key);
     if (!run) return;
@@ -81,6 +84,7 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
       run.active = false;
       const entry = entryFor(agent, id);
       for (const row of recent) if (row.key === entry?.key && row.kind === "approval") row.resolved = true;
+      mark(agent, id);
       if (!quietCompletion(entry?.key)) send(agent, id, outcome);
     }
   }

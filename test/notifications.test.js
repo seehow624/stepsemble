@@ -114,3 +114,18 @@ test("a Web Push alert puts both detail lines in its body, since browsers have n
   assert.equal(pushBody({ agent: "Claude Code", project: "Stepsemble", title: "Fix login" }, "MacBook Pro"), "MacBook Pro · Claude Code\nStepsemble · Fix login");
   assert.equal(pushBody({ title: "Stepsemble" }, ""), "Stepsemble");
 });
+
+test("a turn's start and end mark the session active, even a Goal turn that sends no notice", () => {
+  const key = crypto.randomUUID(), touched = [];
+  let quiet = false, clock = 1000;
+  const service = createNotifications({ entries: () => [{ key, record: { agentId: "codex", id: "codex:t", nativeThreadId: "t" } }], host: () => "mini",
+    now: () => clock, quietCompletion: () => quiet, touch: (entry, at) => touched.push([entry, at]) });
+  service.observe("codex", "t", { type: "turn.started", turnId: "u1" }); clock = 2000;
+  service.observe("codex", "t", { type: "turn.completed", turnId: "u1", status: "completed" });
+  quiet = true; clock = 3000;
+  service.observe("codex", "t", { type: "turn.started", turnId: "u2" }); clock = 4000;
+  service.observe("codex", "t", { type: "turn.completed", turnId: "u2", status: "completed" });
+  service.observe("codex", "absent", { type: "turn.started", turnId: "x" });
+  assert.deepEqual(touched, [[key, 1000], [key, 2000], [key, 3000], [key, 4000]]);
+});
+

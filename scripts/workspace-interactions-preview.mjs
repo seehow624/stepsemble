@@ -20,7 +20,8 @@ export async function createWorkspaceInteractionsPreview(port = 0) {
       const data = await (await fetch(backend.origin + "/api/workspace", { headers: { Cookie: "stepsemble=" + backend.token } })).json();
       const paths = ["/tmp/Stepsemble/Website", "/tmp/Stepsemble/Website", "/tmp/Stepsemble/API", "/tmp/Stepsemble/API", "/tmp/Stepsemble/Research"];
       const names = ["介面與互動設計", "驗證通知流程", "API 與連線", "回歸檢查", "模型研究"];
-      cached = { projects: [...new Set(paths)], entries: data.entries.map((row, i) => ({ ...row, record: { ...row.record, cwd: paths[i % paths.length], name: names[i % names.length] } })) };
+      // Fixed, falling activity times keep the listed order the fixture order.
+      cached = { projects: [...new Set(paths)], entries: data.entries.map((row, i) => ({ ...row, activityAt: now - i * 60_000, record: { ...row.record, cwd: paths[i % paths.length], name: names[i % names.length] } })) };
     }
     return cached;
   }

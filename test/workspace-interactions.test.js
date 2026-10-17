@@ -224,6 +224,8 @@ test("the sidebar button opens Schedules only, and Goal state changes do not reb
   const start = source.indexOf("  function labelWorkflows()"), click = source.indexOf('$("workspace-workflows").onclick', start);
   assert.ok(start > 0 && click > start);
   assert.doesNotMatch(source.slice(start, source.indexOf("\n", click)), /goals/, "the panel opens on its own Schedules view");
-  assert.match(source, /entries: value\.entries\.map\(\(\{ working, completion, goal, \.\.\.row \}\)/, "a Goal mark updates in place like the activity mark");
+  assert.match(source, /entries: value\.entries\.map\(\(\{ working, completion, goal, activityAt, \.\.\.row \}\)/, "a Goal mark and a new activity time update in place like the activity mark");
+  assert.match(source, /if \(statusOnly && \(!reordered \|\| sidebarHeld\(\)\)\)/, "a new order waits while the pointer is on the list or a menu is open");
+  assert.doesNotMatch(source, /reorderRow\(b, row, "session"/, "sessions follow their activity and are not reordered by hand");
   assert.doesNotMatch(source, /workspace-goals?"/, "no message opens a Goals panel any more");
 });

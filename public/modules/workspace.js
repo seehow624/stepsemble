@@ -160,7 +160,14 @@
   // conversation frames sit in their own layer above the pane tree, so a menu
   // rendered inside a pane would be painted underneath the frame it belongs to.
   let paneMenu = null;
-  function closePaneMenu() { paneMenu?.element.remove(); paneMenu = null; }
+  function closePaneMenu() { const open = !!paneMenu; paneMenu?.element.remove(); paneMenu = null; if (open) settleSidebarOrder(); }
+  // A session that moves up while the pointer is over the list, or a menu is
+  // open, waits until the pointer leaves: a row never jumps under a click.
+  let sidebarPointer = false, sidebarOrderPending = false;
+  function sidebarHeld() { return sidebarPointer || !!paneMenu; }
+  function settleSidebarOrder() { if (sidebarOrderPending && !sidebarHeld() && !sidebarDragging) renderSidebar(); }
+  $("workspace-sidebar")?.addEventListener("pointerenter", () => { sidebarPointer = true; });
+  $("workspace-sidebar")?.addEventListener("pointerleave", () => { sidebarPointer = false; settleSidebarOrder(); });
   function openPaneMenu(anchor, actions) {
     const reopening = paneMenu?.anchor === anchor;
     closePaneMenu();
@@ -418,11 +425,11 @@
   function referenceSession(payload, item) {
     const ref = payload?.ref;
     if (!ref?.key || ref.assistant) { toast(t("referenceUnsupported")); return; }
-    if (ref.host !== item.ref.host) { toast(t("referenceOtherHost")); return; }
     if (ref.key === item.ref.key) { toast(t("referenceSelf")); return; }
     const entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
-    item.frame.contentWindow?.postMessage({ type: "workspace-reference-session", session: { key: ref.key, host: ref.host,
-      title: plainTitle(ref.title) || ref.title || "", agentId: entry?.record.agentId || "" } }, location.origin);
+    // A session on another computer is summarized there; the chip names it.
+    item.frame.contentWindow?.postMessage({ type: "workspace-reference-session", session: { key: ref.key, host: ref.host, hostName: hostName(ref.host),
+      title: plainTitle(ref.title) || ref.title || "", agentId: entry?.record.agentId || ref.agentId || "" } }, location.origin);
   }
   function dragEnd() { clearTabInsertion(); renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
   addEventListener("keydown", event => { if (event.key === "Escape") dragEnd(); });
@@ -670,6 +677,11 @@
   }
   function renderSidebar() {
     if (sidebarDragging) return;
+    sidebarOrderPending = false;
+    // A redraw (a new order, a new session) keeps keyboard focus on the same control.
+    const focusedRow = document.activeElement?.closest?.(".workspace-session-row, .workspace-project");
+    const focusTarget = focusedRow && { entry: focusedRow.dataset.entry || null, cwd: focusedRow.dataset.cwd ?? null,
+      part: ["workspace-session", "workspace-session-menu", "workspace-session-more", "workspace-project-toggle", "workspace-project-add", "workspace-project-menu"].find(name => document.activeElement.classList.contains(name)) };
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
     const selectedRefs = mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean);
     const openKeys = new Set(selectedRefs.map(L.identity));
@@ -678,7 +690,7 @@
       const matchesProject = !!search && cwd.toLowerCase().includes(search);
       const rows = O.entries(snapshot, cwd).filter(e => !search || matchesProject || `${e.record.name} ${e.record.agentId}`.toLowerCase().includes(search));
       if (search && !matchesProject && !rows.length) continue;
-      const section = node("section", "", "workspace-project"), header = node("header");
+      const section = node("section", "", "workspace-project"), header = node("header"); section.dataset.cwd = cwd;
       const title = cwd.split(/[\\/]/).filter(Boolean).pop() || t("ungrouped");
       const toggle = button("", () => {
         const collapsed = collapsedFor();
@@ -726,9 +738,10 @@
         const goal = node("span", "", "workspace-session-goal"), indicator = node("span", "", "workspace-session-status");
         goal.setAttribute("aria-hidden", "true"); goal.hidden = true;
         b.append(goal, indicator);
-        reorderRow(b, row, "session", entry.key, cwd, pinned, e => dragStart(e, ref, false));
+        // Sessions follow their activity; dragging one only places it in a pane.
+        b.draggable = true; b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
         const actions = button("⋯", () => openPaneMenu(actions, [
-          ...orderActions("session", entry.key, cwd, pinned),
+          [t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind: "session", id: entry.key, pinned: !pinned })],
           [t("rename"), () => renameSession(ref)],
           [t("moveWindow"), () => newWindow(ref)],
           [t("remove"), async () => {
@@ -755,6 +768,12 @@
       if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
     if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
+    if (focusTarget?.part) {
+      const row = focusTarget.entry ? [...box.querySelectorAll(".workspace-session-row")].find(item => item.dataset.entry === focusTarget.entry)
+        : [...box.querySelectorAll(".workspace-project")].find(item => item.dataset.cwd === focusTarget.cwd);
+      const control = row?.querySelector(`.${focusTarget.part}`);
+      if (control && control.offsetParent !== null) control.focus({ preventScroll: true });
+    }
     assistantUI.mark();
   }
   function sessionStatus(row, entry) {
@@ -913,12 +932,16 @@
       if (JSON.stringify(data) !== JSON.stringify(snapshot)) {
         // Activity changes should not recreate the row under a finger, reset
         // its spinner, or steal keyboard focus from its menu button.
-        const structure = value => JSON.stringify({ ...value, entries: value.entries.map(({ working, completion, goal, ...row }) => ({ ...row, record: { ...row.record, status: undefined } })) });
-        const statusOnly = structure(data) === structure(snapshot);
+        const structure = value => JSON.stringify({ ...value, entries: value.entries.map(({ working, completion, goal, activityAt, ...row }) => ({ ...row, record: { ...row.record, status: undefined } })) });
+        const orderOf = value => JSON.stringify(O.projects(value).map(cwd => O.entries(value, cwd).map(row => row.key)));
+        const statusOnly = structure(data) === structure(snapshot), reordered = orderOf(data) !== orderOf(snapshot);
         snapshot = data;
         if (!document.body.classList.contains("workspace-dragging")) {
-          if (statusOnly) for (const row of document.querySelectorAll(".workspace-session-row")) {
-            const entry = data.entries.find(entry => entry.key === row.dataset.entry); if (entry) sessionStatus(row, entry);
+          if (statusOnly && (!reordered || sidebarHeld())) {
+            for (const row of document.querySelectorAll(".workspace-session-row")) {
+              const entry = data.entries.find(entry => entry.key === row.dataset.entry); if (entry) sessionStatus(row, entry);
+            }
+            if (reordered) sidebarOrderPending = true;
           }
           else renderSidebar();
         }

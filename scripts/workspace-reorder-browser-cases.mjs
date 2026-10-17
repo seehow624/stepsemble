@@ -33,11 +33,11 @@ export async function runWorkspaceReorderBrowserCases(browser) {
       const finger = async (type, point) => client.send("Input.dispatchTouchEvent", {
         type, touchPoints: type === "touchEnd" || type === "touchCancel" ? [] : [{ ...point, radiusX: 2, radiusY: 2, force: 1, id: 1 }],
       });
-      async function drag(from, to) {
+      async function drag(from, to, { reorders = true } = {}) {
         const start = await center(from), end = await center(to, .85);
         if (mobile) {
           await finger("touchStart", start);
-          await page.locator(".workspace-reorder-source").waitFor();
+          if (reorders) await page.locator(".workspace-reorder-source").waitFor(); else await page.waitForTimeout(700);
           await finger("touchMove", end);
           await finger("touchEnd", end);
         } else {
@@ -47,10 +47,22 @@ export async function runWorkspaceReorderBrowserCases(browser) {
         await page.waitForFunction(() => !document.querySelector(".workspace-reorder-source, .workspace-reorder-marker"));
       }
       stage = "session name drag";
-      await drag(source, target);
-      await page.waitForFunction(first => document.querySelector(".workspace-session strong")?.textContent === first, original[1]);
-      assert.deepEqual((await names()).slice(0, 2), [original[1], original[0]]);
+      // Sessions follow their activity: dragging one within the list moves nothing.
+      await drag(source, target, { reorders: false });
+      await page.waitForTimeout(400);
+      assert.deepEqual(await names(), original);
       assert.equal(await page.locator(".workspace-tab").count(), 0, "drag did not open a session");
+      stage = "latest activity first";
+      await fixture.setActivity("mini", 1, { activityAt: Date.now() + 60_000 });
+      if (!mobile) {
+        // While the pointer is on the list the row waits, then moves up.
+        await page.mouse.move((await center(sessions.nth(2))).x, (await center(sessions.nth(2))).y);
+        await page.waitForTimeout(3600);
+        assert.deepEqual(await names(), original, "no jump under the pointer");
+        await page.mouse.move(1200, 500);
+      }
+      await page.waitForFunction(first => document.querySelector(".workspace-session strong")?.textContent === first, original[1], { timeout: 8000 });
+      assert.deepEqual((await names()).slice(0, 2), [original[1], original[0]]);
       const projectOriginal = await projectNames();
       stage = "project name drag";
       // Collapse project contents with real taps/clicks; dragging a header
@@ -63,7 +75,7 @@ export async function runWorkspaceReorderBrowserCases(browser) {
       stage = "persisted order";
       await page.reload(); await projects.nth(2).waitFor();
       assert.deepEqual((await projectNames()).slice(0, 2), [projectOriginal[1], projectOriginal[0]]);
-      assert.ok(fixture.presentations.get("mini")?.sessionOrder.length);
+      assert.ok(fixture.presentations.get("mini")?.projectOrder.length);
       stage = "normal project tap and menu";
       await projects.nth(0).locator(".workspace-project-toggle")[mobile ? "tap" : "click"]();
       assert.equal(await projects.nth(0).getAttribute("data-collapsed"), "false");
@@ -89,7 +101,7 @@ export async function runWorkspaceReorderBrowserCases(browser) {
       }
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "Whole-row sidebar drag " + (mobile ? "touch" : "mouse"), result: "passed",
-        projectReorder: true, sessionReorder: true, persisted: true, tap: true, menu: true, scroll: mobile, paneDrop: !mobile, modelCalls: 0 }));
+        projectReorder: true, sessionsByActivity: true, holdsUnderPointer: !mobile, persisted: true, tap: true, menu: true, scroll: mobile, paneDrop: !mobile, modelCalls: 0 }));
     } catch (error) {
       throw new Error(`Whole-row sidebar drag ${mobile ? "touch" : "mouse"} at ${stage}: ${error.message}`, { cause: error });
     } finally { await context.close(); await fixture.close(); }

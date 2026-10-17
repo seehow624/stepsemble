@@ -198,6 +198,8 @@ const HARNESS_UPDATE_STATE_FILE = settingFromEnv("HARNESS_UPDATE_STATE")
 const modelVisibility = createModelVisibilityStore({ file: path.join(APP_HOME, ".config", "stepsemble", "model-visibility.json") });
 const turnRates = createTurnRateStore({ file: path.join(APP_HOME, ".config", "stepsemble", "turn-rates.json") });
 const hostNotifications = require("./server/notifications").createNotifications({ entries: () => workspaceRegistry.list().entries,
+  // A turn starting or ending moves its session up the sidebar.
+  touch: (key, at) => { try { workspaceRegistry.touched(key, at); } catch { console.warn("[stepsemble] Could not save the session's activity"); } },
   host: () => selfMachineId(), quietCompletion: key => { try { return key && (workflows.locked(key) || compactions.locked(key)); } catch { return false; } },
   publish: event => {
     try { workspaceRegistry.completed(event); }
@@ -1666,6 +1668,18 @@ async function scanSessionSummaries() {
   return results;
 }
 
+// A Pi history file's time, read at most every 15 seconds per file.
+const piHistoryTimes = new Map();
+async function piHistoryTime(rel) {
+  const cached = piHistoryTimes.get(rel), now = Date.now();
+  if (cached && now - cached.checked < 15_000) return cached.time;
+  let time = null;
+  const abs = safeSessionPath(rel);
+  if (abs) { try { time = Math.round((await fs.promises.stat(abs)).mtimeMs); } catch {} }
+  piHistoryTimes.delete(rel); piHistoryTimes.set(rel, { time, checked: now });
+  if (piHistoryTimes.size > 2000) piHistoryTimes.delete(piHistoryTimes.keys().next().value);
+  return time;
+}
 async function workspacePiSummary(file) {
   const abs = safeSessionPath(file);
   if (!abs) return null;
@@ -6743,6 +6757,15 @@ const server = http.createServer(async (req, res) => {
             || hostNotifications.working(row) || workflows.locked(row.key);
           const goal = workflows.goalState(row.key);
           if (goal) row.goal = goal;
+          // The sidebar lists a project's sessions by their latest activity:
+          // a turn seen here, an unread result, a running task, or the time
+          // of the session's own history for one not used here yet.
+          const times = [row.activityAt, row.completion?.at, current?.lastActivityAt];
+          if (record.agentId === "pi" && record.file) times.push(await piHistoryTime(record.file));
+          else if (record.agentId === "claude-code" && record.nativeSessionId) times.push(nativeHistoryCatalog.updatedAt("claude-code", record.nativeSessionId));
+          else if (record.agentId === "codex" && record.nativeThreadId) times.push(nativeHistoryCatalog.updatedAt("codex", record.nativeThreadId));
+          const activityAt = Math.max(0, ...times.filter(Number.isFinite));
+          if (activityAt) row.activityAt = Math.round(activityAt); else delete row.activityAt;
         }
         sendJSON(res, 200, snapshot); return;
       }

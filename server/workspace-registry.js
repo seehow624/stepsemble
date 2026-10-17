@@ -40,7 +40,8 @@ function createWorkspaceRegistry(filename) {
     state = { version: 1, entries: saved.entries.map(row => {
       if (!/^[a-f0-9-]{36}$/.test(row.key) || !["created", "added"].includes(row.origin)) throw new Error("workspace_registry_invalid");
       const completion = cleanCompletion(row.completion);
-      return { key: row.key, origin: row.origin, addedAt: row.addedAt, record: clean(row.record), ...(completion ? { completion } : {}) };
+      return { key: row.key, origin: row.origin, addedAt: row.addedAt, record: clean(row.record), ...(completion ? { completion } : {}),
+        ...(Number.isSafeInteger(row.activityAt) && row.activityAt > 0 ? { activityAt: row.activityAt } : {}) };
     }), projects: saved.projects.filter(p => typeof p === "string" && path.isAbsolute(p)) };
     if (saved.presentation) state.presentation = sidebarOrder.normalize(saved.presentation, state);
   } catch (error) { if (error.code !== "ENOENT") healthy = false; }
@@ -85,6 +86,16 @@ function createWorkspaceRegistry(filename) {
       if (!prior || prior.completion?.id === completion.id) return prior || null;
       const next = { ...prior, completion };
       write({ ...state, entries: state.entries.map(row => row.key === prior.key ? next : row) });
+      return structuredClone(next);
+    },
+    // The latest time the session's agent started or finished a turn; it
+    // orders the sidebar. It only moves forward.
+    touched(key, at) {
+      const prior = state.entries.find(row => row.key === key);
+      if (!prior) return null;
+      if (!Number.isSafeInteger(at) || at <= 0 || at <= (prior.activityAt || 0)) return structuredClone(prior);
+      const next = { ...prior, activityAt: at };
+      write({ ...state, entries: state.entries.map(row => row.key === key ? next : row) });
       return structuredClone(next);
     },
     markRead(key, completionId) {

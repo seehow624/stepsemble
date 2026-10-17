@@ -71,7 +71,8 @@ test("pins and custom order persist while native identities and memberships stay
   registry.arrange({ kind: "project", id: "/B", before: "/A" });
   registry.arrange({ kind: "session", id: b.key, before: a.key });
   assert.deepEqual(order.projects(registry.list()), ["/C", "/B", "/A"]);
-  assert.deepEqual(order.entries(registry.list(), "/A").map(row => row.key), [b.key, a.key]);
+  // Sessions follow their activity now; an older client's saved order is kept but not shown.
+  assert.deepEqual(order.entries(registry.list(), "/A").map(row => row.key), [a.key, b.key]);
   registry.arrange({ kind: "session", id: a.key, pinned: true });
   assert.throws(() => registry.arrange({ kind: "session", id: b.key, before: a.key }), /target_invalid/);
   assert.throws(() => registry.arrange({ kind: "session", id: b.key, before: c.key }), /target_invalid/);
@@ -80,7 +81,7 @@ test("pins and custom order persist while native identities and memberships stay
   assert.deepEqual(registry.list().entries, members);
   registry.arrange({ kind: "session", id: a.key, pinned: false });
   registry.arrange({ kind: "session", id: a.key, before: null });
-  assert.deepEqual(order.entries(registry.list(), "/A").map(row => row.key), [b.key, a.key]);
+  assert.deepEqual(order.entries(registry.list(), "/A").map(row => row.key), [a.key, b.key]);
   registry.remove(a.key); registry.removeProject("/C");
   assert.ok(!registry.list().presentation.sessionOrder.includes(a.key));
   assert.deepEqual(registry.list().presentation.pinnedProjects, []);
@@ -135,3 +136,28 @@ test("resuming a persisted Claude identity updates its original workspace entry"
   assert.equal(registry.list().entries.length, 1);
   assert.equal(registry.get(first.key).record.id, "claude-code:new");
 });
+
+test("a project's sessions list pins first, then the one at work, then the latest activity", () => {
+  const row = (key, fields = {}) => ({ key, record: { agentId: "pi", sid: key, cwd: "/A" }, ...fields });
+  const snapshot = { projects: ["/A"], entries: [row("old", { activityAt: 100 }), row("new", { activityAt: 300 }), row("never"), row("busy", { activityAt: 50, working: true }),
+    row("pinned", { activityAt: 10 }), row("mid", { activityAt: 200 }), row("elsewhere", { activityAt: 999, record: { agentId: "pi", sid: "x", cwd: "/B" } })],
+    presentation: { pinnedSessions: ["pinned"], sessionOrder: ["old", "mid"] } };
+  assert.deepEqual(order.entries(snapshot, "/A").map(item => item.key), ["pinned", "busy", "new", "mid", "old", "never"]);
+  snapshot.entries.find(item => item.key === "old").activityAt = 500;
+  assert.equal(order.entries(snapshot, "/A")[2].key, "old", "a reply moves a session up");
+  snapshot.entries.push(row("tie-a", { activityAt: 5 }), row("tie-b", { activityAt: 5 }));
+  assert.deepEqual(order.entries(snapshot, "/A").slice(-3).map(item => item.key), ["tie-a", "tie-b", "never"], "equal times keep their place");
+});
+
+test("a session's latest activity persists, never moves back, and survives a restart", t => {
+  const file = fixture(t), registry = createWorkspaceRegistry(file);
+  const a = registry.remember({ id: "pi:a", agentId: "pi", sid: "a", cwd: "/A" });
+  assert.equal(registry.touched(a.key, 5000).activityAt, 5000);
+  assert.equal(registry.touched(a.key, 4000).activityAt, 5000, "an older time never moves it back");
+  assert.equal(registry.touched("absent", 6000), null);
+  assert.equal(registry.touched(a.key, Number.NaN).activityAt, 5000);
+  registry.touched(a.key, 7000);
+  registry.update(a.key, { name: "Renamed" });
+  assert.equal(createWorkspaceRegistry(file).get(a.key).activityAt, 7000);
+});
+

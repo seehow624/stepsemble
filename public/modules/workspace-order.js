@@ -24,10 +24,15 @@
     const p = normalize(snapshot.presentation, snapshot);
     return ordered(projectIds(snapshot), p.projectOrder, p.pinnedProjects);
   }
+  // A project's sessions: pinned ones first, then the one at work, then by
+  // their latest activity. Equal ones keep their place. A session order saved
+  // by an older client stays in the presentation but no longer decides.
   function entries(snapshot, cwd) {
     const p = normalize(snapshot.presentation, snapshot), rows = (snapshot.entries || []).filter(row => (row.record.cwd || "") === cwd);
-    const byId = new Map(rows.map(row => [row.key, row]));
-    return ordered([...byId.keys()], p.sessionOrder, p.pinnedSessions).map(id => byId.get(id));
+    const pinned = new Set(p.pinnedSessions), place = new Map(rows.map((row, index) => [row.key, index]));
+    const time = row => Number.isFinite(row.activityAt) ? row.activityAt : 0;
+    return [...rows].sort((a, b) => Number(pinned.has(b.key)) - Number(pinned.has(a.key))
+      || Number(b.working === true) - Number(a.working === true) || time(b) - time(a) || place.get(a.key) - place.get(b.key));
   }
   function arrange(snapshot, input) {
     const kind = input?.kind, id = input?.id;
