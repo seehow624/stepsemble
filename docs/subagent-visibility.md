@@ -5,13 +5,14 @@ composer reads "2 subagents working", then "2 subagents finished" (with the
 failed count, if any). It stays until the next message is sent. Agents that do
 not report their subagents get no bubble; Stepsemble never guesses.
 
-- Click the bubble for the list: each subagent's name or role, the first line
-  of its task, its state (Waiting, Working, Done, Failed), elapsed time and, when
-  the agent reports it, its current action. Nested subagents are indented under
-  their parent.
-- Click a name for the read-only detail panel: the full task, the activity the
-  agent reported and the final result. It slides in from the right on a
-  desktop and up from the bottom on a phone. Escape closes it and returns focus.
+- Click the bubble for the list: each subagent's name or role, execution tool
+  (such as Claude Code, Codex or Pi Agent), reported model and thinking mode,
+  task, state, elapsed time and current action. Nested subagents are indented
+  under their parent. Missing execution values say **Not provided**.
+- Click a name for the read-only detail panel: the same execution fields, full
+  task, reported activity and final result. Codex and OpenCode details load on
+  demand and update both views. The panel opens from the right on a desktop
+  and the bottom on a phone; Escape closes it and returns focus.
 - A subagent tool card in the transcript has a **Details** button that opens
   the same panel, including for earlier turns and for a conversation opened
   again from its saved record.
@@ -28,6 +29,20 @@ conversation to stop its work.
 | OpenCode | `task` tool parts and `subtask` parts after the last user message | The child session's messages, read from the Host |
 | Pi with `pi-subagents` | The `subagent` tool's `tool_execution_update` progress and its final `details.results` | Recent tools, output and result the extension reports |
 | Other agents | Not shown | — |
+
+Execution identity belongs to the harness, not the child's role or model name.
+Claude models come from the child's assistant messages or message-start events;
+CLI-generated synthetic notices and launch aliases do not establish a model.
+Codex uses the requested child's own `model` and `reasoningEffort`, never an
+ancestor's settings. OpenCode uses its child's latest assistant `modelID` and
+`variant`. Pi keeps its child's response model and explicitly reported
+`thinkingLevel` when the extension supplies one. A thinking block or a parent's
+thinking setting is not proof of the child's thinking mode.
+
+These fields reuse existing events and owned detail reads. They do not add a
+background poll, a model-provider request or a scan of all saved conversations.
+Claude Code does not always report a child's thinking setting; absent values
+remain **Not provided** instead of being copied from the launch request.
 
 A Pi run in background mode shows the state known when the tool returned and is
 marked **Background**.

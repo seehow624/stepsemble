@@ -16,12 +16,15 @@
     const rows=[];
     for(const result of (Array.isArray(details.results)?details.results:[]).slice(0,MAX_ROWS)){
       if(!plain(result)||!Number.isSafeInteger(result.index))continue;
-      const reply=[...(Array.isArray(result.messages)?result.messages:[])].reverse().find(message=>message?.role==="assistant"&&textOf(message.content).trim());
+      const messages=Array.isArray(result.messages)?result.messages:[];
+      const reply=messages.findLast(message=>message?.role==="assistant"&&textOf(message.content).trim());
+      const response=messages.findLast(message=>message?.role==="assistant");
       const failed=result.exitCode!==0||!!result.error||!!result.interrupted||!!result.timedOut||!!result.stopped;
       const progress=plain(result.progress)?result.progress:plain(result.progressSummary)?result.progressSummary:{},usage=plain(result.usage)?result.usage:{};
       const used=Number.isSafeInteger(usage.input)&&Number.isSafeInteger(usage.output)?usage.input+usage.output:0;
-      rows.push({index:result.index,name:clip(result.agent,80)||"subagent",task:firstLine(result.task),prompt:clip(result.task,2000),status:failed?"failed":"completed",
-        result:failed?clip(result.error)||clip(textOf(reply?.content)):clip(result.finalOutput)||clip(textOf(reply?.content)),model:clip(result.model||progress.model,120),
+      rows.push({index:result.index,harness:"pi",name:clip(result.agent,80)||"subagent",task:firstLine(result.task),prompt:clip(result.task,2000),status:failed?"failed":"completed",
+        result:failed?clip(result.error)||clip(textOf(reply?.content)):clip(result.finalOutput)||clip(textOf(reply?.content)),model:clip(response?.model||result.model||progress.model,120),
+        reasoningEffort:clip(result.thinkingLevel||progress.thinkingLevel,64),
         tokens:Number.isSafeInteger(progress.tokens)&&progress.tokens>0?progress.tokens:used>0?used:null,durationMs:Number.isSafeInteger(progress.durationMs)?progress.durationMs:null,
         log:(Array.isArray(progress.recentTools)?progress.recentTools:[]).slice(-PI_LOG).map(tool=>({kind:"tool",name:clip(tool?.tool,80)||"tool",summary:clip(tool?.args,300),done:true}))});
     }
@@ -39,7 +42,7 @@
       let row=rows.get(id);
       if(!row){
         if(rows.size>=MAX_ROWS)return null;
-        row={id,parentId:null,name:"",task:"",prompt:"",status:"running",activity:"",log:[],result:"",model:"",tokens:null,durationMs:null,background:false,source:"",startedAt:now(),endedAt:null};
+        row={id,parentId:null,name:"",task:"",prompt:"",status:"running",activity:"",log:[],result:"",model:"",reasoningEffort:"",tokens:null,durationMs:null,background:false,source:"",startedAt:now(),endedAt:null};
         rows.set(id,row);
       }
       for(const [key,value] of Object.entries(fields))if(value!==undefined&&value!==null&&value!=="")row[key]=value;
@@ -73,6 +76,11 @@
       const message=plain(event.message)?event.message:null;
       const blocks=Array.isArray(message?.content)?[...message.content]:[];
       if(event.type==="stream_event"&&event.event?.type==="content_block_start"&&plain(event.event.content_block))blocks.push(event.event.content_block);
+      const response=event.type==="assistant"?message:event.type==="stream_event"&&event.event?.type==="message_start"?event.event.message:null;
+      if(parent&&rows.has(parent)&&plain(response)){
+        const model=clip(response.model,120);
+        if(model&&model!=="<synthetic>")upsert(parent,{model});
+      }
       if(event.type==="user"&&!parent&&(typeof message?.content==="string"&&message.content.trim()||blocks.some(block=>block?.type==="text"&&String(block.text||"").trim())&&!blocks.some(block=>block?.type==="tool_result"))){newTurn();return;}
       for(const block of blocks){
         if(!plain(block))continue;
@@ -108,7 +116,7 @@
       for(const progress of Array.isArray(details?.progress)?details.progress:[]){
         if(!plain(progress)||!Number.isSafeInteger(progress.index))continue;
         const row=upsert(`${call}:${progress.index}`,{source:"pi",toolId:call,name:clip(progress.agent,80)||"subagent",task:firstLine(progress.task),status:PI_STATUS[progress.status]||"running",
-          background:progress.status==="detached"||undefined,model:clip(progress.model,120),tokens:Number.isSafeInteger(progress.tokens)?progress.tokens:undefined,
+          background:progress.status==="detached"||undefined,model:clip(progress.model,120),reasoningEffort:clip(progress.thinkingLevel,64),tokens:Number.isSafeInteger(progress.tokens)?progress.tokens:undefined,
           durationMs:Number.isSafeInteger(progress.durationMs)?progress.durationMs:undefined,result:clip(progress.error)});
         if(!row)continue;
         row.activity=progress.currentTool?clip(`${progress.currentTool} ${progress.currentToolArgs||""}`.trim(),300):"";
@@ -118,7 +126,7 @@
       if(ev.type==="tool_execution_end"){
         const record=piRecord(details),results=record?.rows||[];
         for(const item of results){
-          const row=upsert(`${call}:${item.index}`,{source:"pi",toolId:call,name:item.name,task:item.task,prompt:item.prompt,status:item.status,result:item.result,model:item.model,tokens:item.tokens,durationMs:item.durationMs});
+          const row=upsert(`${call}:${item.index}`,{source:"pi",toolId:call,name:item.name,task:item.task,prompt:item.prompt,status:item.status,result:item.result,model:item.model,reasoningEffort:item.reasoningEffort,tokens:item.tokens,durationMs:item.durationMs});
           if(row&&!row.log.length)row.log=item.log;
         }
         if(!results.length&&record?.background){
@@ -142,7 +150,7 @@
             if(typeof id!=="string"||!id)continue;
             if(item.tool==="spawnAgent"&&!rows.has(id)){
               const earlier=previous.get(id);
-              const row=upsert(id,{source:"codex",toolId:clip(item.id,256),name:earlier?.name&&!/^Subagent \d+$/.test(earlier.name)?earlier.name:`Subagent ${++count}`,task:firstLine(item.prompt),prompt:clip(item.prompt),model:clip(item.model,120)});
+              const row=upsert(id,{source:"codex",toolId:clip(item.id,256),name:earlier?.name&&!/^Subagent \d+$/.test(earlier.name)?earlier.name:`Subagent ${++count}`,task:firstLine(item.prompt),prompt:clip(item.prompt)});
               if(row&&earlier)row.startedAt=earlier.startedAt;
             }
             const state=plain(states[id])?states[id]:null;
@@ -182,15 +190,15 @@
     }
     // A card drawn from a saved conversation this view never saw live: only
     // what the record itself says, kept with the earlier turns' subagents.
-    function remember({toolId,name,args,result,isError=false,record=null}={}){
+    function remember({toolId,name,args,result,isError=false,record=null,harness=""}={}){
       toolId=String(toolId||"");
       if(!toolId||[...rows.values(),...archive.values()].some(row=>row.toolId===toolId))return false;
-      const base={source:"history",history:true,toolId,parentId:null,activity:"",log:[],model:"",tokens:null,durationMs:null,background:false,startedAt:null,endedAt:null};
+      const base={source:"history",history:true,harness:clip(harness,32),toolId,parentId:null,activity:"",log:[],model:"",reasoningEffort:"",tokens:null,durationMs:null,background:false,startedAt:null,endedAt:null};
       const input=plain(args)?args:{},text=clip(typeof result==="string"?result:""),found=[];
       if(Array.isArray(record?.rows)&&record.rows.length)for(const item of record.rows.slice(0,MAX_ROWS)){
         if(!plain(item)||!Number.isSafeInteger(item.index))continue;
         found.push({...base,id:`${toolId}:${item.index}`,name:clip(item.name,80)||"subagent",task:firstLine(item.task),prompt:clip(item.prompt),status:TERMINAL.has(item.status)?item.status:"completed",result:clip(item.result),
-          model:clip(item.model,120),tokens:Number.isSafeInteger(item.tokens)?item.tokens:null,durationMs:Number.isSafeInteger(item.durationMs)?item.durationMs:null,
+          harness:clip(item.harness,32)||base.harness,model:clip(item.model,120),reasoningEffort:clip(item.reasoningEffort,64),tokens:Number.isSafeInteger(item.tokens)?item.tokens:null,durationMs:Number.isSafeInteger(item.durationMs)?item.durationMs:null,
           log:(Array.isArray(item.log)?item.log:[]).filter(plain).slice(-MAX_LOG).map(entry=>({kind:entry.kind==="text"?"text":"tool",name:clip(entry.name,80),summary:clip(entry.summary,300),text:clip(entry.text),done:true}))});
       }else if(name==="subagent"){
         // A background run answers at once; the record never says when it ended.

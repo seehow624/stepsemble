@@ -77,7 +77,7 @@ test("Codex: spawn and wait items from a real thread give each subagent its task
   const spawn = { type: "collabAgentToolCall", id: "call_spawn", tool: "spawnAgent", status: "completed", receiverThreadIds: [child], prompt: "Inspect the README\nthen report", model: "mock-model", agentsStates: { [child]: { status: "pendingInit", message: null } } };
   tracker.codex([spawn]);
   assert.equal(pick(tracker, child).status, "running"); assert.equal(pick(tracker, child).task, "Inspect the README");
-  assert.equal(pick(tracker, child).name, "Subagent 1"); assert.equal(pick(tracker, child).model, "mock-model");
+  assert.equal(pick(tracker, child).name, "Subagent 1"); assert.equal(pick(tracker, child).model, "", "spawn's requested model is not the child's resolved model");
   tracker.codex([spawn, { type: "collabAgentToolCall", id: "call_wait", tool: "wait", status: "completed", receiverThreadIds: [child], prompt: null, agentsStates: { [child]: { status: "completed", message: "Child finished the README check." } } }]);
   assert.equal(pick(tracker, child).status, "completed"); assert.equal(pick(tracker, child).result, "Child finished the README check.");
   tracker.codex([{ ...spawn, status: "inProgress", receiverThreadIds: [], agentsStates: {} }]);
@@ -190,4 +190,43 @@ test("a card from a saved conversation offers what its record says, without touc
   tracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "live", name: "Agent", input: { prompt: "Live work", subagent_type: "planner" } }] } });
   assert.equal(tracker.remember({ toolId: "live", name: "Agent", args: { prompt: "Live work" }, result: "x" }), false, "what this view saw live wins");
   assert.equal(tracker.byTool("live")[0].source, "claude");
+});
+
+test("Claude models come from child messages, not the parent or requested launch alias", () => {
+  const tracker = create();
+  tracker.claude({ type: "assistant", message: { model: "parent-model", content: [{ type: "tool_use", id: "child", name: "Agent", input: { prompt: "Inspect", model: "requested-alias", effort: "high" } }] } });
+  assert.deepEqual([pick(tracker, "child").model, pick(tracker, "child").reasoningEffort], ["", ""]);
+  tracker.claude({ type: "assistant", parentToolUseId: "child", message: { model: "reported-child-model", content: [{ type: "text", text: "Checking" }] } });
+  assert.equal(pick(tracker, "child").model, "reported-child-model");
+  assert.equal(pick(tracker, "child").reasoningEffort, "", "thinking content and requested effort do not prove a mode");
+  tracker.claude({ type: "assistant", parentToolUseId: "child", message: { model: "<synthetic>", content: [{ type: "text", text: "Synthetic notice" }] } });
+  assert.equal(pick(tracker, "child").model, "reported-child-model");
+  tracker.claude({ type: "stream_event", parentToolUseId: "child", event: { type: "message_start", message: { model: "latest-child-model", content: [] } } });
+  assert.equal(pick(tracker, "child").model, "latest-child-model");
+});
+
+test("Pi preserves explicitly reported child thinking settings and prefers the response's model", () => {
+  const tracker = create();
+  tracker.pi({ type: "tool_execution_update", toolCallId: "p", toolName: "subagent", partialResult: { details: { progress: [
+    { index: 0, agent: "worker", status: "running", model: "progress-model", thinkingLevel: "low" },
+  ] } } });
+  assert.equal(pick(tracker, "p:0").reasoningEffort, "low");
+  tracker.pi({ type: "tool_execution_end", toolCallId: "p", toolName: "subagent", result: { details: { results: [
+    { index: 0, agent: "worker", exitCode: 0, model: "configured-model", thinkingLevel: "medium", messages: [
+      { role: "assistant", model: "response-model", content: [{ type: "text", text: "Done" }] },
+    ] },
+  ] } } });
+  assert.deepEqual([pick(tracker, "p:0").model, pick(tracker, "p:0").reasoningEffort], ["response-model", "medium"]);
+  const { piRecord } = require("../public/modules/subagents");
+  const record = piRecord({ results: [{ index: 0, agent: "worker", exitCode: 0, model: "saved-model", thinkingLevel: "off" }] });
+  assert.equal(record.rows[0].reasoningEffort, "off");
+  tracker.remember({ toolId: "old-pi", name: "subagent", harness: "pi", record });
+  assert.deepEqual([tracker.byTool("old-pi")[0].harness, tracker.byTool("old-pi")[0].reasoningEffort], ["pi", "off"]);
+});
+
+test("saved tool cards keep their known harness but never treat launch arguments as actual settings", () => {
+  const tracker = create();
+  tracker.remember({ toolId: "old-child", name: "Agent", harness: "claude-code", args: { prompt: "Inspect", model: "requested-model", effort: "low" }, result: "Done" });
+  const child = tracker.byTool("old-child")[0];
+  assert.deepEqual([child.harness, child.model, child.reasoningEffort], ["claude-code", "", ""]);
 });

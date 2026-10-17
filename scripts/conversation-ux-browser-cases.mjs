@@ -17,7 +17,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
-import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession } from "./workspace-browser-helpers.mjs";
+import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
+import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
@@ -75,7 +76,105 @@ async function pendingTurn(page, ui, context, route, question, replyText, out, k
   } finally { await context.unroute(route); }
 }
 
-export async function runConversationUxBrowserCases(browser) {
+export async function runSubagentExecutionBrowserCases(browser, { screenshots } = {}) {
+  for (const width of [393, 320, 1280]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
+    try {
+      const locale = width === 393 ? "zh-Hant" : "en", unknown = locale === "zh-Hant" ? "未提供" : "Not provided";
+      await context.addInitScript(({ locale, theme }) => {
+        localStorage.setItem("stepsemble.onboarding.v1", "complete");
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme, reducedMotion: true }));
+      }, { locale, theme: width === 393 ? "light" : "dark" });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
+      const keys = Object.fromEntries(entries.map(entry => [entry.record.agentId, entry.key])), reads = [];
+      await context.route("**/api/subagent/detail?**", async route => {
+        const url = new URL(route.request().url()), id = url.searchParams.get("id"), entry = url.searchParams.get("entry");
+        reads.push({ id, entry });
+        const harness = id === "ui-codex-child" ? "codex" : id === "ui-opencode-child" ? "opencode" : null;
+        if (!harness || entry !== keys[harness]) return route.fulfill({ status: 404, json: { error: "subagent_not_owned" } });
+        await route.fulfill({ json: { harness, model: `reported-${harness}-child`, reasoningEffort: harness === "codex" ? "xhigh" : "high", log: [{ kind: "text", text: "Owned child result." }] } });
+      });
+      await context.route("**/api/codex/items?**", async route => {
+        const response = await route.fetch(), body = await response.json();
+        body.data.push({ turnId: "fixture-turn-0", item: { type: "collabAgentToolCall", id: "ui-codex-spawn", tool: "spawnAgent", status: "completed",
+          receiverThreadIds: ["ui-codex-child"], prompt: "Inspect the child workspace", model: "requested-codex-alias", agentsStates: { "ui-codex-child": { status: "completed", message: "Done" } } } });
+        await route.fulfill({ response, json: body });
+      });
+      await context.route("**/api/opencode/reconcile", async route => {
+        const response = await route.fetch(), body = await response.json();
+        body.messages.push({ id: "ui-opencode-parent-message", sessionID: "fixture-opencode-session", role: "assistant", time: { created: Date.now(), completed: Date.now() },
+          info: { id: "ui-opencode-parent-message", role: "assistant" }, parts: [{ type: "tool", tool: "task", callID: "ui-opencode-task",
+          state: { status: "completed", input: { description: "Inspect the child session", prompt: "Inspect", subagent_type: "explore" }, metadata: { sessionId: "ui-opencode-child" }, output: "Done" } }] });
+        await route.fulfill({ response, json: body });
+      });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      let ui = await openFromSidebar(page, "Claude composer fixture");
+      await ui.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !!rpc?.nativeClaudeStructured && !rpc.nativeLoading);
+      const values = frame => frame.locator(".subagent-drawer > .subagent-execution dd").allTextContents();
+      const shot = async (name, frame = ui) => {
+        const bounds = await frame.locator(".subagent-drawer").evaluate(node => ({ width: node.clientWidth, scrollWidth: node.scrollWidth }));
+        assert.ok(bounds.scrollWidth <= bounds.width + 1, JSON.stringify(bounds));
+        if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `subagent-${name}-${width}.png`) }); }
+      };
+      await ui.evaluate(() => {
+        subagentTracker.reset();
+        subagentTracker.claude({ type: "assistant", message: { model: "parent-model", content: [{ type: "tool_use", id: "ui-claude-child", name: "Agent", input: { prompt: "Inspect the child files", subagent_type: "researcher", model: "requested-alias", effort: "high" } }] } });
+        subagentTracker.claude({ type: "assistant", parentToolUseId: "ui-claude-child", message: { model: "reported-claude-child", content: [{ type: "text", text: "Read the child files." }] } });
+      });
+      await ui.locator(".subagent-bubble").click();
+      assert.deepEqual(await ui.locator(".subagent-item .subagent-execution dd").allTextContents(), ["Claude Code", "reported-claude-child", unknown]);
+      await ui.locator(".subagent-item").click();
+      assert.deepEqual(await values(ui), ["Claude Code", "reported-claude-child", unknown]);
+      await shot("claude"); await ui.locator(".subagent-close").click();
+      await ui.evaluate(() => {
+        subagentTracker.reset();
+        subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
+          { index: 0, agent: "reviewer", task: "Check the child result", status: "running", model: "reported-pi-child", thinkingLevel: "off" },
+        ] } } });
+      });
+      await ui.locator(".subagent-bubble").click(); await ui.locator(".subagent-item").click();
+      assert.deepEqual(await values(ui), ["Pi Agent", "reported-pi-child", "off"]);
+      await shot("pi"); await ui.locator(".subagent-close").click();
+      await ui.evaluate(() => {
+        subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
+          { index: 0, agent: "reviewer", task: "Long metadata", status: "running", model: "reported-model-" + "x".repeat(100), thinkingLevel: "high" },
+        ] } } });
+      });
+      await ui.locator(".subagent-item").click(); await shot("long-model"); await ui.locator(".subagent-close").click();
+      await ui.evaluate(() => {
+        subagentTracker.remember({ toolId: "ui-history", name: "Agent", args: { description: "Codex", prompt: "Old task", model: "requested-history-model", effort: "high" }, result: "Done" });
+        subagentPanel.show(subagentTracker.byTool("ui-history"));
+      });
+      assert.deepEqual(await values(ui), [unknown, unknown, unknown]);
+      await shot("history"); await ui.locator(".subagent-close").click();
+      assert.equal(reads.length, 0, "known live and saved metadata does not add requests");
+      await ui.evaluate(() => subagentTracker.reset());
+      ui = await openFromSidebar(page, "Codex composer fixture");
+      await ui.locator(".subagent-bubble").waitFor(); await ui.locator(".subagent-bubble").click();
+      assert.deepEqual(await ui.locator(".subagent-item .subagent-execution dd").allTextContents(), ["Codex", unknown, unknown]);
+      await ui.locator(".subagent-item").click();
+      await ui.waitForFunction(() => document.querySelector(".subagent-drawer .subagent-execution-model")?.textContent === "reported-codex-child");
+      assert.deepEqual(await values(ui), ["Codex", "reported-codex-child", "xhigh"]);
+      const count = reads.length;
+      await ui.evaluate(() => { subagentPanel.render(subagentTracker.list()); subagentPanel.render(subagentTracker.list()); });
+      assert.equal(reads.length, count, "rendering does not refetch execution settings");
+      await shot("codex"); await ui.locator(".subagent-close").click();
+      ui = await openFromSidebar(page, "OpenCode composer fixture");
+      await ui.locator(".subagent-bubble").waitFor(); await ui.locator(".subagent-bubble").click(); await ui.locator(".subagent-item").click();
+      await ui.waitForFunction(() => document.querySelector(".subagent-drawer .subagent-execution-model")?.textContent === "reported-opencode-child");
+      assert.deepEqual(await values(ui), ["OpenCode", "reported-opencode-child", "high"]);
+      await shot("opencode"); assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Subagent execution metadata", width, result: "passed", nativeCalls: 0 }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
+export async function runConversationUxBrowserCases(browser, options = {}) {
+  await runSubagentExecutionBrowserCases(browser, options);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-conversation-ux-")));
     let child, context, stage = "fixture";

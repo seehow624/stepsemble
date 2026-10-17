@@ -19324,7 +19324,7 @@ function revealSubagentCard(card) {
   const id = subagentCardTool(card), output = card.querySelector(".tool-output")?.textContent || "";
   if (id && !card.classList.contains("running") && output !== "（執行中…）" && !subagentTracker.byTool(id).length)
     subagentTracker.remember({ toolId: id, name: card.__tool?.name, args: card.__tool?.args, result: TOOL_PLACEHOLDERS.has(output) ? "" : output,
-      isError: card.classList.contains("err"), record: card.__subagentRecord || null });
+      isError: card.classList.contains("err"), record: card.__subagentRecord || null, harness: conversationAgentId() });
   open.hidden = !subagentTracker.byTool(id).length;
   open.textContent = subagentCopy("details");
 }

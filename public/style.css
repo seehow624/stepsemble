@@ -450,6 +450,13 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 .subagent-drawer-header > div { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .subagent-drawer h2 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
 .subagent-meta { flex-basis: 100%; margin: 0; color: var(--pine-soft); font-size: 12.5px; }
+.subagent-execution { display: flex; flex-wrap: wrap; gap: 3px 12px; min-width: 0; max-width: 100%; margin: 3px 0 0; font-size: 12px; line-height: 1.5; }
+.subagent-execution-field { display: flex; gap: 4px; min-width: 0; max-width: 100%; }
+.subagent-execution dt { flex: none; color: var(--pine-soft); white-space: nowrap; }
+.subagent-execution dd { min-width: 0; margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.subagent-execution dd[data-unknown="true"] { color: var(--pine-soft); }
+.subagent-drawer > .subagent-execution { display: grid; flex: none; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.subagent-drawer > .subagent-execution .subagent-execution-field { display: contents; }
 .subagent-close { flex: none; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--pine-soft); font-size: 1.2rem; cursor: pointer; }
 .subagent-close:hover, .subagent-close:focus-visible { background: var(--bubble-user); color: var(--ink); }
 .subagent-section h3 { margin: 0 0 6px; color: var(--pine-soft); font-size: 12px; font-weight: 600; letter-spacing: .02em; }

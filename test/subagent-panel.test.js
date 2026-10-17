@@ -142,3 +142,42 @@ test("a subagent from a saved conversation shows no invented time and says where
   assert.equal(drawer.hidden, false); assert.match(drawer.textContent, /Started/); assert.match(drawer.textContent, /Background/);
   assert.match(drawer.textContent, /from the saved conversation/); assert.doesNotMatch(drawer.textContent, /00:00/);
 });
+
+test("each subagent shows its own harness, reported model and reasoning mode in the list and drawer", () => {
+  const { document, host, panel } = setup();
+  const values = [row("cc", { source: "claude", model: "reported-claude-model", reasoningEffort: "high" }),
+    row("cx", { source: "codex", model: "reported-codex-model", reasoningEffort: "xhigh" }),
+    row("pi", { source: "pi", model: "reported-pi-model", reasoningEffort: "off" }),
+    row("unknown", { source: "history", model: "", parentId: "cc" })];
+  panel.render(values); host.querySelector(".subagent-bubble").click();
+  const items = host.querySelectorAll(".subagent-item");
+  assert.deepEqual(items.map(item => item.querySelector(".subagent-execution-tool")?.textContent), ["Claude Code", "Codex", "Pi Agent", "Not provided"]);
+  assert.deepEqual(items.map(item => item.querySelector(".subagent-execution-model")?.textContent), ["reported-claude-model", "reported-codex-model", "reported-pi-model", "Not provided"]);
+  assert.deepEqual(items.map(item => item.querySelector(".subagent-execution-thinking")?.textContent), ["high", "xhigh", "off", "Not provided"]);
+  panel.open("unknown");
+  const drawer = document.body.querySelector(".subagent-drawer");
+  assert.equal(drawer.querySelector(".subagent-execution-model").textContent, "Not provided", "never borrow its parent's model");
+  assert.equal(drawer.querySelector(".subagent-execution-thinking").textContent, "Not provided");
+  panel.show([row("saved", { source: "history", harness: "pi", model: "saved-child-model", reasoningEffort: "medium", history: true })]);
+  assert.equal(drawer.querySelector(".subagent-execution-tool").textContent, "Pi Agent");
+  assert.equal(drawer.querySelector(".subagent-execution-model").textContent, "saved-child-model");
+  assert.equal(drawer.querySelector(".subagent-execution-thinking").textContent, "medium");
+});
+
+test("the owned child's detail supplies execution metadata without extra polling and updates the list", async () => {
+  const requests = [];
+  const { document, host, panel } = setup({ loadDetail: async value => {
+    requests.push(value.id); return { log: [], harness: "codex", model: "actual-child-model", reasoningEffort: "low" };
+  } });
+  const child = row("child", { source: "codex", model: "", requestedModel: "requested-model", log: [] });
+  panel.render([child]); host.querySelector(".subagent-bubble").click();
+  const opener = host.querySelector(".subagent-item"); opener.focus(); opener.click(); await flush();
+  const drawer = document.body.querySelector(".subagent-drawer");
+  assert.equal(drawer.querySelector(".subagent-execution-model")?.textContent, "actual-child-model");
+  assert.equal(drawer.querySelector(".subagent-execution-thinking")?.textContent, "low");
+  assert.equal(host.querySelector(".subagent-execution-model").textContent, "actual-child-model");
+  panel.render([child]); panel.render([child]); await flush();
+  assert.deepEqual(requests, ["child"], "rendering does not add metadata requests");
+  panel.close();
+  assert.equal(document.activeElement, host.querySelector(".subagent-item"), "focus returns to the current list item after metadata refresh");
+});

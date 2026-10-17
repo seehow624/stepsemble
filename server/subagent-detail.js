@@ -8,7 +8,7 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MAX_DEPTH = 4, MAX_LOG = 200, MAX_TEXT = 4000;
 const failure = (code, statusCode) => Object.assign(new Error(code), { code, statusCode });
-const clip = value => typeof value === "string" ? value.slice(0, MAX_TEXT) : "";
+const clip = (value, limit = MAX_TEXT) => typeof value === "string" ? value.slice(0, limit) : "";
 
 function toolEntry(tool) {
   const args = tool.args && typeof tool.args === "object" ? tool.args : {};
@@ -18,27 +18,30 @@ function toolEntry(tool) {
 function bounded(log) { return log.filter(Boolean).slice(-MAX_LOG); }
 
 function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = () => false }) {
-  async function codexLog(parent, id) {
+  async function codexDetail(parent, id) {
     // Walk up from the requested thread; it must reach this conversation.
-    let current = id, owned = false;
+    let current = id, owned = false, child = null;
     for (let depth = 0; depth < MAX_DEPTH && current; depth++) {
       let thread;
       try { thread = (await codex.readThread(current, { includeTurns: false }))?.thread; } catch { break; }
-      const up = typeof thread?.parentThreadId === "string" ? thread.parentThreadId : null;
+      if (!thread || thread.id !== current) break;
+      if (depth === 0) child = thread;
+      const up = typeof thread.parentThreadId === "string" ? thread.parentThreadId : null;
       if (up === parent) { owned = true; break; }
       current = up;
     }
     if (!owned) throw failure("subagent_not_owned", 404);
     const page = await codex.listThreadItems(id, { limit: MAX_LOG });
     const items = (Array.isArray(page?.data) ? page.data : []).map(row => row?.item || row);
-    return bounded(items.map(item => {
+    const log = bounded(items.map(item => {
       const view = presentation.codexItem(item);
       if (view?.kind === "tool") return toolEntry(view.tool);
       if (view?.kind === "message" && view.role !== "user" && view.text) return { kind: "text", text: clip(view.text) };
       return null;
     }));
+    return { log, harness: "codex", model: clip(child?.model, 120), reasoningEffort: clip(child?.reasoningEffort, 64) };
   }
-  async function openCodeLog(parent, id, directory) {
+  async function openCodeDetail(parent, id, directory) {
     // Breadth-first through this session's children, a few levels deep.
     let level = [parent], owned = false;
     for (let depth = 0; depth < MAX_DEPTH && level.length && !owned; depth++) {
@@ -52,14 +55,20 @@ function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = 
     if (!owned) throw failure("subagent_not_owned", 404);
     const page = await openCode.messages(id, { directory });
     const log = [];
+    let model = "", reasoningEffort = "";
     for (const message of Array.isArray(page?.messages) ? page.messages : []) {
       // The adapter's messages carry the role at the top; raw ones in info.
-      const view = presentation.openCodeMessage({ ...message, role: message?.role || message?.info?.role });
+      const role = message?.role || message?.info?.role;
+      if (role === "assistant") {
+        model = clip(message?.info?.model?.modelID || message?.info?.model?.modelId || message?.info?.modelID, 120);
+        reasoningEffort = clip(message?.info?.variant, 64);
+      }
+      const view = presentation.openCodeMessage({ ...message, role });
       if (!view || view.role === "user") continue;
       for (const tool of view.tools || []) log.push(toolEntry(tool));
       if (view.text) log.push({ kind: "text", text: clip(view.text) });
     }
-    return bounded(log);
+    return { log: bounded(log), harness: "opencode", model, reasoningEffort };
   }
   async function read(entryKey, id) {
     if (!UUID.test(String(entryKey || "")) || !ID.test(String(id || ""))) throw failure("subagent_detail_invalid", 400);
@@ -68,12 +77,12 @@ function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = 
     const record = entry.record;
     if (record.nativeCodex && record.mutation === "native_api" && ID.test(String(record.nativeThreadId || ""))) {
       if (id === record.nativeThreadId) throw failure("subagent_not_owned", 404);
-      const log = await codexLog(record.nativeThreadId, id);
-      return { log, ...(approvalUnavailable(id) ? { approvalUnavailable: true } : {}) };
+      const detail = await codexDetail(record.nativeThreadId, id);
+      return { ...detail, ...(approvalUnavailable(id) ? { approvalUnavailable: true } : {}) };
     }
     if (record.nativeOpenCode && ID.test(String(record.nativeSessionId || ""))) {
       if (id === record.nativeSessionId) throw failure("subagent_not_owned", 404);
-      return { log: await openCodeLog(record.nativeSessionId, id, record.cwd || null) };
+      return openCodeDetail(record.nativeSessionId, id, record.cwd || null);
     }
     throw failure("subagent_detail_unavailable", 409);
   }
