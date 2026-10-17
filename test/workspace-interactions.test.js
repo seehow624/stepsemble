@@ -169,6 +169,22 @@ test("a session row marks its running, paused or blocked Goal and drops the mark
   context.sessionStatus(row, entry(undefined));
   assert.equal(goal.hidden, true); assert.equal(goal.dataset.state, ""); assert.doesNotMatch(button.attrs["aria-label"], /Goal/);
 });
+test("a middle click closes a tab through the same path as its close button, without autoscroll", () => {
+  assert.match(source, /tab\.onmousedown = e => \{ if \(e\.button === 1\) e\.preventDefault\(\); \};/);
+  assert.match(source, /tab\.onauxclick = e => \{ if \(e\.button !== 1\) return; e\.preventDefault\(\); commit\(L\.remove\(tree, ref\)\); \};/);
+  assert.match(source, /button\("×", \(\) => commit\(L\.remove\(tree, ref\)\)/, "the close button uses the same removal");
+});
+
+test("scrolling back near the top loads earlier messages only for the person's own scrolling, and never retries a failed page", () => {
+  const app = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
+  const start = app.indexOf("const EARLIER_MESSAGES_EDGE"), block = app.slice(start, app.indexOf("}, { passive: true });", start));
+  assert.ok(start > 0);
+  assert.match(block, /Date\.now\(\) >= userScrollIntentUntil\) return;/, "a redraw of the list never loads a page");
+  assert.match(block, /!button\.disabled && !button\.dataset\.autoLoadPaused\) button\.click\(\)/, "a busy or failed page is left to the button");
+  assert.match(app, /button\.dataset\.autoLoadPaused = "1";/, "a failed Pi page pauses loading by scrolling");
+  assert.match(app, /if \(state\.error\) codexNativeHistoryButton\.dataset\.autoLoadPaused = "1";/, "so does a failed Codex page");
+});
+
 test("Schedules and the Assistant's routines share the calendar icon; other apps' history is a chat bubble, not a clock", () => {
   const html = fs.readFileSync(require.resolve("../public/workspace.html"), "utf8");
   const icon = id => (html.match(new RegExp(`id="${id}"[^>]*>(<svg[\\s\\S]*?</svg>)`)) || [])[1];

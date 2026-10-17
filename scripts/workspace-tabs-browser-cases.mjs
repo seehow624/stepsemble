@@ -61,6 +61,14 @@ export async function runWorkspaceTabsBrowserCases(browser) {
     assert.match(await selected().textContent(), /Tab 24 /);
     assert.ok(await page.evaluate(() => originalViewer === document.querySelector('iframe') && originalWindow === originalViewer.contentWindow));
     assert.equal(await frame.locator("#draft").inputValue(), "unsent draft");
+    // A middle click closes a tab as in a browser; the active viewer stays.
+    const tabCount = await tabs.count(), middleTab = await tabs.nth(20).getAttribute("data-identity");
+    await tabs.nth(20).click({ button: "middle" });
+    await page.waitForFunction(count => document.querySelectorAll(".workspace-tab").length === count - 1, tabCount);
+    assert.equal(await page.evaluate(identity => [...document.querySelectorAll(".workspace-tab")].some(tab => tab.dataset.identity === identity), middleTab), false);
+    assert.match(await selected().textContent(), /Tab 24 /);
+    assert.ok(await page.evaluate(() => originalViewer === document.querySelector('iframe') && originalWindow === originalViewer.contentWindow));
+    assert.equal(await frame.locator("#draft").inputValue(), "unsent draft");
     // Escape/failed HTML drops never infer a tear-out from dropEffect=none.
     const pagesBefore = context.pages().length;
     await tabs.last().dispatchEvent("dragend", { dataTransfer: await page.evaluateHandle(() => new DataTransfer()), screenX: -200, screenY: -200 });
@@ -108,9 +116,9 @@ export async function runWorkspaceTabsBrowserCases(browser) {
     const bounds = await page.locator(".workspace-pane").boundingBox();
     await page.locator(".workspace-pane").dispatchEvent("drop", { dataTransfer: transfer, clientX: bounds.x + bounds.width - 5, clientY: bounds.y + bounds.height / 2 });
     assert.equal(await page.locator(".workspace-pane").count(), 2);
-    assert.equal(await tabs.count(), 22);
+    assert.equal(await tabs.count(), 21, "one tab fewer after the middle click above");
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ case: "Workspace tabs", result: "passed", tabs: 24, refresh: true, mountOnce: true, keyboardBridge: true, reorder: true, nonActiveClose: true, blockedPopup: true, acknowledgedMove: true, modelCalls: 0 }));
+    console.log(JSON.stringify({ case: "Workspace tabs", result: "passed", tabs: 24, refresh: true, mountOnce: true, keyboardBridge: true, reorder: true, nonActiveClose: true, middleClickClose: true, blockedPopup: true, acknowledgedMove: true, modelCalls: 0 }));
   } finally { await context.close(); await fixture.close(); }
   await runWorkspaceTabsFocusBrowserCases(browser);
 }

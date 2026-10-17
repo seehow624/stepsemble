@@ -584,6 +584,10 @@
       for (const ref of n.tabs) {
         const key = L.identity(ref), tab = node("div", "", "workspace-tab"); tab.setAttribute("aria-selected", String(n.active === key)); tab.dataset.identity = key; tab.setAttribute("role", "tab"); tab.draggable = true;
         tab.ondragstart = e => dragStart(e, ref, true); tab.ondragend = dragEnd;
+        // A middle click closes the tab, as in a browser; its press must not
+        // start the platform's autoscroll.
+        tab.onmousedown = e => { if (e.button === 1) e.preventDefault(); };
+        tab.onauxclick = e => { if (e.button !== 1) return; e.preventDefault(); commit(L.remove(tree, ref)); };
         // Every tab is the same width and starts with its agent's logo; the
         // conversation below it shows no title row of its own.
         const label = button("", () => selectTab(n.id, key), `${ref.title} · ${hostName(ref.host)}`, "btn workspace-tab-label");

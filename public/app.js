@@ -4684,6 +4684,7 @@ async function loadOlderHistory(button) {
     updateScrollBottomButton();
   } catch (error) {
     button.disabled = false;
+    button.dataset.autoLoadPaused = "1";
     button.textContent = "載入更早的訊息";
     toast(tKey("runtime.historyFailed", { detail: error.message }), true);
   } finally {
@@ -5884,6 +5885,7 @@ function showCodexNativeHistoryButton() {
   codexNativeHistoryButton.textContent = tKey(labelKey);
   codexNativeHistoryButton.disabled = busy;
   codexNativeHistoryButton.setAttribute("aria-busy", String(busy));
+  if (state.error) codexNativeHistoryButton.dataset.autoLoadPaused = "1"; else delete codexNativeHistoryButton.dataset.autoLoadPaused;
   if (codexNativeHistoryButton.parentNode !== el.messages) el.messages.prepend(codexNativeHistoryButton);
 }
 
@@ -8202,6 +8204,21 @@ let lastMessagesScrollTop = 0, userScrollIntentUntil = 0;
 for (const type of ["wheel", "touchstart", "touchmove", "pointerdown", "keydown"]) {
   el.messages.addEventListener(type, () => { jumpToLatestUntil = 0; userScrollIntentUntil = Date.now() + 800; }, { passive: true });
 }
+// Reading back to near the top loads the earlier messages, as chat apps do.
+// The button stays for a keyboard, a screen reader and a retry after a
+// failure; a failed page is not retried by scrolling. Only the person's own
+// scrolling counts, never the list being redrawn.
+const EARLIER_MESSAGES_EDGE = 600;
+let earlierMessagesFrame = 0;
+el.messages.addEventListener("scroll", () => {
+  if (earlierMessagesFrame || Date.now() >= userScrollIntentUntil) return;
+  earlierMessagesFrame = requestAnimationFrame(() => {
+    earlierMessagesFrame = 0;
+    if (el.messages.scrollTop > EARLIER_MESSAGES_EDGE) return;
+    const button = el.messages.querySelector(".history-load-button");
+    if (button && !button.disabled && !button.dataset.autoLoadPaused) button.click();
+  });
+}, { passive: true });
 el.scrollBottomBtn?.addEventListener("click", () => {
   autoScrollPinned = true;
   const smooth = !settings.reducedMotion;
