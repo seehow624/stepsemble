@@ -243,7 +243,6 @@ small { color: var(--pine-soft); }
 /* A single entry opens the fixed-size Limits/Usage panel. */
 #workspace-usage.workspace-limits { min-width: 0; height: 50px; }
 .workspace-limits-box { height: 50px; overflow: hidden; border: .5px solid var(--line); border-radius: 12px; background: var(--milk); }
-.workspace-limits-note { color: var(--pine-soft); font-size: .68rem; }
 /* One quiet line while every allowance is comfortable; a chip for each
    provider close to its limit. The whole strip opens the details. */
 .workspace-limits-strip {
@@ -265,6 +264,11 @@ small { color: var(--pine-soft); }
 .workspace-limits-strip:hover, .workspace-limits-strip:focus-visible { background: var(--bubble-user); outline: 0; }
 .workspace-limits-lead { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .workspace-limits-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+/* Allowances not known yet, or not reported by this Host. */
+.workspace-limits-note .workspace-limits-dot { background: var(--pine-soft); opacity: .55; }
+.workspace-limits-note[data-loading="true"] .workspace-limits-dot { animation: compaction-pulse 1.2s ease-in-out infinite; }
+html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: none; }
+@media (prefers-reduced-motion: reduce) { .workspace-limits-note .workspace-limits-dot { animation: none; } }
 .workspace-limits-summary { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-limits-marks { flex: none; display: flex; align-items: center; gap: 10px; }
 .workspace-limit-mark { display: grid; place-items: center; opacity: .7; }
@@ -519,7 +523,7 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 #workspace-dialog-body .workspace-folder-create input { min-width: 0; flex: 1 1 140px; min-height: 34px; padding: 5px 10px; font-size: .79rem; }
 #workspace-dialog-body .workspace-folder-create .btn { flex: none; min-height: 34px; padding: 0 12px; font-size: .74rem; }
 #workspace-dialog-body .workspace-folder-create .btn:disabled { opacity: .45; cursor: default; }
-#workspace-dialog-body .workspace-folder-create-error { flex: 1 1 100%; margin: 0; color: var(--err); font-size: .72rem; line-height: 1.4; }
+#workspace-dialog-body .workspace-folder-create-error { flex: 1 1 100%; margin: 0; color: var(--err-ink); font-size: .72rem; line-height: 1.4; }
 #workspace-dialog-body .workspace-folder-create-error[hidden] { display: none; }
 .workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--line); border-radius: 13px; background: var(--paper); overscroll-behavior: contain; }
 #workspace-dialog-body .workspace-folder-row { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 11px; padding: 0 14px; border: 0; border-radius: 0; font-size: .79rem; text-align: left; }
@@ -530,7 +534,7 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-folder-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-folder-chevron { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; color: var(--pine-soft); }
 #workspace-dialog-body .workspace-folder-empty { padding: 18px 14px; color: var(--pine-soft); font-size: .76rem; }
-#workspace-dialog-body .workspace-folder-error { color: var(--err); }
+#workspace-dialog-body .workspace-folder-error { color: var(--err-ink); }
 /* A folder the Host could not read: why, the Node.js to allow, what to do. */
 #workspace-dialog-body .workspace-folder-problem .workspace-folder-empty { padding-bottom: 8px; line-height: 1.5; }
 #workspace-dialog-body .workspace-folder-guide { color: var(--ink); }
@@ -551,7 +555,7 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-history-row strong { display: block; overflow-wrap: anywhere; font-size: .84rem; font-weight: 550; }
 .workspace-history-row small { display: block; overflow-wrap: anywhere; font-size: .69rem; }
 .workspace-history-row .btn { flex-shrink: 0; min-width: 0; }
-#workspace-toast { position: fixed; z-index: 100; bottom: 22px; left: 50%; max-width: 90vw; padding: 10px 18px; transform: translateX(-50%); border-radius: 999px; background: var(--ink); color: var(--paper); font-size: .8rem; }
+#workspace-toast { position: fixed; z-index: 100; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); left: 50%; max-width: 90vw; padding: 10px 18px; transform: translateX(-50%); border-radius: 999px; background: var(--ink); color: var(--paper); font-size: .8rem; }
 /* Settings open over the Workspace in the same window, below its toasts.
    Like a pane, the frame starts below the status bar. */
 .workspace-settings-layer { position: fixed; inset: 0; z-index: 90; display: flex; padding-top: env(safe-area-inset-top); background: var(--paper); }
@@ -691,3 +695,14 @@ body:not([data-sidebar="assistant"]) #workspace-routines { display: none; }
 .workspace-session-more[data-attention="unread"]::after { background: #51b87b; }
 .workspace-session-more[data-attention="attention"]::after { background: #cd9855; }
 
+
+/* A finger needs more room than a pointer: on a touch screen the ⋯ and + of
+   each project and conversation, and the row with Schedules, grow to a size
+   that is easy to hit. A mouse keeps the compact desktop sidebar. */
+@media (pointer: coarse) {
+  #workspace-projects .workspace-project-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 40px; min-width: 40px; min-height: 40px; }
+  #workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 40px; min-width: 40px; min-height: 44px; }
+  .btn.workspace-workflows { height: 40px; min-height: 40px; min-width: 40px; }
+  .workspace-mode:not([hidden]) + .btn.workspace-workflows, .btn.workspace-workflows#workspace-routines { width: 40px; }
+  .workspace-mode > * { padding-top: 9px; padding-bottom: 9px; }
+}

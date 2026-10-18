@@ -70,6 +70,15 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const receiver = require("node:crypto").createECDH("prime256v1");
   const unreachable = { endpoint: "https://push.stepsemble-test.invalid/send", keys: { p256dh: receiver.generateKeys().toString("base64url"), auth: require("node:crypto").randomBytes(16).toString("base64url") } };
   assert.equal((await request("/api/push/subscribe", unreachable)).status, 200);
+  // A device that changes its language keeps its subscription; its alerts change language.
+  const pushFile = path.join(home, ".config/stepsemble/push-subscriptions.json");
+  const stored = async () => JSON.parse(await fs.readFile(pushFile, "utf8")).subscriptions.find(row => row.endpoint === unreachable.endpoint);
+  assert.equal((await stored()).locale, "en");
+  assert.deepEqual((await (await request("/api/push/status", { endpoints: [unreachable.endpoint], locale: "ja" })).json()).endpoints, [unreachable.endpoint]);
+  assert.equal((await stored()).locale, "ja");
+  await request("/api/push/status", { endpoints: [unreachable.endpoint], locale: "xx" });
+  await request("/api/push/status", { endpoints: ["https://push.stepsemble-test.invalid/other"], locale: "de" });
+  assert.equal((await stored()).locale, "ja", "an unknown language or another device's endpoint changes nothing");
   const refused = await request("/api/push/test", { endpoint: unreachable.endpoint });
   assert.equal(refused.status, 502);
   assert.match((await refused.json()).error, /could not be reached/);

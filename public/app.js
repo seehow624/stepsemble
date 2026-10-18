@@ -130,7 +130,7 @@ const el = {
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
   nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
-  nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"),
+  nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -5795,6 +5795,7 @@ function renderCodexNativeRunState(connection) {
   if (!connection || !goal) {
     root.classList.add("hidden");
     root.classList.remove("running", "has-goal");
+    setNativeGoalOpen(false);
     return;
   }
   const elapsed = running && connection.runStartedAt
@@ -5803,6 +5804,7 @@ function renderCodexNativeRunState(connection) {
   root.classList.remove("hidden");
   root.classList.toggle("running", running);
   root.classList.toggle("has-goal", !!goal);
+  root.dataset.state = goal.status || "";
   const title = goal ? codexGoalTitle(goal.status)
     : (window.stepsembleI18n?.t("Working…") || "Working…");
   root.setAttribute("aria-label", title);
@@ -5811,6 +5813,16 @@ function renderCodexNativeRunState(connection) {
   el.nativeRunMeta.textContent = [running ? (window.stepsembleI18n?.t("Working…") || "Working…") : "", elapsed]
     .filter(Boolean).join(" · ");
 }
+
+// Codex's own goal is a chip like Stepsemble's Goal: its objective opens below
+// it and closes again.
+function setNativeGoalOpen(open) {
+  if (!el.nativeRunToggle) return;
+  el.nativeRunToggle.setAttribute("aria-expanded", String(open));
+  el.nativeRunDetail.hidden = !open;
+  el.nativeRunState.classList.toggle("open", open);
+}
+el.nativeRunToggle?.addEventListener("click", () => setNativeGoalOpen(el.nativeRunToggle.getAttribute("aria-expanded") !== "true"));
 
 function codexNativeEntryKey(entry) {
   return JSON.stringify([entry.turnId, entry.item.id]);
@@ -8305,7 +8317,9 @@ function makeMsgShell(role, tagText, container = el.messages) {
   wrap.className = "msg " + role + " msg-in";
   const tag = document.createElement("div");
   tag.className = "role-tag";
-  tag.textContent = tagText;
+  // The person's own messages are labelled in the page's language.
+  if (role === "user") { tag.dataset.i18nKey = "chat.you"; tag.textContent = tKey("chat.you"); }
+  else tag.textContent = tagText;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   wrap.appendChild(tag);
@@ -11134,7 +11148,16 @@ function setChatPlace(cwd) {
   const parts = cwd ? [[machineDisplayName(machine || currentHost), "chat-sub-machine"], [projectDisplayName(cwd), "chat-sub-project"]].filter(([text]) => text) : [];
   const span = (text, className) => { const node = document.createElement("span"); node.className = className; node.textContent = text; return node; };
   el.chatSub.replaceChildren(...parts.flatMap(([text, className], index) => index ? [span(" · ", "chat-sub-sep"), span(text, className)] : [span(text, className)]));
+  fitChatPlace();
 }
+// The computer's name gives way, with its separator, when the line cannot
+// show it whole beside the project; a cut name or a lone "·" says nothing.
+function fitChatPlace() {
+  el.chatSub.classList.remove("chat-sub-compact");
+  const machine = el.chatSub.querySelector(".chat-sub-machine");
+  if (machine && el.chatSub.querySelector(".chat-sub-project") && machine.scrollWidth > machine.clientWidth + 1) el.chatSub.classList.add("chat-sub-compact");
+}
+if (typeof ResizeObserver === "function") new ResizeObserver(() => fitChatPlace()).observe(el.chatSub);
 let liveUsageTokens = 0; let liveUsageCost = 0; let baseUsageTokens = 0;
 function resetLiveUsage() { liveUsageTokens = 0; liveUsageCost = 0; baseUsageTokens = 0; updateLiveUsage(null); }
 function updateLiveUsage(u) {
@@ -11982,7 +12005,8 @@ function setThinkingControlVisibility(hidden) {
   document.querySelector('label[for="thinking-select"]')?.classList.toggle("hidden", !!hidden);
   if (hidden) setThinkingHint("");
   const heading = el.modelSheet?.querySelector?.(".model-heading h2");
-  if (heading) heading.textContent = hidden ? "Model" : "Model & reasoning";
+  const title = hidden ? "Model" : "Model & reasoning";
+  if (heading) heading.textContent = window.stepsembleI18n?.t(title) || title;
 }
 
 // The reasoning row explains itself when the selected model has no thinking
@@ -18077,7 +18101,7 @@ function setPushToggleState(state) {
   el.pushToggle.textContent = state === "busy" ? noticeText("checking") : noticeText(key);
   el.pushToggle.dataset.pushState = state;
   el.pushToggle.disabled = ["busy", "unsupported", "restart"].includes(state) || state === "denied" && !notices.native();
-  const statusNote = $("push-status-note"), statusKey = state === "restart" ? "restartNote" : state === "error" ? "error" : notices.needsRestart(CLIENT_APP_VERSION) ? "restartNote" : null;
+  const statusNote = $("push-status-note"), statusKey = state === "restart" ? "restartNote" : state === "error" ? "error" : state === "denied" && !notices.native() ? "blockedHelp" : notices.needsRestart(CLIENT_APP_VERSION) ? "restartNote" : null;
   if (statusNote) { statusNote.textContent = statusKey ? noticeText(statusKey) : ""; statusNote.classList.toggle("hidden", !statusKey); }
   el.pushUnsupportedNote?.classList.toggle("hidden", state !== "unsupported");
   $("push-test-row")?.classList.toggle("hidden", state !== "on");
@@ -18101,7 +18125,7 @@ async function refreshPushToggleState() {
     const registrations = [await pushRegistration(host), await navigator.serviceWorker.getRegistration("/")];
     const subscriptions = (await Promise.all(registrations.map(currentPushSubscription))).filter(Boolean);
     await protocolConnections.ensure(base);
-    const [status, config] = await Promise.all([pushApi(base, "/api/push/status", { endpoints: subscriptions.map(row => row.endpoint) }), hostClient.request(base, "/api/push/config")]);
+    const [status, config] = await Promise.all([pushApi(base, "/api/push/status", { endpoints: subscriptions.map(row => row.endpoint), locale: settings.locale }), hostClient.request(base, "/api/push/config")]);
     if (current()) {
       pushEndpoints = (status.endpoints || []).filter(endpoint => subscriptions.some(row => row.endpoint === endpoint));
       pushTestEndpoint = subscriptions.find(row => pushEndpoints.includes(row.endpoint) && pushKeyMatches(row, config.publicKey))?.endpoint || null;
@@ -18141,6 +18165,13 @@ async function changePushNotifications(action) {
   } catch (error) { if (current()) toast(error.message || noticeText("error"), true); }
   finally { if (current()) { pushBusy = false; void refreshPushToggleState(); } }
 }
+// A browser block is lifted in its site settings or, on iPhone and iPad, in
+// Settings; the button comes back as soon as the page can tell.
+function watchNotificationPermission() {
+  const recheck = () => { if (el.pushToggle?.dataset.pushState === "denied" && !notices.native()) void refreshPushToggleState(); };
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") recheck(); });
+  navigator.permissions?.query?.({ name: "notifications" }).then(status => status?.addEventListener?.("change", recheck), () => {});
+}
 el.pushToggle?.addEventListener("click", () => {
   const state = el.pushToggle.dataset.pushState;
   if (state === "on") void changePushNotifications("disable");
@@ -18150,6 +18181,7 @@ el.pushToggle?.addEventListener("click", () => {
 });
 $("push-test")?.addEventListener("click", () => { if (el.pushToggle.dataset.pushState === "on") void changePushNotifications("test"); });
 void refreshPushToggleState();
+watchNotificationPermission();
 el.modelFilter?.addEventListener("input", () => renderModelVisibility());
 el.providerAdd?.addEventListener("click", () => currentModelSettingsAgent() === "opencode" ? openOpenCodeProviderDialog() : openProviderDialog());
 el.providerCancel?.addEventListener("click", closeProviderDialog);

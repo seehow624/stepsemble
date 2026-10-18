@@ -1037,7 +1037,12 @@
     holder.append(box);
     if (!data || !data.providers?.length) {
       const note = data ? t("quotaUnavailable") : t("loadingQuota");
-      const strip = button(note, () => void usageUI.open(host).catch(error => toast(error.message)), window.StepsembleUsageUI.label("overview") + " · " + note, "workspace-limits-strip workspace-limits-note");
+      const strip = button("", () => void usageUI.open(host).catch(error => toast(error.message)), window.StepsembleUsageUI.label("overview") + " · " + note, "workspace-limits-strip workspace-limits-note");
+      // The allowances' quiet line, with a muted dot while they are unknown.
+      const lead = node("span", "", "workspace-limits-lead");
+      lead.append(node("span", "", "workspace-limits-dot"), node("span", note, "workspace-limits-summary"));
+      strip.append(lead);
+      if (!data) strip.dataset.loading = "true";
       strip.setAttribute("aria-haspopup", "dialog"); strip.setAttribute("aria-controls", "usage-panel"); strip.setAttribute("aria-expanded", String(usageUI.isOpen()));
       box.append(strip);
       holder.setAttribute("aria-label", `${t("quota")} · ${note}`);
@@ -1388,7 +1393,9 @@
     function show() {
       const query = search.value.trim().toLowerCase(), filtered = rows.filter(r => (prefs.showTemporarySessions || !r.record.isTemporary)
         && `${r.record.name} ${r.record.agentId} ${r.record.cwd}`.toLowerCase().includes(query));
-      list.replaceChildren(); status.textContent = t("count", { count: filtered.length }); more.hidden = limit >= filtered.length;
+      list.replaceChildren(); more.hidden = limit >= filtered.length;
+      // A Host with no other history says so; a search with no match keeps the count.
+      status.textContent = rows.length ? t("count", { count: filtered.length }) : t("historyEmpty");
       for (const row of filtered.slice(0, limit)) {
         const item = node("article", "", "workspace-history-row"), copy = node("div"); copy.append(node("strong", row.record.name || row.record.firstMessage || row.record.agentId || "Pi"), node("small", `${row.record.agentId || "pi"} · ${row.record.cwd || ""}`));
         const add = button(t("addWorkspace"), async () => { add.disabled = true; try { await api("/api/workspace/adopt", { kind: row.kind, reference: row.reference }, target); add.textContent = t("added"); add.title = t("added"); add.setAttribute("aria-label", t("added")); await refresh(); } catch (error) { toast(error.message); add.disabled = false; } });

@@ -205,7 +205,14 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await context.route("**/api/workspace/usage*", route => route.fulfill({ json: { updatedAt: Date.now(), providers: [] } }));
       const emptyQuota = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/api/workspace/usage"));
       await page.locator("#workspace-refresh").click(); await emptyQuota;
-      await page.locator(".workspace-limits-note").waitFor(); await entry.click(); await readyLimits();
+      await page.locator(".workspace-limits-note").waitFor();
+      // The same quiet line as the allowances: a muted dot and small text, not a large label in an empty box.
+      const quiet = await page.locator(".workspace-limits-note").evaluate(node => {
+        const text = node.querySelector(".workspace-limits-summary"), dot = node.querySelector(".workspace-limits-dot");
+        return { text: text?.textContent, size: text && parseFloat(getComputedStyle(text).fontSize), dot: !!dot && dot.offsetWidth > 0 };
+      });
+      assert.ok(quiet.text && quiet.size <= 12.5 && quiet.dot, JSON.stringify(quiet));
+      await entry.click(); await readyLimits();
       assert.equal(await panel.locator(".usage-quota-card").count(), 0);
       await usageTab.click(); await ready(); assert.ok(await tokens() > 0, "unavailable subscription limits do not block recorded usage");
       await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" }); await context.unroute("**/api/workspace/usage*");
@@ -308,6 +315,10 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     assert.equal(await page.locator("#notice").textContent(), "");
     await page.locator("#data-details-label").click(); assert.equal(await page.locator("#data-details-text").isVisible(), true);
     await page.locator("#data-details-label").click();
+    // The panel's disclosures use the app's own chevron and a row tall enough to click.
+    const disclosures = await page.evaluate(() => [...document.querySelectorAll("summary")].filter(node => node.offsetParent).map(node => ({
+      marker: getComputedStyle(node).listStyleType, chevron: getComputedStyle(node, "::after").content, height: Math.round(node.getBoundingClientRect().height) })));
+    assert.ok(disclosures.length && disclosures.every(row => row.marker === "none" && row.chevron.includes("⌄") && row.height >= 24), JSON.stringify(disclosures));
     if (screenshotDirectory) { await fs.mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, "menubar-shared-account.png") }); }
     const opened = context.waitForEvent("page");
     await page.locator("#open").click(); const full = await opened;

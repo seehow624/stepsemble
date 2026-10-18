@@ -60,6 +60,14 @@ test("web notification status is registered on the selected Host and disabling i
   assert.equal(removal.base, "/r/mbp"); assert.deepEqual(removal.body, { endpoint: "https://push.example/mbp" });
   assert.equal(f.registrations.length, 1);
 });
+test("checking web notifications tells the Host this device's language, so alerts follow a language change", async () => {
+  const f = fixture();
+  f.registrations.push({ scope: "http://localhost/push/mini/", pushManager: { getSubscription: async () => subscription("https://push.example/mini") } });
+  f.context.settings.locale = "ja";
+  await f.context.refreshPushToggleState();
+  const status = f.calls.find(row => row.route === "/api/push/status");
+  assert.deepEqual(status.body, { endpoints: ["https://push.example/mini"], locale: "ja" });
+});
 test("each Host creates its own push registration because its VAPID key is independent", async () => {
   const f = fixture(); await f.context.pushRegistration("mini", true); await f.context.pushRegistration("mbp", true);
   assert.notEqual(f.calls[0].opts.scope, f.calls[1].opts.scope);
@@ -92,6 +100,36 @@ test("VAPID rotation replaces only the selected Host's subscription and preserve
   await f.context.refreshPushToggleState(); await f.context.changePushNotifications("enable");
   assert.equal(oldRemoved, 1); assert.equal(subscribed, 1); assert.equal(legacyRemoved, 0);
   assert.ok(f.calls.some(row => row.route === "/api/push/subscribe" && row.body.endpoint === fresh.endpoint));
+});
+test("a browser that blocks notifications explains where to allow them and rechecks when the person returns", async () => {
+  const f = fixture(), shown = [], listeners = {};
+  f.note.classList.toggle = (name, hidden) => shown.push(!hidden);
+  f.context.Notification.permission = "denied";
+  await f.context.refreshPushToggleState();
+  assert.equal(f.button.dataset.pushState, "denied"); assert.equal(f.button.textContent, "Notifications blocked");
+  assert.match(f.note.textContent, /site settings/); assert.match(f.note.textContent, /Settings › Notifications › Stepsemble/);
+  assert.equal(shown.at(-1), true);
+  let permission;
+  f.context.document = { visibilityState: "visible", addEventListener(type, listener) { listeners[type] = listener; } };
+  f.context.navigator.permissions = { query: async ({ name }) => { assert.equal(name, "notifications"); return permission = { addEventListener(type, listener) { listeners["permission-" + type] = listener; } }; } };
+  f.context.watchNotificationPermission(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(permission);
+  f.context.Notification.permission = "default";
+  listeners["permission-change"](); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.button.dataset.pushState, "enable"); assert.equal(shown.at(-1), false);
+  f.context.Notification.permission = "denied"; await f.context.refreshPushToggleState();
+  f.context.Notification.permission = "default";
+  listeners.visibilitychange(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.button.dataset.pushState, "enable");
+});
+test("the desktop App keeps its own button for a notification block instead of browser instructions", async () => {
+  const f = fixture(true), pending = f.context.refreshPushToggleState();
+  f.nativeCalls[0].resolve({ enabled: false, permission: "denied" }); await pending;
+  assert.equal(f.button.textContent, "Open notification settings"); assert.doesNotMatch(f.note.textContent || "", /site settings/);
+});
+test("German notification copy uses the word the rest of the German interface uses", () => {
+  assert.equal(copy.t("title", "de"), "Mitteilungen");
+  assert.deepEqual(copy.copy.de.filter(text => /Benachrichtigung/.test(text)), []);
 });
 test("notification UI and native alerts provide complete copy in all supported languages", () => {
   assert.equal(Object.keys(copy.copy).length, 11);

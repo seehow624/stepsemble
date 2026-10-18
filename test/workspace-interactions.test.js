@@ -229,3 +229,8 @@ test("the sidebar button opens Schedules only, and Goal state changes do not reb
   assert.doesNotMatch(source, /reorderRow\(b, row, "session"/, "sessions follow their activity and are not reordered by hand");
   assert.doesNotMatch(source, /workspace-goals?"/, "no message opens a Goals panel any more");
 });
+test("the Workspace's toast clears the iPhone home indicator, as the Bot's toast does", () => {
+  const css = fs.readFileSync(require.resolve("../public/modules/workspace.css"), "utf8");
+  const rule = css.match(/#workspace-toast \{([^}]*)\}/)[1];
+  assert.match(rule, /bottom: calc\(22px \+ env\(safe-area-inset-bottom, 0px\)\)/);
+});

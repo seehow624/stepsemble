@@ -217,18 +217,19 @@
       </div>
     </div>
     <div id="queue-note" class="queue-note hidden" role="status" aria-live="polite"></div>
-    <div id="subagent-bar" class="subagent-bar" data-i18n-ignore></div>
+    <div id="subagent-bar" class="subagent-bar" data-i18n-ignore>
+      <section id="native-run-state" class="native-run-state hidden" role="region" aria-label="Codex status">
+        <button id="native-run-toggle" class="native-run-toggle" type="button" aria-expanded="false" aria-controls="native-run-detail">
+          <span id="native-run-indicator" class="native-run-indicator" aria-hidden="true"></span>
+          <strong id="native-run-title"></strong>
+          <span id="native-run-meta" class="native-run-meta"></span>
+        </button>
+        <p id="native-run-detail" class="native-run-detail" hidden></p>
+      </section>
+    </div>
     <div id="compaction-status" class="compaction-status hidden" role="status" aria-live="polite" data-i18n-ignore></div>
     <div id="reference-wait" class="compaction-status reference-wait hidden" role="status" aria-live="polite" data-i18n-ignore></div>
     <div id="task-replay-note" class="task-replay-note hidden" role="status" aria-live="polite"></div>
-    <section id="native-run-state" class="native-run-state hidden" role="region" aria-label="Codex status" data-i18n-ignore>
-      <span id="native-run-indicator" class="native-run-indicator" aria-hidden="true"></span>
-      <span class="native-run-copy">
-        <strong id="native-run-title"></strong>
-        <span id="native-run-detail"></span>
-      </span>
-      <span id="native-run-meta" class="native-run-meta" aria-hidden="true"></span>
-    </section>
     <section id="task-progress" class="task-progress hidden" role="region" aria-label="Task progress" data-i18n-ignore>
       <div id="task-progress-panel" class="task-progress-panel hidden">
         <div class="task-progress-heading">

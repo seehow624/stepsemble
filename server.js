@@ -1936,6 +1936,16 @@ function savePushSubscription(subscription) {
   return { saved: true, count: subscriptions.length };
 }
 
+// A device that changes its language keeps its subscription; its later
+// alerts use the new language.
+function updatePushLocale(endpoints, locale) {
+  if (!notificationCopy.copy[locale]) return;
+  const subscriptions = readPushSubscriptions();
+  const changed = subscriptions.filter(row => endpoints.includes(row.endpoint) && row.locale !== locale);
+  for (const row of changed) row.locale = locale;
+  if (changed.length) writePushSubscriptions(subscriptions);
+}
+
 function removePushSubscription(endpoint) {
   const clean = String(endpoint || "").slice(0, 2048);
   const remaining = readPushSubscriptions().filter((item) => item.endpoint !== clean);
@@ -7247,6 +7257,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/push/status" && req.method === "POST") {
         const body = await readJSON(req, 8192);
         const endpoints = Array.isArray(body?.endpoints) ? body.endpoints.slice(0, 4) : [];
+        updatePushLocale(endpoints, body?.locale);
         sendJSON(res, 200, { endpoints: readPushSubscriptions().filter(row => endpoints.includes(row.endpoint)).map(row => row.endpoint) });
         return;
       }
