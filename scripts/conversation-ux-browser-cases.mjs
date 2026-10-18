@@ -129,7 +129,9 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
         subagentTracker.claude({ type: "assistant", message: { model: "parent-model", content: [{ type: "tool_use", id: "ui-claude-child", name: "Agent", input: { prompt: "Inspect the child files", subagent_type: "researcher", model: "requested-alias", effort: "high" } }] } });
         subagentTracker.claude({ type: "assistant", parentToolUseId: "ui-claude-child", message: { model: "reported-claude-child", content: [{ type: "text", text: "Read the child files." }] } });
         // A background agent streams nothing; its model and work are in its transcript.
-        subagentTracker.claude({ type: "system", subtype: "task_started", tool_use_id: "ui-claude-background", task_id: "ui-task", description: "Watch the build", subagent_type: "watcher", prompt: "Watch the build", is_backgrounded: true });
+        subagentTracker.claude({ type: "system", subtype: "task_started", tool_use_id: "ui-claude-background", task_id: "ui-task", description: "Watch the build", subagent_type: "watcher", prompt: "Watch the build", is_backgrounded: true, task_type: "local_agent" });
+        // Claude reports a task for each shell command too; it is no subagent.
+        subagentTracker.claude({ type: "system", subtype: "task_started", tool_use_id: "ui-claude-command", task_id: "ui-command", description: "List the files", is_backgrounded: false, task_type: "local_bash" });
       });
       await ui.locator(".subagent-bubble").click();
       await ui.waitForFunction(() => [...document.querySelectorAll(".subagent-item .subagent-execution-thinking")].map(node => node.textContent).join() === "max,high");

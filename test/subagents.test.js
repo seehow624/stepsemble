@@ -148,9 +148,28 @@ test("Claude: a background task that fails or is stopped is reported as failed",
   assert.equal(pick(tracker, "tool1").name, "auditor");
   tracker.claude({ type: "system", subtype: "task_notification", task_id: "t1", tool_use_id: "tool1", status: "failed", summary: "Model unavailable" });
   assert.equal(pick(tracker, "tool1").status, "failed"); assert.equal(pick(tracker, "tool1").result, "Model unavailable");
-  tracker.claude({ type: "system", subtype: "task_started", task_id: "t2", tool_use_id: "tool2", description: "Watch", is_backgrounded: true });
+  tracker.claude({ type: "system", subtype: "task_started", task_id: "t2", tool_use_id: "tool2", description: "Watch", is_backgrounded: true, task_type: "local_agent" });
   tracker.claude({ type: "system", subtype: "task_updated", task_id: "t2", patch: { status: "killed" } });
   assert.equal(pick(tracker, "tool2").status, "failed");
+});
+
+test("Claude: shell commands, monitors and workflows it reports as tasks are not subagents", () => {
+  // Real Claude Code 2.1.295 reports a task for every Bash command, foreground ones too.
+  const tracker = create();
+  for (const [task, type, backgrounded] of [["b1", "local_bash", false], ["b2", "local_bash", true], ["m1", "monitor_mcp", true], ["w1", "local_workflow", true], ["d1", "dream", true]]) {
+    tracker.claude({ type: "system", subtype: "task_started", task_id: task, tool_use_id: `toolu_${task}`, description: "Check WhatsApp Web", is_backgrounded: backgrounded, task_type: type });
+    tracker.claude({ type: "system", subtype: "task_notification", task_id: task, tool_use_id: `toolu_${task}`, status: "completed", summary: "done" });
+  }
+  assert.deepEqual(tracker.list(), [], "no bubble for a turn that ran commands only");
+  // An agent's task is one, also when its Agent call was not seen.
+  tracker.claude({ type: "system", subtype: "task_started", task_id: "a1", tool_use_id: "toolu_a1", description: "Review", is_backgrounded: true, task_type: "local_agent" });
+  tracker.claude({ type: "system", subtype: "task_started", task_id: "a2", tool_use_id: "toolu_a2", description: "Teammate", is_backgrounded: true, task_type: "in_process_teammate" });
+  // Without a kind, only a task with an agent type or a known Agent call is.
+  tracker.claude({ type: "system", subtype: "task_started", task_id: "o1", tool_use_id: "toolu_o1", description: "Old agent", subagent_type: "auditor", is_backgrounded: true });
+  tracker.claude({ type: "system", subtype: "task_started", task_id: "o2", tool_use_id: "toolu_o2", description: "Old command", is_backgrounded: true });
+  assert.deepEqual(tracker.list().map(row => row.id), ["toolu_a1", "toolu_a2", "toolu_o1"]);
+  tracker.claude({ type: "system", subtype: "task_notification", task_id: "o2", tool_use_id: "toolu_o2", status: "failed" });
+  assert.equal(tracker.list().length, 3);
 });
 
 test("Pi: the saved result keeps each child's outcome in a bounded record", () => {

@@ -25,7 +25,7 @@ conversation to stop its work.
 
 | Agent | Source | Detail panel |
 | --- | --- | --- |
-| Claude Code | `Agent` (older `Task`) tool calls; events whose `parent_tool_use_id` names the call are the subagent's own work. A background Agent answers its call at once ("Async agent launched"); its `task_started`, `task_updated` and `task_notification` events say when it really ends. | The activity seen live; otherwise, as for a background Agent, which streams nothing, the subagent's own transcript, read from the Host |
+| Claude Code | `Agent` (older `Task`) tool calls; events whose `parent_tool_use_id` names the call are the subagent's own work. A background Agent answers its call at once ("Async agent launched"); its `task_started`, `task_updated` and `task_notification` events say when it really ends. Claude reports a task for every shell command, Monitor or workflow too; only an agent's (`task_type` `local_agent`, `remote_agent` or `in_process_teammate`) is a subagent. | The activity seen live; otherwise, as for a background Agent, which streams nothing, the subagent's own transcript, read from the Host |
 | Codex | `collabAgentToolCall` items (`spawnAgent` prompt, `receiverThreadIds`, `agentsStates`) and `subAgentActivity` | The child thread, read from the Host |
 | OpenCode | `task` tool parts and `subtask` parts after the last user message | The child session's messages, read from the Host |
 | Pi with `pi-subagents` | The `subagent` tool's `tool_execution_update` progress and its final `details.results` | Recent tools, output and result the extension reports |

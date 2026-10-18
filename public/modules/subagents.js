@@ -57,9 +57,14 @@
     // A backgrounded Agent answers its call at once ("Async agent launched");
     // its task events say when it really ends, with its last reply as result.
     const CLAUDE_TASK={pending:"pending",running:"running",completed:"completed",failed:"failed",error:"failed",killed:"failed",stopped:"failed",cancelled:"failed"};
+    // Claude reports every task it runs, each shell command (local_bash), a
+    // Monitor or a workflow as well as an agent; only an agent's is a subagent.
+    // Without a kind (an older Claude Code), one its Agent call started is.
+    const CLAUDE_AGENT_TASKS=new Set(["local_agent","remote_agent","in_process_teammate"]);
     function claudeTask(event){
       const id=String(event.tool_use_id||claudeTasks.get(event.task_id)||"");
       if(!id)return;
+      if(event.subtype==="task_started"&&(typeof event.task_type==="string"&&event.task_type?!CLAUDE_AGENT_TASKS.has(event.task_type):!rows.has(id)&&!event.subagent_type))return;
       if(event.task_id)claudeTasks.set(String(event.task_id),id);
       while(claudeTasks.size>MAX_ROWS)claudeTasks.delete(claudeTasks.keys().next().value);
       if(event.subtype==="task_started"){upsert(id,{source:"claude",toolId:id,name:clip(event.subagent_type,80)||rows.get(id)?.name||"subagent",task:clip(event.description,300)||firstLine(event.prompt),prompt:clip(event.prompt),background:event.is_backgrounded===true||undefined});return;}
