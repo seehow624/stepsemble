@@ -93,6 +93,32 @@ test("VAPID rotation replaces only the selected Host's subscription and preserve
   assert.equal(oldRemoved, 1); assert.equal(subscribed, 1); assert.equal(legacyRemoved, 0);
   assert.ok(f.calls.some(row => row.route === "/api/push/subscribe" && row.body.endpoint === fresh.endpoint));
 });
+test("a browser that blocks notifications explains where to allow them and rechecks when the person returns", async () => {
+  const f = fixture(), shown = [], listeners = {};
+  f.note.classList.toggle = (name, hidden) => shown.push(!hidden);
+  f.context.Notification.permission = "denied";
+  await f.context.refreshPushToggleState();
+  assert.equal(f.button.dataset.pushState, "denied"); assert.equal(f.button.textContent, "Notifications blocked");
+  assert.match(f.note.textContent, /site settings/); assert.match(f.note.textContent, /Settings › Notifications › Stepsemble/);
+  assert.equal(shown.at(-1), true);
+  let permission;
+  f.context.document = { visibilityState: "visible", addEventListener(type, listener) { listeners[type] = listener; } };
+  f.context.navigator.permissions = { query: async ({ name }) => { assert.equal(name, "notifications"); return permission = { addEventListener(type, listener) { listeners["permission-" + type] = listener; } }; } };
+  f.context.watchNotificationPermission(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(permission);
+  f.context.Notification.permission = "default";
+  listeners["permission-change"](); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.button.dataset.pushState, "enable"); assert.equal(shown.at(-1), false);
+  f.context.Notification.permission = "denied"; await f.context.refreshPushToggleState();
+  f.context.Notification.permission = "default";
+  listeners.visibilitychange(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.button.dataset.pushState, "enable");
+});
+test("the desktop App keeps its own button for a notification block instead of browser instructions", async () => {
+  const f = fixture(true), pending = f.context.refreshPushToggleState();
+  f.nativeCalls[0].resolve({ enabled: false, permission: "denied" }); await pending;
+  assert.equal(f.button.textContent, "Open notification settings"); assert.doesNotMatch(f.note.textContent || "", /site settings/);
+});
 test("notification UI and native alerts provide complete copy in all supported languages", () => {
   assert.equal(Object.keys(copy.copy).length, 11);
   assert.equal(copy.t("completed", "pt-BR"), "Trabalho concluído");

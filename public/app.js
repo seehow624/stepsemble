@@ -130,7 +130,7 @@ const el = {
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
   nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
-  nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"),
+  nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -5795,6 +5795,7 @@ function renderCodexNativeRunState(connection) {
   if (!connection || !goal) {
     root.classList.add("hidden");
     root.classList.remove("running", "has-goal");
+    setNativeGoalOpen(false);
     return;
   }
   const elapsed = running && connection.runStartedAt
@@ -5803,6 +5804,7 @@ function renderCodexNativeRunState(connection) {
   root.classList.remove("hidden");
   root.classList.toggle("running", running);
   root.classList.toggle("has-goal", !!goal);
+  root.dataset.state = goal.status || "";
   const title = goal ? codexGoalTitle(goal.status)
     : (window.stepsembleI18n?.t("Working…") || "Working…");
   root.setAttribute("aria-label", title);
@@ -5811,6 +5813,16 @@ function renderCodexNativeRunState(connection) {
   el.nativeRunMeta.textContent = [running ? (window.stepsembleI18n?.t("Working…") || "Working…") : "", elapsed]
     .filter(Boolean).join(" · ");
 }
+
+// Codex's own goal is a chip like Stepsemble's Goal: its objective opens below
+// it and closes again.
+function setNativeGoalOpen(open) {
+  if (!el.nativeRunToggle) return;
+  el.nativeRunToggle.setAttribute("aria-expanded", String(open));
+  el.nativeRunDetail.hidden = !open;
+  el.nativeRunState.classList.toggle("open", open);
+}
+el.nativeRunToggle?.addEventListener("click", () => setNativeGoalOpen(el.nativeRunToggle.getAttribute("aria-expanded") !== "true"));
 
 function codexNativeEntryKey(entry) {
   return JSON.stringify([entry.turnId, entry.item.id]);
@@ -18089,7 +18101,7 @@ function setPushToggleState(state) {
   el.pushToggle.textContent = state === "busy" ? noticeText("checking") : noticeText(key);
   el.pushToggle.dataset.pushState = state;
   el.pushToggle.disabled = ["busy", "unsupported", "restart"].includes(state) || state === "denied" && !notices.native();
-  const statusNote = $("push-status-note"), statusKey = state === "restart" ? "restartNote" : state === "error" ? "error" : notices.needsRestart(CLIENT_APP_VERSION) ? "restartNote" : null;
+  const statusNote = $("push-status-note"), statusKey = state === "restart" ? "restartNote" : state === "error" ? "error" : state === "denied" && !notices.native() ? "blockedHelp" : notices.needsRestart(CLIENT_APP_VERSION) ? "restartNote" : null;
   if (statusNote) { statusNote.textContent = statusKey ? noticeText(statusKey) : ""; statusNote.classList.toggle("hidden", !statusKey); }
   el.pushUnsupportedNote?.classList.toggle("hidden", state !== "unsupported");
   $("push-test-row")?.classList.toggle("hidden", state !== "on");
@@ -18153,6 +18165,13 @@ async function changePushNotifications(action) {
   } catch (error) { if (current()) toast(error.message || noticeText("error"), true); }
   finally { if (current()) { pushBusy = false; void refreshPushToggleState(); } }
 }
+// A browser block is lifted in its site settings or, on iPhone and iPad, in
+// Settings; the button comes back as soon as the page can tell.
+function watchNotificationPermission() {
+  const recheck = () => { if (el.pushToggle?.dataset.pushState === "denied" && !notices.native()) void refreshPushToggleState(); };
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") recheck(); });
+  navigator.permissions?.query?.({ name: "notifications" }).then(status => status?.addEventListener?.("change", recheck), () => {});
+}
 el.pushToggle?.addEventListener("click", () => {
   const state = el.pushToggle.dataset.pushState;
   if (state === "on") void changePushNotifications("disable");
@@ -18162,6 +18181,7 @@ el.pushToggle?.addEventListener("click", () => {
 });
 $("push-test")?.addEventListener("click", () => { if (el.pushToggle.dataset.pushState === "on") void changePushNotifications("test"); });
 void refreshPushToggleState();
+watchNotificationPermission();
 el.modelFilter?.addEventListener("input", () => renderModelVisibility());
 el.providerAdd?.addEventListener("click", () => currentModelSettingsAgent() === "opencode" ? openOpenCodeProviderDialog() : openProviderDialog());
 el.providerCancel?.addEventListener("click", closeProviderDialog);

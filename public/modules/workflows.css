@@ -155,7 +155,7 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
   .wf-panel[data-screen=detail] .wf-heading,.wf-panel[data-screen=detail] .wf-rail{display:none;}.wf-panel[data-screen=detail] .wf-detail{display:block;}
   .wf-panel .wf-mobile-back{display:block;margin:0 0 16px;padding-left:0;}
   .wf-panel .btn{min-height:44px;}.wf-panel .wf-close{min-height:44px;height:44px;min-width:44px;width:44px;}
-  .wf-filters .btn{min-height:40px;font-size:.74rem;}.wf-panel .wf-item{min-height:108px;padding:16px;}.wf-item-top{flex-wrap:nowrap;}.wf-item-top strong{flex-basis:auto;}
+  .wf-filters .btn{min-width:44px;min-height:40px;font-size:.74rem;}.wf-panel .wf-item{min-height:108px;padding:16px;}.wf-item-top{flex-wrap:nowrap;}.wf-item-top strong{flex-basis:auto;}
   .wf-progress,.wf-plan{padding:20px;}.wf-timer{font-size:3.2rem;}.wf-metrics>div{grid-template-columns:auto 1fr;}
   .wf-footer{padding:10px 16px;padding-bottom:max(10px,env(safe-area-inset-bottom));font-size:.66rem;}
   .wf-panel .wf-editor-header{flex-wrap:nowrap;}.wf-editor-header .wf-close{order:0;}.wf-editor-header h1{font-size:1rem;}
@@ -210,6 +210,9 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 .goal-activity,.goal-metrics {margin:5px 0 0;font-size:.76rem;line-height:1.45;color:var(--pine-soft);overflow-wrap:anywhere;}
 .goal-run-details {margin-top:2px;}
 .goal-run-details>summary {min-height:30px;}
+/* On a touch screen the Goal chip, the subagent bubble beside it and the
+   panel's Details are tall enough to tap. */
+@media (pointer:coarse) {.goal-chip,.subagent-bubble {min-height:36px;}.goal-run-details>summary {min-height:40px;}}
 .goal-result {font:inherit;font-size:.8rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin:8px 0 0;}
 .goal-error {margin:8px 0 0;font-size:.8rem;line-height:1.5;color:#d2876f;overflow-wrap:anywhere;}
 .goal-composer :is(button,input,summary):focus-visible,.goal-panel :is(button,summary):focus-visible,.goal-chip:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}

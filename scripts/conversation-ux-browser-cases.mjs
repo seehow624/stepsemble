@@ -220,6 +220,8 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
       const chip = ui.locator(".goal-chip"), bubble = ui.locator(".subagent-bubble"), panel = ui.locator(".goal-panel");
       await chip.waitFor();
       assert.match(await chip.textContent(), new RegExp(`Goal.*${words.running}.*12:3\\d`));
+      if (width < 900) for (const [name, box] of [["Goal", await chip.boundingBox()], ["subagent", await bubble.boundingBox()]])
+        assert.ok(box.height >= 36, `the ${name} chip at ${width} is ${box.height}px tall, too small to tap`);
       // Side by side where both fit; a screen too narrow for both stacks them.
       const sideBySide = async () => {
         const [chipBox, bubbleBox, composerBox] = [await chip.boundingBox(), await bubble.boundingBox(), await ui.locator(".composer-inner").boundingBox()];
@@ -240,6 +242,10 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
       assert.equal(await chip.getAttribute("aria-expanded"), "true");
       assert.match(await panel.textContent(), /Ship the release notes/);
       assert.equal(await ui.locator(".goal-panel .goal-actions button:visible").count() > 0, true, "its controls are inside");
+      if (width < 900) {
+        const details = await ui.locator(".goal-panel .goal-run-details > summary:visible").boundingBox();
+        assert.ok(!details || details.height >= 40, `the panel's Details at ${width} is ${details?.height}px tall`);
+      }
       assert.deepEqual(await overflow(), [0, 0]);
       await shot("open");
       await chip.click();
@@ -254,6 +260,94 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
       console.log(JSON.stringify({ case: "Goal chip", width, result: "passed" }));
     } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
   }
+}
+
+// A touch screen gets controls a finger can hit: the sidebar's ⋯ and + beside
+// each project and conversation, and the Schedules button. A mouse keeps the
+// compact desktop sizes.
+export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) {
+  for (const viewport of [{ width: 393, height: 852, touch: true }, { width: 320, height: 640, touch: true }, { width: 1280, height: 860, touch: false }]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport, isMobile: viewport.touch, hasTouch: viewport.touch, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true })); });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const sizes = await page.evaluate(() => {
+        const box = node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; };
+        const shown = selector => [...document.querySelectorAll(selector)].filter(node => node.offsetParent);
+        return { menus: shown("#workspace-projects .workspace-session-menu, #workspace-projects .workspace-project-add, #workspace-projects .workspace-project-menu").map(box), schedules: box(document.getElementById("workspace-workflows")) };
+      });
+      assert.ok(sizes.menus.length >= 3, JSON.stringify(sizes));
+      if (viewport.touch) {
+        assert.deepEqual(sizes.menus.filter(size => size.width < 40 || size.height < 40), [], `${viewport.width}: ⋯ and + are too small to tap ${JSON.stringify(sizes)}`);
+        assert.ok(sizes.schedules.height >= 40, `${viewport.width}: Schedules is ${sizes.schedules.height}px tall`);
+      } else {
+        assert.ok(sizes.menus.every(size => size.width <= 32) && sizes.schedules.height <= 32, `a mouse keeps the compact sidebar ${JSON.stringify(sizes)}`);
+      }
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `touch-sidebar-${viewport.width}.png`) }); }
+      if (viewport.touch) {
+        // The work row under each reply, which opens what the agent did.
+        const ui = await openFromSidebar(page, "Codex composer fixture");
+        await ui.waitForFunction(() => document.querySelector("#messages .wl-row"), null, { timeout: 20_000 });
+        const rows = await ui.evaluate(() => [...document.querySelectorAll("#messages .wl-row")].filter(node => node.offsetParent).map(node => Math.round(node.getBoundingClientRect().height)));
+        assert.ok(rows.length && rows.every(height => height >= 36), `${viewport.width}: work rows ${rows}`);
+        await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+        // The filters of the Schedules panel, even a short one such as "All".
+        await page.locator("#workspace-workflows").click();
+        await page.locator(".wf-filters .btn").first().waitFor();
+        const filters = await page.evaluate(() => [...document.querySelectorAll(".wf-filters .btn")].filter(node => node.offsetParent).map(node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; }));
+        assert.deepEqual(filters.filter(size => size.width < 44 || size.height < 40), [], `${viewport.width}: Schedules filters ${JSON.stringify(filters)}`);
+      }
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Touch targets", width: viewport.width, result: "passed", sizes }));
+    } finally { await context.close(); await preview.close(); }
+  }
+}
+
+// Error, success and warning text stays readable in every design theme, light
+// and dark: at least 4.5:1 on the page and card backgrounds it sits on. Fills
+// such as the red Stop button keep their own darker colours.
+export async function runStatusColorBrowserCases(browser) {
+  const preview = await createNativeComposerPreview();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
+  try {
+    await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+    await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+    const ui = await openFromSidebar(page, "Claude composer fixture");
+    await ui.waitForFunction(() => document.getElementById("btn-logout"));
+    const result = await ui.evaluate(() => {
+      const ctx = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d", { willReadFrequently: true });
+      const rgb = value => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = "#000"; ctx.fillStyle = value; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const lum = ([r, g, b]) => { const f = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))]; return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const rules = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules]; } catch { return []; } });
+      const themes = [...new Set(rules.flatMap(rule => [...(rule.selectorText || "").matchAll(/data-design-theme="([\w-]+)"/g)].map(match => match[1])))];
+      const html = document.documentElement, failures = [];
+      for (const theme of ["", ...themes]) for (const mode of ["light", "dark"]) {
+        if (theme) html.dataset.designTheme = theme; else delete html.dataset.designTheme;
+        html.dataset.theme = mode;
+        const css = getComputedStyle(html), value = name => css.getPropertyValue(name).trim();
+        for (const ink of ["--err-ink", "--ok-ink", "--warn-ink"]) for (const surface of ["--paper", "--milk"]) {
+          const contrast = value(ink) ? ratio(value(ink), value(surface)) : 0;
+          if (contrast < 4.5) failures.push(`${theme || "default"} ${mode} ${ink} on ${surface}: ${contrast.toFixed(2)}`);
+        }
+      }
+      html.dataset.theme = "dark"; delete html.dataset.designTheme;
+      const signOut = getComputedStyle(document.querySelector("#btn-logout strong")).color, errInk = getComputedStyle(html).getPropertyValue("--err-ink").trim();
+      return { themes: themes.length, failures, signOut: rgb(signOut).join(","), errInk: errInk && rgb(errInk).join(",") };
+    });
+    assert.ok(result.themes >= 6, JSON.stringify(result));
+    assert.deepEqual(result.failures, [], "status text is too faint in some themes");
+    assert.equal(result.signOut, result.errInk, "Sign out uses the readable red");
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "Status colours", result: "passed", themes: result.themes }));
+  } finally { await context.close(); await preview.close(); }
 }
 
 // The pane's header controls (Changes, More) float over its top-right corner
@@ -571,6 +665,8 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
   await runGoalChipBrowserCases(browser, options);
   await runPaneHeaderBrowserCases(browser, options);
+  await runTouchTargetBrowserCases(browser, options);
+  await runStatusColorBrowserCases(browser);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {

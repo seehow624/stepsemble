@@ -1037,7 +1037,12 @@
     holder.append(box);
     if (!data || !data.providers?.length) {
       const note = data ? t("quotaUnavailable") : t("loadingQuota");
-      const strip = button(note, () => void usageUI.open(host).catch(error => toast(error.message)), window.StepsembleUsageUI.label("overview") + " · " + note, "workspace-limits-strip workspace-limits-note");
+      const strip = button("", () => void usageUI.open(host).catch(error => toast(error.message)), window.StepsembleUsageUI.label("overview") + " · " + note, "workspace-limits-strip workspace-limits-note");
+      // The allowances' quiet line, with a muted dot while they are unknown.
+      const lead = node("span", "", "workspace-limits-lead");
+      lead.append(node("span", "", "workspace-limits-dot"), node("span", note, "workspace-limits-summary"));
+      strip.append(lead);
+      if (!data) strip.dataset.loading = "true";
       strip.setAttribute("aria-haspopup", "dialog"); strip.setAttribute("aria-controls", "usage-panel"); strip.setAttribute("aria-expanded", String(usageUI.isOpen()));
       box.append(strip);
       holder.setAttribute("aria-label", `${t("quota")} · ${note}`);

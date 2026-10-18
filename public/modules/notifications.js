@@ -5,7 +5,7 @@
   else root.StepsembleNotifications = api;
 })(typeof globalThis === "object" ? globalThis : this, function () {
   "use strict";
-  const keys = ["completed", "failed", "stopped", "approval", "test", "title", "note", "when", "enable", "on", "off", "blocked", "settings", "sendTest", "sent", "unavailable", "error", "blockedGoal", "checking", "retry", "reopen", "restartNote"];
+  const keys = ["completed", "failed", "stopped", "approval", "test", "title", "note", "when", "enable", "on", "off", "blocked", "settings", "sendTest", "sent", "unavailable", "error", "blockedGoal", "checking", "retry", "reopen", "restartNote", "blockedHelp"];
   const copy = {
     en: ["Work completed", "Work failed", "Work stopped", "Approval needed", "Notifications are ready", "Notifications", "Completions, errors and requests for approval", "Applies to this device and the selected Host. Alerts stay quiet while you are viewing the session. Click an alert to return to it.", "Enable", "Notifications on", "Notifications off", "Notifications blocked", "Open notification settings", "Send test notification", "Test notification sent", "Not available", "Could not update notifications. Try again.", "Work needs your attention"],
     "zh-Hant": ["工作已完成", "工作失敗", "工作已停止", "需要你的核准", "通知已準備就緒", "通知", "工作完成、錯誤及需要核准時提醒", "套用於這台裝置與目前選擇的 Host。正在查看該 Session 時不打擾；點擊通知即可回到工作。", "啟用", "通知已開啟", "通知已關閉", "通知被封鎖", "打開通知設定", "發送測試通知", "測試通知已發送", "無法使用", "無法更新通知，請再試一次。", "工作需要你的處理"],
@@ -87,7 +87,21 @@
       "L’app sta ancora usando una versione precedente. Salva ciò che hai scritto, chiudi Stepsemble con ⌘Q e riaprilo per completare l’aggiornamento. L’Host resta attivo."
     ]
   };
-  for (const locale of Object.keys(copy)) copy[locale].push(...updateCopy[locale]);
+  // Where a person allows notifications again after the browser blocked them.
+  const blockedHelp = {
+    "en": "Your browser is blocking notifications from Stepsemble. Allow them in the site settings next to the address bar, or on iPhone and iPad in Settings › Notifications › Stepsemble. This updates when you come back.",
+    "zh-Hant": "瀏覽器封鎖了 Stepsemble 的通知。請在網址列旁的網站設定中允許通知；iPhone 或 iPad 請到「設定 › 通知 › Stepsemble」開啟。回到這裡後會自動更新。",
+    "zh-Hans": "浏览器屏蔽了 Stepsemble 的通知。请在地址栏旁的网站设置中允许通知；iPhone 或 iPad 请前往“设置 › 通知 › Stepsemble”开启。回到这里后会自动更新。",
+    "ja": "ブラウザが Stepsemble の通知をブロックしています。アドレスバー横のサイト設定で通知を許可してください。iPhone・iPad では「設定 › 通知 › Stepsemble」で許可できます。戻ると自動で更新されます。",
+    "ko": "브라우저가 Stepsemble 알림을 차단하고 있습니다. 주소 표시줄 옆의 사이트 설정에서 알림을 허용하세요. iPhone과 iPad에서는 설정 › 알림 › Stepsemble에서 켤 수 있습니다. 돌아오면 자동으로 업데이트됩니다.",
+    "tr": "Tarayıcınız Stepsemble bildirimlerini engelliyor. Adres çubuğunun yanındaki site ayarlarından izin verin; iPhone ve iPad'de Ayarlar › Bildirimler › Stepsemble bölümünü kullanın. Geri döndüğünüzde bu ekran güncellenir.",
+    "fr": "Votre navigateur bloque les notifications de Stepsemble. Autorisez-les dans les réglages du site, à côté de la barre d’adresse ; sur iPhone et iPad, dans Réglages › Notifications › Stepsemble. Cette page se met à jour à votre retour.",
+    "de": "Ihr Browser blockiert Benachrichtigungen von Stepsemble. Erlauben Sie sie in den Website-Einstellungen neben der Adressleiste, auf iPhone und iPad unter Einstellungen › Mitteilungen › Stepsemble. Die Seite aktualisiert sich, wenn Sie zurückkehren.",
+    "es": "Tu navegador bloquea las notificaciones de Stepsemble. Permítelas en la configuración del sitio, junto a la barra de direcciones; en iPhone y iPad, en Ajustes › Notificaciones › Stepsemble. Esta página se actualiza al volver.",
+    "pt-BR": "Seu navegador está bloqueando as notificações do Stepsemble. Permita-as nas configurações do site, ao lado da barra de endereço; no iPhone e no iPad, em Ajustes › Notificações › Stepsemble. Esta página é atualizada quando você voltar.",
+    "it": "Il browser blocca le notifiche di Stepsemble. Consentile nelle impostazioni del sito accanto alla barra degli indirizzi; su iPhone e iPad, in Impostazioni › Notifiche › Stepsemble. La pagina si aggiorna quando torni."
+  };
+  for (const locale of Object.keys(copy)) copy[locale].push(...updateCopy[locale], blockedHelp[locale]);
   const t = (key, locale = "en") => (copy[locale === "pt" ? "pt-BR" : locale] || copy.en)[keys.indexOf(key)] || key;
   const native = () => !!globalThis.window?.webkit?.messageHandlers?.stepsemble;
   const nativeVersion = () => globalThis.navigator?.userAgent?.match(/\bStepsemble\/(\d+\.\d+\.\d+)(?=[\s;)]|$)/)?.[1] || null;

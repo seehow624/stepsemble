@@ -39,13 +39,26 @@ export async function runCodexActivityBrowserCases(browser) {
       const pane = await openFromSidebar(page, "Codex composer fixture");
 
       stage = "active goal";
+      // Codex's own goal is a small chip in the row of the Goal chip and the
+      // subagent bubble; its objective opens below it and closes again.
       const state = pane.locator("#native-run-state");
       await state.waitFor();
       await assert.doesNotReject(() => state.getByText("Pursuing goal", { exact: true }).waitFor());
-      await assert.doesNotReject(() => state.getByText("Keep the synthetic Codex task moving", { exact: false }).waitFor());
       assert.equal(await state.getAttribute("role"), "region");
       assert.equal(await state.getAttribute("aria-label"), "Pursuing goal");
       assert.equal((await state.locator("#native-run-meta").textContent()).includes("Working"), true);
+      assert.equal(await state.evaluate(node => node.parentElement.id), "subagent-bar");
+      const toggle = state.locator("#native-run-toggle"), objective = state.getByText("Keep the synthetic Codex task moving", { exact: false });
+      const chip = await toggle.boundingBox();
+      assert.ok(chip.height <= 40 && chip.width <= viewport.width - 24, `one short line: ${JSON.stringify(chip)}`);
+      assert.equal(await objective.isVisible(), false);
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      await toggle.click();
+      assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+      await objective.waitFor();
+      await toggle.click();
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      await objective.waitFor({ state: "hidden" });
 
       stage = "work log and progressive detail";
       const workHead = pane.locator("#messages .wl-head").first();
