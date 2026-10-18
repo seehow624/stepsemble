@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.19
+
+- Deliver Web Push notifications to iPhone, iPad and Safari. Apple's push service refused every notification with 403 BadJwtToken because the VAPID contact was a localhost address; it is now the public repository URL. Send test notification waits for the push service's answer and reports a refusal instead of saying it was sent, and the Host log records a refusal once with the push service's host name. A notice for the conversation on screen is shown and closed at once, because Safari takes back a subscription whose pushes show nothing.
+- Show the model and thinking mode a Claude Code subagent ran with, also for a background Agent, which streams nothing, and for a subagent of a saved conversation. The Host reads them, with the subagent's tools and replies, from the subagent's own transcript beside the conversation's; the model and effort the Agent call asked for are not taken for them. The subagent list loads them once it is shown, and refreshes a working subagent until its model is known or while its panel is open.
+- Read OpenCode subagent details: their session ids carry underscores, such as `ses_…`, and were refused before any read, so the detail panel could not load them.
+
 ## 3.9.18
 
 - Send a message typed while a Workspace conversation is still opening: it is kept and goes once the conversation is ready. The pane cleared it with the conversation's empty draft and cancelled the queued send as the conversation opened, so the first message after opening a saved session was lost without a notice.
