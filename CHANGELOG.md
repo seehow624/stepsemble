@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.9.23
+
+- Keep a conversation's first message clear of the Changes and More buttons on a desktop, and never start a phone's subtitle with a lone "·" when the computer's name cannot fit beside the project.
+- Show the model sheet's title, search field and labels, and your own "You" tag, in the page's language.
+- Give touch screens controls a finger can hit: the sidebar's ⋯ and +, Schedules, the Goal chip and subagent bubble, the work row under a reply, the Goal panel's Details and the Schedules filters grow to 36–44 px. A mouse keeps the compact sizes.
+- Make error, success and warning text readable in every design theme, light and dark, at 4.5:1 or more. In dark mode red and green text, such as Sign out, were about 3:1; dots and filled buttons keep their colours.
+- Show Codex's own goal as a chip beside the Goal chip and subagent bubble; click it to read the objective and again to close it. It was a three-line card above the message box.
+- Say where to allow notifications when the browser blocks them, and check again when you come back. On a phone, and in long languages such as German, the Notifications button moves under its text instead of running out of the card.
+- Let a newer alert for a conversation alert again as it replaces the older one, so "Approval needed" after "Work completed" is not missed; an approval or a Goal that needs attention stays on a desktop until it is answered, and alerts show when the event happened. Alerts follow a change of language instead of the one notifications were first enabled in.
+- Show where the keyboard is on the work rows under a reply, and that the message box is being typed in.
+- Say when a Host has no conversations from other apps instead of "0 sessions", keep the Workspace's messages above the iPhone home indicator, and tidy the unknown-limits line, the Bot list's captions and the menu bar's disclosures. German notifications say "Mitteilungen", like the rest of the German interface.
+
 ## 3.9.22
 
 - Show a small spinner in the conversation header while a turn runs, in place of "Working…" and the run clock beside it. The work log under the turn already says how long it ran; the status words stay for screen readers and as the tooltip.
