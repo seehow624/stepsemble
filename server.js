@@ -1844,7 +1844,10 @@ async function usageSummary(daysParam) {
 // ---------------------------------------------------------------------------
 const PUSH_CONFIG_FILE = path.join(CONFIG_DIR, "push.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(CONFIG_DIR, "push-subscriptions.json");
-const PUSH_SUBJECT = "mailto:stepsemble@localhost";
+// The VAPID contact. Apple's push service refuses a subject it cannot accept:
+// "mailto:stepsemble@localhost" was answered 403 BadJwtToken for every push,
+// so no iPhone or Safari subscription ever got a notification.
+const PUSH_SUBJECT = "https://github.com/seehow624/stepsemble";
 
 function b64url(buffer) {
   return Buffer.from(buffer).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -1898,7 +1901,7 @@ function vapidAuthorization(endpoint) {
   return `vapid t=${input}.${b64url(signature)}, k=${b64url(pushServerPublicKeyBytes())}`;
 }
 
-const { encryptPushPayload, createPushQueue } = require("./server/web-push");
+const { createPushQueue, sendPush } = require("./server/web-push");
 const notificationCopy = require("./public/modules/notifications");
 const subagentRecords = require("./public/modules/subagents");
 const { pushBody } = require("./server/notifications");
@@ -1940,28 +1943,41 @@ function removePushSubscription(endpoint) {
   return { removed: true, count: remaining.length };
 }
 
+// What each subscription's push service last answered. A refusal is written
+// to the log once, when it starts, naming only the service's host.
+const pushAnswers = new Map();
+async function sendPushNow(subscription, payload) {
+  const result = await sendPush({ subscription, payload, authorization: vapidAuthorization(subscription.endpoint) });
+  if (result.gone) removePushSubscription(subscription.endpoint);
+  const answer = result.ok ? "ok" : `${result.status}${result.reason ? " " + result.reason : ""}`;
+  if (pushAnswers.get(subscription.endpoint) !== answer) {
+    pushAnswers.set(subscription.endpoint, answer);
+    while (pushAnswers.size > 64) pushAnswers.delete(pushAnswers.keys().next().value);
+    if (!result.ok) console.warn(`[stepsemble] ${new URL(subscription.endpoint).hostname} refused a notification: ${answer}`);
+  }
+  return result;
+}
+
 const queuePush = createPushQueue(async (subscription, payload) => {
   if (!readPushSubscriptions().some(row => row.endpoint === subscription.endpoint)) return;
-  const response = await fetch(subscription.endpoint, {
-    method: "POST", signal: AbortSignal.timeout(10000), redirect: "error",
-    headers: { Authorization: vapidAuthorization(subscription.endpoint), "Content-Type": "application/octet-stream", "Content-Encoding": "aes128gcm", TTL: "3600", Urgency: "normal" },
-    body: encryptPushPayload(subscription, payload),
-  });
-  if (response.status === 404 || response.status === 410) removePushSubscription(subscription.endpoint);
+  await sendPushNow(subscription, payload);
 });
+
+function pushPayload(subscription, session, title, body, notice) {
+  return JSON.stringify({
+    title: notice ? notificationCopy.t(notice.kind, subscription.locale) : title,
+    body: notice ? pushBody(notice, MACHINE_NAME) : body,
+    file: session?.meta?.file || session?.file || null,
+    taskId: session?.taskId || session?.id || null,
+    url: typeof session?.url === "string" && session.url.startsWith("/assistant.html?") ? session.url : null,
+    ts: Date.now(), ...(notice ? { notice } : {}),
+  });
+}
 
 async function deliverPushNotification(session, title, body, notice = null, endpoint = null) {
   for (const subscription of readPushSubscriptions()) {
     if (endpoint && endpoint !== subscription.endpoint) continue;
-    const payload = JSON.stringify({
-      title: notice ? notificationCopy.t(notice.kind, subscription.locale) : title,
-      body: notice ? pushBody(notice, MACHINE_NAME) : body,
-      file: session?.meta?.file || session?.file || null,
-      taskId: session?.taskId || session?.id || null,
-      url: typeof session?.url === "string" && session.url.startsWith("/assistant.html?") ? session.url : null,
-      ts: Date.now(), ...(notice ? { notice } : {}),
-    });
-    queuePush(subscription, payload);
+    queuePush(subscription, pushPayload(subscription, session, title, body, notice));
   }
 }
 
@@ -7119,9 +7135,16 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/push/test" && req.method === "POST") {
         const body = await readJSON(req, 4096);
-        if (!readPushSubscriptions().some(row => row.endpoint === body?.endpoint)) { sendJSON(res, 404, { error: "push_subscription_missing" }); return; }
-        void deliverPushNotification(null, "Stepsemble", "Stepsemble", { kind: "test", host: selfMachineId(), key: "test", title: "Stepsemble" }, body.endpoint);
-        sendJSON(res, 202, { queued: true }); return;
+        const subscription = readPushSubscriptions().find(row => row.endpoint === body?.endpoint);
+        if (!subscription) { sendJSON(res, 404, { error: "push_subscription_missing" }); return; }
+        // The test says what the push service answered, so a refused
+        // notification is not reported as sent.
+        let result;
+        try { result = await sendPushNow(subscription, pushPayload(subscription, null, "Stepsemble", "Stepsemble", { kind: "test", host: selfMachineId(), key: "test", title: "Stepsemble" })); }
+        catch { sendJSON(res, 502, { error: "The push service could not be reached" }); return; }
+        if (result.ok) sendJSON(res, 200, { delivered: true });
+        else sendJSON(res, result.gone ? 410 : 502, { error: `The push service refused the notification (${result.status}${result.reason ? " " + result.reason : ""})` });
+        return;
       }
 
       if (p === "/api/push/subscribe" && req.method === "POST") {

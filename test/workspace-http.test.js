@@ -66,6 +66,14 @@ test("workspace HTTP isolates membership, history, project registration and pane
   assert.ok(before.entries.every(row => row.working === false), "completed records do not spin after a Host restart");
   assert.deepEqual((await (await request("/api/push/status", { endpoints: [] })).json()).endpoints, []);
   assert.equal((await request("/api/push/test", { endpoint: "https://example.invalid" })).status, 404);
+  // A test notification the push service cannot take is reported, not sent.
+  const receiver = require("node:crypto").createECDH("prime256v1");
+  const unreachable = { endpoint: "https://push.stepsemble-test.invalid/send", keys: { p256dh: receiver.generateKeys().toString("base64url"), auth: require("node:crypto").randomBytes(16).toString("base64url") } };
+  assert.equal((await request("/api/push/subscribe", unreachable)).status, 200);
+  const refused = await request("/api/push/test", { endpoint: unreachable.endpoint });
+  assert.equal(refused.status, 502);
+  assert.match((await refused.json()).error, /could not be reached/);
+  assert.equal((await request("/api/push/unsubscribe", { endpoint: unreachable.endpoint })).status, 200);
   const taskFile = path.join(home, ".config/stepsemble/agent-tasks.json");
   const tasksBefore = await fs.readFile(taskFile, "utf8");
   assert.equal((await request("/api/workspace/project", { cwd: home })).status, 200);

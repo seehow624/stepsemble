@@ -35,4 +35,24 @@ function createPushQueue(send, limit = 32) {
     return true;
   };
 }
-module.exports = { encryptPushPayload, createPushQueue };
+// Sends one encrypted push and says what the push service answered. A
+// subscription the service no longer knows (404, 410) is gone; any other
+// refusal reaches no device and is reported with the service's reason (Apple
+// answers 403 BadJwtToken for a VAPID subject it does not accept).
+async function sendPush({ subscription, payload, authorization, fetchImpl = fetch, ttlSeconds = 3600 }) {
+  const response = await fetchImpl(subscription.endpoint, {
+    method: "POST", signal: AbortSignal.timeout(10000), redirect: "error",
+    headers: { Authorization: authorization, "Content-Type": "application/octet-stream", "Content-Encoding": "aes128gcm", TTL: String(ttlSeconds), Urgency: "normal" },
+    body: encryptPushPayload(subscription, payload),
+  });
+  let reason = null;
+  if (!response.ok) {
+    let text = "";
+    try { text = await response.text(); } catch {}
+    try { reason = JSON.parse(text)?.reason || null; } catch {}
+    reason = String(reason || text || "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 120) || null;
+  }
+  return { ok: response.ok, status: response.status, reason, gone: response.status === 404 || response.status === 410 };
+}
+
+module.exports = { encryptPushPayload, createPushQueue, sendPush };

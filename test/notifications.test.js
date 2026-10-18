@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), crypto = require("node:crypto");
 const { createNotifications } = require("../server/notifications");
-const { encryptPushPayload, createPushQueue } = require("../server/web-push");
+const { encryptPushPayload, createPushQueue, sendPush } = require("../server/web-push");
 function fixture(agent = "pi") {
   let members = [{ key: crypto.randomUUID(), record: { agentId: agent, id: `${agent}:task`, sid: "task", name: "Project task" } }];
   const published = [], service = createNotifications({ entries: () => members, host: () => "mini", publish: event => published.push(event) });
@@ -76,12 +76,34 @@ test("VAPID authorization verifies as ES256 at the push service's origin", () =>
   const pair = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }), jwk = pair.publicKey.export({ format: "jwk" });
   const publicBytes = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]);
   const context = vm.createContext({ crypto, Buffer, URL, PUSH_SUBJECT: "mailto:notifications@example.invalid", b64url: value => Buffer.from(value).toString("base64url"), pushPrivateKeyObject: () => pair.privateKey, pushServerPublicKeyBytes: () => publicBytes });
-  const start = source.indexOf("function vapidAuthorization("), end = source.indexOf("\nconst { encryptPushPayload", start);
+  const start = source.indexOf("function vapidAuthorization("), end = source.indexOf("\n}\n", start) + 2;
   vm.runInContext(source.slice(start, end), context);
   const header = context.vapidAuthorization("https://push.example/send/id"), jwt = header.match(/vapid t=([^,]+)/)[1], [h, p, signature] = jwt.split(".");
   assert.equal(JSON.parse(Buffer.from(h, "base64url")).alg, "ES256");
   assert.equal(JSON.parse(Buffer.from(p, "base64url")).aud, "https://push.example");
   assert.ok(crypto.verify("sha256", Buffer.from(h + "." + p), { key: pair.publicKey, dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url")));
+});
+test("the VAPID subject is a contact Apple's push service accepts", () => {
+  // "mailto:stepsemble@localhost" was answered 403 BadJwtToken by Apple for
+  // every push, so no iPhone or Safari subscription got a notification.
+  const source = require("node:fs").readFileSync(require.resolve("../server.js"), "utf8");
+  const subject = source.match(/^const PUSH_SUBJECT = "([^"]+)";$/m)?.[1];
+  assert.match(subject, /^(https:\/\/[a-z0-9.-]+\.[a-z]{2,}\/|mailto:[^@\s]+@[a-z0-9.-]+\.[a-z]{2,}$)/i);
+  assert.doesNotMatch(subject, /localhost|example|invalid/i);
+});
+test("a push says what the push service answered, and a refusal is not taken for delivery", async () => {
+  const receiver = crypto.createECDH("prime256v1"), publicKey = receiver.generateKeys();
+  const subscription = { endpoint: "https://web.push.apple.com/send", keys: { p256dh: publicKey.toString("base64url"), auth: crypto.randomBytes(16).toString("base64url") } };
+  const sent = [];
+  const answer = (status, body = "") => async (url, options) => { sent.push({ url, headers: options.headers, bytes: options.body.length }); return new Response(body, { status }); };
+  assert.deepEqual(await sendPush({ subscription, payload: "{}", authorization: "vapid t=x, k=y", fetchImpl: answer(201) }), { ok: true, status: 201, reason: null, gone: false });
+  assert.equal(sent[0].headers.Authorization, "vapid t=x, k=y");
+  assert.equal(sent[0].headers["Content-Encoding"], "aes128gcm");
+  assert.ok(sent[0].bytes > 86);
+  assert.deepEqual(await sendPush({ subscription, payload: "{}", authorization: "a", fetchImpl: answer(403, '{"reason":"BadJwtToken"}') }),
+    { ok: false, status: 403, reason: "BadJwtToken", gone: false });
+  assert.deepEqual(await sendPush({ subscription, payload: "{}", authorization: "a", fetchImpl: answer(410, "unsubscribed\n") }),
+    { ok: false, status: 410, reason: "unsubscribed", gone: true });
 });
 test("simultaneous session completions queue per endpoint and a failed delivery does not lose the next", async () => {
   let release; const delivered = [];

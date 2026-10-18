@@ -21,8 +21,13 @@ function worker() {
   return { handlers, deleted, cached, sandbox };
 }
 test("push notices stay quiet only for the matching visible Host and Session", async () => {
-  const f = worker(), shown = [];
-  f.sandbox.self.registration = { showNotification: async (title, options) => shown.push({ title, ...options }) };
+  const f = worker(), all = [], closed = [];
+  // Safari takes back a subscription whose pushes show nothing: the notice
+  // for the conversation on screen is shown and closed at once.
+  f.sandbox.self.registration = { showNotification: async (title, options) => all.push({ title, ...options }),
+    getNotifications: async ({ tag }) => all.filter(row => row.tag === tag && !closed.includes(row)).map(row => ({ close: () => closed.push(row) })) };
+  const shown = { get length() { return all.filter(row => !closed.includes(row)).length; } };
+  Object.defineProperty(shown, 0, { get: () => all.filter(row => !closed.includes(row))[0] });
   const key = "00000000-0000-4000-8000-000000000001";
   const client = { id: "workspace", frameType: "top-level", visibilityState: "visible", postMessage(data) {
     f.handlers.message({ source: client, data: { type: "STEPSEMBLE_NOTIFICATION_PRESENCE", requestId: data.requestId, visible: true, sessions: [{ host: "mini", key }] } });
@@ -30,6 +35,8 @@ test("push notices stay quiet only for the matching visible Host and Session", a
   f.sandbox.self.clients.matchAll = async () => [client];
   const push = async host => { let done; f.handlers.push({ data: { json: () => ({ title: "Done", body: "Task", notice: { host, key, kind: "completed" } }) }, waitUntil(promise) { done = promise; } }); await done; };
   await push("mini"); assert.equal(shown.length, 0);
+  assert.deepEqual(all.map(row => [row.tag, row.title, row.silent]), [["stepsemble:on-screen", "Done", true]], "every push shows a notification");
+  assert.equal(closed.length, 1);
   await push("mbp"); assert.equal(shown.length, 1); assert.equal(shown[0].tag, "stepsemble:mbp:" + key);
   client.visibilityState = "hidden"; await push("mini"); assert.equal(shown.length, 2);
 });

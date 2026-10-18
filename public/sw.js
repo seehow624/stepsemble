@@ -164,10 +164,19 @@ self.addEventListener("push", event => {
   let data = {}; try { data = event.data ? event.data.json() : {}; } catch {}
   event.waitUntil((async () => {
     const notice = data.notice;
-    if (await viewingNotice(notice)) return;
+    const title = typeof data.title === "string" && data.title ? data.title : "Stepsemble";
+    const body = typeof data.body === "string" ? data.body : "";
+    // Safari takes a push subscription back when its pushes show nothing, so
+    // a notice for the conversation on screen is shown and closed at once.
+    if (await viewingNotice(notice)) {
+      const tag = "stepsemble:on-screen";
+      await self.registration.showNotification(title, { body, tag, silent: true, icon: "/icon-180.png", badge: "/stepsemble-glyph.png" });
+      for (const shown of await self.registration.getNotifications({ tag })) shown.close();
+      return;
+    }
     const identity = notice?.host && notice?.key ? notice.host + ":" + notice.key : data.taskId || data.file || data.ts || "run";
-    await self.registration.showNotification(typeof data.title === "string" && data.title ? data.title : "Stepsemble", {
-      body: typeof data.body === "string" ? data.body : "",
+    await self.registration.showNotification(title, {
+      body,
       icon: "/icon-180.png", badge: "/stepsemble-glyph.png", tag: "stepsemble:" + identity,
       data: { notice: notice || null, file: data.file || null, taskId: data.taskId || null },
     });
