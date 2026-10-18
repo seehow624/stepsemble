@@ -219,7 +219,7 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
       const ui = await openFromSidebar(page, "Claude composer fixture");
-      await ui.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !rpc?.nativeLoading);
+      await ui.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !!rpc?.nativeClaudeStructured && !rpc.nativeLoading);
       await ui.evaluate(() => subagentTracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "ui-goal-child", name: "Agent",
         input: { description: "Check the links", prompt: "Check the links", subagent_type: "researcher" } }] } }));
       const chip = ui.locator(".goal-chip"), bubble = ui.locator(".subagent-bubble"), panel = ui.locator(".goal-panel");
