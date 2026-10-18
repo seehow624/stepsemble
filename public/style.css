@@ -360,6 +360,7 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 .chat-sub-machine { flex: 0 1000 auto; }
 .chat-sub-project { flex: 0 1 auto; }
 .chat-sub-sep { flex: 0 0 auto; white-space: pre; }
+.chat-sub-compact .chat-sub-machine, .chat-sub-compact .chat-sub-sep { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .messages {

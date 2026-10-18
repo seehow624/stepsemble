@@ -8305,7 +8305,9 @@ function makeMsgShell(role, tagText, container = el.messages) {
   wrap.className = "msg " + role + " msg-in";
   const tag = document.createElement("div");
   tag.className = "role-tag";
-  tag.textContent = tagText;
+  // The person's own messages are labelled in the page's language.
+  if (role === "user") { tag.dataset.i18nKey = "chat.you"; tag.textContent = tKey("chat.you"); }
+  else tag.textContent = tagText;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   wrap.appendChild(tag);
@@ -11134,7 +11136,16 @@ function setChatPlace(cwd) {
   const parts = cwd ? [[machineDisplayName(machine || currentHost), "chat-sub-machine"], [projectDisplayName(cwd), "chat-sub-project"]].filter(([text]) => text) : [];
   const span = (text, className) => { const node = document.createElement("span"); node.className = className; node.textContent = text; return node; };
   el.chatSub.replaceChildren(...parts.flatMap(([text, className], index) => index ? [span(" · ", "chat-sub-sep"), span(text, className)] : [span(text, className)]));
+  fitChatPlace();
 }
+// The computer's name gives way, with its separator, when the line cannot
+// show it whole beside the project; a cut name or a lone "·" says nothing.
+function fitChatPlace() {
+  el.chatSub.classList.remove("chat-sub-compact");
+  const machine = el.chatSub.querySelector(".chat-sub-machine");
+  if (machine && el.chatSub.querySelector(".chat-sub-project") && machine.scrollWidth > machine.clientWidth + 1) el.chatSub.classList.add("chat-sub-compact");
+}
+if (typeof ResizeObserver === "function") new ResizeObserver(() => fitChatPlace()).observe(el.chatSub);
 let liveUsageTokens = 0; let liveUsageCost = 0; let baseUsageTokens = 0;
 function resetLiveUsage() { liveUsageTokens = 0; liveUsageCost = 0; baseUsageTokens = 0; updateLiveUsage(null); }
 function updateLiveUsage(u) {
@@ -11982,7 +11993,8 @@ function setThinkingControlVisibility(hidden) {
   document.querySelector('label[for="thinking-select"]')?.classList.toggle("hidden", !!hidden);
   if (hidden) setThinkingHint("");
   const heading = el.modelSheet?.querySelector?.(".model-heading h2");
-  if (heading) heading.textContent = hidden ? "Model" : "Model & reasoning";
+  const title = hidden ? "Model" : "Model & reasoning";
+  if (heading) heading.textContent = window.stepsembleI18n?.t(title) || title;
 }
 
 // The reasoning row explains itself when the selected model has no thinking

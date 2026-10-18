@@ -256,6 +256,55 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
   }
 }
 
+// The pane's header controls (Changes, More) float over its top-right corner
+// on a desktop; the first message, usually the person's at the right, starts
+// below them. A phone keeps its title row in the flow.
+export async function runPaneHeaderBrowserCases(browser, { screenshots } = {}) {
+  for (const viewport of [{ width: 1280, height: 860, mobile: false }, { width: 393, height: 852, mobile: true }, { width: 320, height: 640, mobile: true }]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(locale => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true })); }, viewport.mobile ? "zh-Hant" : "en");
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      for (const title of ["Codex composer fixture", "Claude composer fixture"]) {
+        const ui = await openFromSidebar(page, title);
+        await ui.waitForFunction(() => document.querySelector("#messages .msg"), null, { timeout: 20_000 });
+        const boxes = await ui.evaluate(() => {
+          document.getElementById("messages").scrollTop = 0;
+          const box = node => { const r = node.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; };
+          const first = document.querySelector("#messages .msg");
+          return { first: box(first), controls: [...document.querySelectorAll("#btn-changes, #btn-chat-menu")].filter(node => node.offsetParent).map(box) };
+        });
+        const overlap = boxes.controls.filter(c => c.left < boxes.first.right && c.right > boxes.first.left && c.top < boxes.first.bottom && c.bottom > boxes.first.top);
+        // A phone's title row: where the session runs, never a stray separator.
+        if (viewport.mobile) {
+          const place = await ui.evaluate(() => { const sub = document.getElementById("chat-sub"); return { text: sub.innerText.trim(), seps: [...sub.querySelectorAll(".chat-sub-sep")].filter(node => node.offsetWidth > 0).length, machines: [...sub.querySelectorAll(".chat-sub-machine")].filter(node => node.offsetWidth > 0).length }; });
+          assert.ok(place.text && !place.text.startsWith("·") && place.seps === place.machines, JSON.stringify(place));
+        }
+        // The model sheet speaks the page's language too (Claude's fixture model has no levels).
+        if (viewport.mobile && title.startsWith("Claude")) {
+          await ui.locator("#btn-model").click();
+          await ui.locator("#model-sheet:not(.hidden)").waitFor();
+          const sheet = await ui.evaluate(() => ({ heading: document.querySelector("#model-sheet .model-heading h2").textContent.trim(), placeholder: document.getElementById("model-search").placeholder,
+            search: document.getElementById("model-search").getAttribute("aria-label"), close: document.getElementById("model-close").getAttribute("aria-label") }));
+          assert.deepEqual(sheet, { heading: "模型", placeholder: "搜尋模型…", search: "搜尋模型", close: "關閉模型選單" });
+          await page.keyboard.press("Escape");
+        }
+        const you = await ui.evaluate(() => document.querySelector("#messages .msg.user .role-tag")?.textContent ?? null);
+        if (you !== null) assert.equal(you, viewport.mobile ? "你" : "You", "the person's label follows the page's language");
+        assert.deepEqual(overlap, [], `${title} at ${viewport.width}: the header controls cover the first message ${JSON.stringify(boxes)}`);
+        if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `pane-header-${title.split(" ")[0].toLowerCase()}-${viewport.width}.png`) }); }
+        if (viewport.mobile) await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+      }
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Pane header controls", width: viewport.width, result: "passed" }));
+    } finally { await context.close(); await preview.close(); }
+  }
+}
+
 export async function runSessionRecoveryBrowserCases(browser, { screenshots } = {}) {
   for (const width of [393, 1280]) {
     const preview = await createNativeComposerPreview();
@@ -521,6 +570,7 @@ export async function runEarlySendBrowserCases(browser) {
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
   await runGoalChipBrowserCases(browser, options);
+  await runPaneHeaderBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {

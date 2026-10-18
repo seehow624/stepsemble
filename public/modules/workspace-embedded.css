@@ -17,3 +17,6 @@ html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar{posi
 html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar>:not(#btn-changes):not(#btn-chat-menu){display:none!important}
 html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar>.icon-btn{pointer-events:auto;width:36px;min-width:36px;height:36px;min-height:36px;border:.5px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--paper) 82%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .chat-topbar>.icon-btn:hover{background:var(--bubble-user)}
+/* The first message, usually the person's at the right, starts below them;
+   scrolled content still passes under the translucent buttons. */
+html.workspace-embedded:not(.workspace-mobile-pane) #view-chat .messages{padding-top:56px}

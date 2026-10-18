@@ -914,6 +914,23 @@
   };
   for (const [id, table] of Object.entries(DEVICE_HELP_TRANSLATIONS)) Object.assign(TRANSLATIONS[id], table);
 
+  // The model sheet's heading, search field and close button; the heading
+  // reads "Model" alone when the model has no reasoning levels.
+  const MODEL_SHEET_COPY = {
+    en: { "Model": "Model", "Search models…": "Search models…", "Search models": "Search models", "Close model menu": "Close model menu" },
+    "zh-Hant": { "Model": "模型", "Search models…": "搜尋模型…", "Search models": "搜尋模型", "Close model menu": "關閉模型選單" },
+    "zh-Hans": { "Model": "模型", "Search models…": "搜索模型…", "Search models": "搜索模型", "Close model menu": "关闭模型菜单" },
+    ja: { "Model": "モデル", "Search models…": "モデルを検索…", "Search models": "モデルを検索", "Close model menu": "モデルメニューを閉じる" },
+    ko: { "Model": "모델", "Search models…": "모델 검색…", "Search models": "모델 검색", "Close model menu": "모델 메뉴 닫기" },
+    tr: { "Model": "Model", "Search models…": "Model ara…", "Search models": "Model ara", "Close model menu": "Model menüsünü kapat" },
+    fr: { "Model": "Modèle", "Search models…": "Rechercher des modèles…", "Search models": "Rechercher des modèles", "Close model menu": "Fermer le menu des modèles" },
+    de: { "Model": "Modell", "Search models…": "Modelle suchen…", "Search models": "Modelle suchen", "Close model menu": "Modellmenü schließen" },
+    es: { "Model": "Modelo", "Search models…": "Buscar modelos…", "Search models": "Buscar modelos", "Close model menu": "Cerrar el menú de modelos" },
+    "pt-BR": { "Model": "Modelo", "Search models…": "Pesquisar modelos…", "Search models": "Pesquisar modelos", "Close model menu": "Fechar o menu de modelos" },
+    it: { "Model": "Modello", "Search models…": "Cerca modelli…", "Search models": "Cerca modelli", "Close model menu": "Chiudi il menu dei modelli" },
+  };
+  for (const [id, table] of Object.entries(MODEL_SHEET_COPY)) Object.assign(TRANSLATIONS[id], table);
+
   // Natural translations for the longer helper text used by the European
   // locales.  These strings are deliberately keyed by their English source so
   // they also work when users switch repeatedly between languages.
@@ -5376,6 +5393,7 @@
   // phrase translator, so tool titles and counts stay intact.
   const WORK_LOG_LOCALE_ORDER = ["en", "zh-Hans", "zh-Hant", "ja", "ko", "tr", "fr", "de", "es", "pt-BR", "it"];
   const GOAL_COMPOSER_KEYED = {
+    "chat.you": ["You","你","你","あなた","나","Siz","Vous","Du","Tú","Você","Tu"],
     "goalComposer.cancel": ["Use as a regular message","改为普通消息","改為一般訊息","通常のメッセージに戻す","일반 메시지로 전환","Normal mesaj olarak kullan","Utiliser comme message normal","Als normale Nachricht verwenden","Usar como mensaje normal","Usar como mensagem normal","Usa come messaggio normale"],
     "goalComposer.minutes": ["Time limit (min)","时间上限（分）","時間上限（分）","制限時間（分）","시간 제한(분)","Süre sınırı (dk)","Durée limite (min)","Zeitlimit (Min.)","Tiempo límite (min)","Tempo limite (min)","Limite di tempo (min)"],
     "goalComposer.tokens": ["Token limit","Token 上限","Token 上限","トークン上限","토큰 제한","Token sınırı","Limite de tokens","Tokenlimit","Límite de tokens","Limite de tokens","Limite di token"],
