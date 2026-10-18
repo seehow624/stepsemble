@@ -3442,7 +3442,11 @@ async function claudeSessionForSend(value) {
   if (!saved) return resolved;
   const entry = workspaceRegistry.list().entries.find(row => row.record.agentId === "claude-code" && row.record.nativeSessionId === nativeId);
   await openAgentTask({ agentId: "claude-code", cwd: saved.cwd, name: entry?.record.name || saved.name, resumeSessionId: nativeId });
-  return resolveClaudeStructuredSession(nativeId);
+  const started = resolveClaudeStructuredSession(nativeId);
+  // The models this Claude lists, with their reasoning levels, are what the
+  // next conversation opened without Claude offers.
+  if (started) void started.session.models().then(result => agentModelCache.record("claude-code", result?.models)).catch(() => {});
+  return started;
 }
 
 // Sends to a conversation, starting its process again when it was let go. A
@@ -5567,18 +5571,16 @@ const handleSubagentDetailRoute = require("./server/subagent-detail").createSuba
   detail: require("./server/subagent-detail").createSubagentDetail({ resolve: key => workspaceRegistry.get(key), codex: codexNative, openCode: openCodeNative,
     approvalUnavailable: id => subagentApprovalUnavailable.has(id) }) });
 
-// The models a live Claude listed last, in full, for a conversation whose
-// process was let go; the saved list keeps names only.
-let claudeModelCatalog = null;
 // A Claude conversation whose process was let go, by its local key or Claude's
-// own id: what its next process starts with.
+// own id: what its next process starts with, and the models Claude listed
+// last with their reasoning levels.
 function savedClaudeConversation(value) {
   const id = String(value || "").replace(/^claude-code:/, "");
   const released = claudeIdleRelease.released(id);
   const nativeSessionId = released?.nativeSessionId || id;
   if (!released && !claudeStructuredKnownSessions.has(nativeSessionId)) return null;
   return { nativeSessionId, choice: choiceForSession("claude-code", nativeSessionId),
-    models: claudeModelCatalog || agentModelCache.get("claude-code").models,
+    models: agentModelCache.get("claude-code").models,
     context: released ? () => released.session.contextUsage() : null };
 }
 const handleNativeComposerRoute = createNativeComposerRoutes({
@@ -5586,10 +5588,7 @@ const handleNativeComposerRoute = createNativeComposerRoutes({
   codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
-  onModels: (agentId, models) => {
-    if (agentId === "claude-code" && Array.isArray(models) && models.length) claudeModelCatalog = models;
-    return agentModelCache.record(agentId, models);
-  },
+  onModels: (agentId, models) => agentModelCache.record(agentId, models),
   onChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice),
   savedClaude: savedClaudeConversation,
   onSessionChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice, { agent: false }),
@@ -6564,7 +6563,7 @@ const server = http.createServer(async (req, res) => {
           const task = publicClaudeStructuredResumeTask(claudeStructuredKnownSessions.get(released?.nativeSessionId || sessionId.replace(/^claude-code:/, "")));
           if (!released && !task) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
           const status = released ? { ...released.session.status(), closed: false, state: "waiting", released: true, needsLoad: true }
-            : { ...task.nativeStatus, needsLoad: true };
+            : { ...task.nativeStatus, ...claudeIdleRelease.lastProcess(task.nativeSessionId), needsLoad: true };
           sendJSON(res, 200, p.endsWith("/events") ? { events: released ? since(released.session.events()) : [], status } : { permissions: [], status });
           return;
         }

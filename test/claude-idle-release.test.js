@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createClaudeIdleRelease, idleReleaseDelay, UNUSED_MS, RELEASED_MS, RELEASED_LIMIT } = require("../server/claude-idle-release");
+const { createClaudeIdleRelease, idleReleaseDelay, DEFAULT_QUIET_MS, UNUSED_MS, RELEASED_MS, RELEASED_LIMIT } = require("../server/claude-idle-release");
 
 function clockAndTimers() {
   let now = 1_000_000;
@@ -53,14 +53,15 @@ function setup({ delayMs = 0, canRelease = () => true, session = fakeSession({})
 }
 
 test("idle release delay reads seconds, off and the default", () => {
-  assert.equal(idleReleaseDelay(undefined), 0);
-  assert.equal(idleReleaseDelay(""), 0);
+  assert.equal(DEFAULT_QUIET_MS, 10_000);
+  assert.equal(idleReleaseDelay(undefined), DEFAULT_QUIET_MS);
+  assert.equal(idleReleaseDelay(""), DEFAULT_QUIET_MS);
   assert.equal(idleReleaseDelay("0"), 0);
   assert.equal(idleReleaseDelay("300"), 300_000);
   assert.equal(idleReleaseDelay("1.5"), 1500);
   assert.equal(idleReleaseDelay("off"), -1);
   assert.equal(idleReleaseDelay("-1"), -1);
-  assert.equal(idleReleaseDelay("soon"), 0, "a value that is not a number keeps the default");
+  assert.equal(idleReleaseDelay("soon"), DEFAULT_QUIET_MS, "a value that is not a number keeps the default");
   assert.equal(idleReleaseDelay(String(10 * 24 * 3600)), 24 * 3600 * 1000);
 });
 
@@ -163,4 +164,47 @@ test("the last events of released processes are kept for a while and for a bound
   assert.equal(release.released(`native-${RELEASED_LIMIT}`), null);
   release.close();
   assert.equal(t.sweeping(), false);
+});
+
+test("a conversation is let go only after it stayed quiet, so a turn Claude starts by itself keeps it", async () => {
+  // After a restart Claude first answers a queued background-task notice,
+  // whose turn ends at once, and starts the turn for the person's message a
+  // moment later.
+  const { t, sessions, session, release } = setup({ delayMs: DEFAULT_QUIET_MS });
+  session.current.turnEndedAt = t.now();
+  release.note("local-a");
+  t.advance(50);
+  session.idle = false;
+  session.current.turnStartedAt = t.now();
+  session.current.lastActivityAt = t.now();
+  release.note("local-a");
+  t.advance(DEFAULT_QUIET_MS + 100);
+  await t.run();
+  assert.equal(session.suspended, 0, "the turn Claude started keeps its process");
+  // The turn ends; the process goes once it has been quiet again.
+  t.advance(30_000);
+  session.idle = true;
+  session.current.turnEndedAt = t.now();
+  session.current.lastActivityAt = t.now();
+  release.note("local-a");
+  t.advance(DEFAULT_QUIET_MS - 1);
+  await t.run();
+  assert.equal(session.suspended, 0);
+  t.advance(1);
+  await t.run();
+  assert.equal(session.suspended, 1);
+  assert.equal(sessions.has("local-a"), false);
+});
+
+test("when a conversation's last released Claude ran is kept after its events go", async () => {
+  const { t, session, release } = setup();
+  session.current.startedAt = t.now() - 60_000;
+  release.note("local-a");
+  await t.run();
+  assert.deepEqual(release.lastProcess("claude-code:native-a"), { startedAt: session.current.startedAt,
+    lastActivityAt: session.current.lastActivityAt, turnStartedAt: 10, turnEndedAt: session.current.turnEndedAt });
+  t.advance(RELEASED_MS + 1);
+  assert.equal(release.released("native-a"), null, "its events are gone");
+  assert.equal(release.lastProcess("native-a").startedAt, session.current.startedAt, "when it ran is still known");
+  assert.equal(release.lastProcess("unknown"), null);
 });

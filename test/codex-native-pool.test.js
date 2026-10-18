@@ -685,3 +685,30 @@ test("an app-server resumed without a turn goes after it has been unused, and re
   await off.timers.run();
   assert.equal(off.pool.status().childCount, 1, "children wait for capacity to need them");
 });
+
+test("a thread's app-server waits until it has been quiet for the release window, and a turn started again keeps it", async t => {
+  const { timers, harness, pool, turn } = releasePool(t, { releaseIdleMs: 10_000 });
+  const { child, complete } = await turn();
+  complete();
+  timers.advance(5_000);
+  await timers.run();
+  assert.equal(pool.status().childCount, 1);
+  // An event restarts the wait.
+  child.options.onEvent({ type: "thread.tokenUsage.updated", threadId: "thread-a" });
+  timers.advance(5_000);
+  await timers.run();
+  assert.equal(pool.status().childCount, 1, "quiet for only five seconds");
+  timers.advance(5_000);
+  await timers.run();
+  assert.equal(pool.status().childCount, 0);
+  assert.equal(harness.calls.filter(row => row[0] === "close" && row[1] === "thread-a").length, 1);
+
+  // A Goal going on starts the next turn before the window ends.
+  const next = await turn("thread-b");
+  next.complete();
+  timers.advance(3_000);
+  next.child.options.onEvent({ type: "turn.started", threadId: "thread-b", turnId: "turn-goal" });
+  timers.advance(20_000);
+  await timers.run();
+  assert.equal(pool.status().childCount, 1, "the turn that started again keeps its app-server");
+});

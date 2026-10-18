@@ -173,8 +173,9 @@ function createCodexNativePool({
   childJournalDir = null,
   clock = () => Date.now(),
   onEvent = null,
-  // A thread's app-server is let go this long after its turn ends and it is
-  // idle (0: at once); null keeps children until capacity needs them.
+  // A thread's app-server is let go once it has been idle and quiet this long
+  // after its turn ended (0: at once); null keeps children until capacity
+  // needs them.
   releaseIdleMs = null,
   // A thread a Goal or a compaction is working through keeps its app-server.
   holdThread = () => false,
@@ -268,17 +269,27 @@ function createCodexNativePool({
     return !closed && entries.has(entry) && !entry.closeRequested && !!entry.threadId
       && entry.activeCalls === 0 && childIsBusy(entry) === false && !held(entry.threadId);
   }
-  // Once a turn has ended and the child is idle, its app-server is let go; the
-  // thread reads from history and resumes with its next message.
-  function noteIdle(entry) {
+  // How long the child has been quiet: no call and no event.
+  function quietFor(entry) {
+    return nowValue(clock) - Math.max(entry.lastUsedAt || 0, entry.lastEventAt || 0);
+  }
+  // Once a turn has ended and the child has stayed idle and quiet for the
+  // release window, its app-server is let go; the thread reads from history
+  // and resumes with its next message. A turn that starts again in the
+  // meantime (a Goal going on, say) keeps it.
+  function noteIdle(entry, wait = releaseWindow) {
     if (releaseWindow === null || closed || entry.idleTimer || entry.closeRequested || !entry.turnEnded) return;
     entry.idleTimer = setTimer(() => {
       entry.idleTimer = null;
-      if (entry.turnEnded && releasable(entry)) void releaseEntry(entry);
-    }, releaseWindow);
+      if (!entry.turnEnded || !releasable(entry)) return;
+      const remaining = releaseWindow - quietFor(entry);
+      if (remaining > 0) noteIdle(entry, remaining);
+      else void releaseEntry(entry);
+    }, Math.max(0, wait));
     entry.idleTimer?.unref?.();
   }
   function noteChildEvent(entry, event) {
+    entry.lastEventAt = nowValue(clock);
     if (event?.type === "turn.started") entry.turnEnded = false;
     else if (event?.type === "turn.completed" || event?.type === "turn.interrupted") { entry.turnEnded = true; noteIdle(entry); }
   }
@@ -286,11 +297,10 @@ function createCodexNativePool({
   // let go after it has been quiet for a while.
   function sweepIdle() {
     if (closed) return;
-    const now = nowValue(clock);
     for (const entry of [...entries]) {
       if (entry.idleTimer) continue;
       const quiet = entry.turnEnded ? releaseWindow : Math.max(releaseWindow, UNUSED_CHILD_MS);
-      if (now - entry.lastUsedAt >= quiet && releasable(entry)) void releaseEntry(entry);
+      if (quietFor(entry) >= quiet && releasable(entry)) void releaseEntry(entry);
     }
   }
   const idleSweeper = releaseWindow === null ? null : setRepeat(sweepIdle, IDLE_SWEEP_MS);

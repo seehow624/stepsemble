@@ -544,6 +544,9 @@ function createClaudeStructuredSession({
   const backgroundTasks = new Set();
   // Scheduled prompts and monitors live in this process and end with it.
   let processBoundWork = false;
+  // Claude compacting the conversation by itself, between "compacting" and
+  // its compact boundary.
+  let autoCompacting = false;
   let pendingUserInputs = 0;
   let closePromise = null;
   let compactionPending = null;
@@ -946,8 +949,15 @@ function createClaudeStructuredSession({
       if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
       // init names the running model in full, such as "claude-opus-5-5[1m]".
       if (event.type === "system" && event.subtype === "init" && modelId(event.model)) selectedModel = modelId(event.model);
-      if (event.type === "result") endTurn(false);
-      else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)) beginTurn();
+      if (event.type === "system" && event.isReplay !== true) {
+        if (event.subtype === "status") autoCompacting = event.status === "compacting";
+        else if (event.subtype === "compact_boundary") autoCompacting = false;
+      }
+      if (event.type === "result") { endTurn(false); autoCompacting = false; }
+      // Each turn starts with init, also one Claude starts by itself, such as
+      // for a background task's notification or a message it had queued.
+      else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)
+        || event.type === "system" && event.subtype === "init" && event.isReplay !== true) beginTurn();
       if (event.type === "assistant") captureAssistantUsage(event);
       else if (event.type === "stream_event") {
         const streamEvent = plain(event.event) ? event.event : {};
@@ -1246,7 +1256,8 @@ function createClaudeStructuredSession({
   function isIdle() {
     return !!initializationResult && !closed && !processError && !parser.status().failed && state === "waiting"
       && !compactionPending && !pendingUserInputs && !queuedInputBytes && !child.stdin?.writableLength
-      && !pendingControls.size && !pendingInterrupts.size && !pendingPermissions.size && !backgroundTasks.size && !processBoundWork;
+      && !pendingControls.size && !pendingInterrupts.size && !pendingPermissions.size && !backgroundTasks.size && !processBoundWork
+      && !autoCompacting;
   }
   return Object.freeze({
     version: CLAUDE_STRUCTURED_VERSION,

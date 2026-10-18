@@ -29,3 +29,23 @@ test("the last models an agent offered are kept, bounded and owner-only", () => 
     assert.equal(cache.get("claude-code").models.length, 200);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("Claude's models keep their reasoning levels and capacity, so a conversation offers them before Claude runs", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-models-"));
+  const file = path.join(dir, "agent-models.json");
+  try {
+    const cache = createAgentModelCache({ file });
+    assert.equal(cache.record("claude-code", [
+      { id: "opus[1m]", name: "Opus (1M context)", supportsEffort: true, supportedEffortLevels: ["low", "High", "max", "max", "turbo"],
+        defaultEffort: "high", contextWindow: 1_000_000, resolvedModel: "claude-opus-5-5[1m]", reasoning: true, supportsAutoMode: true },
+      { id: "haiku", supportsEffort: false, contextWindow: -1, defaultEffort: "fastest", supportedEffortLevels: "high" },
+      { id: "ocx-claude-native--gpt-6.1-sol", gateway: "opencodex", contextWindow: 500_000, supportedEffortLevels: ["low"], extra: "dropped" },
+    ]), true);
+    assert.deepEqual(createAgentModelCache({ file }).get("claude-code").models, [
+      { id: "opus[1m]", name: "Opus (1M context)", supportsEffort: true, reasoning: true, supportsAutoMode: true,
+        supportedEffortLevels: ["low", "high", "max"], defaultEffort: "high", contextWindow: 1_000_000, resolvedModel: "claude-opus-5-5[1m]" },
+      { id: "haiku", supportsEffort: false },
+      { id: "ocx-claude-native--gpt-6.1-sol", supportedEffortLevels: ["low"], contextWindow: 500_000, gateway: "opencodex" },
+    ]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -343,9 +343,15 @@ function resizeComposerInput() {
 }
 
 function beginDraftScope(scope) {
+  // Text typed before this view had a conversation (a Workspace pane still
+  // opening its session, say) belongs to the conversation it opens; a draft
+  // that conversation already had stays before it.
+  const typed = !activeDraftKey && el.input.value.trim() ? el.input.value : "";
   saveActiveDraft();
   activeDraftKey = draftScopeKey(selectedId || selfId || "local", scope);
-  el.input.value = draftTextForKey(readDraftEntries(), activeDraftKey);
+  const saved = draftTextForKey(readDraftEntries(), activeDraftKey);
+  el.input.value = typed ? (saved.trim() ? `${saved}\n${typed}` : typed) : saved;
+  if (typed) saveDraftForKey(activeDraftKey, el.input.value);
   resizeComposerInput();
   // Commands are session-specific; never show the previous session's menu
   // while the replacement RPC is still connecting.
@@ -6882,7 +6888,7 @@ function finishClaudeReply(connection, live) {
   wrap.appendChild(msgActionsRow("assistant", () => genericOutputText(node), { ts: live ? Date.now() : null, fork: claudeReplyFork(connection, messageId) }));
 }
 
-async function loadClaudeNativeHistory(connection) {
+async function loadClaudeNativeHistory(connection, { replace = false } = {}) {
   if (connection?.nativeClaudeStructured && rpc === connection) {
     // Keep a tiny, non-sensitive diagnostic marker on the message viewport.
     // It makes a failed history read distinguishable from an empty transcript
@@ -6893,7 +6899,7 @@ async function loadClaudeNativeHistory(connection) {
   // `available` depending on whether the native adapter has already been
   // hydrated. The transcript itself is the source of truth, so do not make
   // rendering depend on one lifecycle label.
-  if (!connection?.claudeHistoryCandidate || connection.claudeHistoryLoaded || !connection.nativeSessionId) return false;
+  if (!connection?.claudeHistoryCandidate || !replace && connection.claudeHistoryLoaded || !connection.nativeSessionId) return false;
   const taskId = `claude-history:${connection.nativeSessionId}`;
   try {
     const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
@@ -6907,7 +6913,13 @@ async function loadClaudeNativeHistory(connection) {
       { forkFor: message => message?.role === "assistant" ? claudeReplyFork(connection, message.id) : null })) return false;
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
-    el.messages.appendChild(fragment);
+    // Drawn again in place: what the page drew live gives way to the
+    // transcript, which has all of it.
+    if (replace) {
+      el.messages.replaceChildren(fragment);
+      resetStructuredTranscriptPresentation(connection);
+      connection.claudeReplyNode = null; connection.claudeReplyMessageId = null; connection.claudeOutputStart = null;
+    } else el.messages.appendChild(fragment);
     connection.claudeHistoryLoaded = true;
     // Claude's messages this history shows, including those that only called
     // a tool, which a live view then does not draw again.
@@ -6993,7 +7005,7 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
   if (connection.nativeRefreshInFlight) return;
   connection.nativeRefreshInFlight = true;
   const askedAt = Date.now();
-  let restartNeeded = false;
+  let restartNeeded = false, historyNeeded = false;
   try {
     // After the first read, only the events not drawn yet (a Host from before
     // this sends them all, and the page reads on the same way). A Claude
@@ -7019,11 +7031,21 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
       restartNeeded = true;
       return;
     }
+    // Claude finished, or ran again, while this page was not looking (a
+    // phone asleep, say): the events it missed are gone or cut short, or
+    // came from a Claude this page never saw. Claude's transcript has them.
+    const rows = Array.isArray(snapshot?.events) ? snapshot.events : [];
+    const sameClaude = !status.startedAt || status.startedAt === connection.claudeStartedAt;
+    const cutShort = rows.length > 0 && Number.isSafeInteger(rows[0]?.hostSeq) && rows[0].hostSeq > (connection.claudeEventSeq || 0);
+    historyNeeded = parked && !fromStart && (!sameClaude || connection.claudeNeedsLoad === false && (status.released !== true || cutShort));
     if (status.startedAt) connection.claudeStartedAt = status.startedAt;
     connection.claudeNeedsLoad = parked;
-    renderClaudeStructuredEvents(connection, snapshot?.events, { replace: fromStart, live: !initial });
+    if (!historyNeeded) renderClaudeStructuredEvents(connection, rows, { replace: fromStart, live: !initial });
     renderClaudeStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
+    // A Claude started again reports the model and level it runs with, and
+    // the levels each model takes.
+    if (restart && !parked) void syncClaudeStructuredModelCatalog(connection, { force: true }).catch(() => {});
     // A look begun before Claude took a message can still find it waiting;
     // the next look has the turn.
     if ((connection.claudeSentAt || 0) > askedAt) { syncGenericInputState(); return; }
@@ -7070,6 +7092,7 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
   } finally {
     connection.nativeRefreshInFlight = false;
     if (restartNeeded && rpc === connection) void refreshClaudeStructuredSnapshot(connection, { restart: true });
+    if (historyNeeded && rpc === connection) void loadClaudeNativeHistory(connection, { replace: true });
   }
 }
 
@@ -11495,14 +11518,18 @@ function renderImgPreview() {
 let sendOnceConnectedTimer = null;
 function sendOnceConnected() {
   if (sendOnceConnectedTimer || el.viewChat?.classList.contains("hidden")) return;
-  const generation = viewGeneration;
+  // The message goes once the conversation it was typed for is ready: the one
+  // this view is opening, whose draft it is, also when opening it takes more
+  // than one step. Another conversation opened meanwhile, or the message
+  // changed, keeps it as a draft.
+  const draftKey = activeDraftKey, text = el.input.value;
   const startedAt = Date.now();
   toast(tKey("runtime.sendWhenConnected"));
   const stop = () => { clearInterval(sendOnceConnectedTimer); sendOnceConnectedTimer = null; };
   sendOnceConnectedTimer = setInterval(() => {
-    if (generation !== viewGeneration) { stop(); return; }
+    if (el.input.value !== text || draftKey && activeDraftKey !== draftKey) { stop(); return; }
     if (rpc && !rpc.nativeLoading && !genericInputBlock()) { stop(); void sendCurrent(); return; }
-    if (Date.now() - startedAt > 30_000) { stop(); toast(tKey("runtime.connectFailedDraftKept"), true); }
+    if (Date.now() - startedAt > 60_000) { stop(); toast(tKey("runtime.connectFailedDraftKept"), true); }
   }, 200);
 }
 async function sendCurrent() {

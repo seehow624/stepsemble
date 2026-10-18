@@ -185,17 +185,20 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
       const claude = entries.find(entry => entry.record.agentId === "claude-code").record;
-      const codexReads = { turns: 0, items: 0 }, opens = [], prompts = [];
-      let historyReads = 0, capacity = true;
+      const codexReads = { turns: 0, items: 0 }, opens = [], prompts = [], efforts = [];
+      let historyReads = 0, capacity = true, liveModelReads = 0;
       // The Host's side of one conversation: Claude not running ("parked"),
       // a running process numbered by its start, or one let go after its turn.
-      const host = { phase: "parked", epoch: 0, startedAt: null, reply: "" };
+      // "expired": the process was let go long ago; only when it ran is known.
+      const host = { phase: "parked", epoch: 0, startedAt: null, reply: "", partial: false, nextReply: null };
       const start = reply => { host.phase = "live"; host.epoch += 1; host.startedAt = Date.now() - 1000 + host.epoch; host.reply = reply; };
       const events = () => [
         { type: "system", subtype: "init", hostSeq: 0 },
         { type: "assistant", hostSeq: 1, message: { id: `answer-${host.epoch}`, content: [{ type: "text", text: host.reply }] } },
-        { type: "result", subtype: "success", result: host.reply, hostSeq: 2 },
+        ...(host.partial ? [] : [{ type: "result", subtype: "success", result: host.reply, hostSeq: 2 }]),
       ];
+      // What Claude's transcript adds after the saved part.
+      const transcript = [];
       await context.route("**/api/workspace/entry?**", async route => {
         const response = await route.fetch(), body = await response.json();
         if (body.record?.agentId === "claude-code") body.record.needsLoad = true;
@@ -213,21 +216,41 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
         kind: "native_history_transcript", messages: [
           { id: "saved-question", role: "user", text: "Earlier saved question" },
           { id: "saved-answer", role: "assistant", text: "The original saved Claude history is readable." },
+          ...transcript,
         ], tools: [],
       } }); });
       for (const kind of ["events", "pending"]) await context.route(`**/api/claude/structured/${kind}?**`, async route => {
         const after = Number(new URL(route.request().url()).searchParams.get("after")) || 0;
         const base = { nativeSessionId: claude.nativeSessionId };
         const status = host.phase === "parked" ? { ...base, state: "available", needsLoad: true, persisted: true }
+          : host.phase === "expired" ? { ...base, state: "available", needsLoad: true, persisted: true, startedAt: host.startedAt, lastActivityAt: host.startedAt + 500 }
           : { ...base, state: "waiting", closed: false, failed: null, startedAt: host.startedAt, turnStartedAt: host.startedAt, turnEndedAt: host.startedAt + 500,
             lastActivityAt: host.startedAt + 500, ...(host.phase === "released" ? { released: true, needsLoad: true } : {}) };
-        const rows = host.phase === "parked" ? [] : events().filter(event => event.hostSeq >= after);
+        const rows = ["parked", "expired"].includes(host.phase) ? [] : events().filter(event => event.hostSeq >= after);
         await route.fulfill({ json: kind === "events" ? { events: rows, status } : { permissions: [], status } });
+      });
+      // The Host's saved catalog keeps each model's levels; a running Claude
+      // reports the level it actually runs with.
+      const catalog = [
+        { id: "fixture-claude-sonnet", name: "Fixture Claude Sonnet", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+        { id: "fixture-claude-haiku", name: "Fixture Claude Haiku", supportsEffort: false },
+      ];
+      await context.route("**/api/claude/structured/models?**", async route => {
+        if (host.phase === "live") liveModelReads += 1;
+        await route.fulfill({ json: host.phase === "live"
+          ? { models: catalog, currentModel: "fixture-claude-sonnet", currentEffort: "max", nativeSessionId: claude.nativeSessionId }
+          : { models: catalog, currentModel: "fixture-claude-sonnet", currentEffort: "high", nativeSessionId: claude.nativeSessionId, appliesNextTurn: true } });
+      });
+      await context.route("**/api/claude/structured/effort", async route => {
+        const body = route.request().postDataJSON();
+        efforts.push(body);
+        await route.fulfill({ json: { kind: "changed", effort: body.effort, appliesNextTurn: true } });
       });
       await context.route("**/api/claude/structured/prompt", async route => {
         prompts.push(route.request().postDataJSON());
         if (capacity) return route.fulfill({ status: 409, json: { error: "desktop_capacity" } });
-        start(`Reply ${host.epoch + 1} from the Claude this message started.`);
+        start(host.nextReply || `Reply ${host.epoch + 1} from the Claude this message started.`);
+        host.nextReply = null;
         await route.fulfill({ json: { kind: "sent", nativeSessionId: claude.nativeSessionId } });
       });
       const page = await context.newPage(), errors = [];
@@ -245,6 +268,13 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
       assert.equal(opens.length, 0, "opening reads history only");
       assert.equal(await ui.locator("#task-replay-note").isVisible(), false);
       assert.equal(await ui.locator("#btn-model").isVisible(), true, "the model can be picked before Claude starts");
+      // The thinking level is shown and can be picked before Claude starts.
+      await ui.waitForFunction(() => rpc?.claudeEffort === "high" && el.thinkingSelect.disabled === false && el.thinkingSelect.value === "high"
+        && !el.composerModelLevelText.classList.contains("hidden"));
+      await ui.evaluate(() => changeThinkingLevel("xhigh"));
+      await ui.waitForFunction(() => rpc?.claudeEffort === "xhigh" && el.thinkingSelect.value === "xhigh");
+      assert.deepEqual(efforts.map(row => [row.sessionId, row.effort]), [[claude.nativeSessionId, "xhigh"]]);
+      assert.equal(opens.length + prompts.length, 0, "picking a level starts nothing");
       const reads = historyReads;
 
       // Every Claude slot is working: the message stays in the composer.
@@ -263,6 +293,9 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
       assert.equal(prompts.at(-1).text, "Keep this draft while capacity is full");
       await ui.waitForFunction(expected => rpc?.claudeNeedsLoad === false && rpc.claudeStartedAt === expected, host.startedAt);
       await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Reply 1 from the Claude this message started."));
+      // The Claude this message started reports its own level.
+      await ui.waitForFunction(() => rpc?.claudeEffort === "max" && el.thinkingSelect.value === "max");
+      assert.ok(liveModelReads >= 1, "the running Claude's catalog is read once it starts");
       assert.equal(historyReads, reads, "the page goes on without reading the history again");
       assert.equal(opens.length, 0);
 
@@ -293,6 +326,36 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
       assert.equal(await ui.locator("#messages .msg.user").filter({ hasText: "One message after Claude was let go" }).count(), 1);
       assert.equal(historyReads, reads);
       assert.equal(opens.length, 0);
+
+      // The page shows half a reply, then sleeps; the turn ends and the
+      // process is let go long before the page looks again.
+      host.phase = "released";
+      await ui.waitForFunction(() => rpc?.claudeNeedsLoad === true);
+      host.partial = true; host.nextReply = "Working on the long task";
+      await ui.locator("#input").fill("Long task");
+      const long = page.waitForResponse(response => response.url().endsWith("/api/claude/structured/prompt") && response.ok());
+      await ui.locator("#btn-send").click(); await long;
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Working on the long task") && rpc?.claudeNeedsLoad === false);
+      const sentBefore = prompts.length, readsBefore = historyReads;
+      transcript.push({ id: "long-question", role: "user", text: "Long task" },
+        { id: "long-answer", role: "assistant", text: "Final reply written while the page slept." });
+      host.partial = false; host.phase = "expired";
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Final reply written while the page slept."));
+      assert.equal(historyReads, readsBefore + 1, "the transcript is read once");
+      assert.equal(await ui.locator("#messages .msg.user").filter({ hasText: "Long task" }).count(), 1);
+      assert.match(await ui.locator("#messages").innerText(), /original saved Claude history/);
+      assert.equal(prompts.length, sentBefore, "nothing is sent");
+      await ui.evaluate(async () => { await refreshClaudeStructuredSnapshot(rpc); await refreshClaudeStructuredSnapshot(rpc); });
+      assert.equal(historyReads, readsBefore + 1, "the same Claude is not read again");
+
+      // Another device runs a turn while this page waits without Claude.
+      transcript.push({ id: "phone-question", role: "user", text: "Sent from the phone" },
+        { id: "phone-answer", role: "assistant", text: "Reply to the phone." });
+      host.epoch += 1; host.startedAt = Date.now(); host.reply = "Reply to the phone."; host.phase = "released";
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Reply to the phone."));
+      assert.equal(await ui.locator("#messages .msg.user").filter({ hasText: "Sent from the phone" }).count(), 1);
+      assert.equal(prompts.length, sentBefore);
+      assert.equal(opens.length, 0);
       assert.deepEqual(errors, []);
       if (screenshots) await page.screenshot({ path: path.join(screenshots, `session-reconnected-${width}.png`) });
       console.log(JSON.stringify({ case: "Session recovery", width, result: "passed", nativeCalls: 0, promptCount: prompts.length }));
@@ -300,9 +363,82 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
   }
 }
 
+// A message sent while a saved Claude conversation is still opening, before
+// its pane has the conversation or while it reads the history, goes once the
+// conversation is ready; the text is never cleared.
+export async function runEarlySendBrowserCases(browser) {
+  // Typed before the pane has the conversation: sent at once, or with Enter
+  // while the history is read (the box is read-only then).
+  for (const stage of ["no conversation yet", "reading history"]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
+    let holdEntry = null, holdHistory = null;
+    try {
+      await context.addInitScript(() => {
+        localStorage.setItem("stepsemble.onboarding.v1", "complete");
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true }));
+      });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
+      const claude = entries.find(entry => entry.record.agentId === "claude-code").record;
+      const prompts = [], opens = [];
+      // Only the pane waits: the Workspace page itself reads the entry too.
+      await context.route("**/api/workspace/entry?**", async route => {
+        const response = await route.fetch(), body = await response.json();
+        if (body.record?.agentId === "claude-code") {
+          body.record.needsLoad = true;
+          if (route.request().frame()?.parentFrame()) await holdEntry?.promise;
+        }
+        await route.fulfill({ response, json: body });
+      });
+      await context.route("**/api/native-history/session?**", async route => {
+        await holdHistory?.promise;
+        await route.fulfill({ json: { kind: "native_history_transcript", tools: [],
+          messages: [{ id: "q", role: "user", text: "Earlier question" }, { id: "a", role: "assistant", text: "Earlier answer." }] } });
+      });
+      for (const kind of ["events", "pending"]) await context.route(`**/api/claude/structured/${kind}?**`, route => route.fulfill({ json: {
+        [kind === "events" ? "events" : "permissions"]: [], status: { state: "available", needsLoad: true, nativeSessionId: claude.nativeSessionId, persisted: true } } }));
+      await context.route("**/api/claude/structured/models?**", route => route.fulfill({ json: {
+        models: [{ id: "fixture-claude-sonnet", name: "Fixture Claude Sonnet" }], currentModel: "fixture-claude-sonnet", nativeSessionId: claude.nativeSessionId, appliesNextTurn: true } }));
+      await context.route("**/api/agent/open", route => { opens.push(route.request().postDataJSON()); return route.fulfill({ status: 500, json: { error: "unexpected open" } }); });
+      await context.route("**/api/claude/structured/prompt", route => { prompts.push(route.request().postDataJSON()); return route.fulfill({ json: { kind: "sent", nativeSessionId: claude.nativeSessionId } }); });
+      const gate = () => { let open; const promise = new Promise(resolve => { open = resolve; }); return { promise, open }; };
+      holdEntry = gate();
+      if (stage === "reading history") holdHistory = gate();
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const ui = await openFromSidebar(page, "Claude composer fixture");
+      await ui.waitForFunction(() => typeof sendCurrent === "function" && !rpc);
+      await ui.locator("#input").fill("Sent while the conversation opens");
+      if (stage === "no conversation yet") await ui.locator("#btn-send").click();
+      else {
+        holdEntry.open();
+        await ui.waitForFunction(() => !!rpc?.nativeClaudeStructured && rpc.nativeLoading === true);
+        assert.equal(await ui.locator("#input").inputValue(), "Sent while the conversation opens", "the typed text stays");
+        await ui.locator("#input").press("Enter");
+      }
+      assert.equal(prompts.length, 0, "nothing goes before the conversation is ready");
+      holdEntry.open(); holdHistory?.open();
+      await ui.waitForFunction(() => document.querySelector("#messages")?.innerText.includes("Sent while the conversation opens"));
+      await ui.waitForFunction(() => document.querySelector("#input")?.value === "");
+      await page.waitForTimeout(500);
+      assert.deepEqual(prompts.map(row => [row.sessionId, row.text]), [[claude.nativeSessionId, "Sent while the conversation opens"]]);
+      assert.equal(opens.length, 0);
+      assert.match(await ui.locator("#messages").innerText(), /Earlier answer/);
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Send while opening", stage, result: "passed", prompts: prompts.length }));
+    } finally {
+      holdEntry?.open(); holdHistory?.open();
+      await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close();
+    }
+  }
+}
+
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
+  await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-conversation-ux-")));
     let child, context, stage = "fixture";

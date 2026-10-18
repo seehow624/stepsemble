@@ -82,6 +82,17 @@ input.on("line", raw => {
     // A scheduled prompt runs inside this process after the turn ends.
     write({ type: "assistant", message: { id: "assistant-cron", role: "assistant", model, content: [{ type: "tool_use", id: "toolu_cron", name: "CronCreate", input: { cron: "*/5 * * * *", prompt: "check" } }] } });
     reply("scheduled");
+  } else if (prompt === "after restart") {
+    // Claude resumed with a background task's notice still queued: that turn
+    // ends at once, then the turn for this message starts and is quiet for a
+    // second before its answer.
+    write({ type: "system", subtype: "init", model: current });
+    write({ type: "result", subtype: "success", result: "" });
+    setTimeout(() => {
+      write({ type: "system", subtype: "init", model: current });
+      write({ type: "system", subtype: "status", status: "requesting" });
+      setTimeout(() => reply("answered after the notice"), 1000);
+    }, 60);
   } else if (prompt === "crash") {
     process.exit(3);
   } else if (prompt === "ask permission") {
@@ -407,7 +418,7 @@ test("a long command's progress events keep Claude going, and a Claude that stop
 });
 
 test("an idle conversation lets Claude go after its turn, stays readable and keeps its choices for the next message", async t => {
-  const f = await startHost(t, { idleRelease: null });
+  const f = await startHost(t, { idleRelease: "0.5" });
   if (!f) return;
   const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
   const cookie = login.headers["set-cookie"][0].split(";")[0];
@@ -476,7 +487,7 @@ test("an idle conversation lets Claude go after its turn, stays readable and kee
 });
 
 test("a conversation with a scheduled prompt keeps its Claude after the turn", async t => {
-  const f = await startHost(t, { idleRelease: null });
+  const f = await startHost(t, { idleRelease: "0.5" });
   if (!f) return;
   const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
   const cookie = login.headers["set-cookie"][0].split(";")[0];
@@ -491,4 +502,26 @@ test("a conversation with a scheduled prompt keeps its Claude after the turn", a
   assert.equal(later.body.status.released, undefined);
   assert.equal(later.body.status.closed, false);
   assert.equal((await f.request("/api/claude/structured", { cookie })).body.adapter.sessionCount, 1);
+});
+
+test("a message queued behind a background task's notice is answered before Claude is let go", async t => {
+  const f = await startHost(t, { idleRelease: "0.5" });
+  if (!f) return;
+  const login = await f.request("/api/login", { method: "POST", body: { token: "synthetic-claude-structured-http-token" } });
+  const cookie = login.headers["set-cookie"][0].split(";")[0];
+  const opened = await f.request("/api/agent/open", { method: "POST", cookie, body: { agentId: "claude-code", cwd: f.home, name: "After restart" } });
+  const localId = opened.body.nativeSessionId;
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: localId, text: "hello" } })).body.kind, "sent");
+  const first = await waitFor(() => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(localId)}`, { cookie }),
+    response => response.body?.status?.released === true);
+  const nativeId = first.body.status.nativeSessionId;
+  // The next message starts Claude again; it answers a queued notice first.
+  assert.equal((await f.request("/api/claude/structured/prompt", { method: "POST", cookie, body: { sessionId: nativeId, text: "after restart" } })).body.kind, "sent");
+  const answered = await waitFor(() => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(nativeId)}`, { cookie }),
+    response => response.body?.events?.some(event => event.result === "answered after the notice"), 250);
+  assert.ok(answered.body.events.some(event => event.result === "answered after the notice"), answered.raw);
+  // Only then is the process let go.
+  const released = await waitFor(() => f.request(`/api/claude/structured/events?sessionId=${encodeURIComponent(nativeId)}`, { cookie }),
+    response => response.body?.status?.released === true);
+  assert.equal(released.body.status.released, true);
 });

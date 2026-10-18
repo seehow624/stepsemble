@@ -136,6 +136,44 @@ test("idle suspension protects turns, permissions, pending input and background 
   assert.equal(frames.filter(frame => frame.type === "user").length, 1);
 });
 
+test("a turn Claude starts by itself, or its own compaction, keeps the session busy until its result", async t => {
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type === "control_request") child.stdout.write(JSON.stringify({ type: "control_response", response: {
+      subtype: "success", request_id: message.request_id, response: {},
+    } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/synthetic/claude", cwd: "/tmp", env: {}, sessionId: "saved-session", spawnImpl: () => child, requestTimeoutMs: 100 });
+  t.after(() => session.close());
+  await session.models();
+  const emit = event => child.stdout.write(JSON.stringify({ session_id: "saved-session", ...event }) + "\n");
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  await session.send("after a restart");
+  // A queued background-task notice is answered first; its turn ends at once.
+  emit({ type: "system", subtype: "init" });
+  emit({ type: "result", subtype: "success", result: "" });
+  await settle();
+  assert.equal(session.isIdle(), true);
+  // Claude then starts the turn for the message it had queued.
+  emit({ type: "system", subtype: "init" });
+  emit({ type: "system", subtype: "status", status: "requesting" });
+  await settle();
+  assert.equal(session.status().state, "running");
+  assert.equal(session.isIdle(), false, "no output yet, but Claude is working");
+  emit({ type: "system", subtype: "status", status: "compacting" });
+  emit({ type: "result", subtype: "success", result: "done" });
+  await settle();
+  assert.equal(session.isIdle(), true, "a result ends the compaction with the turn");
+  // Claude compacting between turns keeps the process until its boundary.
+  emit({ type: "system", subtype: "status", status: "compacting" });
+  await settle();
+  assert.equal(session.isIdle(), false);
+  emit({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto" } });
+  await settle();
+  assert.equal(session.isIdle(), true);
+  assert.equal(session.status().state, "waiting");
+});
+
 test("a scheduled prompt or monitor keeps its Claude process, while one in replayed history does not", async t => {
   const child = childFixture();
   observeControlWire(child, message => {
