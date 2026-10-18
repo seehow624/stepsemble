@@ -250,7 +250,9 @@ for (const outcome of [true, false, "reject"]) test(`pause and resume invalidate
 
 test("two schedules targeting one conversation serialize while unrelated projects still dispatch",async t=>{
   const f=fixture(t),targetEntry=require("node:crypto").randomUUID();f.bridge.prepare=async()=>true;
-  const input={...def,kind:"schedule",targetEntry,mode:"task",schedule:{kind:"interval",minutes:15}};
+  // Sibling folders: a folder inside another is the same project (def's own
+  // cwd, the temp directory, holds every project() folder).
+  const input={...def,cwd:project("target"),kind:"schedule",targetEntry,mode:"task",schedule:{kind:"interval",minutes:15}};
   const first=f.host.create(input),second=f.host.create(input);
   await f.host.action({id:first.id,action:"run"});await until(()=>f.sends.length===1);
   await f.host.action({id:second.id,action:"run"});await until(()=>f.host.list().runs[1]?.status==="queued");await wait(10);
