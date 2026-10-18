@@ -19,7 +19,7 @@ async function until(check, timeoutMs = 5000) {
   }
 }
 
-async function setup(t, { installed = true } = {}) {
+async function setup(t, { installed = true, noticesWanted = () => true } = {}) {
   const fake = createFakeHermesGateway();
   await fake.start();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-hermes-service-"));
@@ -30,7 +30,7 @@ async function setup(t, { installed = true } = {}) {
   });
   await client.login("jerome", "correct horse");
   const notices = [];
-  const service = createHermesAssistantService({ client, installed: () => installed, notify: notice => notices.push(notice) });
+  const service = createHermesAssistantService({ client, installed: () => installed, notify: notice => notices.push(notice), noticesWanted });
   t.after(async () => { client.close(); await fake.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   return { fake, client, service, notices };
 }
@@ -99,6 +99,62 @@ test("a phone notice drops attachment paths and names the files when there is no
   await service.prompt({ sessionId: chat.sessionId, text: "圖" });
   await until(() => events.filter(event => event.type === "message.complete").length === 2);
   assert.deepEqual(notices.map(notice => notice.body), ["報告好了", "chart.png"]);
+});
+
+// How Hermes writes a routine's output into a Bot Chat.
+const routineOutput = name => `[Cronjob "${name}" output — scheduled job, not the user. Review it, act on anything that needs action, and summarize for the chat.]\n\n0 new receipts`;
+
+test("a Bot's answer to a routine reaches the phone once; the first check only notes where each Bot Chat stands", async t => {
+  const { fake, service, notices } = await setup(t);
+  const chat = fake.addSession("default", "Bot Chat", { hidden: true });
+  fake.appendMessages(chat.id, [{ role: "user", text: routineOutput("Old routine") }, { role: "assistant", text: "Answered before the Host started" }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 });
+  fake.appendMessages(chat.id, [{ role: "user", text: routineOutput("Setel Email Auto-Processor") }, { role: "assistant", text: "今天沒有新的收據。" }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 1 });
+  assert.deepEqual(notices.map(notice => [notice.kind, notice.title, notice.body]), [["routine", "Luna · Setel Email Auto-Processor", "今天沒有新的收據。"]]);
+  assert.equal(notices[0].url, `/assistant.html?bot=default&session=${encodeURIComponent(chat.id)}`);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 }, "nothing moved");
+  fake.appendMessages(chat.id, [{ role: "user", text: "thanks" }, { role: "assistant", text: "Anytime" }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 }, "an answer to a person is not a routine's");
+  assert.equal(notices.length, 1);
+});
+
+test("a routine the Bot is still answering is pushed once its answer lands", async t => {
+  const { fake, service, notices } = await setup(t);
+  const chat = fake.addSession("default", "Bot Chat", { hidden: true });
+  await service.checkRoutineReplies();
+  fake.appendMessages(chat.id, [{ role: "user", text: routineOutput("Telco Bills Auto-Processor") }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 });
+  fake.appendMessages(chat.id, [{ role: "assistant", text: "兩張帳單已入帳。 MEDIA:/Users/me/bill.pdf" }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 1 });
+  assert.deepEqual(notices.map(notice => [notice.title, notice.body]), [["Luna · Telco Bills Auto-Processor", "兩張帳單已入帳。"]]);
+});
+
+test("a routine answer someone is watching, or one the live connection already pushed, stays quiet", async t => {
+  const { fake, service, notices } = await setup(t);
+  await service.bots();
+  const chat = await service.openBotChat("default");
+  await service.checkRoutineReplies();
+  service.watch("client-abcdef12", chat.sessionId);
+  fake.appendMessages(chat.sessionId, [{ role: "user", text: routineOutput("Setel") }, { role: "assistant", text: "Read in the browser" }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 });
+  service.watch("client-abcdef12", null);
+  const { events } = collect(service, chat.cursor);
+  fake.setTurn({ reply: "Pushed live" });
+  await service.prompt({ sessionId: chat.sessionId, text: "the bills" });
+  await until(() => events.some(event => event.type === "message.complete"));
+  assert.equal(notices.length, 1, "the live reply reached the phone");
+  fake.appendMessages(chat.sessionId, [{ role: "user", text: routineOutput("Telco") }, { role: "assistant", text: "Pushed live", at: Date.now() / 1000 }]);
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 }, "already pushed while connected");
+  assert.equal(notices.length, 1);
+});
+
+test("with no phone asking for notices the routine check leaves Hermes alone", async t => {
+  const { fake, service } = await setup(t, { noticesWanted: () => false });
+  fake.addSession("default", "Bot Chat", { hidden: true });
+  assert.deepEqual(await service.checkRoutineReplies(), { sent: 0 });
+  assert.ok(!fake.state.methods.includes("profiles.list"));
+  assert.deepEqual(fake.state.messageReads, []);
 });
 
 test("a Hermes approval waits for an answer, reaches the phone, and takes only offered choices", async t => {

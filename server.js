@@ -45,7 +45,7 @@ const { createAgentModeRoutes, codexTurnPermissions, modeOption, CODEX_PERMISSIO
 const { createHermesDiscovery } = require("./server/hermes-discovery");
 const { createHermesSessionStore } = require("./server/hermes-session-store");
 const { createHermesGatewayClient } = require("./server/hermes-gateway-client");
-const { createHermesAssistantService } = require("./server/hermes-assistant-service");
+const { createHermesAssistantService, ROUTINE_CHECK_MS } = require("./server/hermes-assistant-service");
 const { createHermesAssistantRoutes } = require("./server/hermes-assistant-routes");
 const { createHermesRoutines } = require("./server/hermes-routines");
 const { createHermesGroups } = require("./server/hermes-groups");
@@ -5632,7 +5632,10 @@ const hermesAssistant = createHermesAssistantService({
   client: hermesClient,
   installed: () => !!hermesCommand,
   notify: notice => { void deliverPushNotification({ url: notice.url }, notice.title, notice.body); },
+  noticesWanted: () => readPushSubscriptions().length > 0,
 });
+// A Bot answers a routine with no browser connected, so no live event says so.
+setInterval(() => { hermesAssistant.checkRoutineReplies().catch(() => {}); }, ROUTINE_CHECK_MS).unref();
 const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, routines: createHermesRoutines({ client: hermesClient }),
   groups: createHermesGroups({ client: hermesClient }), bots: createHermesBots({ client: hermesClient }), skills: createHermesSkills({ client: hermesClient }),
   console: createHermesConsole({ client: hermesClient }),
