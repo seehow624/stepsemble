@@ -4,7 +4,8 @@
 // Bots, opens each Bot's one permanent "Bot Chat" the way Hermes Desktop does,
 // sends messages, keeps a bounded window of recent events for the browser,
 // holds the questions Hermes asks (approval, clarify, sudo, secret) until
-// someone answers, and decides when a phone should hear about it.
+// someone answers, and decides when a phone should hear about it, including
+// a Bot's answer to a routine that arrived while no browser was connected.
 // Conversations stay in Hermes; nothing here is written to disk, and an
 // answer to sudo or secret is passed to Hermes and dropped.
 
@@ -29,6 +30,10 @@ const SOURCE = "desktop";
 const MAX_TEXT = 512 * 1024, MAX_ATTACHMENTS = 4, MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const ASKS = new Set(["approval", "clarify", "sudo", "secret"]);
 const APPROVAL_CHOICES = new Set(["once", "session", "always", "deny"]);
+// Hermes hands a routine's output to a Bot Chat as a user message that starts
+// `[Cronjob "<name>" output — …]`; the Host never sends one itself.
+const ROUTINE_MARK = /^\[Cronjob "([^"\n]{1,200})"/;
+const ROUTINE_CHECK_MS = 60_000, ROUTINE_PAGE = 50, MAX_ROUTINE_SENT = 512, LIVE_SKEW_MS = 5_000;
 const FIELDS = Object.freeze({
   "message.start": [], "message.delta": ["text"], "thinking.delta": ["text"], "message.complete": ["text", "interrupted"],
   "tool.start": ["tool_id", "name", "args_text", "context"], "tool.complete": ["tool_id", "name", "summary", "result_text"],
@@ -82,7 +87,11 @@ function cleanAttachments(list) {
   });
 }
 
-function createHermesAssistantService({ client, installed = () => false, notify = () => {}, now = Date.now } = {}) {
+function botMetaOf(row) {
+  return row.ui_meta && typeof row.ui_meta === "object" && row.ui_meta["hermes-bots"] && typeof row.ui_meta["hermes-bots"] === "object" ? row.ui_meta["hermes-bots"] : {};
+}
+
+function createHermesAssistantService({ client, installed = () => false, notify = () => {}, noticesWanted = () => true, now = Date.now } = {}) {
   const sessions = new Map();   // storedId -> { storedId, liveId, profile, running, lastSeq, resyncing, buffer }
   const byLive = new Map();     // liveId -> storedId
   const asks = new Map();       // Hermes request id -> ask
@@ -91,6 +100,9 @@ function createHermesAssistantService({ client, installed = () => false, notify 
   const watchers = new Map();   // clientId -> { sessionId, until }
   const botNames = new Map();
   const offered = new Map();    // paths a Bot has sent; only these can be downloaded
+  const routineSince = new Map(); // profile -> Bot Chat last activity at the previous routine check
+  const routineSent = new Set();  // routine messages whose answer was already considered
+  const liveNoticeAt = new Map(); // storedId -> when a live event last reached the phone
   let ringBytes = 0, nextEvent = 0, epoch = null, turnHold = null;
 
   const botName = profile => botNames.get(profile) || (profile === "default" ? "Hermes" : profile);
@@ -144,6 +156,13 @@ function createHermesAssistantService({ client, installed = () => false, notify 
       url: `/assistant.html?bot=${encodeURIComponent(entry.profile)}&session=${encodeURIComponent(entry.storedId)}` };
   }
 
+  function notifyLive(entry, kind, text) {
+    liveNoticeAt.delete(entry.storedId);
+    liveNoticeAt.set(entry.storedId, now());
+    while (liveNoticeAt.size > MAX_SESSIONS) liveNoticeAt.delete(liveNoticeAt.keys().next().value);
+    notify(notice(entry, kind, text));
+  }
+
   function track(storedId, liveId, profile) {
     let entry = sessions.get(storedId);
     if (!entry) {
@@ -174,12 +193,12 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     if (event.type === "message.complete") {
       entry.running = false;
       updateTurnHold();
-      if (event.payload?.interrupted !== true && !isWatched(entry.storedId)) notify(notice(entry, "completed", event.payload?.text));
+      if (event.payload?.interrupted !== true && !isWatched(entry.storedId)) notifyLive(entry, "completed", event.payload?.text);
     }
     if (event.type === "error") {
       entry.running = false;
       updateTurnHold();
-      if (!isWatched(entry.storedId)) notify(notice(entry, "failed", event.payload?.message));
+      if (!isWatched(entry.storedId)) notifyLive(entry, "failed", event.payload?.message);
     }
   }
 
@@ -309,7 +328,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     const rows = [], avatarIndexes = avatarIndexesFor(result?.profiles);
     for (const row of Array.isArray(result?.profiles) ? result.profiles : []) {
       if (!row || typeof row.name !== "string" || !PROFILE.test(row.name)) continue;
-      const meta = row.ui_meta && typeof row.ui_meta === "object" && row.ui_meta["hermes-bots"] && typeof row.ui_meta["hermes-bots"] === "object" ? row.ui_meta["hermes-bots"] : {};
+      const meta = botMetaOf(row);
       const displayName = displayNameOf(row, meta);
       const chat = row.canonical_session && typeof row.canonical_session === "object" ? row.canonical_session : null;
       botNames.set(row.name, displayName);
@@ -320,6 +339,61 @@ function createHermesAssistantService({ client, installed = () => false, notify 
         botChat: chat ? { id: clip(chat.resolved_id, 200) || clip(chat.id, 200), preview: clip(chat.preview, 300), lastActive: count(chat.last_active) } : null });
     }
     return { installId: clip(result?.install_id, 128), bots: rows };
+  }
+
+  // A routine's answer is found by looking, not listening: Hermes delivers it
+  // and the Bot replies without the Host connected. Each check compares every
+  // Bot Chat's last activity with the previous check, reads the newest page
+  // when it moved, and pushes the Bot's answer to each routine message nobody
+  // is watching. The first check only records where each Bot Chat stands, so
+  // a restart does not replay old answers.
+  async function checkRoutineReplies() {
+    if (!installed() || !noticesWanted()) return { sent: 0 };
+    const result = await client.request("profiles.list", { include_sessions: true }, { timeoutMs: 30_000 });
+    let sent = 0;
+    for (const row of Array.isArray(result?.profiles) ? result.profiles : []) {
+      if (!row || typeof row.name !== "string" || !PROFILE.test(row.name)) continue;
+      const chat = row.canonical_session && typeof row.canonical_session === "object" ? row.canonical_session : null;
+      const ids = chat ? [...new Set([clip(chat.resolved_id, 200), clip(chat.id, 200)])].filter(id => SESSION.test(id)) : [];
+      if (!ids.length) continue;
+      botNames.set(row.name, displayNameOf(row, botMetaOf(row)));
+      const active = count(chat.last_active), since = routineSince.get(row.name);
+      if (since === undefined) { routineSince.set(row.name, active); continue; }
+      if (active <= since) continue;
+      // A page Hermes could not read is read again on the next check.
+      try { sent += await pushRoutineAnswers(row.name, ids, since); routineSince.set(row.name, active); } catch {}
+    }
+    return { sent };
+  }
+
+  async function pushRoutineAnswers(profile, ids, since) {
+    const page = await client.rest("GET", `/api/sessions/${encodeURIComponent(ids[0])}/messages`,
+      { query: { profile, order: "latest", limit: ROUTINE_PAGE, inline_images: false } });
+    let routine = null, sent = 0;
+    const finish = () => {
+      // An answer still being written is left for the next check.
+      if (!routine?.answer || routine.answer.at <= since || routineSent.has(routine.key)) return;
+      routineSent.add(routine.key);
+      while (routineSent.size > MAX_ROUTINE_SENT) routineSent.delete(routineSent.values().next().value);
+      if (ids.some(isWatched)) return;
+      // The Host was connected when this answer arrived and already pushed it.
+      const answeredAt = routine.answer.at * 1000;
+      if (ids.some(id => (liveNoticeAt.get(id) || 0) >= answeredAt - LIVE_SKEW_MS)) return;
+      notify({ ...notice({ profile, storedId: ids[0] }, "routine", routine.answer.text), title: `${botName(profile)} · ${routine.name}` });
+      sent += 1;
+    };
+    for (const message of Array.isArray(page?.messages) ? page.messages : []) {
+      const text = typeof message?.content === "string" ? message.content : "";
+      if (message?.role === "user") {
+        finish();
+        const mark = ROUTINE_MARK.exec(text);
+        routine = mark ? { name: mark[1], key: `${profile}:${message.id ?? message.timestamp ?? text.slice(0, 200)}`, answer: null } : null;
+      } else if (message?.role === "assistant" && routine && text.trim()) {
+        routine.answer = { text, at: Number(message.timestamp) || 0 };
+      }
+    }
+    finish();
+    return sent;
   }
 
   async function openSession({ sessionId, profile } = {}) {
@@ -473,10 +547,10 @@ function createHermesAssistantService({ client, installed = () => false, notify 
 
   return Object.freeze({
     status, login: (username, password) => client.login(username, password), logout: () => client.logout(),
-    bots, openBotChat, openSession, prompt, interrupt, respond,
+    bots, checkRoutineReplies, openBotChat, openSession, prompt, interrupt, respond,
     pendingAsks: () => [...asks.values()].map(ask => ({ ...ask })),
     listSessions, renameSession, markRead, deleteSession, watch, subscribe, offerMedia, mediaFile,
   });
 }
 
-module.exports = { createHermesAssistantService, BOT_CHAT_TITLE };
+module.exports = { createHermesAssistantService, BOT_CHAT_TITLE, ROUTINE_CHECK_MS };

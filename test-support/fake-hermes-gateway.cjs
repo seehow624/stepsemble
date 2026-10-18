@@ -115,7 +115,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
     rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
     bots: new Map(), avatars: new Map(), hubCatalog: defaultHub(), actions: new Map(), botCalls: [],
-    files: new Map(), downloads: [], sources: [],
+    files: new Map(), downloads: [], sources: [], messageReads: [],
     consoleCalls: [], gatewayRunning: true, config: defaultConfig(), env: { OPENAI_API_KEY: "sk-live-abcdef123456", TELEGRAM_BOT_TOKEN: "123:abc" },
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
@@ -538,6 +538,16 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
           && (row.title.toLowerCase().includes(q) || row.messages.some(item => String(item.text || "").toLowerCase().includes(q))));
         return send(200, { results: rows.map(row => ({ ...sessionRow(row), snippet: preview(row) })) }, rotated);
       }
+      const messagesMatch = /^\/api\/sessions\/([^/]+)\/messages$/.exec(url.pathname);
+      if (messagesMatch && req.method === "GET") {
+        const row = state.stored.get(decodeURIComponent(messagesMatch[1]));
+        const profile = url.searchParams.get("profile") || "default";
+        if (!row || row.profile !== profile) return send(404, { detail: "Session not found" }, rotated);
+        state.messageReads.push(row.id);
+        const limit = Math.min(Number(url.searchParams.get("limit") || 500), 500), first = Math.max(0, row.messages.length - limit);
+        const messages = row.messages.slice(first).map((item, index) => ({ id: first + index + 1, role: item.role, content: item.text, timestamp: item.at ?? row.startedAt }));
+        return send(200, { session_id: row.id, profile, messages, pagination: { limit, offset: 0, order: "latest", returned: messages.length } }, rotated);
+      }
       if (url.pathname === "/api/cron/delivery-targets" && req.method === "GET") {
         return send(200, { targets: [{ id: "local", name: "Local (save only)", home_target_set: true, home_env_var: null },
           { id: "telegram", name: "Telegram", home_target_set: true, home_env_var: "TELEGRAM_HOME_CHANNEL" }] }, rotated);
@@ -809,6 +819,18 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     },
     liveOf(storedId) { for (const [liveId, owner] of state.live) if (owner === storedId) return liveId; return null; },
     addSession(profile, title, options) { return newStored(profile, title, options); },
+    // Writes messages the way Hermes does for a turn that runs without the
+    // gateway, such as a routine delivered to a Bot Chat: no events, only the
+    // stored transcript and the session's last activity move.
+    appendMessages(storedId, rows) {
+      const row = state.stored.get(storedId);
+      for (const item of rows) {
+        const at = item.at ?? row.lastActive + 1;
+        row.messages.push({ role: item.role, text: item.text, at });
+        row.lastActive = Math.max(row.lastActive, at);
+      }
+      return row;
+    },
     addFile(path, data) { state.files.set(path, Buffer.from(data)); },
     addRoutine(profile, body) { const job = cronJob(profile, body); state.cron.push(job); return job; },
     storedSessions: () => [...state.stored.values()],
