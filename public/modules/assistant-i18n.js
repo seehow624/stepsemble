@@ -648,8 +648,23 @@
     "pt-BR": ["Tarefas agendadas e automáticas", "Nome, imagem, personalidade e habilidades"],
     "it": ["Attività pianificate e automatiche", "Nome, immagine, personalità e competenze"],
   };
+  // The viewer a picture, video or file opens in over the page.
+  const VIEWER_KEYS = ["viewerClose", "fileOpenTab"];
+  const viewerRows = {
+    "en": ["Close", "Open in a new tab"],
+    "zh-Hant": ["關閉", "在新分頁開啟"],
+    "zh-Hans": ["关闭", "在新标签页打开"],
+    "ja": ["閉じる", "新しいタブで開く"],
+    "ko": ["닫기", "새 탭에서 열기"],
+    "tr": ["Kapat", "Yeni sekmede aç"],
+    "fr": ["Fermer", "Ouvrir dans un nouvel onglet"],
+    "de": ["Schließen", "In neuem Tab öffnen"],
+    "es": ["Cerrar", "Abrir en una pestaña nueva"],
+    "pt-BR": ["Fechar", "Abrir em uma nova aba"],
+    "it": ["Chiudi", "Apri in una nuova scheda"],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows], [MENU_KEYS, menuRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows], [MENU_KEYS, menuRows], [VIEWER_KEYS, viewerRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

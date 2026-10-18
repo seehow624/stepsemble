@@ -17,6 +17,8 @@ export async function runAssistantMediaBrowserCases(browser, { screenshots } = {
         if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true }));
         localStorage.setItem("stepsemble.assistant.guide.v1", JSON.stringify({ signin: true, intro: true }));
         window.__fileShares = []; window.__shareAttempts = 0; window.__shareError = null; window.__canShareFiles = true;
+        // An app added to the home screen, as iOS reports one.
+        if (sessionStorage.getItem("test-home-screen")) Object.defineProperty(navigator, "standalone", { configurable: true, value: true });
         Object.defineProperty(navigator, "canShare", { configurable: true, value: data => window.__canShareFiles && data.files?.every(file => file instanceof File) });
         Object.defineProperty(navigator, "share", { configurable: true, value: sessionStorage.getItem("test-share-unavailable") ? undefined : async data => {
           window.__shareAttempts += 1;
@@ -73,10 +75,29 @@ export async function runAssistantMediaBrowserCases(browser, { screenshots } = {
         const imageBounds = await image.boundingBox(), toolbar = await photo.locator(".assistant-file-actions").boundingBox();
         assert.ok(toolbar.x >= imageBounds.x && toolbar.x + toolbar.width <= imageBounds.x + imageBounds.width + 1, "工具列對齊照片，不飄到對話右邊");
       }
-      const [fullImage] = await Promise.all([page.waitForEvent("popup"), photo.locator(".assistant-file-image").click()]);
-      await fullImage.waitForFunction(() => document.querySelector("img")?.naturalWidth > 0);
-      assert.deepEqual(await fullImage.locator("img").evaluate(node => [node.naturalWidth, node.naturalHeight]), imageLayout.natural, "點照片開啟完整原圖");
-      await fullImage.close();
+      // A photo opens in the viewer over the page, never in a page of its own:
+      // an app on the home screen has no way back from one.
+      let popups = 0;
+      const countPopup = () => { popups += 1; }, pageUrl = page.url();
+      page.on("popup", countPopup);
+      await photo.locator(".assistant-file-image").click();
+      const viewer = page.getByRole("dialog", { name: "photo.png", exact: true });
+      await viewer.waitFor();
+      await page.waitForFunction(() => document.querySelector(".assistant-viewer img")?.naturalWidth > 0);
+      assert.deepEqual(await viewer.locator("img").evaluate(node => [node.naturalWidth, node.naturalHeight]), imageLayout.natural, "點照片在檢視器裡看完整原圖");
+      assert.equal(await viewer.getByRole("button", { name: "Close", exact: true }).evaluate(node => node === document.activeElement), true, "檢視器打開時焦點在關閉");
+      assert.equal(await viewer.getByRole("link", { name: "Open in a new tab photo.png", exact: true }).getAttribute("target"), "_blank", "瀏覽器裡仍可在新分頁開原圖");
+      await page.keyboard.press("Escape");
+      await viewer.waitFor({ state: "detached" });
+      assert.equal(await photo.locator(".assistant-file-image").evaluate(node => node === document.activeElement), true, "關閉後焦點回到照片");
+      await photo.locator(".assistant-file-open").click();
+      await viewer.waitFor();
+      // A tap beside the picture closes it on a phone; Close does everywhere.
+      if (width < 900) await viewer.locator(".assistant-viewer-stage").click({ position: { x: 4, y: 4 } });
+      else await viewer.getByRole("button", { name: "Close", exact: true }).click();
+      await viewer.waitFor({ state: "detached" });
+      assert.equal(popups, 0, "照片不開新頁"); assert.equal(page.url(), pageUrl);
+      page.off("popup", countPopup);
       const [saved] = await Promise.all([page.waitForEvent("download"), photo.locator(".assistant-file-save").click()]);
       assert.equal(saved.suggestedFilename(), "photo.png");
       assert.equal(await pdf.locator(".assistant-file-name").textContent(), "report.pdf");
@@ -184,6 +205,37 @@ export async function runAssistantMediaBrowserCases(browser, { screenshots } = {
       assert.match(await unsupported.getAttribute("title"), /cannot share/);
       assert.equal(await page.evaluate(() => window.__shareAttempts), 0);
       if (width === 393) {
+        // In an app on the home screen a PDF or a text file opens in the
+        // viewer too, without a new-tab button that would leave the app.
+        await page.evaluate(() => sessionStorage.setItem("test-home-screen", "1"));
+        await page.reload();
+        await page.locator(".assistant-file-image img").first().waitFor();
+        // iOS would open a download inside the app with no way back: saving goes through the share sheet.
+        assert.equal(await page.locator(".assistant-file-save").count(), 0, "iPhone 主畫面 App 不放下載");
+        assert.equal(await page.locator(".assistant-reply .assistant-file-actions").evaluateAll(list => list.length > 0
+          && list.every(node => node.querySelectorAll(".assistant-file-share").length === 1)), true, "每個檔案都留分享");
+        let popups = 0;
+        const countPopup = () => { popups += 1; };
+        page.on("popup", countPopup);
+        for (const [kind, name] of [["pdf", "report.pdf"], ["text", "notes.md"]]) {
+          const open = page.locator(`.assistant-file[data-kind="${kind}"] .assistant-file-open`).first();
+          await open.click();
+          const viewer = page.getByRole("dialog", { name, exact: true });
+          if (kind === "pdf") await viewer.locator("iframe.assistant-viewer-media").waitFor();
+          else await viewer.locator("pre.assistant-viewer-media", { hasText: "plain text <b>not bold</b>" }).waitFor();
+          assert.equal(await viewer.locator(".assistant-viewer-actions .assistant-file-open").count(), 0, "主畫面 App 裡不放開新分頁");
+          await page.keyboard.press("Escape");
+          await viewer.waitFor({ state: "detached" });
+          assert.equal(await open.evaluate(node => node === document.activeElement), true);
+        }
+        await page.locator(".assistant-file-image").first().click();
+        await page.getByRole("dialog", { name: "photo.png", exact: true }).locator("img").waitFor();
+        assert.equal(await page.locator(".assistant-viewer .assistant-file-open").count(), 0);
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+        await page.locator(".assistant-viewer").waitFor({ state: "detached" });
+        assert.equal(popups, 0, "主畫面 App 裡不開任何新頁");
+        page.off("popup", countPopup);
+        await page.evaluate(() => sessionStorage.removeItem("test-home-screen"));
         await page.evaluate(() => { sessionStorage.removeItem("test-share-unavailable"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "zh-Hant", theme: "light", reducedMotion: true })); });
         await page.reload();
         await page.getByRole("button", { name: "分享 photo.png", exact: true }).waitFor();

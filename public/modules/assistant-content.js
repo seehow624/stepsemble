@@ -43,8 +43,103 @@
       link.setAttribute("aria-label", label); link.title = label;
       link.append(icon(name));
       if (download) link.setAttribute("download", file.name);
-      else { link.target = "_blank"; link.rel = "noopener noreferrer"; }
+      else {
+        link.target = "_blank"; link.rel = "noopener noreferrer";
+        link.addEventListener("click", event => { if (plainClick(event) && (VIEWED.has(file.kind) || homeScreen())) { event.preventDefault(); openViewer(file, link); } });
+      }
       return link;
+    }
+
+    // Pictures, videos and sound open in a viewer over the page, and so do PDFs
+    // and text in an app added to the home screen: a link away from the page
+    // would leave that app stuck on the file, as iOS shows it there without a
+    // browser bar or a way back. Close, Escape, a tap beside the picture or a
+    // swipe down return to the conversation.
+    const VIEWED = new Set(["image", "video", "audio"]);
+    let viewer = null;
+    const plainClick = event => event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+    function homeScreen() {
+      const app = win => win.navigator.standalone === true || ["standalone", "fullscreen", "minimal-ui"].some(mode => win.matchMedia?.(`(display-mode: ${mode})`).matches);
+      try { return app(view) || (view.top !== view && app(view.top)); } catch { return false; }
+    }
+    // iOS opens a download inside an app on its home screen too, with no way
+    // back; there the share sheet saves the file (Save Image, Save to Files).
+    function iosHomeScreen() {
+      try { return view.navigator.standalone === true || (view.top !== view && view.top.navigator.standalone === true); } catch { return false; }
+    }
+    function closeViewer() {
+      const open = viewer; if (!open) return;
+      viewer = null;
+      for (const player of open.layer.querySelectorAll("video, audio")) player.pause();
+      open.layer.remove();
+      doc.removeEventListener("keydown", open.keys, true);
+      for (const [item, inert] of open.covered) item.inert = inert;
+      doc.body.classList.remove("assistant-viewer-open");
+      if (open.trigger?.isConnected) open.trigger.focus({ preventScroll: true });
+    }
+    // file: a Bot's file ({ path, name, kind }) or a picture this page holds ({ src, name, kind }).
+    function openViewer(file, trigger = doc.activeElement) {
+      closeViewer();
+      const layer = node("div", `assistant-viewer ${file.kind}`), bar = node("div", "assistant-viewer-bar"), stage = node("div", "assistant-viewer-stage");
+      layer.setAttribute("role", "dialog"); layer.setAttribute("aria-modal", "true"); layer.setAttribute("aria-label", file.name);
+      const close = node("button", "assistant-viewer-close"); close.type = "button";
+      close.setAttribute("aria-label", t("viewerClose")); close.title = t("viewerClose"); close.append(icon("close"));
+      close.addEventListener("click", closeViewer);
+      bar.append(close, node("span", "assistant-viewer-name", file.name));
+      if (file.path) {
+        const actions = node("span", "assistant-file-actions assistant-viewer-actions");
+        // A browser has tabs to come back from; an app on the home screen has none.
+        if (!homeScreen()) {
+          const tab = node("a", "assistant-file-open"), label = `${t("fileOpenTab")} ${file.name}`;
+          tab.href = mediaUrl(file.path); tab.target = "_blank"; tab.rel = "noopener noreferrer";
+          tab.setAttribute("aria-label", label); tab.title = label; tab.append(icon("open"));
+          actions.append(tab);
+        }
+        if (!iosHomeScreen()) actions.append(action("assistant-file-save", file, "download", true));
+        actions.append(shareAction(file));
+        bar.append(actions);
+      }
+      const src = file.src || mediaUrl(file.path);
+      // Text is read and shown as it is; a PDF shows in the browser's own viewer.
+      const content = file.kind === "image" ? node("img") : VIEWED.has(file.kind) ? node(file.kind) : file.kind === "text" ? node("pre") : node("iframe");
+      content.className = "assistant-viewer-media";
+      if (file.kind === "image") content.alt = file.name;
+      else if (VIEWED.has(file.kind)) { content.controls = true; content.autoplay = true; content.playsInline = true; }
+      else if (file.kind === "text") {
+        content.tabIndex = 0;
+        view.fetch(mediaUrl(file.path, true), { credentials: "same-origin" })
+          .then(response => { if (!response.ok) throw new Error(String(response.status)); return response.text(); })
+          .then(text => { content.textContent = text; }, () => { content.textContent = t("fileUnavailable"); });
+      } else content.title = file.name;
+      if (file.kind !== "text") content.src = src;
+      stage.append(content); layer.append(bar, stage);
+      stage.addEventListener("click", event => { if (event.target === stage) closeViewer(); });
+      let start = null;
+      stage.addEventListener("touchstart", event => {
+        const touch = event.touches[0], zoomed = (view.visualViewport?.scale || 1) > 1.01;
+        start = event.touches.length === 1 && !zoomed ? { x: touch.clientX, y: touch.clientY } : null;
+      }, { passive: true });
+      stage.addEventListener("touchend", event => {
+        const touch = event.changedTouches[0], from = start; start = null;
+        if (from && touch && touch.clientY - from.y > 90 && Math.abs(touch.clientX - from.x) < (touch.clientY - from.y) / 2) closeViewer();
+      }, { passive: true });
+      const covered = new Map();
+      for (const item of doc.body.children) { covered.set(item, item.inert); item.inert = true; }
+      const keys = event => {
+        if (viewer?.layer !== layer) return;
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeViewer(); }
+        if (event.key === "Tab") {
+          const focusable = [...layer.querySelectorAll("button:not([disabled]), a[href], video, audio, iframe, pre")].filter(item => item.getClientRects().length);
+          const first = focusable[0], last = focusable.at(-1);
+          if (!layer.contains(doc.activeElement)) { event.preventDefault(); first?.focus(); }
+          else if (event.shiftKey && doc.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && doc.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }
+      };
+      doc.addEventListener("keydown", keys, true);
+      doc.body.append(layer); doc.body.classList.add("assistant-viewer-open");
+      viewer = { layer, covered, keys, trigger };
+      close.focus({ preventScroll: true });
     }
     function shareAction(file) {
       const button = node("button", "assistant-file-share"), nav = view.navigator;
@@ -87,7 +182,8 @@
     function fileActions(file, open) {
       const actions = node("span", "assistant-file-actions");
       if (open) actions.append(action("assistant-file-open", file, "open", false));
-      actions.append(action("assistant-file-save", file, "download", true), shareAction(file));
+      if (!iosHomeScreen()) actions.append(action("assistant-file-save", file, "download", true));
+      actions.append(shareAction(file));
       return actions;
     }
     function fileCard(file, { unavailable = false, open = ["pdf", "text", "video", "audio"].includes(file.kind) } = {}) {
@@ -109,6 +205,7 @@
         figure.dataset.kind = file.kind;
         link.href = mediaUrl(file.path); link.target = "_blank"; link.rel = "noopener noreferrer";
         link.setAttribute("aria-label", `${t("fileOpen")} ${file.name}`);
+        link.addEventListener("click", event => { if (plainClick(event)) { event.preventDefault(); openViewer(file, link); } });
         const image = node("img");
         image.alt = file.name; image.loading = "lazy"; image.decoding = "async";
         image.addEventListener("error", () => figure.replaceWith(fileCard(file, { unavailable: true })), { once: true });
@@ -144,7 +241,7 @@
       const found = media.extract(text, { partial: true });
       return found.text || found.files.map(file => file.name).join(", ");
     }
-    return Object.freeze({ markdown, plain });
+    return Object.freeze({ markdown, plain, view: openViewer, closeViewer });
   }
   root.StepsembleAssistantContent = Object.freeze({ create });
 })(window);

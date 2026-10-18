@@ -284,7 +284,7 @@
   }
   async function applyRoute(route, { force = false } = {}) {
     const revision = ++routeRevision;
-    remember(); closePanel(route.page === "bot");
+    remember(); content.closeViewer(); closePanel(route.page === "bot");
     if (route.machine && route.machine !== machine?.id) {
       const next = machines.find(row => row.id === route.machine);
       if (next) await start(next); else go({ page: "home", machine: machine.id });
@@ -517,7 +517,10 @@
       const pictures = item.attachments.filter(entry => entry?.src), files = item.attachments.filter(entry => !entry?.src);
       if (pictures.length) {
         const album = el("div", `assistant-album${pictures.length === 1 ? " single" : ""}`);
-        for (const picture of pictures) { const image = el("img"); image.src = picture.src; image.alt = picture.name; album.append(image); }
+        for (const picture of pictures) {
+          const open = button("", "assistant-album-item", () => content.view({ kind: "image", name: picture.name, src: picture.src }, open)), image = el("img");
+          open.setAttribute("aria-label", `${t("fileOpen")} ${picture.name}`); image.src = picture.src; image.alt = ""; open.append(image); album.append(open);
+        }
         node.append(album);
       }
       if (item.text || files.length) {

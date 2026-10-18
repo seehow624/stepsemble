@@ -119,6 +119,12 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await input.fill("read these");
       await send();
       await page.locator(".assistant-msg.assistant", { hasText: "Echo: read these" }).waitFor();
+      // A picture sent from this page opens in the viewer as well.
+      await page.locator(".assistant-msg.user .assistant-album-item").first().click();
+      const sentPicture = page.getByRole("dialog", { name: /^pasted-\d{8}-\d{6}\.png$/ });
+      await sentPicture.waitFor();
+      await page.keyboard.press("Escape");
+      await sentPicture.waitFor({ state: "detached" });
       await page.locator(".assistant-stop").waitFor({ state: "hidden" });
       assert.deepEqual(preview.fake.state.attachments.map(item => [item.kind, item.name.replace(/\d{8}-\d{6}/, "<time>")]),
         [["image", "pasted-<time>.png"], ["file", "report.pdf"]]);
