@@ -633,8 +633,23 @@
     "pt-BR": ["Abrir", "Baixar", "Este arquivo não está mais disponível.", "Compartilhar", "Este navegador não pode compartilhar este arquivo diretamente. Use o ícone de download.", "Não foi possível compartilhar o arquivo. Tente de novo ou use o ícone de download.", "Arquivo pronto. Toque no ícone de compartilhar novamente."],
     "it": ["Apri", "Scarica", "Questo file non è più disponibile.", "Condividi", "Questo browser non può condividere il file direttamente. Usa l’icona di download.", "Impossibile condividere il file. Riprova o usa l’icona di download.", "File pronto. Tocca di nuovo l’icona di condivisione."],
   };
+  // The More options menu says what each page holds.
+  const MENU_KEYS = ["routinesHint", "settingsHint"];
+  const menuRows = {
+    "en": ["Scheduled and automatic work", "Name, picture, personality and skills"],
+    "zh-Hant": ["排程與自動執行的工作", "名稱、頭像、個性與技能"],
+    "zh-Hans": ["排程与自动执行的工作", "名称、头像、个性与技能"],
+    "ja": ["スケジュールと自動実行の作業", "名前、アイコン、性格、スキル"],
+    "ko": ["예약 및 자동 실행 작업", "이름, 사진, 성격, 기술"],
+    "tr": ["Zamanlanmış ve otomatik işler", "Ad, resim, kişilik ve beceriler"],
+    "fr": ["Tâches planifiées et automatiques", "Nom, image, personnalité et compétences"],
+    "de": ["Geplante und automatische Aufgaben", "Name, Bild, Persönlichkeit und Fähigkeiten"],
+    "es": ["Tareas programadas y automáticas", "Nombre, imagen, personalidad y habilidades"],
+    "pt-BR": ["Tarefas agendadas e automáticas", "Nome, imagem, personalidade e habilidades"],
+    "it": ["Attività pianificate e automatiche", "Nome, immagine, personalità e competenze"],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows], [MENU_KEYS, menuRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };
