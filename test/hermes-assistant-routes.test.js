@@ -6,6 +6,7 @@ const { once } = require("node:events");
 const { createHttpUtils } = require("../server/http-utils");
 const { createHermesAssistantRoutes } = require("../server/hermes-assistant-routes");
 const { HermesError } = require("../server/hermes-gateway-client");
+const { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } = require("../server/hermes-assistant-service");
 
 async function serve(t, service, routines = null, groups = null) {
   const { readJSON, sendJSON, sseFrame, trySseWrite } = createHttpUtils();
@@ -48,6 +49,16 @@ test("routes call the service and turn its errors into codes the page can read",
   assert.equal((await fetch(base + "/api/assistant/nope")).status, 404);
   assert.deepEqual(calls, [["login", "jerome", 6], ["bot-chat", "default"], ["prompt", "st-1", "hi"],
     ["respond", "srq-1", { value: "x" }], ["sessions", "default", "milk", "30"], ["watch", "client-1234", "st-1"]]);
+});
+
+test("a message carrying as many full-size attachments as the service accepts reaches it", async t => {
+  let received = null;
+  const base = await serve(t, { prompt: async body => { received = body; return { ok: true }; } });
+  const data = "A".repeat(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4);
+  const attachments = Array.from({ length: MAX_ATTACHMENTS }, (_, index) => ({ kind: "file", name: `scan-${index}.pdf`, mime: "application/pdf", data }));
+  assert.equal((await post(base, "/api/assistant/prompt", { sessionId: "st-1", text: "讀這些".repeat(1000), attachments })).status, 202);
+  assert.equal(received.attachments.length, MAX_ATTACHMENTS);
+  assert.ok(received.attachments.every(item => item.data.length === data.length));
 });
 
 test("the event stream replays after the cursor and follows new events", async t => {

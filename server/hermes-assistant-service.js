@@ -553,4 +553,4 @@ function createHermesAssistantService({ client, installed = () => false, notify 
   });
 }
 
-module.exports = { createHermesAssistantService, BOT_CHAT_TITLE, ROUTINE_CHECK_MS };
+module.exports = { createHermesAssistantService, BOT_CHAT_TITLE, ROUTINE_CHECK_MS, MAX_TEXT, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES };

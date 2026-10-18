@@ -7,6 +7,7 @@
 
 const { Readable, Transform, pipeline } = require("node:stream");
 const Media = require("../public/modules/assistant-media");
+const { MAX_TEXT, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } = require("./hermes-assistant-service");
 
 const SANDBOX = "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox";
 const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
@@ -26,7 +27,10 @@ function escapedText() {
     flush(done) { done(null, "</pre></body></html>\n"); },
   });
 }
-const SMALL = 64 * 1024, LOGIN = 8 * 1024, PROMPT = 16 * 1024 * 1024, AVATAR = 4 * 1024 * 1024, SKILL = 1024 * 1024;
+const SMALL = 64 * 1024, LOGIN = 8 * 1024, AVATAR = 4 * 1024 * 1024, SKILL = 1024 * 1024;
+// A message holds as many attachments as the service accepts, each in base64,
+// plus its text even if every character is escaped.
+const PROMPT = MAX_ATTACHMENTS * Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 6 * MAX_TEXT + 64 * 1024;
 
 function createHermesAssistantRoutes({ service, routines, groups, bots, skills, console: hermesConsole, readJSON, sendJSON, sseFrame, trySseWrite }) {
   function fail(res, error) {

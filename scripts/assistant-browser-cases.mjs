@@ -5,9 +5,10 @@ import { pathToFileURL } from "node:url";
 import { createAssistantPreview } from "./assistant-preview.mjs";
 
 // The assistant page end to end against a fake Hermes: the Stepsemble sign-in
-// round trip, Hermes sign-in, a streamed Bot Chat reply, the roster, an
-// approval, a sudo question whose value never stays in the page, older
-// Telegram conversations, routines, a group chat, and creating, editing
+// round trip, Hermes sign-in, a streamed Bot Chat reply, a pasted screenshot
+// and file sent with a message, the roster, an approval, a sudo question
+// whose value never stays in the page, older Telegram conversations,
+// routines, a group chat, and creating, editing
 // and deleting a Bot with its skills, and the Hermes console reached from
 // Settings. Phone and desktop widths.
 export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
@@ -99,6 +100,28 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.locator(".assistant-msg.assistant", { hasText: "Echo: plan my day" }).waitFor();
       await page.locator(".assistant-stop").waitFor({ state: "hidden" });
       await shot("chat");
+
+      stage = "paste a screenshot and a file";
+      const paste = (files, text = "") => input.evaluate((node, clip) => {
+        const data = new DataTransfer();
+        for (const file of clip.files) data.items.add(new File([new Uint8Array(file.bytes)], file.name, { type: file.type }));
+        if (clip.text) data.setData("text/plain", clip.text);
+        node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      }, { files, text });
+      const png = { name: "image.png", type: "image/png", bytes: [137, 80, 78, 71, 13, 10, 26, 10] };
+      const chips = page.locator(".assistant-attachments .assistant-chip");
+      await paste([png]);
+      await chips.filter({ hasText: /^pasted-\d{8}-\d{6}\.png/ }).waitFor();
+      await paste([png], "Revenue\t42");
+      await paste([{ name: "report.pdf", type: "application/pdf", bytes: [37, 80, 68, 70, 45] }], "report.pdf");
+      await chips.filter({ hasText: "report.pdf" }).waitFor();
+      assert.equal(await chips.count(), 2, "a spreadsheet's picture beside its text stays a text paste");
+      await input.fill("read these");
+      await send();
+      await page.locator(".assistant-msg.assistant", { hasText: "Echo: read these" }).waitFor();
+      await page.locator(".assistant-stop").waitFor({ state: "hidden" });
+      assert.deepEqual(preview.fake.state.attachments.map(item => [item.kind, item.name.replace(/\d{8}-\d{6}/, "<time>")]),
+        [["image", "pasted-<time>.png"], ["file", "report.pdf"]]);
 
       stage = "roster";
       assert.equal(await page.locator(".assistant-list").isVisible(), wide, "the list stays beside the conversation only on a wide screen");
