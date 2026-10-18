@@ -20,9 +20,10 @@ test("authenticated Host Goals complete across Pi, Claude and ACP without a brow
       const m=p.match(/^\/session\/(s\d+)(?:\/(message|prompt_async|abort))?$/),session=m&&sessions.get(m[1]);
       if(session){
         if(!m[2])return json(session.info);
-        if(m[2]==="message")return json(session.messages);
-        if(m[2]==="abort"){session.busy=false;return json(true);}
+        if(m[2]==="message"){if(session.readsUntilBusy&&!--session.readsUntilBusy)session.busy=true;return json(session.messages);}
+        if(m[2]==="abort"){session.aborts=(session.aborts||0)+1;session.busy=false;return json(true);}
         if(m[2]==="prompt_async"){
+          if(session.rejectNext){session.rejectNext=false;session.busy=true;session.rejectAdmission=()=>{res.statusCode=409;json({error:"session_busy"});};return;}
           const prompt=body.parts.map(p=>p.text||"").join("\n"),marker=prompt.match(/\[\[STEPSEMBLE_GOAL:[a-f0-9-]+:complete\]\]/)?.[0];
           const text=session.messages.length?"Verified.\n"+marker:"First part done";
           session.messages.push({info:{id:"m"+session.messages.length,sessionID:m[1],role:"assistant",time:{created:Date.now(),completed:Date.now()},tokens:{output:120}},parts:[{type:"text",text}]});
@@ -45,6 +46,32 @@ test("authenticated Host Goals complete across Pi, Claude and ACP without a brow
   let piEntry;
   for(const agentId of ["pi","claude-code","omp","hermes","kilo","cline","grok-build","opencode"]){
     const created=await json("/api/workflows",{...config,agentId});const done=await until(created.id,["completed","failed","limited"]);assert.equal(done.status,"completed",agentId+JSON.stringify(done));assert.equal(done.turns,2,agentId);assert(done.entry);if(agentId==="pi")piEntry=done.entry;assert(!done.result.includes("STEPSEMBLE_GOAL"));
+    const original=(await json("/api/workspace/entry?key="+done.entry)).record;
+    const bound=await json("/api/workflows",{...config,kind:"schedule",agentId,mode:"task",objective:"Continue the original conversation",targetEntry:done.entry,choice:{model:"missing"},permission:"no-such-mode",schedule:{kind:"interval",minutes:10080}});
+    const native=agentId==="opencode"?sessions.get(original.nativeSessionId):null;
+    if(native){
+      for(let i=0;i<100&&(await json("/api/turn-rates?entry="+done.entry)).active;i++)await sleep(20);
+      assert.equal((await json("/api/turn-rates?entry="+done.entry)).active,null);
+      native.readsUntilBusy=2; // Native work races in during the rate meter's second baseline read.
+    }
+    const resumed=await json("/api/workflows",{id:bound.id,action:"run"});
+    if(native){
+      await sleep(150);const raced=(await json("/api/workflows")).runs.find(r=>r.id===resumed.id);
+      assert.equal(raced.status,"queued");assert.equal(raced.turns,0);assert.equal(raced.elapsedMs,0);assert.equal(raced.retries,undefined);
+      assert.equal(native.messages.length,2,"no prompt interleaves with native work at the send boundary");native.busy=false;
+    }
+    const continued=await until(resumed.id,["completed","failed"]);
+    assert.equal(continued.status,"completed",agentId+JSON.stringify(continued));assert.equal(continued.entry,done.entry,agentId);
+    assert.equal((await json("/api/workspace/entry?key="+done.entry)).record.name,original.name,agentId+" name is retained");
+    if(native){
+      // A Stop while the native server is deciding admission cannot abort an
+      // unrelated turn when the pending scheduled send is then refused.
+      native.rejectNext=true;const rejected=await json("/api/workflows",{id:bound.id,action:"run"});
+      for(let i=0;i<100&&!native.rejectAdmission;i++)await sleep(20);assert(native.rejectAdmission);
+      const stopping=json("/api/workflows",{id:rejected.id,action:"stop"});await sleep(50);
+      assert.equal(native.aborts||0,0);native.rejectAdmission();await stopping;await until(rejected.id,["stopped"]);
+      assert.equal(native.aborts||0,0);assert.equal(native.busy,true,"another native turn was not interrupted");native.busy=false;
+    }
   }
   // /goal sends only its existing entry; the Host resolves agent and folder.
   const inline=require("../public/modules/goal-composer.js").createRequest({entry:piEntry,text:"/goal Verify the current conversation",limits:{minutes:1,turns:3,outputTokens:1000},requestId:require("node:crypto").randomUUID()});

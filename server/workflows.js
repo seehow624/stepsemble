@@ -41,6 +41,11 @@ function permission(value) {
   if (typeof value !== "string" || !PERMISSION.test(value)) throw invalid("Invalid permission mode");
   return value;
 }
+function targetEntry(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || !/^[a-f0-9-]{36}$/.test(value)) throw invalid("Invalid target conversation");
+  return value;
+}
 function definition(body) {
   const agentId = text(body.agentId, 32, "agent");
   if (!AGENTS.includes(agentId)) throw invalid("This agent does not support background Goals");
@@ -49,7 +54,7 @@ function definition(body) {
     limits: { minutes: integer(body.limits?.minutes, 60, 1, 1440), turns: integer(body.limits?.turns, 20, 1, 100),
       outputTokens: integer(body.limits?.outputTokens, 100000, 100, 10000000),
       approvalMinutes: integer(body.limits?.approvalMinutes, 30, 1, 1440) },
-    choice: choice(body.choice), permission: permission(body.permission) };
+    choice: choice(body.choice), permission: permission(body.permission), targetEntry: targetEntry(body.targetEntry) };
 }
 // Usage limits are checked first: their messages often also mention a rate.
 function failureKind(message) {
@@ -146,7 +151,7 @@ function progressHash(run, value) {
 }
 function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep = defaultSleep, onError = () => {}, onFinished = () => {} }) {
   let state = { version: 1, schedules: [], runs: [] }, healthy = true, closed = false, ticking = false;
-  const inflight = new Map();
+  const inflight = new Map(), preparations = new WeakMap();
   try {
     const stat = fs.statSync(file); if (stat.size > 16 * 1024 * 1024) throw new Error("Workflow state too large");
     const saved = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -166,7 +171,7 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     }
     // Tasks saved before approval limits and pinned choices take the defaults.
     for (const row of [...saved.runs,...saved.schedules]) {
-      row.limits.approvalMinutes ??= 30; row.choice ??= null; row.permission ??= null;
+      row.limits.approvalMinutes ??= 30; row.choice ??= null; row.permission ??= null; row.targetEntry ??= null;
     }
     state = saved;
   } catch (error) { if (error.code !== "ENOENT") { healthy = false; onError(error); } }
@@ -211,7 +216,7 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
   }
   function makeRun(input, scheduleId = null) {
     trim(); const config = definition(input);
-    const run = { ...config, id: randomUUID(), nonce: randomUUID(), scheduleId, requestId: scheduleId ? null : input.requestId || null, entry: input.entry || null, record: null,
+    const run = { ...config, id: randomUUID(), nonce: randomUUID(), scheduleId, requestId: scheduleId ? null : input.requestId || null, entry: config.targetEntry || input.entry || null, record: null,
       status: "queued", activity: "queued", createdAt: now(), updatedAt: now(), startedAt: null, endedAt: null,
       resumedAt: null, elapsedMs: 0, turns: 0, outputTokens: 0, result: "", error: null };
     state.runs.push(run); return run;
@@ -226,21 +231,25 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     if (run.status === "paused") return "paused";
     return run.status === "blocked" || run.status === "interrupted" ? "attention" : null;
   }
-  function locked(entry) { return !!entry && state.runs.some(r => r.entry === entry && (ACTIVE.has(r.status) || r.status === "queued" || r.status === "stopping")); }
+  // A scheduled target waiting for idle must not reserve the user's conversation.
+  function locked(entry, exceptId = null) { return !!entry && state.runs.some(r => r.id !== exceptId && r.entry === entry && (ACTIVE.has(r.status) || r.status === "queued" && !r.targetEntry || r.status === "stopping")); }
+  function targetBusy(entry, exceptId = null) {
+    return locked(entry, exceptId) || state.runs.some(r => r.id !== exceptId && r.entry === entry && r.mode === "goal" && RESUMABLE.has(r.status));
+  }
   function limit(run) { return elapsed(run) >= run.limits.minutes * 60000 || run.turns >= run.limits.turns || run.outputTokens >= run.limits.outputTokens; }
   function projectBusy(run) {
     return state.runs.some(other => other !== run && (inflight.has(other.id) || ACTIVE.has(other.status) || other.status === "stopping") && sameProject(other.cwd, run.cwd));
   }
   function launch(run) {
-    if (inflight.has(run.id) || closed || !healthy) return;
-    run.startedAt ??= now(); run.resumedAt = now(); run.endedAt = null; run.notBefore = null; run.retryAt = null; run.waitingSince = null; run.error = null;
+    if (run.status !== "queued" || inflight.has(run.id) || closed || !healthy) return;
+    run.startedAt ??= now(); run.resumedAt = run.targetEntry ? null : now(); run.endedAt = null; run.notBefore = null; run.retryAt = null; run.waitingSince = null; run.error = null;
     run.stopStatus = null; run.stopReason = null; run.status = "starting"; run.activity = "starting"; run.updatedAt = now(); save();
     const controller = new AbortController(); inflight.set(run.id, controller); bridge.reserve?.(true);
     const live = () => !controller.signal.aborted && healthy && !closed;
     void (async () => {
       try {
         while (live()) {
-          let counted = false;
+          let counted = false, attemptElapsed = elapsed(run);
           try {
             const target = await bridge.open(run, controller.signal);
             run.entry = target.entry; run.record = target.record; save();
@@ -248,6 +257,7 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
             while (live()) {
               if (limit(run)) { finish(run, "limited", "Task limit reached"); return; }
               const prompt = run.mode === "goal" ? goalPrompt(run) : run.objective;
+              if (run.targetEntry) { run.resumedAt ??= now(); }
               run.turnStartedAt = now(); run.turns++; counted = true; run.status = "running"; run.activity = "thinking"; run.updatedAt = now(); save();
               const result = await bridge.turn(run, run.retrying ? `${RETRY_NOTE}\n\n${prompt}` : prompt, controller.signal, activity => {
                 if (!ACTIVE.has(run.status)) return;
@@ -274,12 +284,17 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
               save();
               // Yield so pause/stop and provider idle settlement win before continuation.
               await new Promise(resolve => setTimeout(resolve, 1000));
+              attemptElapsed = elapsed(run);
             }
           } catch (error) {
             if (!live()) return;
             const message = String(error.message || error).slice(0, 2000), kind = failureKind(message);
             // A turn that failed before doing work is not charged against the turn limit.
             const uncount = () => { if (counted) run.turns = Math.max(0, run.turns - 1); counted = false; };
+            if (run.targetEntry && error.code === "workflow_target_busy") {
+              uncount(); run.elapsedMs = attemptElapsed; run.resumedAt = null; run.turnStartedAt = null;
+              run.status = "queued"; run.activity = "conversation_busy"; run.error = null; save(); return;
+            }
             if (kind === "transient" && (run.retries || 0) < RETRY_DELAYS.length) {
               const delay = RETRY_DELAYS[run.retries || 0];
               uncount(); run.retries = (run.retries || 0) + 1; run.retrying = true; holdClock(run);
@@ -310,6 +325,7 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     })().catch(onError);
   }
   async function stop(run, status, reason = null) {
+    preparations.delete(run);
     if (run.status === "stopping" && !run.error) throw invalid("Task is still stopping", 409);
     const controller = inflight.get(run.id);
     if (!controller) { finish(run, status, reason); return; }
@@ -348,6 +364,18 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
         if (run.notBefore && run.notBefore > now()) continue;
         // Two runs never edit the same project at once.
         if (projectBusy(run)) { if (run.activity !== "project_busy") { run.activity = "project_busy"; save(); } continue; }
+        if (run.targetEntry) {
+          // Pause/Stop invalidates this admission even if Resume queues the
+          // same run again before its native preparation has returned.
+          const admission = {}; preparations.set(run, admission);
+          const current = () => preparations.get(run) === admission && run.status === "queued" && !closed && healthy;
+          try {
+            const busy = targetBusy(run.targetEntry, run.id) || await bridge.prepare?.(run) === false;
+            if (!current()) continue;
+            if (busy) { if (run.activity !== "conversation_busy") { run.activity = "conversation_busy"; save(); } continue; }
+          } catch (error) { if (current()) finish(run, "failed", String(error.message || error)); continue; }
+          finally { if (preparations.get(run) === admission) preparations.delete(run); }
+        }
         launch(run);
       }
     } catch (error) { onError(error); }
@@ -377,7 +405,7 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
       if (body.action === "pause") schedule.enabled = false;
       else if (body.action === "resume") { schedule.nextAt = nextOccurrence(schedule.schedule, now(), schedule.lastAt); if (!schedule.nextAt) throw invalid("Choose a new time for this one-time schedule"); schedule.enabled = true; }
       else if (body.action === "edit") {
-        const config = definition(body), spec = scheduleSpec(body.schedule, now());
+        const config = definition({ ...body, targetEntry: body.targetEntry === undefined ? schedule.targetEntry : body.targetEntry }), spec = scheduleSpec(body.schedule, now());
         Object.assign(schedule, config, { schedule: spec, nextAt: nextOccurrence(spec, now()), enabled: body.enabled !== false });
       } else if (body.action === "delete") { state.schedules.splice(state.schedules.indexOf(schedule), 1); }
       else throw invalid("Unknown schedule action");
@@ -396,6 +424,6 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     return summary(run);
   }
   const timer = autoStart ? setInterval(() => void tick(), 1000) : null; timer?.unref?.();
-  return { list, create, action, tick, locked, goalState, close() { closed = true; clearInterval(timer); }, healthy: () => healthy };
+  return { list, create, action, tick, locked, targetBusy, goalState, close() { closed = true; clearInterval(timer); }, healthy: () => healthy };
 }
 module.exports = { createWorkflows, scheduleSpec, nextOccurrence, definition, goalPrompt, outcome, failureKind, retryDelay, sameProject, AGENTS };

@@ -183,13 +183,15 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     }
     return run.meter.endedAt === null;
   }
-  async function sendOpenCode(adapter, id, message, options) {
-    if (options.noReply || get("opencode", id)?.meter.endedAt === null) return adapter.sendMessage(id, message, options);
+  async function sendOpenCode(adapter, id, message, options, beforeSend) {
+    if (options.noReply || get("opencode", id)?.meter.endedAt === null) { await beforeSend?.(); return adapter.sendMessage(id, message, options); }
     // The baseline excludes prior replies, even when the new reply finishes
     // between two snapshots. A failed baseline must not block sending work.
     let baseline;
     try { baseline = await adapter.messages(id, { directory: options.directory }); }
-    catch { return adapter.sendMessage(id, message, options); }
+    catch { await beforeSend?.(); return adapter.sendMessage(id, message, options); }
+    // Admission must be checked after the asynchronous history read too.
+    await beforeSend?.();
     const run = start("opencode", id);
     try { onEvent("opencode", id, { type: "rate.turn.started", runId: run.runId }); } catch {}
     run.knownReplies = new Set(baseline.messages.map(row => (row.info || row).id));

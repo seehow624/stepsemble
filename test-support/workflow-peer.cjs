@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 "use strict";
 // Deterministic local protocol peer, never a model or a credential consumer.
-const { randomUUID } = require("node:crypto");
-const mode = process.env.STEPSEMBLE_WORKFLOW_PEER || "pi", sid = randomUUID();
+const { randomUUID } = require("node:crypto"), fs = require("node:fs"), path = require("node:path");
+const mode = process.env.STEPSEMBLE_WORKFLOW_PEER || "pi";
+const resumeFile = mode === "pi" && process.argv.includes("--session") ? process.argv[process.argv.indexOf("--session") + 1] : null;
+const saved = resumeFile ? fs.readFileSync(resumeFile, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+const claudeResume = mode === "claude" && process.argv.includes("--resume") ? process.argv[process.argv.indexOf("--resume") + 1] : null;
+const sid = claudeResume || saved.find(row => row.type === "session")?.id || randomUUID();
 if (process.argv.includes("--version")) { console.log("2.1.294"); process.exit(0); }
 const emit = e => process.stdout.write(JSON.stringify(e)+"\n");
 // Optional record of the commands this peer received, for Host assertions.
 const log = c => { if (process.env.STEPSEMBLE_WORKFLOW_PEER_LOG) require("node:fs").appendFileSync(process.env.STEPSEMBLE_WORKFLOW_PEER_LOG, JSON.stringify({ mode, command: c })+"\n"); };
-let running = false, timeout, turns=0, piPending=null, acpPending=null;
+log({ type: "peer_start", args: process.argv.slice(2) });
+let running = false, timeout, turns=0, piPending=[], acpPending=null;
 const answer = prompt => {
   turns++;
   const marker = prompt.match(/\[\[STEPSEMBLE_GOAL:[a-f0-9-]+:complete\]\]/)?.[0];
@@ -15,28 +20,36 @@ const answer = prompt => {
 };
 // With STEPSEMBLE_WORKFLOW_PEER_SESSIONS the peer keeps a Pi-format session
 // file there and reports it in get_state, as Pi does.
-const sessionFile = process.env.STEPSEMBLE_WORKFLOW_PEER_SESSIONS ? require("node:path").join(process.env.STEPSEMBLE_WORKFLOW_PEER_SESSIONS, `peer-${sid}.jsonl`) : null;
+const sessionFile = mode === "pi" ? resumeFile || (process.env.STEPSEMBLE_WORKFLOW_PEER_SESSIONS ? path.join(process.env.STEPSEMBLE_WORKFLOW_PEER_SESSIONS, `peer-${sid}.jsonl`) : null) : null;
 // Each message names the one before it, so the file reads as Pi's branch.
-let lastEntry = null;
+let lastEntry = saved.filter(row => row.type === "message").at(-1)?.id || null;
 const record = entry => { if (!sessionFile) return; if (entry.type === "message") { entry = { ...entry, parentId: lastEntry }; lastEntry = entry.id; }
   require("node:fs").mkdirSync(require("node:path").dirname(sessionFile), { recursive: true }); require("node:fs").appendFileSync(sessionFile, JSON.stringify(entry)+"\n"); };
-if (sessionFile) record({ type: "session", id: sid, timestamp: new Date().toISOString(), cwd: process.cwd() });
+if (sessionFile && !resumeFile) record({ type: "session", id: sid, timestamp: new Date().toISOString(), cwd: process.cwd() });
+const claudeFile = mode === "claude" && process.env.STEPSEMBLE_WORKFLOW_PEER_SESSIONS
+  ? path.join(process.env.HOME, ".claude", "projects", process.cwd().replace(/[^A-Za-z0-9]/g, "-"), sid + ".jsonl") : null;
+function recordClaude(row) {
+  if (!claudeFile) return;
+  fs.mkdirSync(path.dirname(claudeFile), { recursive: true }); fs.appendFileSync(claudeFile, JSON.stringify(row) + "\n");
+}
 function piEnd(reply) {
   running=false; const message={role:"assistant",content:[{type:"text",text:reply}],usage:{output:120},stopReason:"stop"};
   record({ type: "message", id: randomUUID(), timestamp: new Date().toISOString(), message });
   emit({type:"message_end",message});emit({type:"agent_end",messages:[message]});emit({type:"agent_settled"});
+  const next=piPending.shift();if(next){running=true;emit({type:"agent_start"});timeout=setTimeout(()=>piEnd(answer(next)),next.includes("SLOW")?10000:100);}
 }
 require("node:readline").createInterface({input:process.stdin}).on("line",line=>{
   let c;try{c=JSON.parse(line);}catch{return;}
   log(c);
   if(mode==="pi") {
     const reply=data=>emit({type:"response",command:c.type,id:c.id,success:true,data:data||{}});
-    if(c.type==="get_state"){reply({isStreaming:running,isCompacting:false,pendingMessageCount:0,...(sessionFile?{sessionFile}:{})});return;}
+    if(c.type==="get_state"){reply({isStreaming:running,isCompacting:false,pendingMessageCount:piPending.length,...(sessionFile?{sessionFile}:{})});return;}
     if(c.type==="prompt")record({ type: "message", id: randomUUID(), timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: String(c.message || "") }] } });
     if(c.type==="get_available_models"){reply({models:[]});return;}
-    if(c.type==="abort"){clearTimeout(timeout);piEnd("Interrupted");reply();return;}
+    if(c.type==="abort"){clearTimeout(timeout);piPending=[];piEnd("Interrupted");reply();return;}
     if(c.type==="compact") {running=true;emit({type:"compaction_start"});timeout=setTimeout(()=>{running=false;reply({tokensBefore:3000,estimatedTokensAfter:1000});emit({type:"compaction_end",result:{tokensBefore:3000,estimatedTokensAfter:1000}});},String(c.customInstructions||"").includes("SLOW")?800:10);return;}
     if(c.type==="set_model"&&c.modelId==="missing"){emit({type:"response",command:c.type,id:c.id,success:false,error:"Model not found"});return;}
+    if(c.type==="prompt"&&running&&c.streamingBehavior==="followUp"){piPending.push(c.message);reply();return;}
     // SUBAGENT: pi-subagents progress for two children, as the extension reports it.
     if(c.type==="prompt"&&c.message.includes("SUBAGENT")) {
       running=true;emit({type:"agent_start"});reply();const call="sub-"+turns, args={tasks:[{agent:"scout",task:"Map the auth flow"},{agent:"reviewer",task:"Review the patch"}]};
@@ -63,9 +76,9 @@ require("node:readline").createInterface({input:process.stdin}).on("line",line=>
   if(mode==="claude") {
     const out=e=>emit({session_id:sid,...e});
     const control=response=>out({type:"control_response",response:{subtype:"success",request_id:c.request_id,response:response||{}}});
-    const finish=text=>{out({type:"assistant",message:{id:randomUUID(),role:"assistant",model:"fixture",content:[{type:"text",text}],usage:{input_tokens:5,output_tokens:120}}});out({type:"result",subtype:"success",result:text,usage:{output_tokens:120}});};
+    const finish=text=>{recordClaude({type:"assistant",message:{role:"assistant",model:"fixture",content:[{type:"text",text}]}});out({type:"assistant",message:{id:randomUUID(),role:"assistant",model:"fixture",content:[{type:"text",text}],usage:{input_tokens:5,output_tokens:120}}});out({type:"result",subtype:"success",result:text,usage:{output_tokens:120}});};
     if(c.type==="control_request"){if(c.request?.subtype==="initialize")control({models:[{value:"fixture",displayName:"Fixture"}],model:"fixture"});else {if(c.request?.subtype==="interrupt"){clearTimeout(timeout);finish("Interrupted");}control();}return;}
-    if(c.type==="user"){const prompt=(c.message?.content||[]).filter(p=>p.type==="text").map(p=>p.text).join("\n");const text=answer(prompt);timeout=setTimeout(()=>finish(text),prompt.includes("SLOW")?10000:100);}return;
+    if(c.type==="user"){recordClaude({type:"user",message:c.message});const prompt=(c.message?.content||[]).filter(p=>p.type==="text").map(p=>p.text).join("\n");const text=answer(prompt);timeout=setTimeout(()=>finish(text),prompt.includes("SLOW")?10000:100);}return;
   }
   const reply=result=>emit({jsonrpc:"2.0",id:c.id,result});const p=c.params||{};
   if(c.method==="initialize")reply({protocolVersion:1,agentCapabilities:{loadSession:true},agentInfo:{name:"workflow-fixture",version:"1"},authMethods:[{id:"cached_token",name:"Fixture"}]});

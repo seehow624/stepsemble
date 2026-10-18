@@ -82,8 +82,36 @@ A schedule runs either one ordinary task or a continuing Goal. It supports:
 - Daily or weekly, at a wall-clock time in an explicit IANA time zone.
 - Every 15 minutes or more, as an interval.
 
-Each occurrence creates a new conversation with its own result and elapsed time.
-The inspector shows the next occurrence in the schedule's time zone, a relative
+By default, each occurrence creates a new conversation. In the editor, choose
+**Continue an existing conversation** to bind a schedule to a supported native
+conversation on the selected Host. Editing an existing schedule changes that
+same schedule, not a copy. The selected conversation keeps its agent, project,
+model, reasoning, permission mode, name and history; the schedule's model and
+permission pins apply only when opening new conversations. The inspector names
+the target and offers **Open conversation**, even before the first run.
+
+A bound schedule waits for native work, approvals, another Goal (including a
+paused Goal that still needs attention), or compaction to settle. Stop or finish
+the other Goal to release it. While queued, it holds no conversation lock or
+execution slot, uses no time or retry budget, and does not block user messages or
+follow-ups. Once it starts, the usual turn lock prevents interleaved messages.
+The Host checks availability again immediately before sending. Run now follows
+the same rules as timed occurrences. Pause or Stop also cancels pending target
+preparation; resuming requires a fresh availability check, not the old result.
+ACP plan progress is not evidence that a native prompt has finished: outstanding
+prompts and approvals keep the target queued.
+
+The binding is the Host's stable Workspace entry identity, not a live RPC process
+id. An idle-released conversation resumes its native history. A removed target,
+missing native file or rejected resume fails explicitly; it never creates a new
+conversation as a substitute. Choose **New conversation each run** explicitly to
+remove a binding, or select another target. A target on another Host cannot be
+used locally. When an older Host does not support target selection, the editor
+still supports creating and editing new-conversation schedules. Only the existing
+conversation option is unavailable; a saved binding is never silently removed
+because a target lookup failed.
+
+Each run keeps its own result and elapsed time. The inspector shows the next occurrence in the schedule's time zone, a relative
 countdown and selectable run history. The editor previews recurrence as its
 settings change, keeps Save and validation messages visible, and reveals turn
 and token limits under Execution limits. Names are optional and default to the
@@ -117,13 +145,29 @@ queue. Up to 100 schedule definitions and 200 runs
 are retained; only terminal, non-resumable runs are removed to make space. The
 feature uses the Host's existing authentication and origin checks.
 
+Schedule definitions persist optional `targetEntry` (a local Workspace entry
+UUID); missing or `null` means a new conversation per run. An edit that omits
+`targetEntry` preserves its previous value, for older clients; explicit `null`
+unbinds it. The Host resolves the target's agent/project and rejects mismatching
+client values. `GET /api/workflows/targets` supplies supported local candidates.
+Host restart preserves bindings; it still marks uncertain active runs interrupted
+rather than automatically replaying them.
+
 ## Verification
 
-`node --test test/workflows.test.js test/workflows-hardening.test.js test/workflows-http.test.js test/workflows-pins-http.test.js test/workflow-options.test.js test/sleep-guard.test.js test/workflows-ui.test.js` covers state,
+`node --test --test-concurrency=2 --test-timeout=60000 test/workflows.test.js test/workflows-acp-busy.test.js test/workflows-hardening.test.js test/workflows-http.test.js test/workflows-pins-http.test.js test/workflows-target-http.test.js test/workflow-options.test.js test/sleep-guard.test.js test/workflows-ui.test.js` covers state,
 limits, failures, retries, usage-limit waits, approval waits, project
 serialization, pinned models and permission modes, keeping the Host awake,
 cancellation, restart, scheduling, authentication and synthetic native peers, plus controller races, focus, draft preservation, schedule editing
-and every supported locale. `node scripts/workflows-preview.mjs` serves an
+and every supported locale. Target tests cover in-place edits and explicit
+unbinding, queued user/Goal priority, native busy races, ignored pins, stable
+membership through idle release and Host restart, actual timed occurrences,
+compaction, missing files and removed targets without fallback. They also cover
+Pause/Stop during asynchronous preparation (including Pause then Resume), partial
+ACP plans and per-session approvals, prompt-in-flight admission races, and older
+Hosts with an unsupported or unavailable target catalog. These are
+synthetic tests, not real-provider end-to-end verification.
+`node scripts/workflows-preview.mjs` serves an
 interactive synthetic Schedules panel for desktop and mobile review without launching
 an agent or using provider credentials. The optional POSIX smoke check runs real installed CLIs in an
 isolated temporary home against local model API fixtures:
