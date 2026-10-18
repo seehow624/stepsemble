@@ -154,7 +154,9 @@ export async function runPiSessionBrowserCases(browser) {
       assert.equal(worktreeOpen.cwd, worktreeOpen.worktree.path);
       assert.notEqual(worktreeOpen.cwd, repositoryCwd, "the conversation runs in its own worktree");
       assert.equal(await pane.locator("#chat-title").textContent(), worktreeTitle);
-      assert.equal(await pane.locator("#chat-sub").textContent(), worktreeOpen.cwd);
+      // The header names the worktree's folder after the computer; the full path is its tooltip.
+      assert.equal(await pane.locator("#chat-sub").getAttribute("title"), worktreeOpen.cwd);
+      assert.equal(await pane.locator("#chat-sub .chat-sub-project").textContent(), worktreeOpen.cwd.split(/[\\/]/).filter(Boolean).pop());
       for (let i = 0; i < 100 && !nativeStreams.slice(nativeBefore).some(value => new URL(value).searchParams.get("sid") === worktreeOpen.sid); i++) await new Promise(resolve => setTimeout(resolve, 20));
       assert.ok(nativeStreams.slice(nativeBefore).some(value => new URL(value).searchParams.get("sid") === worktreeOpen.sid));
       assert.equal(genericStreams.length, genericBefore, "native Pi never opens the generic task stream");

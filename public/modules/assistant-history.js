@@ -3,7 +3,7 @@
 
   // 歷史面板只管理搜尋、分頁與列操作，導航交給外層控制器。
   // 不同 profile 分開保存查詢與捲動，關閉後拒收過期的 API 結果。
-  function create({ api, t, el, button, M, locale, showPanel, onSelect, plain = text => text }) {
+  function create({ api, t, el, button, icon, M, locale, showPanel, onSelect, plain = text => text }) {
     const saved = new Map();
     let active = null, serial = 0, timer = 0;
     function close() {
@@ -15,15 +15,16 @@
       close();
       if (!saved.has(profile)) saved.set(profile, { query: "", rows: [], hasMore: false, scrollTop: 0, loaded: false, offset: 0 });
       const state = saved.get(profile);
-      const panel = showPanel(t("historyTitle"), botName);
-      const search = el("input", "assistant-search");
+      const panel = showPanel(t("historyTitle"), botName, { kind: "history" });
+      const field = el("label", "assistant-search-field"), search = el("input", "assistant-search");
       search.type = "search"; search.value = state.query; search.placeholder = t("search"); search.setAttribute("aria-label", t("search"));
+      field.append(icon("search"), search);
       const scroll = el("div", "assistant-history-scroll"), list = el("ul", "assistant-session-list");
       const status = el("div", "assistant-history-status");
       const more = button(t("loadMore"), "btn ghost", () => void load(false));
       more.hidden = !state.hasMore;
       scroll.append(list, status, more);
-      panel.body.append(search, scroll);
+      panel.body.append(field, scroll);
       const entry = { profile, state, panel, scroll, list, status, more, pending: false, error: null };
       active = entry;
       scroll.addEventListener("scroll", () => { if (active === entry) state.scrollTop = scroll.scrollTop; }, { passive: true });
@@ -90,7 +91,8 @@
       meta.append(el("span", "assistant-source", row.source === "cron" ? t("routines") : M.sourceLabel(row.source)),
         el("time", "", M.formatWhen(row.lastActive || row.startedAt, Date.now(), locale)));
       open.append(meta);
-      const menu = button("···", "assistant-icon-btn assistant-session-more", () => { actions.hidden = !actions.hidden; menu.setAttribute("aria-expanded", String(!actions.hidden)); });
+      const menu = button("", "assistant-icon-btn assistant-session-more", () => { actions.hidden = !actions.hidden; menu.setAttribute("aria-expanded", String(!actions.hidden)); });
+      menu.append(icon("more"));
       menu.setAttribute("aria-label", `${t("moreOptions")} · ${row.title || t("untitled")}`); menu.setAttribute("aria-expanded", "false");
       const actions = el("div", "assistant-history-actions"); actions.hidden = true;
       const error = el("p", "assistant-error"); error.hidden = true;

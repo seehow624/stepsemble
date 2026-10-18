@@ -1235,7 +1235,10 @@ test("the run timer survives a reload and restarts on each new turn", () => {
   const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
   const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
   const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
-  assert.match(html, /id="run-timer"[^>]*data-i18n-ignore/);
+  // The work log under the turn says how long it ran; the header shows only
+  // a spinner, so it keeps no clock of its own.
+  assert.doesNotMatch(html, /id="run-timer"/);
+  assert.match(app, /function renderRunTimer\(\) \{\n  if \(!rpc\?\.runStartedAt\) return;[\s\S]*?updateWorkLogClock\(\);/);
   // The server owns the run's start time, so a reload or a second device
   // shows the real elapsed time instead of restarting the clock at zero.
   assert.match(server, /s\.state\.runStartedAt = Date\.now\(\)/);
@@ -1251,8 +1254,10 @@ test("the run timer survives a reload and restarts on each new turn", () => {
   assert.match(app, /runTimerInterval = setInterval\(renderRunTimer, 1000\)/);
   // Leaving the conversation clears the timer instead of leaving a stale value.
   assert.match(app, /if \(runTimerInterval\) \{ clearInterval\(runTimerInterval\); runTimerInterval = null; \}/);
-  // Steady width: the header must not shift on every tick.
-  assert.match(css, /\.run-timer \{[\s\S]*?font-variant-numeric: tabular-nums;/);
+  // While a turn runs the header status is a spinner; its words stay for
+  // screen readers.
+  assert.match(css, /\.thinking-status::before \{[\s\S]*?animation: spin/);
+  assert.match(app, /el\.thinkingStatus\.textContent = statusText;/);
 });
 
 test("desktop Settings scrolls from anywhere while its content stays centered", () => {

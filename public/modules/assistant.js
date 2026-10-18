@@ -52,7 +52,10 @@
     back: "M15 18l-6-6 6-6", plus: "M12 5v14M5 12h14", send: "M12 19V5M5 12l7-7 7 7",
     attach: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8",
     clock: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2", stop: "M6.5 6.5h11v11h-11z",
-    history: "M3 11a9 9 0 1 1 2.4 7.1M3 4v7h7M12 7v5l3 2",
+    // Two speech bubbles: the conversations this Bot has had.
+    history: "M8.5 14.5H6l-3 2.6V6.5A2.5 2.5 0 0 1 5.5 4h8A2.5 2.5 0 0 1 16 6.5V7M11.5 9h7a2.5 2.5 0 0 1 2.5 2.5V20l-3-2.5h-6.5A2.5 2.5 0 0 1 9 15v-3.5A2.5 2.5 0 0 1 11.5 9z",
+    more: "M5.5 12h.01M12 12h.01M18.5 12h.01", close: "M6.5 6.5l11 11M17.5 6.5l-11 11", chevron: "M9.5 6l6 6-6 6",
+    sliders: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4", search: "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM20 20l-4.6-4.6",
     open: "M14 3h7v7M10 14L21 3M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5",
     download: "M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5",
     share: "M12 16V3m-4 4 4-4 4 4M8 10H5v11h14V10h-3",
@@ -181,7 +184,7 @@
     if (!groupDrafts.has(next.id)) groupDrafts.set(next.id, new Map());
     groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots, drafts: groupDrafts.get(next.id),
       onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) { tell({ type: "assistant-changed" }); showRoster(); } }); } });
-    historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, M, locale: prefs.locale, showPanel, plain: content.plain,
+    historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, icon, M, locale: prefs.locale, showPanel, plain: content.plain,
       onSelect: (profile, row) => { if (epoch === startRevision) openBot(profile, row.id, { title: row.title }); } });
     render(loadingView());
     try {
@@ -221,16 +224,18 @@
     for (const [node, value] of previous.covered) node.inert = value;
     if (restore && previous.opener?.isConnected) previous.opener.focus();
   }
-  function showPanel(title, subtitle = "") {
+  function showPanel(title, subtitle = "", { lead = null, kind = "" } = {}) {
     closePanel(false);
     const opener = document.activeElement, covered = new Map();
     for (const node of [...main.children, listPane, top]) { covered.set(node, node.inert); node.inert = true; }
     const layer = el("div", "assistant-overlay"), sheet = el("section", "assistant-sheet");
+    if (kind) { layer.classList.add(`assistant-${kind}-layer`); sheet.classList.add(`assistant-${kind}-sheet`); }
     sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true");
     const heading = el("h2", "", title); heading.id = "assistant-panel-title"; heading.tabIndex = -1; sheet.setAttribute("aria-labelledby", heading.id);
-    const head = el("header", "assistant-sheet-head"), copy = el("div"); copy.append(heading);
+    const head = el("header", "assistant-sheet-head"), copy = el("div", "assistant-sheet-title"); copy.append(heading);
     if (subtitle) copy.append(el("p", "", subtitle));
-    const close = button("×", "assistant-icon-btn", () => navigation.back()); close.setAttribute("aria-label", t("closePanel"));
+    const close = iconButton("close", t("closePanel"), "assistant-sheet-close", () => navigation.back());
+    if (lead) head.append(lead);
     head.append(copy, close);
     const body = el("div", "assistant-sheet-body"); sheet.append(el("div", "assistant-sheet-grab"), head, body); layer.append(sheet); main.append(layer);
     panel = { layer, covered, opener };
@@ -297,11 +302,7 @@
         if (!document.getElementById("assistant-bot-head") || main.firstElementChild?.dataset.chat !== chat.key || force) render(botView());
         renderRoster(); watchNow(); void api.read(chat.sessionId, route.profile).catch(() => {});
         if (route.panel === "history" && !document.querySelector(".assistant-intro")) historyView.open(route.profile, chat.bot.displayName);
-        if (route.panel === "menu" && !document.querySelector(".assistant-intro")) {
-          const { body, sheet } = showPanel(chat.bot.displayName);
-          sheet.classList.add("assistant-menu-sheet");
-          for (const [page, label] of [["routines", "routines"], ["settings", "settings"]]) body.append(button(t(label), "assistant-menu-row", () => go({ page, profile: route.profile, session: route.session })));
-        }
+        if (route.panel === "menu" && !document.querySelector(".assistant-intro")) showMenu(route);
         return;
       }
       chat = null; chatKey = ""; watchNow();
@@ -400,10 +401,38 @@
   function conversationHead() {
     const head = el("header", "assistant-bot-head"); head.id = "assistant-bot-head";
     const back = iconButton("back", t("backAssistant"), "assistant-back to-list", showRoster);
-    const title = el("div", "assistant-bot-title"); title.append(el("strong", "", chat.bot.displayName), el("small", "", chat.botChat ? t("botChat") : chat.title));
+    const title = el("div", "assistant-bot-title"); title.append(el("strong", "", chat.bot.displayName), el("small", "assistant-bot-status"));
     const history = iconButton("history", t("historyAction"), "assistant-header-action", () => go({ ...navigation.current, panel: "history" }));
-    const more = button("···", "assistant-icon-btn assistant-more-options", () => go({ ...navigation.current, panel: "menu" })); more.setAttribute("aria-label", t("moreOptions"));
-    head.append(back, avatar(chat.bot), title, history, more); return head;
+    const more = iconButton("more", t("moreOptions"), "assistant-more-options", () => go({ ...navigation.current, panel: "menu" }));
+    head.append(back, avatar(chat.bot), title, history, more); syncHead(head); return head;
+  }
+  // Under the name: that the Bot is answering now, as a chat app shows someone
+  // typing; otherwise what the Bot is for, or the title of a saved conversation.
+  function syncHead(head = document.getElementById("assistant-bot-head")) {
+    if (!head || !chat) return;
+    const running = !!chat.running, text = running ? t("working") : chat.botChat ? chat.bot.description || t("botChat") : chat.title;
+    const status = head.querySelector(".assistant-bot-status");
+    if (status.textContent !== text) status.textContent = text;
+    head.classList.toggle("running", running);
+  }
+  // More options: who the Bot is, then where to manage it. A sheet from the
+  // bottom on a phone; on a wide screen a small menu under its button.
+  function showMenu(route) {
+    const bot = chat.bot, opener = document.querySelector("#assistant-bot-head .assistant-more-options");
+    const { body, sheet } = showPanel(bot.displayName, bot.description || "", { lead: avatar(bot), kind: "menu" });
+    const group = el("div", "assistant-menu-group");
+    for (const [page, name] of [["routines", "clock"], ["settings", "sliders"]]) {
+      const row = button("", "assistant-menu-row", () => go({ page, profile: route.profile, session: route.session }));
+      const tile = el("span", "assistant-menu-icon"), copy = el("span", "assistant-menu-copy"), hint = el("small", "", t(`${page}Hint`)), chevron = el("span", "assistant-menu-chevron");
+      hint.id = `assistant-menu-${page}-hint`; row.setAttribute("aria-label", t(page)); row.setAttribute("aria-describedby", hint.id);
+      tile.append(icon(name)); copy.append(el("strong", "", t(page)), hint); chevron.append(icon("chevron"));
+      row.append(tile, copy, chevron); group.append(row);
+    }
+    body.append(group);
+    if (opener && matchMedia("(min-width: 900px)").matches) {
+      const frame = main.getBoundingClientRect(), box = opener.getBoundingClientRect();
+      sheet.style.top = `${Math.round(box.bottom - frame.top + 6)}px`; sheet.style.right = `${Math.max(12, Math.round(frame.right - box.right))}px`;
+    }
   }
   function refreshBotHead(profile) {
     const bot = allBots.find(bot => bot.name === profile);
@@ -472,27 +501,43 @@
   }
 
 
+  function disclosure(label) { const summary = el("summary", "", label); summary.prepend(icon("chevron")); return summary; }
+  // A file in a message or the composer: its type in a small badge, then its name.
+  function fileChip(name) {
+    const chip = el("span", "assistant-chip"), ext = /\.([A-Za-z0-9]{1,5})$/.exec(name)?.[1] || "";
+    const badge = el("span", "assistant-chip-badge", (ext || "file").slice(0, 4).toUpperCase()); badge.setAttribute("aria-hidden", "true");
+    chip.append(badge, el("span", "assistant-chip-name", name)); return chip;
+  }
   function itemNode(item) {
     const cached = chat.nodes.get(item.id);
     if (cached && cached.rev === item.rev) return cached.node;
     const node = el("div", `assistant-msg ${item.role}`);
     if (item.role === "user") {
-      const bubble = el("div", "assistant-bubble", item.text);
-      for (const name of item.attachments) bubble.append(el("span", "assistant-chip", name));
-      node.append(bubble);
+      // Pictures sent from this page show as pictures above the text; other files as chips.
+      const pictures = item.attachments.filter(entry => entry?.src), files = item.attachments.filter(entry => !entry?.src);
+      if (pictures.length) {
+        const album = el("div", `assistant-album${pictures.length === 1 ? " single" : ""}`);
+        for (const picture of pictures) { const image = el("img"); image.src = picture.src; image.alt = picture.name; album.append(image); }
+        node.append(album);
+      }
+      if (item.text || files.length) {
+        const bubble = el("div", "assistant-bubble", item.text);
+        for (const entry of files) bubble.append(fileChip(entry?.name ?? entry));
+        node.append(bubble);
+      }
     } else if (item.role === "system") node.textContent = item.text;
     else {
       const body = el("div", "assistant-reply");
       const steps = el("div", "assistant-steps");
       if (item.thinking) {
         const details = el("details", "assistant-thinking");
-        details.append(el("summary", "", t("thinking")), el("pre", "", item.thinking));
+        details.append(disclosure(t("thinking")), el("pre", "", item.thinking));
         steps.append(details);
       }
       if (item.tools.length) {
         const running = item.tools.some(tool => !tool.done);
         const group = el("details", `assistant-tool-group${running ? " running" : ""}`);
-        group.append(el("summary", "", t(running ? "toolsRunning" : "toolsComplete", { count: item.tools.length })));
+        group.append(disclosure(t(running ? "toolsRunning" : "toolsComplete", { count: item.tools.length })));
         for (const tool of item.tools) {
           const details = el("details", "assistant-tool");
           details.append(el("summary", "", tool.name));
@@ -593,7 +638,7 @@
     for (const ask of asks.values()) if (ask.sessionId === chat.sessionId) children.push(askCard(ask));
     box.replaceChildren(...children);
     if (pinned) box.scrollTop = box.scrollHeight;
-    chat.sync?.();
+    chat.sync?.(); syncHead();
   }
   function scheduleRender() {
     if (renderQueued) return;
@@ -636,8 +681,15 @@
     const stop = iconButton("stop", t("stop"), "assistant-stop", () => void owner.interrupt(entry.sessionId).catch(error => toast(t("failed", { message: error.message }))));
     function renderChips() {
       chips.replaceChildren(...entry.attachments.map((item, index) => {
-        const chip = el("span", "assistant-chip", item.name), remove = button("×", "assistant-chip-remove", () => { entry.attachments.splice(index, 1); remember(entry); renderChips(); sync(); });
-        remove.setAttribute("aria-label", `${t("remove")} ${item.name}`); chip.append(remove); return chip;
+        const remove = iconButton("close", `${t("remove")} ${item.name}`, "assistant-chip-remove", () => {
+          const [gone] = entry.attachments.splice(index, 1); if (gone?.preview) URL.revokeObjectURL(gone.preview);
+          remember(entry); renderChips(); sync();
+        });
+        if (!item.preview) { const chip = fileChip(item.name); chip.append(remove); return chip; }
+        // A picture shows as itself; its name stays for screen readers and the tooltip.
+        const chip = el("span", "assistant-chip assistant-thumb"), image = el("img");
+        image.src = item.preview; image.alt = ""; chip.title = item.name;
+        chip.append(image, el("span", "assistant-chip-name", item.name), remove); return chip;
       }));
     }
     function sync() {
@@ -652,7 +704,9 @@
           if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name, size: MAX_FILE / 1024 / 1024 })); continue; }
           const data = await readBase64(picked);
           const name = pasted ? pastedName(picked, new Set(entry.attachments.map(item => item.name))) : picked.name;
-          entry.attachments.push({ kind: picked.type.startsWith("image/") ? "image" : "file", name, mime: picked.type || "application/octet-stream", data });
+          const image = picked.type.startsWith("image/");
+          entry.attachments.push({ kind: image ? "image" : "file", name, mime: picked.type || "application/octet-stream", data,
+            ...(image ? { preview: URL.createObjectURL(picked) } : {}) });
         }
         remember(entry); renderChips(); sync();
       } catch (error) { toast(t("failed", { message: error.message })); }
@@ -678,10 +732,10 @@
       event.preventDefault(); if (chat !== entry || entry.sending) return;
       const text = input.value; if (!text.trim() && !entry.attachments.length) return;
       const attachments = entry.attachments; entry.sending = true; entry.running = true;
-      entry.items.push(M.userItem(text, attachments.map(item => item.name)));
+      entry.items.push(M.userItem(text, attachments.map(item => item.preview ? { name: item.name, src: item.preview } : item.name)));
       entry.attachments = []; entry.draft = ""; input.value = ""; remember(entry);
       renderChips(); renderTranscript(); scrollToEnd(); sync();
-      try { await owner.prompt(entry.sessionId, text, attachments); }
+      try { await owner.prompt(entry.sessionId, text, attachments.map(({ preview, ...item }) => item)); }
       catch (error) {
         entry.running = false;
         entry.items.push(M.systemItem(t("sendFailed", { message: error.message })));
@@ -691,7 +745,9 @@
         if (chat === entry) { if (!input.value) input.value = entry.draft; renderChips(); renderTranscript(); }
       } finally { entry.sending = false; if (chat === entry) sync(); }
     });
-    const row = el("div", "assistant-composer-row"); row.append(attach, input, stop, send); form.append(hint, chips, row, file);
+    // One rounded field holds what is attached, the text and its buttons.
+    const field = el("div", "assistant-composer-field"), row = el("div", "assistant-composer-row");
+    row.append(attach, input, stop, send); field.append(chips, row); form.append(hint, field, file);
     entry.sync = sync; queueMicrotask(() => { renderChips(); sync(); }); return form;
   }
 
