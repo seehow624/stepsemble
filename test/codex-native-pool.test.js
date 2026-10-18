@@ -353,6 +353,23 @@ test("an unready read never retires a child with a turn or approval, and a write
   assert.equal(pool.pendingApprovals("thread-a").length, 1);
 });
 
+test("an unready child whose writes were all confirmed goes on the next read", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  const child = harness.created[0];
+  child.nativeState = () => ({ state: "not_ready", threadId: null, turnId: null });
+  child.status = () => ({ ready: false });
+  child.readThread = async () => { throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+  await pool.readThread("thread-a");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.calls.filter(row => row[0] === "close").length, 1);
+  assert.equal(pool.status().childCount, 0);
+});
+
 test("an unready child with unconfirmed writes keeps its connection and never replays them", async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
@@ -370,6 +387,79 @@ test("an unready child with unconfirmed writes keeps its connection and never re
   assert.equal(harness.calls.some(row => row[0] === "close"), false);
   assert.equal(harness.calls.filter(row => row[0] === "resume").length, 1);
   assert.equal(pool.status().childCount, 1);
+});
+
+// The transport ended its app-server: the child reports nothing running.
+function failChild(child, code = "native_usage_mismatch") {
+  child.nativeState = () => ({ state: "not_ready", threadId: null, turnId: null });
+  child.status = () => ({ ready: false, state: "degraded", lastError: code });
+  child.readThread = async () => { throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+  child.options.onEvent({ type: "transport.failed", code, threadId: null, turnId: null });
+}
+
+test("a child whose app-server failed goes, even with an unconfirmed write, and the next call starts a fresh one", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  const child = harness.created[0];
+  // A turn was sent as the transport failed; nobody knows whether Codex took it.
+  child.mutationStatus = () => ({ operations: [{ state: "dispatching" }] });
+  failChild(child);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.calls.filter(row => row[0] === "close").length, 1);
+  assert.equal(pool.status().childCount, 0);
+  assert.equal((await pool.listTasks()).some(task => task.nativeThreadId === "thread-a" && task.isRunning === true), false, "a failed child is not reported as working");
+  await pool.resumeThread({ threadId: "thread-a" });
+  assert.equal(harness.created.length, 2);
+  assert.equal(pool.nativeState("thread-a").threadId, "thread-a");
+  assert.deepEqual(harness.calls.filter(row => row[0] !== "close").map(row => row[0]), ["resume", "resume"], "nothing it held is sent again");
+});
+
+test("a read lets go a child whose app-server failed even when its failure was not seen", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), createThreadAdapter: harness.factory, journalRoot: root });
+  t.after(() => pool.close());
+  await pool.resumeThread({ threadId: "thread-a" });
+  const child = harness.created[0];
+  child.nativeState = () => ({ state: "not_ready", threadId: null, turnId: null });
+  child.status = () => ({ ready: false, state: "degraded", lastError: "native_item_mismatch" });
+  child.mutationStatus = () => ({ operations: [{ state: "dispatching" }] });
+  child.readThread = async () => { throw Object.assign(new Error("not ready"), { code: "native_not_ready" }); };
+  assert.equal((await pool.readThread("thread-a")).thread.id, "thread-a", "the shared history answers");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.calls.filter(row => row[0] === "close").length, 1);
+  assert.equal(pool.status().childCount, 0);
+});
+
+test("a child whose app-server failed while a call used it goes once the call returns", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  const harness = childFactoryHarness();
+  let first = true;
+  const pool = createCodexNativePool({ historyAdapter: historyFixture(), journalRoot: root, createThreadAdapter: async options => {
+    const child = await harness.factory(options);
+    if (first) {
+      first = false;
+      const resume = child.resumeThread;
+      // Codex answered the resume, then a notification read with the answer
+      // failed the transport.
+      child.resumeThread = async params => { const result = await resume(params); failChild(child); return result; };
+    }
+    return child;
+  } });
+  t.after(() => pool.close());
+  await assert.rejects(pool.resumeThread({ threadId: "thread-a" }), error => error.code === "native_not_ready");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(harness.calls.filter(row => row[0] === "close").length, 1);
+  assert.equal(pool.status().childCount, 0, "the failing child does not take the thread");
+  assert.equal((await pool.resumeThread({ threadId: "thread-a" })).kind, "resumed");
+  assert.equal(harness.created.length, 2);
+  assert.equal(pool.nativeState("thread-a").threadId, "thread-a");
 });
 
 test("reads wait for an in-flight child readiness probe instead of using its half-initialized adapter", async t => {

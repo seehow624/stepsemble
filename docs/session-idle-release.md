@@ -106,3 +106,11 @@ an older helper is installed again once no Claude conversation is working.
   no call in flight) and has been quiet for the same period; a turn that starts
   again keeps it. Reads fall back to the shared history reader, and the
   next turn resumes the thread in a new app-server.
+- Because every message after a release resumes the thread, a resume must not
+  break a long thread. After a resume Codex reports the thread's token usage
+  under an earlier turn, for a thread it compacted the first one, which can be
+  older than the turns the transport keeps; usage is matched to its thread
+  only. An app-server whose transport failed for any reason has ended, so its
+  child goes once no call uses it and is not reported as working, even when a
+  write it sent stays recorded as uncertain; the next message starts a fresh
+  app-server.

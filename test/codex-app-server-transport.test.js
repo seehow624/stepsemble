@@ -978,6 +978,53 @@ test("Codex thread resume refuses another thread's report while it resumes", asy
   assert.equal(transport.state().failure, "native_thread_mismatch");
 });
 
+test("Codex thread usage reported under a turn older than the turns kept is the thread's own", async t => {
+  // A compacted thread of many turns: after a resume Codex reports its usage
+  // under the first turn, older than the last 32 turns kept here.
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("resume-long") });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
+  await initializing; await writes.next();
+  const resumed = transport.resumeThread({ threadId: "thread-long" });
+  request = await writes.next();
+  const turns = Array.from({ length: 37 }, (_, index) => ({ id: `turn-${index + 1}`, status: "completed" }));
+  const breakdown = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20 };
+  const usage = turnId => ({ jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-long", turnId, tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: 1000 } } });
+  child.stdout.write([{ jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-long", status: { type: "idle" }, turns } } }, usage("turn-1")]
+    .map(value => JSON.stringify(value)).join("\n") + "\n");
+  assert.equal((await resumed).kind, "resumed");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.state().state, "thread_started");
+  assert.equal(transport.tokenUsage("thread-long").turnId, "turn-1");
+  // Usage under a turn this process was never told about is the thread's too.
+  frame(child, usage("turn-unlisted"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.tokenUsage("thread-long").turnId, "turn-unlisted");
+});
+
+test("Codex thread resume refuses another thread's usage while it resumes", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("resume-other-usage") });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  const request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
+  await initializing; await writes.next();
+  const resumed = transport.resumeThread({ threadId: "thread-wanted" });
+  await writes.next();
+  const breakdown = { cachedInputTokens: 0, inputTokens: 1, outputTokens: 1, reasoningOutputTokens: 0, totalTokens: 2 };
+  frame(child, { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-unrelated", turnId: "turn-1", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: null } } });
+  await assert.rejects(resumed, error => error.code === "native_usage_mismatch");
+  assert.equal(transport.state().failure, "native_usage_mismatch");
+});
+
 test("Codex thread resume requires reconciliation when a returned turn status is unknown", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

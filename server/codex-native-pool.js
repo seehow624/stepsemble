@@ -288,10 +288,23 @@ function createCodexNativePool({
     }, Math.max(0, wait));
     entry.idleTimer?.unref?.();
   }
+  // A child that lost its app-server reports no thread, turn or approval.
+  function lostAppServer(entry) {
+    const native = safeNativeState(entry.adapter), pending = safePendingApprovals(entry.adapter);
+    return native?.state === "not_ready" && !native.threadId && !native.turnId && pending?.length === 0;
+  }
   function noteChildEvent(entry, event) {
     entry.lastEventAt = nowValue(clock);
     if (event?.type === "turn.started") entry.turnEnded = false;
     else if (event?.type === "turn.completed" || event?.type === "turn.interrupted") { entry.turnEnded = true; noteIdle(entry); }
+    // A failing transport ends its app-server, whatever the reason: nothing
+    // can still run in it and it can never answer again. It goes once no call
+    // uses it, so the next one starts a fresh app-server.
+    else if (event?.type === "transport.failed") {
+      entry.failed = true;
+      entry.retireRequested = true;
+      if (entry.activeCalls === 0 && !entry.closeRequested) scheduleRetire(entry);
+    }
   }
   // A child resumed without a turn, or one whose end no event announced, is
   // let go after it has been quiet for a while.
@@ -452,14 +465,12 @@ function createCodexNativePool({
         threadId,
       });
     }
-    if (typeof onEvent === "function" || releaseWindow !== null) {
-      childOptions.onEvent = event => {
-        if (typeof onEvent === "function") {
-          try { onEvent({ ...(event || {}), threadId: event?.threadId || threadId }); } catch {}
-        }
-        noteChildEvent(entry, event);
-      };
-    }
+    childOptions.onEvent = event => {
+      if (typeof onEvent === "function") {
+        try { onEvent({ ...(event || {}), threadId: event?.threadId || threadId }); } catch {}
+      }
+      noteChildEvent(entry, event);
+    };
     return childOptions;
   }
 
@@ -634,12 +645,14 @@ function createCodexNativePool({
         const code = String(error?.code || "");
         if (code !== "native_not_ready" && !FATAL_CHILD_CODES.has(code)) throw error;
         if (code === "native_not_ready") {
-          const native = safeNativeState(entry.adapter), pending = safePendingApprovals(entry.adapter);
           const journal = entry.adapter?.mutationStatus?.();
-          // Transport loss does not prove that a committed write never ran.
+          // Transport loss does not prove that a committed write never ran, so
+          // an unready child with an unconfirmed write is kept, unless its
+          // app-server failed: that process has ended, nothing can still run
+          // in it, and the write stays recorded as uncertain.
           const settled = Array.isArray(journal?.operations) && journal.operations.every(row => row.state === "succeeded");
-          if (native?.state === "not_ready" && !native.threadId && !native.turnId
-            && pending?.length === 0 && settled && entry.activeCalls === 0) {
+          const failed = entry.retireRequested || safeStatus(entry.adapter)?.state === "degraded";
+          if (lostAppServer(entry) && entry.activeCalls === 0 && (settled || failed)) {
             entry.failed = true;
             scheduleRetire(entry);
           }
@@ -741,6 +754,12 @@ function createCodexNativePool({
         if (actual !== threadId) {
           if (reservation.created) await releaseEntry(entry);
           return reject("native_thread_ambiguous", { threadId });
+        }
+        // The app-server can fail right after its answer, on a notification
+        // read with it; a child that is going does not take the thread.
+        if (entry.retireRequested || entry.closeRequested) {
+          scheduleRetire(entry);
+          throw poolError("native_not_ready", "Codex native child failed after resuming the thread", 503);
         }
         bindEntry(entry, threadId);
         rememberPermissions(threadId, result?.response);
@@ -965,6 +984,9 @@ function createCodexNativePool({
           overlays.push(task);
         }
       } catch {
+        // A child whose app-server failed, holding no turn or approval, is
+        // going; it is not working.
+        if (entry.retireRequested && entry.activeCalls === 0 && lostAppServer(entry)) { scheduleRetire(entry); continue; }
         // If metadata is unavailable while a turn/approval is active, keep a
         // conservative overlay so an updater cannot mistake the task for idle.
         if (childIsBusy(entry)) {

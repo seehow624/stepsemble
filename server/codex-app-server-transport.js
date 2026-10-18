@@ -921,7 +921,10 @@ function createCodexAppServerTransport({
     }
     if (method === "thread/tokenUsage/updated") {
       const usage = normalizeThreadTokenUsageUpdated(params);
-      if (!usage || !correlation(usage.threadId, usage.turnId)) { fail("native_usage_mismatch"); return; }
+      // A thread's usage is its own whatever turn it names. After a resume
+      // Codex reports it under an earlier turn, for a thread it compacted the
+      // first one, which can be older than the turns kept here.
+      if (!usage || !correlation(usage.threadId)) { fail("native_usage_mismatch"); return; }
       usageByThread.set(usage.threadId, clone(usage));
       report({ type: "thread.tokenUsage.updated", threadId: usage.threadId, turnId: usage.turnId,
         tokenUsage: clone(usage.tokenUsage) });
@@ -1075,8 +1078,8 @@ function createCodexAppServerTransport({
       const status = nativeThreadStatus(result.thread.status);
       const active = result.thread.turns.filter(turn => turn.status === "inProgress");
       threadId = requested; completedTurns.clear(); turnId = null; turnState = null; firstTurnPending = false;
-      // Codex reports the last turn's usage right after the resume; the turns
-      // it lists as finished are this thread's own.
+      // Codex reports the thread's usage right after the resume; the turns it
+      // lists as finished are this thread's own.
       for (const turn of result.thread.turns.filter(row => TURN_TERMINAL_STATUSES.has(row.status)).slice(-32)) completedTurns.add(turn.id);
       // `excludeTurns` deliberately returns no reconstructed turn list.  A
       // thread status alone cannot prove that a live turn is absent, so do not
