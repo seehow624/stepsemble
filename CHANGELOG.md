@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.18
+
+- Send a message typed while a Workspace conversation is still opening: it is kept and goes once the conversation is ready. The pane cleared it with the conversation's empty draft and cancelled the queued send as the conversation opened, so the first message after opening a saved session was lost without a notice.
+- Keep a Claude Code process through turns Claude starts by itself. After a restart Claude first answers the notices of background tasks that were cut off, and a background task that finishes later starts a turn the same way; each turn now begins with `system/init` and keeps its process until its result. A conversation's process is let go once it has stayed quiet for 10 seconds after its turn, for Claude Code and Codex; `STEPSEMBLE_IDLE_RELEASE_SECONDS` still sets the wait.
+- Show the model and reasoning level of a saved Claude Code conversation before Claude runs, also right after the Host restarts. The saved catalog keeps each model's reasoning levels and context capacity; once Claude runs, the page shows the model and level it reports.
+- Draw a conversation again from Claude's transcript when the page missed the end of a reply while it was not looking, such as a phone asleep, or a turn sent from another device. The Host keeps when each conversation's last released process ran after its events are gone.
+
 ## 3.9.17
 
 - Let a Claude Code or Codex conversation hold its agent process only while it works. Once a turn ends and nothing in it is running, the Host lets the process go; the history stays readable, a page showing the reply draws its end, and the next message starts the agent again on the same conversation and is sent once, without reloading the page. Opening a saved Claude Code conversation shows its history without starting Claude.
