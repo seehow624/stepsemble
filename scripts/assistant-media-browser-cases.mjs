@@ -204,6 +204,38 @@ export async function runAssistantMediaBrowserCases(browser, { screenshots } = {
       assert.equal(await unsupported.isDisabled(), true);
       assert.match(await unsupported.getAttribute("title"), /cannot share/);
       assert.equal(await page.evaluate(() => window.__shareAttempts), 0);
+      if (width !== 320) {
+        // A video opens in the viewer, goes full screen from its button, comes
+        // back to the viewer and then to the conversation.
+        const clip = Buffer.from(await page.evaluate(async () => {
+          const canvas = Object.assign(document.createElement("canvas"), { width: 320, height: 180 }), ctx = canvas.getContext("2d");
+          const recorder = new MediaRecorder(canvas.captureStream(15), { mimeType: "video/webm" }), chunks = [];
+          recorder.ondataavailable = event => chunks.push(event.data);
+          const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+          recorder.start();
+          for (let frame = 0; frame < 8; frame += 1) { ctx.fillStyle = `hsl(${frame * 45} 70% 50%)`; ctx.fillRect(0, 0, 320, 180); await new Promise(resolve => setTimeout(resolve, 70)); }
+          recorder.stop(); await stopped;
+          return [...new Uint8Array(await new Blob(chunks).arrayBuffer())];
+        }));
+        preview.fake.addFile("/fake/media/clip.webm", clip);
+        const session = preview.fake.addSession("default", "Video", { source: "tui" });
+        session.messages.push({ role: "user", text: "the clip" }, { role: "assistant", text: "Here it is.\n\nMEDIA:/fake/media/clip.webm" });
+        await page.goto(`${preview.origin}/assistant.html?bot=default&session=${session.id}`);
+        const openClip = page.locator('.assistant-file[data-kind="video"] .assistant-file-open');
+        await openClip.click();
+        const clipViewer = page.getByRole("dialog", { name: "clip.webm", exact: true });
+        await clipViewer.locator("video.assistant-viewer-media").waitFor();
+        await clipViewer.getByRole("button", { name: "Full screen", exact: true }).click();
+        await page.waitForFunction(() => document.fullscreenElement?.matches("video.assistant-viewer-media"));
+        await page.evaluate(() => document.exitFullscreen());
+        await page.waitForFunction(() => !document.fullscreenElement);
+        assert.equal(await clipViewer.isVisible(), true, "離開全螢幕回到檢視器");
+        await clipViewer.getByRole("button", { name: "Close", exact: true }).click();
+        await clipViewer.waitFor({ state: "detached" });
+        assert.equal(await openClip.evaluate(node => node === document.activeElement), true, "關閉後回到對話");
+        await page.goto(preview.origin + "/assistant.html?bot=default");
+        await page.getByRole("button", { name: "Share photo.png", exact: true }).waitFor();
+      }
       if (width === 393) {
         // In an app on the home screen a PDF or a text file opens in the
         // viewer too, without a new-tab button that would leave the app.

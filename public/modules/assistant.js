@@ -55,6 +55,7 @@
     // Two speech bubbles: the conversations this Bot has had.
     history: "M8.5 14.5H6l-3 2.6V6.5A2.5 2.5 0 0 1 5.5 4h8A2.5 2.5 0 0 1 16 6.5V7M11.5 9h7a2.5 2.5 0 0 1 2.5 2.5V20l-3-2.5h-6.5A2.5 2.5 0 0 1 9 15v-3.5A2.5 2.5 0 0 1 11.5 9z",
     more: "M5.5 12h.01M12 12h.01M18.5 12h.01", close: "M6.5 6.5l11 11M17.5 6.5l-11 11", chevron: "M9.5 6l6 6-6 6",
+    expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
     sliders: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4", search: "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM20 20l-4.6-4.6",
     open: "M14 3h7v7M10 14L21 3M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5",
     download: "M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5",

@@ -569,6 +569,8 @@
       const key = L.identity(ref);
       if (frames.has(key)) { frames.get(key).frame.title = `${ref.title} · ${hostName(ref.host)}`; continue; }
       const frame = node("iframe", "", "workspace-frame"); frame.title = `${ref.title} · ${hostName(ref.host)}`;
+      // A video in a pane can still go full screen.
+      frame.allow = "fullscreen"; frame.allowFullscreen = true;
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
       frame.src = ref.assistant ? new URL(WAM.frameUrl(ref), location.origin).href : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
     }

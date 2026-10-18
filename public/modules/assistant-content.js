@@ -86,6 +86,20 @@
       close.setAttribute("aria-label", t("viewerClose")); close.title = t("viewerClose"); close.append(icon("close"));
       close.addEventListener("click", closeViewer);
       bar.append(close, node("span", "assistant-viewer-name", file.name));
+      if (file.kind === "video") {
+        // An iPhone has no full screen for page elements; its own player is
+        // full screen, turns with the phone and closes back to the viewer.
+        const full = node("button", "assistant-viewer-full"); full.type = "button";
+        full.setAttribute("aria-label", t("fullScreen")); full.title = t("fullScreen"); full.append(icon("expand"));
+        full.addEventListener("click", () => {
+          const player = stage.querySelector("video");
+          try {
+            if (doc.fullscreenEnabled && player.requestFullscreen) player.requestFullscreen().catch(() => {});
+            else player.webkitEnterFullscreen?.();
+          } catch {}
+        });
+        bar.append(full);
+      }
       if (file.path) {
         const actions = node("span", "assistant-file-actions assistant-viewer-actions");
         // A browser has tabs to come back from; an app on the home screen has none.
@@ -127,7 +141,8 @@
       for (const item of doc.body.children) { covered.set(item, item.inert); item.inert = true; }
       const keys = event => {
         if (viewer?.layer !== layer) return;
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeViewer(); }
+        // Escape in full screen leaves full screen only.
+        if (event.key === "Escape" && !doc.fullscreenElement) { event.preventDefault(); event.stopPropagation(); closeViewer(); }
         if (event.key === "Tab") {
           const focusable = [...layer.querySelectorAll("button:not([disabled]), a[href], video, audio, iframe, pre")].filter(item => item.getClientRects().length);
           const first = focusable[0], last = focusable.at(-1);
@@ -140,6 +155,8 @@
       doc.body.append(layer); doc.body.classList.add("assistant-viewer-open");
       viewer = { layer, covered, keys, trigger };
       close.focus({ preventScroll: true });
+      // Started from the tap that opened it, so a phone lets it play with sound.
+      if (file.kind === "video" || file.kind === "audio") content.play?.()?.catch?.(() => {});
     }
     function shareAction(file) {
       const button = node("button", "assistant-file-share"), nav = view.navigator;

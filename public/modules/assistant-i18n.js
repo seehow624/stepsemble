@@ -649,19 +649,19 @@
     "it": ["Attività pianificate e automatiche", "Nome, immagine, personalità e competenze"],
   };
   // The viewer a picture, video or file opens in over the page.
-  const VIEWER_KEYS = ["viewerClose", "fileOpenTab"];
+  const VIEWER_KEYS = ["viewerClose", "fileOpenTab", "fullScreen"];
   const viewerRows = {
-    "en": ["Close", "Open in a new tab"],
-    "zh-Hant": ["關閉", "在新分頁開啟"],
-    "zh-Hans": ["关闭", "在新标签页打开"],
-    "ja": ["閉じる", "新しいタブで開く"],
-    "ko": ["닫기", "새 탭에서 열기"],
-    "tr": ["Kapat", "Yeni sekmede aç"],
-    "fr": ["Fermer", "Ouvrir dans un nouvel onglet"],
-    "de": ["Schließen", "In neuem Tab öffnen"],
-    "es": ["Cerrar", "Abrir en una pestaña nueva"],
-    "pt-BR": ["Fechar", "Abrir em uma nova aba"],
-    "it": ["Chiudi", "Apri in una nuova scheda"],
+    "en": ["Close", "Open in a new tab", "Full screen"],
+    "zh-Hant": ["關閉", "在新分頁開啟", "全螢幕"],
+    "zh-Hans": ["关闭", "在新标签页打开", "全屏"],
+    "ja": ["閉じる", "新しいタブで開く", "全画面"],
+    "ko": ["닫기", "새 탭에서 열기", "전체 화면"],
+    "tr": ["Kapat", "Yeni sekmede aç", "Tam ekran"],
+    "fr": ["Fermer", "Ouvrir dans un nouvel onglet", "Plein écran"],
+    "de": ["Schließen", "In neuem Tab öffnen", "Vollbild"],
+    "es": ["Cerrar", "Abrir en una pestaña nueva", "Pantalla completa"],
+    "pt-BR": ["Fechar", "Abrir em uma nova aba", "Tela cheia"],
+    "it": ["Chiudi", "Apri in una nuova scheda", "Schermo intero"],
   };
   const tables = {};
   for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows], [MENU_KEYS, menuRows], [VIEWER_KEYS, viewerRows]]) {

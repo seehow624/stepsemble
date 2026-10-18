@@ -247,6 +247,11 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-viewer-close:hover { background: rgba(255, 255, 255, .24); }
 .assistant-viewer-close:focus-visible, .assistant-viewer-actions a:focus-visible, .assistant-viewer-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .assistant-viewer-close svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.assistant-viewer-full { display: inline-grid; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; place-items: center; border: 0; border-radius: 50%;
+  background: transparent; color: #fff; cursor: pointer; transition: background .15s ease; }
+.assistant-viewer-full:hover { background: rgba(255, 255, 255, .14); }
+.assistant-viewer-full:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.assistant-viewer-full svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .assistant-viewer-name { flex: 1; min-width: 0; overflow: hidden; font-size: .9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .assistant-viewer-actions a, .assistant-viewer-actions button { color: #fff; }
 .assistant-viewer-actions a:hover, .assistant-viewer-actions button:not(:disabled):hover { background: rgba(255, 255, 255, .14); }
