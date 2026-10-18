@@ -122,7 +122,6 @@ const el = {
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"), chatAgentLogo: $("chat-agent-logo"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
-  runTimer: $("run-timer"),
   btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
   changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesCommit: $("changes-commit"), changesClose: $("changes-close"),
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
@@ -1724,6 +1723,7 @@ function showChatEmpty() {
   el.chatTitle.textContent = "Stepsemble";
   el.chatSub.textContent = "";
   el.chatSub.dataset.base = "";
+  el.chatSub.title = "";
   el.messages.innerHTML = '';
   resetSessionUsage();
   if (el.chatEmpty) {
@@ -2881,7 +2881,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
   _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
   historyState = null; removeHistoryLoadButton(); removeCodexNativeHistoryButton();
   autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent(agentId);
-  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = "";
+  setChatPlace(cwd); resetLiveUsage(); el.messages.innerHTML = "";
   resetSessionUsage(); ensureSessionUsageFooter();
   if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
   el.viewChat.classList.remove("hidden");
@@ -4119,7 +4119,7 @@ async function openExisting(s) {
   hideChatEmpty();
   setChatTitle(sessionDisplayTitle(s));
   setChatAgent(s.agentId ?? "pi");
-  el.chatSub.dataset.base = s.cwd; el.chatSub.textContent = s.cwd; resetLiveUsage();
+  setChatPlace(s.cwd); resetLiveUsage();
   removeHistoryLoadButton();
   historyState = { file: s.file, before: null, hasMore: false, loading: false };
   autoScrollPinned = true;
@@ -4718,7 +4718,7 @@ async function startNew(cwd, name, agentId = "pi", worktree = false, signal = nu
   hideChatEmpty();
   setChatTitle(name);
   setChatAgent(agentId);
-  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage();
+  setChatPlace(cwd); resetLiveUsage();
   el.messages.innerHTML = "";
   resetSessionUsage();
   ensureSessionUsageFooter();
@@ -4774,8 +4774,7 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
       }
       beginDraftScope({ cwd: openedCwd, name: el.chatTitle?.textContent || null });
       currentSessionCwd = openedCwd;
-      el.chatSub.dataset.base = openedCwd;
-      el.chatSub.textContent = openedCwd;
+      setChatPlace(openedCwd);
       resetProjectChanges();
       void refreshProjectChanges({ background: true });
     }
@@ -6356,8 +6355,7 @@ async function openCodexNativeTask(task, generationOverride = null) {
   hideChatEmpty();
   setChatTitle(name);
   setChatAgent("codex");
-  el.chatSub.dataset.base = cwd;
-  el.chatSub.textContent = cwd;
+  setChatPlace(cwd);
   resetLiveUsage();
   el.messages.innerHTML = "";
   resetSessionUsage();
@@ -6464,8 +6462,7 @@ async function openOpenCodeNativeTask(task, generationOverride = null) {
   hideChatEmpty();
   setChatTitle(name);
   setChatAgent("opencode");
-  el.chatSub.dataset.base = cwd;
-  el.chatSub.textContent = cwd;
+  setChatPlace(cwd);
   resetLiveUsage();
   el.messages.innerHTML = "";
   resetSessionUsage();
@@ -6768,7 +6765,7 @@ async function openGrokAcpTask(task, generationOverride = null) {
   currentSessionFile = null; currentAgentTaskId = `grok-build:${nativeSessionId}`; updateSessionSelection();
   _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd; historyState = null; removeHistoryLoadButton();
   autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("grok-build");
-  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  setChatPlace(cwd); resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
   if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `grok-build:${nativeSessionId}`, generic: true, nativeGrokAcp: true, nativeSessionId,
@@ -7156,7 +7153,7 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
   currentAgentTaskId = `claude-code:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
   historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("claude-code");
-  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  setChatPlace(cwd); resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
   if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
@@ -7312,7 +7309,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
   resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
   currentAgentTaskId = `${agentId}:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
   historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent(agentId);
-  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  setChatPlace(cwd); resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
   if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `${agentId}:${nativeSessionId}`, generic: true, nativeAcp: true, acpAgentId: agentId, nativeSessionId,
@@ -7415,7 +7412,7 @@ async function openAntigravityStructuredTask(task, generationOverride = null) {
   resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
   currentAgentTaskId = `antigravity:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
   historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("antigravity");
-  el.chatSub.dataset.base = cwd; el.chatSub.textContent = cwd; resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
+  setChatPlace(cwd); resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
   if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
   el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
   rpc = { sid: `antigravity:${nativeSessionId}`, generic: true, nativeAntigravityStructured: true, nativeSessionId, nativeLoading: true,
@@ -7458,8 +7455,7 @@ async function openGenericTask(task) {
   hideChatEmpty();
   setChatTitle(name);
   setChatAgent(task.agentId || "agent");
-  el.chatSub.dataset.base = cwd;
-  el.chatSub.textContent = cwd;
+  setChatPlace(cwd);
   resetLiveUsage();
   el.messages.innerHTML = "";
   resetSessionUsage();
@@ -7750,7 +7746,6 @@ function closeChat(silent) {
   currentAgentTaskId = null;
   // Leaving the conversation clears its timer; the next session starts fresh.
   if (runTimerInterval) { clearInterval(runTimerInterval); runTimerInterval = null; }
-  if (el.runTimer) { el.runTimer.classList.add("hidden"); el.runTimer.textContent = ""; }
   renderCodexNativeRunState(null);
   delete el.queueNote.dataset.connection;
   pendingAssistant = null;
@@ -10547,23 +10542,14 @@ function markRpcActivity() {
 // Run timer: how long the current turn has been working
 // ---------------------------------------------------------------------------
 
-// Formatting lives in session-utils so it can be unit tested. Digits are
-// monospaced in CSS so the header does not twitch on every tick.
+// Formatting lives in session-utils so it can be unit tested.
 const runElapsedText = (ms) => window.stepsembleSessionUtils.runElapsedText(ms);
 
+// The work log under the turn says how long it has run ("Worked for 5m 11s");
+// the header only shows that it is running, so it keeps no clock of its own.
 function renderRunTimer() {
-  if (!el.runTimer) return;
-  const startedAt = rpc?.runStartedAt;
-  if (!startedAt) {
-    el.runTimer.classList.add("hidden");
-    el.runTimer.textContent = "";
-    return;
-  }
-  const endedAt = rpc?.streaming ? Date.now() : (rpc?.runEndedAt || Date.now());
-  el.runTimer.textContent = runElapsedText(endedAt - startedAt);
-  el.runTimer.classList.remove("hidden");
-  el.runTimer.classList.toggle("running", !!rpc?.streaming || pendingTurnWaiting(rpc));
-  if (rpc?.nativeCodex) renderCodexNativeRunState(rpc);
+  if (!rpc?.runStartedAt) return;
+  if (rpc.nativeCodex) renderCodexNativeRunState(rpc);
   updateWorkLogClock();
 }
 
@@ -10604,6 +10590,7 @@ function setActivityLabel(label = "thinking") {
   const statusText = activityStatusText(label);
   if (el.thinkingStatus) {
     el.thinkingStatus.textContent = statusText;
+    el.thinkingStatus.title = statusText;
     el.thinkingStatus.classList.toggle("hidden", !rpc?.streaming);
     el.thinkingStatus.classList.toggle("running", !!rpc?.streaming && label !== "waiting");
   }
@@ -11137,6 +11124,17 @@ function attachLiveToolResult(m) {
   }
   attachToolResult(m.toolName, m.isError, txt);
 }
+// The header says where a session runs: its computer and project, e.g.
+// "OneStep-MacMini · Stepsemble". The full folder stays in the tooltip, and
+// in a narrow header the computer's name gives way before the project's.
+function setChatPlace(cwd) {
+  el.chatSub.dataset.base = cwd || "";
+  el.chatSub.title = cwd || "";
+  const machine = machines.find(row => row.id === selectedId);
+  const parts = cwd ? [[machineDisplayName(machine || currentHost), "chat-sub-machine"], [projectDisplayName(cwd), "chat-sub-project"]].filter(([text]) => text) : [];
+  const span = (text, className) => { const node = document.createElement("span"); node.className = className; node.textContent = text; return node; };
+  el.chatSub.replaceChildren(...parts.flatMap(([text, className], index) => index ? [span(" · ", "chat-sub-sep"), span(text, className)] : [span(text, className)]));
+}
 let liveUsageTokens = 0; let liveUsageCost = 0; let baseUsageTokens = 0;
 function resetLiveUsage() { liveUsageTokens = 0; liveUsageCost = 0; baseUsageTokens = 0; updateLiveUsage(null); }
 function updateLiveUsage(u) {
@@ -11145,10 +11143,9 @@ function updateLiveUsage(u) {
     if (t) liveUsageTokens = Math.max(liveUsageTokens, t);
     if (u.cost && Number.isFinite(u.cost.total)) liveUsageCost = u.cost.total;
   }
-  const base = el.chatSub.dataset.base || "";
   // Keep usage in one place at the bottom of the conversation.  The header
-  // remains the compact cwd/status line instead of repeating tok/$ per turn.
-  el.chatSub.textContent = base;
+  // remains the compact place/status line instead of repeating tok/$ per turn.
+  setChatPlace(el.chatSub.dataset.base || "");
 }
 function setStreaming(on) {
   const wasStreaming = !!rpc?.streaming;
@@ -12861,8 +12858,6 @@ function renderModelList(currentId, currentProvider = null) {
         toast("模型：" + shown(m).name);
         updateComposerSummary(shown(m).name, undefined);
         renderModelList(m.id, m.provider);
-        // 頂部 sub 同步
-        el.chatSub.dataset.base = currentSessionCwd + " · " + shown(m).name; updateLiveUsage(null);
       } catch (e) { toast(tKey("runtime.switchFailed", { detail: e.message }), true); }
     });
     el.modelList.appendChild(row);

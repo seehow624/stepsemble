@@ -1,7 +1,7 @@
 // CI Playwright suite for how a conversation behaves while an agent works,
 // with synthetic agents only (test-support fixtures; no account or model):
 //   - a message sent shows "Working for …" and "Thinking" below it at once,
-//     and the header's run timer counts from the same moment;
+//     timed from the send; the header keeps no second clock beside it;
 //   - the jump-to-latest control is a round button centred above the message
 //     box, "•••" while the agent works and an arrow after, and a tap reaches
 //     the latest message;
@@ -24,11 +24,6 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR42mP8z8BQz0AEYBxVSF8FAP5FDvcfRYWgAAAAAElFTkSuQmCC", "base64");
 const seconds = text => Number((/(\d+)s\b/.exec(text || "") || [])[1]);
-// The header timer reads "5s", "1:05" or "1:02:56".
-const clock = text => {
-  const match = /(?:(\d+):)?(\d+):(\d+)/.exec(text || "");
-  return match ? Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) : seconds(text);
-};
 // The conversation has connected, as Send itself tells (sendOnceConnected in
 // public/app.js); before that a message waits for the connection.
 const connected = () => typeof rpc !== "undefined" && !!rpc && !rpc.nativeLoading && !genericInputBlock()
@@ -54,7 +49,7 @@ async function pendingTurn(page, ui, context, route, question, replyText, out, k
       const holder = document.querySelector("#messages .wl-placeholder");
       return { head: holder?.querySelector(".wl-head-label")?.textContent || "", pulse: holder?.querySelector(".wl-pulse")?.textContent || "",
         afterUser: !!holder?.previousElementSibling?.classList.contains("user"),
-        timer: document.querySelector("#run-timer")?.textContent || "", timerRunning: !!document.querySelector("#run-timer")?.classList.contains("running") };
+        headerClock: !!document.querySelector("#run-timer") };
     });
     const first = await read();
     await ui.waitForTimeout(2300);
@@ -63,16 +58,16 @@ async function pendingTurn(page, ui, context, route, question, replyText, out, k
     assert.equal(first.pulse, "Thinking");
     assert.equal(first.afterUser, true, "the placeholder sits below the message");
     assert(seconds(later.head) > seconds(first.head), "Working for counts up: " + first.head + " → " + later.head);
-    assert.equal(later.timerRunning, true, "the header timer runs while waiting");
-    assert(Math.abs(clock(later.timer) - seconds(later.head)) <= 1, "header " + later.timer + " vs " + later.head);
+    assert.equal(later.headerClock, false, "the header keeps no second clock beside Working for");
     await ui.waitForFunction(text => [...document.querySelectorAll("#messages .msg.assistant")].some(node => node.textContent.includes(text)), replyText, { timeout: 20000 });
     await ui.waitForFunction(() => !document.querySelector("#messages .wl-placeholder"), null, { timeout: 5000 });
-    // The run is timed from the send, never from before it.
+    // The run is timed from the send, never from before it. A reply with
+    // nothing to fold and no speed to show keeps no work line at all.
     await ui.waitForTimeout(1200);
     const took = Math.ceil((Date.now() - started) / 1000);
-    const finished = await read();
-    assert(clock(finished.timer) <= took + 1, "header " + finished.timer + " after " + took + "s");
-    out[key] = { appearedMs, head: later.head, timer: later.timer };
+    const worked = await ui.evaluate(() => [...document.querySelectorAll("#messages .wl-head .wl-head-label")].pop()?.textContent || "");
+    if (worked) assert(seconds(worked) <= took + 1, "work log " + worked + " after " + took + "s");
+    out[key] = { appearedMs, head: later.head, worked };
   } finally { await context.unroute(route); }
 }
 

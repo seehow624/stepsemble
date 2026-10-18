@@ -162,14 +162,14 @@ test("authoritative removal wins over an in-flight HTTP result without touching 
 
 function nativeTransport(postImpl = async () => ({ sid: "a", replayAfter: 37 })) {
   const state = ui(), c = state.context, streams = [], timers = new Map(); let timerId = 0;
-  const endpoints = [], cleanup = [], draftScopes = [];
+  const endpoints = [], cleanup = [], draftScopes = [], places = [];
   state.el.queueNote = node(); state.el.queueNote.dataset = {};
   state.el.chatSub = node(); state.el.chatSub.dataset = {};
   state.el.chatTitle = node(); state.el.chatTitle.textContent = "Named worktree";
   Object.assign(c, { viewGeneration: 1, setStreaming(value) { if (c.rpc) c.rpc.streaming = value; },
     post: async (...args) => { endpoints.push(args[0]); return postImpl(...args); },
     fetch: async (...args) => { cleanup.push(args); return {}; },
-    beginDraftScope(scope) { draftScopes.push(scope); }, resetProjectChanges() {}, refreshProjectChanges() {},
+    beginDraftScope(scope) { draftScopes.push(scope); }, setChatPlace(cwd) { places.push(cwd); }, resetProjectChanges() {}, refreshProjectChanges() {},
     refreshCommands() {}, syncComposerState() {}, syncSessionStats() {},
     showRemoteAuthorizationState() {}, setActivityLabel() {}, setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
     EventSource: class {
@@ -179,7 +179,7 @@ function nativeTransport(postImpl = async () => ({ sid: "a", replayAfter: 37 }))
       connected(value) { this.listeners.connected({ data: JSON.stringify(value) }); }
     },
   });
-  return { ...state, streams, timers, endpoints, cleanup, draftScopes,
+  return { ...state, streams, timers, endpoints, cleanup, draftScopes, places,
     retry() { const id = c.rpc.reconnectTimer, fn = timers.get(id); assert.equal(typeof fn, "function"); timers.delete(id); fn(); } };
 }
 async function transport() {
@@ -228,7 +228,7 @@ test("Pi worktree launch attaches its returned sid to the native stream and neve
   assert.equal(state.context.rpc.sid, "a");
   assert.equal(state.context.rpc.generic, undefined);
   assert.equal(state.context.currentSessionCwd, "/owned/worktree");
-  assert.equal(state.el.chatSub.textContent, "/owned/worktree");
+  assert.deepEqual(state.places, ["/owned/worktree"], "the header names the worktree the Host opened");
   assert.equal(state.el.chatTitle.textContent, "Named worktree");
   assert.deepEqual(JSON.parse(JSON.stringify(state.draftScopes)), [{ cwd: "/owned/worktree", name: "Named worktree" }]);
   assert.deepEqual(state.endpoints, ["/api/agent/open"]);

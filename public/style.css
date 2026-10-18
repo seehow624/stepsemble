@@ -355,8 +355,11 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 /* ---- 對話 ---- */
 .chat-head-info { flex: 1; min-width: 0; text-align: left; }
 .chat-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-sub { color: var(--pine-soft); font-size: 11.5px; font-family: var(--mono);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-sub { display: flex; min-width: 0; color: var(--pine-soft); font-size: 12px; white-space: nowrap; }
+.chat-sub-machine, .chat-sub-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chat-sub-machine { flex: 0 1000 auto; }
+.chat-sub-project { flex: 0 1 auto; }
+.chat-sub-sep { flex: 0 0 auto; white-space: pre; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .messages {
@@ -2736,6 +2739,7 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   padding: var(--safe-top) 16px 0;
 }
 #view-chat .chat-head-info { text-align: center; }
+#view-chat .chat-sub { justify-content: center; }
 #view-chat .messages {
   padding: 22px max(18px, calc((100% - var(--oc-content)) / 2)) calc(24px + env(safe-area-inset-bottom));
   display: flex;
@@ -2814,6 +2818,7 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
     min-height: calc(58px + var(--safe-top));
   }
   #view-chat .chat-head-info { text-align: left; }
+  #view-chat .chat-sub { justify-content: flex-start; }
   .session-item { min-height: 60px; padding-top: 9px; padding-bottom: 9px; }
   #view-chat .messages { padding: 16px 12px calc(18px + env(safe-area-inset-bottom)); gap: 15px; }
   #view-chat .msg.user { max-width: 88%; }
@@ -2850,35 +2855,36 @@ body.compact #view-list .session-item .s-meta { margin-top: 1px; font-size: .55r
 /* ===========================================================================
    v1.9 — Theme choices, compact conversation rhythm, Codex tool output, activity status
    =========================================================================== */
+/* A running turn shows only a small spinner in the header; the status text
+   ("Thinking…") stays in the element for screen readers and as its tooltip.
+   Waiting for an answer from you shows a still dot instead. */
 .thinking-status {
+  position: relative;
   flex: 0 0 auto;
-  max-width: 150px;
+  width: 16px;
+  height: 16px;
+  margin: 0 4px;
   overflow: hidden;
   color: var(--pine-soft);
-  font: 600 .72rem/1.25 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-  letter-spacing: normal;
-  background: none;
-  -webkit-text-fill-color: currentColor;
-  animation: none;
-  text-overflow: ellipsis;
+  text-indent: 100%;
   white-space: nowrap;
 }
+.thinking-status::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  box-sizing: border-box;
+  border: 1.75px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin .85s linear infinite;
+}
+.thinking-status:not(.running)::before { inset: 4px; border: 0; background: var(--warn); animation: none; }
+html.reduced-motion .thinking-status::before { animation: none; }
 @keyframes thinking-status-shimmer {
   0% { background-position: 120% 0; }
   100% { background-position: -20% 0; }
 }
-
-/* Elapsed time for the current turn. Tabular digits keep the width steady so
-   the header does not shift on every tick. */
-.run-timer {
-  flex: 0 0 auto;
-  color: var(--pine-soft);
-  font: 600 .68rem/1.25 var(--mono);
-  font-variant-numeric: tabular-nums;
-  opacity: .75;
-  white-space: nowrap;
-}
-.run-timer.running { opacity: 1; }
 
 /* A session that is still working: a soft pulsing dot plus its elapsed time,
    so reopening the app mid-run shows at a glance what is still going. */
@@ -3017,7 +3023,8 @@ html.reduced-motion .session-running-dot { animation: none; }
   #view-chat .messages { gap: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .thinking-status, .thinking-shimmer .thinking-label { animation: none; -webkit-text-fill-color: currentColor; background: none; }
+  .thinking-shimmer .thinking-label { animation: none; -webkit-text-fill-color: currentColor; background: none; }
+  .thinking-status::before { animation: none; }
 }
 
 /* ===========================================================================
@@ -4564,8 +4571,6 @@ html[lang="ko"] .settings-subheading {
 }
 @media (max-width: 979px) {
   #setting-sidebar-width-row { display: none; }
-  /* The timer sits beside the status, so the label gives up a little width. */
-  #view-chat .thinking-status { max-width: 84px; }
 }
 html.reduced-motion .machine-status-dot.machine-status-checking { animation: none; }
 body.compact #view-list .session-item,
@@ -5034,7 +5039,6 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
   0% { background-position: 140% 0; }
   100% { background-position: -40% 0; }
 }
-#view-chat .thinking-status.running,
 #view-chat .task-progress.running #task-progress-count,
 #view-chat .task-progress-step.active .task-progress-step-copy {
   color: transparent;
@@ -5047,7 +5051,6 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
   animation: task-progress-shimmer 1.9s linear infinite;
 }
 #view-chat .task-progress.running #task-progress-count { display: inline-block; }
-html.reduced-motion #view-chat .thinking-status.running,
 html.reduced-motion #view-chat .task-progress.running #task-progress-count,
 html.reduced-motion #view-chat .task-progress-step.active .task-progress-step-copy {
   animation: none;
@@ -5064,7 +5067,6 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   #view-chat .task-progress-step-copy { font-size: .8rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  #view-chat .thinking-status.running,
   #view-chat .task-progress.running #task-progress-count,
   #view-chat .task-progress-step.active .task-progress-step-copy {
     animation: none;
