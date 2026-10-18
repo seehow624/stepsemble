@@ -51,9 +51,11 @@ historical sources, Host data and owned children are removed on completion/failu
 No existing browser profile, installed Pi, agent account or production service is
 used. No runtime dependency or build output is installed onto the project volume.
 
-Compatibility/conversation, workspace, and optional native history groups each
-run in a fresh worker with a five-minute process budget. Deliberate workspace
-polling waits do not consume the conversation group's budget. The workspace
+Compatibility/conversation, conversation experience, workspace, and optional
+native history groups each run in a fresh worker with a five-minute process
+budget. The conversation experience cases (subagents, session recovery, sending
+while a conversation opens) and deliberate workspace polling waits do not
+consume the compatibility group's budget. The workspace
 group also checks recorded, already-committed file diffs and read-only project
 browsing/code previews at 1440, 390 and 320 px, using disposable local files. Each case retains
 its own timeout; a failed or timed-out group stops the run without retries.

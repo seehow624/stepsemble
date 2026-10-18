@@ -31,9 +31,10 @@ export function validateBrowserLock(manifest, lock) {
 }
 export function browserWorkerJobs(runtimeDirectory, historyHelper) {
   // Every group gets a fresh worker/browser and the same finite process budget.
-  // Workspace polling cases have deliberate waits; give them their own budget
-  // instead of spending the compatibility/conversation group's remaining time.
-  return ["core", "workspace", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
+  // Workspace polling cases have deliberate waits, and the conversation
+  // experience cases open many disposable Hosts; each gets its own budget
+  // instead of spending the compatibility group's remaining time.
+  return ["core", "conversation-ux", "workspace", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
     suite, args: [path.join(root, "scripts/rolling-browser-worker.mjs"), runtimeDirectory, suite,
       ...(["sources", "codex"].includes(suite) ? [historyHelper] : [])],
   }));
