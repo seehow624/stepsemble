@@ -1393,7 +1393,9 @@
     function show() {
       const query = search.value.trim().toLowerCase(), filtered = rows.filter(r => (prefs.showTemporarySessions || !r.record.isTemporary)
         && `${r.record.name} ${r.record.agentId} ${r.record.cwd}`.toLowerCase().includes(query));
-      list.replaceChildren(); status.textContent = t("count", { count: filtered.length }); more.hidden = limit >= filtered.length;
+      list.replaceChildren(); more.hidden = limit >= filtered.length;
+      // A Host with no other history says so; a search with no match keeps the count.
+      status.textContent = rows.length ? t("count", { count: filtered.length }) : t("historyEmpty");
       for (const row of filtered.slice(0, limit)) {
         const item = node("article", "", "workspace-history-row"), copy = node("div"); copy.append(node("strong", row.record.name || row.record.firstMessage || row.record.agentId || "Pi"), node("small", `${row.record.agentId || "pi"} · ${row.record.cwd || ""}`));
         const add = button(t("addWorkspace"), async () => { add.disabled = true; try { await api("/api/workspace/adopt", { kind: row.kind, reference: row.reference }, target); add.textContent = t("added"); add.title = t("added"); add.setAttribute("aria-label", t("added")); await refresh(); } catch (error) { toast(error.message); add.disabled = false; } });

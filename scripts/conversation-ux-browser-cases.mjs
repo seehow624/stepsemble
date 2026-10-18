@@ -417,6 +417,31 @@ export async function runNarrowSettingsBrowserCases(browser, { screenshots } = {
   }
 }
 
+// History from other apps on a Host that has none says so in words, not a
+// bare "0 sessions" under the search field.
+export async function runHistoryEmptyBrowserCases(browser, { screenshots } = {}) {
+  for (const [locale, width, expected] of [["en", 1280, "No conversations from other apps on this Host yet."], ["zh-Hant", 393, "這台主機上還沒有其他 App 的對話。"]]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport: { width, height: 852 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(locale => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "light", reducedMotion: true })); }, locale);
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      await page.locator("#workspace-history").click();
+      const dialog = page.locator("#workspace-dialog");
+      await dialog.locator("input[type=search]").waitFor();
+      await page.waitForFunction(text => document.getElementById("workspace-dialog-body")?.innerText.includes(text), expected, { timeout: 10_000 }).catch(() => {});
+      const body = await dialog.locator("#workspace-dialog-body").innerText();
+      assert.ok(body.includes(expected), `${locale}: ${body}`);
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `history-empty-${width}.png`) }); }
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "History empty", locale, width, result: "passed" }));
+    } finally { await context.close(); await preview.close(); }
+  }
+}
+
 // The pane's header controls (Changes, More) float over its top-right corner
 // on a desktop; the first message, usually the person's at the right, starts
 // below them. A phone keeps its title row in the flow.
@@ -736,6 +761,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runStatusColorBrowserCases(browser);
   await runKeyboardFocusBrowserCases(browser);
   await runNarrowSettingsBrowserCases(browser, options);
+  await runHistoryEmptyBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
