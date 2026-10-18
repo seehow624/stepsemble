@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.21
+
+- Paste a screenshot or a file into a Bot conversation. Pasting into the message box attaches it the same way the paperclip does; a screenshot is named `pasted-<date>-<time>`, because the clipboard calls every one `image.png`, and a copy from Excel, Numbers or Word, which carries a picture beside its text, still pastes as text.
+- Attach up to ten files of up to 20 MB each to a Bot message, as Telegram allows. It was four of 10 MB, and the Host took only 16 MB for the whole message, so two large files failed; a file of exactly the limit was refused too, and a sent message listed only its first eight attachments.
+
 ## 3.9.20
 
 - Send messages to a long Codex conversation again. After a resume Codex reports the thread's token usage under an earlier turn, for a thread it compacted the first one, and Stepsemble closed the connection when that turn was older than the 32 it keeps. Since idle release resumes the thread for every message, a long compacted conversation failed on each one with `native_usage_mismatch` and then `native_not_ready`. Usage is matched to its thread only.
