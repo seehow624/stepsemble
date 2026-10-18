@@ -28,16 +28,20 @@ function toolEntry(tool) {
 function bounded(log) { return log.filter(Boolean).slice(-MAX_LOG); }
 // At most limit bytes of a regular file, never through a link: the end of a
 // longer file when tail is set (from its first whole line), otherwise nothing.
+// O_NOFOLLOW refuses a link where the system has it; Windows has none, so on
+// every system the opened file must also be the one lstat found.
 async function readBounded(file, limit, tail) {
   let handle;
   try {
+    const link = await fs.promises.lstat(file, { bigint: true });
+    if (!link.isFile()) return null;
     handle = await fs.promises.open(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    const stat = await handle.stat();
-    if (!stat.isFile() || !tail && stat.size > limit) return null;
-    const length = Math.min(stat.size, limit), buffer = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, stat.size - length);
+    const stat = await handle.stat({ bigint: true }), size = Number(stat.size);
+    if (!stat.isFile() || stat.ino !== link.ino || stat.dev !== link.dev || !tail && size > limit) return null;
+    const length = Math.min(size, limit), buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, size - length);
     const text = buffer.toString("utf8", 0, bytesRead);
-    return stat.size > length ? text.slice(text.indexOf("\n") + 1) : text;
+    return size > length ? text.slice(text.indexOf("\n") + 1) : text;
   } catch { return null; }
   finally { await handle?.close().catch(() => {}); }
 }

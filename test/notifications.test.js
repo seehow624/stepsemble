@@ -76,7 +76,8 @@ test("VAPID authorization verifies as ES256 at the push service's origin", () =>
   const pair = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }), jwk = pair.publicKey.export({ format: "jwk" });
   const publicBytes = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]);
   const context = vm.createContext({ crypto, Buffer, URL, PUSH_SUBJECT: "mailto:notifications@example.invalid", b64url: value => Buffer.from(value).toString("base64url"), pushPrivateKeyObject: () => pair.privateKey, pushServerPublicKeyBytes: () => publicBytes });
-  const start = source.indexOf("function vapidAuthorization("), end = source.indexOf("\n}\n", start) + 2;
+  // The function ends at its first closing line, also with Windows line ends.
+  const start = source.indexOf("function vapidAuthorization("), close = /\r?\n\}\r?\n/.exec(source.slice(start)), end = start + close.index + close[0].length;
   vm.runInContext(source.slice(start, end), context);
   const header = context.vapidAuthorization("https://push.example/send/id"), jwt = header.match(/vapid t=([^,]+)/)[1], [h, p, signature] = jwt.split(".");
   assert.equal(JSON.parse(Buffer.from(h, "base64url")).alg, "ES256");
