@@ -2765,6 +2765,9 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   font-size: 1rem; line-height: 1.35;
 }
 #view-chat .composer-wrap textarea:focus { outline: none; box-shadow: none; }
+/* The field shows it is being typed in, as the Bot's message box does. */
+#view-chat .composer { transition: border-color .15s ease; }
+#view-chat .composer:focus-within { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
 #view-chat .composer-toolbar { min-height: 44px; gap: 4px; padding: 3px 2px 0; }
 #view-chat .composer-toolbar .composer-icon-btn {
   width: 44px; height: 44px; min-height: 44px;
@@ -5318,6 +5321,12 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   cursor: pointer;
 }
 .settings-action-btn:disabled { color: var(--pine-soft); opacity: .6; cursor: default; }
+/* A row's button moves under its text when both cannot share a line, as with
+   a long label on a phone, instead of running out of the card or squeezing
+   the text into a thin column. */
+.settings-row:has(> span:first-child:not(:empty) + .settings-action-btn) { flex-wrap: wrap; row-gap: 8px; }
+.settings-row:has(> span:first-child:not(:empty) + .settings-action-btn) > span:first-child { flex: 1 1 200px; min-width: 0; }
+.settings-action-btn { max-width: 100%; }
 .settings-action-btn:active { transform: scale(.96); }
 
 
@@ -5622,7 +5631,9 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 #view-chat .wl-head.wl-running { cursor: default; }
 #view-chat .wl-head.wl-running .wl-chev { display: none; }
 #view-chat .wl-head:not(.wl-running):hover,
-#view-chat .wl-head:focus-visible { color: var(--ink); outline: none; }
+#view-chat .wl-head:focus-visible { color: var(--ink); }
+/* An expanded row has the same colour, so the keyboard also gets a ring. */
+#view-chat .wl-head:focus-visible, #view-chat .wl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 #view-chat .wl-head-label { font-variant-numeric: tabular-nums; }
 /* The model's speed: right now while it works, then tok/s and tok/min. */
 #view-chat .wl-rate {
@@ -5670,7 +5681,7 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 }
 #view-chat .wl-row:hover,
 #view-chat .wl-row:focus-visible,
-#view-chat .wl-row[aria-expanded="true"] { color: var(--ink); outline: none; }
+#view-chat .wl-row[aria-expanded="true"] { color: var(--ink); }
 #view-chat .wl-icon {
   width: 20px;
   height: 20px;

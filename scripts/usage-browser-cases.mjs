@@ -315,6 +315,10 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     assert.equal(await page.locator("#notice").textContent(), "");
     await page.locator("#data-details-label").click(); assert.equal(await page.locator("#data-details-text").isVisible(), true);
     await page.locator("#data-details-label").click();
+    // The panel's disclosures use the app's own chevron and a row tall enough to click.
+    const disclosures = await page.evaluate(() => [...document.querySelectorAll("summary")].filter(node => node.offsetParent).map(node => ({
+      marker: getComputedStyle(node).listStyleType, chevron: getComputedStyle(node, "::after").content, height: Math.round(node.getBoundingClientRect().height) })));
+    assert.ok(disclosures.length && disclosures.every(row => row.marker === "none" && row.chevron.includes("⌄") && row.height >= 24), JSON.stringify(disclosures));
     if (screenshotDirectory) { await fs.mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, "menubar-shared-account.png") }); }
     const opened = context.waitForEvent("page");
     await page.locator("#open").click(); const full = await opened;

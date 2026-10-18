@@ -175,9 +175,13 @@ self.addEventListener("push", event => {
       return;
     }
     const identity = notice?.host && notice?.key ? notice.host + ":" + notice.key : data.taskId || data.file || data.ts || "run";
+    // A newer alert replaces the conversation's older one and still alerts;
+    // one that waits for the person stays until they answer it.
+    const waiting = notice?.kind === "approval" || notice?.kind === "blockedGoal";
     await self.registration.showNotification(title, {
       body,
-      icon: "/icon-180.png", badge: "/stepsemble-glyph.png", tag: "stepsemble:" + identity,
+      icon: "/icon-180.png", badge: "/stepsemble-glyph.png", tag: "stepsemble:" + identity, renotify: true, requireInteraction: waiting,
+      ...(Number.isFinite(notice?.at) ? { timestamp: notice.at } : {}),
       data: { notice: notice || null, file: data.file || null, taskId: data.taskId || null },
     });
   })());

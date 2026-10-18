@@ -60,6 +60,14 @@ test("web notification status is registered on the selected Host and disabling i
   assert.equal(removal.base, "/r/mbp"); assert.deepEqual(removal.body, { endpoint: "https://push.example/mbp" });
   assert.equal(f.registrations.length, 1);
 });
+test("checking web notifications tells the Host this device's language, so alerts follow a language change", async () => {
+  const f = fixture();
+  f.registrations.push({ scope: "http://localhost/push/mini/", pushManager: { getSubscription: async () => subscription("https://push.example/mini") } });
+  f.context.settings.locale = "ja";
+  await f.context.refreshPushToggleState();
+  const status = f.calls.find(row => row.route === "/api/push/status");
+  assert.deepEqual(status.body, { endpoints: ["https://push.example/mini"], locale: "ja" });
+});
 test("each Host creates its own push registration because its VAPID key is independent", async () => {
   const f = fixture(); await f.context.pushRegistration("mini", true); await f.context.pushRegistration("mbp", true);
   assert.notEqual(f.calls[0].opts.scope, f.calls[1].opts.scope);
@@ -118,6 +126,10 @@ test("the desktop App keeps its own button for a notification block instead of b
   const f = fixture(true), pending = f.context.refreshPushToggleState();
   f.nativeCalls[0].resolve({ enabled: false, permission: "denied" }); await pending;
   assert.equal(f.button.textContent, "Open notification settings"); assert.doesNotMatch(f.note.textContent || "", /site settings/);
+});
+test("German notification copy uses the word the rest of the German interface uses", () => {
+  assert.equal(copy.t("title", "de"), "Mitteilungen");
+  assert.deepEqual(copy.copy.de.filter(text => /Benachrichtigung/.test(text)), []);
 });
 test("notification UI and native alerts provide complete copy in all supported languages", () => {
   assert.equal(Object.keys(copy.copy).length, 11);

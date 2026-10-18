@@ -206,6 +206,12 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await shot("group");
       await toList();
       await page.locator(".assistant-group-row", { hasText: "Production" }).waitFor();
+      // The list's two captions, Bots and Groups, read as one kind of heading.
+      const captions = await page.evaluate(() => [".assistant-list-caption", ".assistant-groups h2"].map(selector => {
+        const style = getComputedStyle(document.querySelector(selector));
+        return [style.fontSize, style.fontWeight, style.letterSpacing, style.textTransform].join(" ");
+      }));
+      assert.equal(captions[0], captions[1], JSON.stringify(captions));
       await shot("roster");
 
       stage = "new Bot";

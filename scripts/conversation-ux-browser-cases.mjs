@@ -350,6 +350,73 @@ export async function runStatusColorBrowserCases(browser) {
   } finally { await context.close(); await preview.close(); }
 }
 
+// A keyboard user can see where they are: the work rows under a reply show a
+// ring when focused (expanded rows share their text colour, so colour alone
+// cannot tell), and the message box shows it is being typed in.
+export async function runKeyboardFocusBrowserCases(browser) {
+  const preview = await createNativeComposerPreview();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
+  try {
+    await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true })); });
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+    await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+    const ui = await openFromSidebar(page, "Codex composer fixture");
+    await ui.waitForFunction(() => document.querySelector("#messages .wl-head") && document.querySelector("#messages .wl-row"), null, { timeout: 20_000 });
+    const result = await ui.evaluate(() => {
+      const composer = document.querySelector("#view-chat .composer"), input = document.getElementById("input");
+      input.blur(); const idle = getComputedStyle(composer).borderTopColor;
+      input.focus(); const typing = getComputedStyle(composer).borderTopColor;
+      const rings = ["#messages .wl-head", "#messages .wl-row"].map(selector => {
+        const node = document.querySelector(selector); node.focus();
+        const style = getComputedStyle(node);
+        return { selector, focusVisible: node.matches(":focus-visible"), ring: style.outlineStyle !== "none" && parseFloat(style.outlineWidth) >= 2 };
+      });
+      return { idle, typing, rings };
+    });
+    assert.notEqual(result.typing, result.idle, "the message box shows it is being typed in");
+    for (const row of result.rings) assert.ok(row.focusVisible && row.ring, `${row.selector} has no visible focus ring ${JSON.stringify(row)}`);
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "Keyboard focus", result: "passed" }));
+  } finally { await context.close(); await preview.close(); }
+}
+
+// Settings on a narrow phone: when the notification button and its text cannot
+// share a line, as in German, the button moves under the text instead of
+// running out of the card or squeezing the text into a thin column.
+export async function runNarrowSettingsBrowserCases(browser, { screenshots } = {}) {
+  for (const [locale, width] of [["de", 320], ["en", 320], ["en", 1280]]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport: { width, height: 760 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(locale => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true })); }, locale);
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      await page.locator("#workspace-settings").click(); await page.waitForSelector(".workspace-settings-layer iframe");
+      let frame;
+      await page.waitForFunction(() => { const view = document.querySelector(".workspace-settings-layer iframe")?.contentDocument?.getElementById("view-settings");
+        return !!view && !view.classList.contains("hidden") && view.getBoundingClientRect().height > 200; }, null, { timeout: 20_000 });
+      frame = await (await page.$(".workspace-settings-layer iframe")).contentFrame();
+      await frame.locator('[data-settings-open="notifications"]').click();
+      // Headless Chromium blocks notifications, the longest label of the button.
+      await frame.waitForFunction(() => document.getElementById("push-toggle")?.dataset.pushState === "denied");
+      const box = await frame.evaluate(() => {
+        const rect = node => { const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, width: r.width }; };
+        const row = document.getElementById("push-notifications-row"), card = row.closest(".settings-group");
+        return { card: rect(card), row: rect(row), button: rect(document.getElementById("push-toggle")), text: rect(row.querySelector("span")) };
+      });
+      assert.ok(box.button.left >= box.card.left && box.button.right <= box.card.right, `${locale} ${width}: the button runs out of its card ${JSON.stringify(box)}`);
+      assert.ok(box.text.width >= Math.min(200, box.row.width * .6), `${locale} ${width}: the text is squeezed ${JSON.stringify(box)}`);
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `settings-notifications-${locale}-${width}.png`) }); }
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Narrow settings", locale, width, result: "passed" }));
+    } finally { await context.close(); await preview.close(); }
+  }
+}
+
 // The pane's header controls (Changes, More) float over its top-right corner
 // on a desktop; the first message, usually the person's at the right, starts
 // below them. A phone keeps its title row in the flow.
@@ -667,6 +734,8 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runPaneHeaderBrowserCases(browser, options);
   await runTouchTargetBrowserCases(browser, options);
   await runStatusColorBrowserCases(browser);
+  await runKeyboardFocusBrowserCases(browser);
+  await runNarrowSettingsBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {

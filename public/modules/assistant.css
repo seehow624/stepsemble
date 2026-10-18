@@ -430,7 +430,8 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-home-title small { display: block; color: var(--pine-soft); font-size: .75rem; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assistant-new-bot { flex: 0 0 auto; min-height: 44px; padding: 0 4px; color: var(--ink); }
 .assistant-bot-search { display: block; width: calc(100% - 20px); margin: 0 10px 14px; min-height: 42px; border: 0; background: var(--bubble-user); font-size: .9rem; }
-.assistant-list-caption { margin: 12px 12px 5px; color: var(--pine-soft); font-size: .74rem; font-weight: 600; }
+/* The same caption as Groups and the routine and skill groups. */
+.assistant-list-caption { margin: 12px 12px 5px; color: var(--pine-soft); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .assistant-list .assistant-pending { margin: 0 10px 4px; min-height: 36px; }
 .assistant-list .assistant-pending[hidden] { display: none; }
 .assistant-avatar { box-sizing: border-box; background: transparent; }

@@ -40,6 +40,19 @@ test("push notices stay quiet only for the matching visible Host and Session", a
   await push("mbp"); assert.equal(shown.length, 1); assert.equal(shown[0].tag, "stepsemble:mbp:" + key);
   client.visibilityState = "hidden"; await push("mini"); assert.equal(shown.length, 2);
 });
+test("a newer alert for a conversation alerts again, and one waiting for the person stays until it is answered", async () => {
+  const f = worker(), all = [];
+  f.sandbox.self.registration = { showNotification: async (title, options) => all.push({ title, ...options }), getNotifications: async () => [] };
+  const key = "00000000-0000-4000-8000-000000000001";
+  const push = async notice => { let done; f.handlers.push({ data: { json: () => ({ title: "T", body: "B", notice }) }, waitUntil(promise) { done = promise; } }); await done; };
+  await push({ host: "mini", key, kind: "completed", at: 1_700_000_000_000 });
+  await push({ host: "mini", key, kind: "approval", at: 1_700_000_100_000 });
+  await push({ host: "mini", key, kind: "blockedGoal", at: 1_700_000_200_000 });
+  assert.deepEqual(all.map(row => [row.tag, row.renotify, row.requireInteraction, row.timestamp]), [
+    ["stepsemble:mini:" + key, true, false, 1_700_000_000_000],
+    ["stepsemble:mini:" + key, true, true, 1_700_000_100_000],
+    ["stepsemble:mini:" + key, true, true, 1_700_000_200_000]]);
+});
 test("notification click opens its Host and Session even when no Workspace is open", async () => {
   const f = worker(), opened = [], messages = [];
   f.sandbox.self.clients.openWindow = async href => opened.push(href);

@@ -13,6 +13,9 @@ import { createRequire } from "node:module";
 const { definition, scheduleSpec, nextOccurrence } = createRequire(import.meta.url)("../server/workflows.js");
 const { createProjectFilesService } = createRequire(import.meta.url)("../server/project-files.js");
 const { createGitChangesService } = createRequire(import.meta.url)("../server/git-changes.js");
+// The page reloads itself when the Host reports another version, so the
+// preview reports the page's own version.
+const { version: APP_VERSION } = createRequire(import.meta.url)("../package.json");
 
 const publicRoot = path.resolve(fileURLToPath(new URL("../public/", import.meta.url)));
 const TOKEN = "native-composer-preview";
@@ -475,7 +478,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         const run = makeRun(body, entry);
         return json(res, 200, snapshot(run));
       }
-      if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: "3.0.43" });
+      if (pathname === "/api/version" && req.method === "GET") return json(res, 200, { version: "native-composer-preview", appVersion: APP_VERSION });
       if (pathname === "/api/rpcs" && req.method === "GET") return json(res, 200, { rpcs: [] });
       // Opt-in mutations target only the disposable project-review repository.
       if (projectReview?.allowMutations && req.method === "POST" && ["/api/project-changes/stage", "/api/project-changes/commit"].includes(pathname)) {

@@ -18125,7 +18125,7 @@ async function refreshPushToggleState() {
     const registrations = [await pushRegistration(host), await navigator.serviceWorker.getRegistration("/")];
     const subscriptions = (await Promise.all(registrations.map(currentPushSubscription))).filter(Boolean);
     await protocolConnections.ensure(base);
-    const [status, config] = await Promise.all([pushApi(base, "/api/push/status", { endpoints: subscriptions.map(row => row.endpoint) }), hostClient.request(base, "/api/push/config")]);
+    const [status, config] = await Promise.all([pushApi(base, "/api/push/status", { endpoints: subscriptions.map(row => row.endpoint), locale: settings.locale }), hostClient.request(base, "/api/push/config")]);
     if (current()) {
       pushEndpoints = (status.endpoints || []).filter(endpoint => subscriptions.some(row => row.endpoint === endpoint));
       pushTestEndpoint = subscriptions.find(row => pushEndpoints.includes(row.endpoint) && pushKeyMatches(row, config.publicKey))?.endpoint || null;
