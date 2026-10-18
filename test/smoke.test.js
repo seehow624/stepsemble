@@ -1238,7 +1238,7 @@ test("the run timer survives a reload and restarts on each new turn", () => {
   // The work log under the turn says how long it ran; the header shows only
   // a spinner, so it keeps no clock of its own.
   assert.doesNotMatch(html, /id="run-timer"/);
-  assert.match(app, /function renderRunTimer\(\) \{\n  if \(!rpc\?\.runStartedAt\) return;[\s\S]*?updateWorkLogClock\(\);/);
+  assert.match(app, /function renderRunTimer\(\) \{\r?\n  if \(!rpc\?\.runStartedAt\) return;[\s\S]*?updateWorkLogClock\(\);/);
   // The server owns the run's start time, so a reload or a second device
   // shows the real elapsed time instead of restarting the clock at zero.
   assert.match(server, /s\.state\.runStartedAt = Date\.now\(\)/);
