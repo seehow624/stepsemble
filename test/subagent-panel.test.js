@@ -181,3 +181,84 @@ test("the owned child's detail supplies execution metadata without extra polling
   panel.close();
   assert.equal(document.activeElement, host.querySelector(".subagent-item"), "focus returns to the current list item after metadata refresh");
 });
+
+test("a Claude subagent's model and reasoning mode load from the Host once the list is shown", async () => {
+  const requests = [];
+  const { document, host, panel } = setup({ loadDetail: async value => { requests.push(value.id);
+    return { log: [{ kind: "tool", name: "Grep", summary: "login", done: true }], harness: "claude-code", model: "claude-opus-5-5", reasoningEffort: "xhigh" }; } });
+  panel.render([row("toolu_1", { source: "claude", log: [], background: true })]); await flush();
+  assert.deepEqual(requests, [], "nothing loads while nothing is shown");
+  host.querySelector(".subagent-bubble").click(); await flush();
+  assert.deepEqual(requests, ["toolu_1"]);
+  const item = host.querySelector(".subagent-item");
+  assert.equal(item.querySelector(".subagent-execution-tool").textContent, "Claude Code");
+  assert.equal(item.querySelector(".subagent-execution-model").textContent, "claude-opus-5-5");
+  assert.equal(item.querySelector(".subagent-execution-thinking").textContent, "xhigh");
+  panel.open("toolu_1"); await flush();
+  const drawer = document.body.querySelector(".subagent-drawer");
+  assert.match(drawer.textContent, /Grep/, "a background subagent's work comes from its transcript");
+  assert.deepEqual(requests, ["toolu_1"], "opening it reuses what the list loaded");
+});
+
+test("a working subagent whose model is not known yet is asked again every few seconds, and once more when it ends", async () => {
+  const requests = [];
+  let answer = { log: [], harness: "claude-code", model: "", reasoningEffort: "" };
+  const { host, panel, tick } = setup({ loadDetail: async value => { requests.push(value.id); return answer; } });
+  const working = row("toolu_2", { source: "claude", log: [] });
+  panel.render([working]); host.querySelector(".subagent-bubble").click(); await flush();
+  assert.equal(requests.length, 1);
+  tick(4999); panel.render([working]); await flush();
+  assert.equal(requests.length, 1);
+  answer = { ...answer, model: "claude-sonnet-5-5", reasoningEffort: "high" };
+  tick(1); panel.render([working]); await flush();
+  assert.equal(requests.length, 2);
+  assert.equal(host.querySelector(".subagent-execution-model").textContent, "claude-sonnet-5-5");
+  tick(60000); panel.render([working]); await flush();
+  assert.equal(requests.length, 2, "a known model is not asked for again while the list is shown");
+  const done = { ...working, status: "completed" };
+  panel.render([done]); await flush();
+  assert.equal(requests.length, 3);
+  tick(60000); panel.render([done]); await flush();
+  assert.equal(requests.length, 3);
+});
+
+test("an open working subagent's activity is refreshed while it works", async () => {
+  const requests = [];
+  const { document, panel, tick } = setup({ loadDetail: async value => { requests.push(value.id);
+    return { log: [{ kind: "text", text: `step ${requests.length}` }], harness: "claude-code", model: "claude-opus-5-5", reasoningEffort: "max" }; } });
+  const working = row("toolu_3", { source: "claude", log: [] });
+  panel.render([working]); panel.open("toolu_3"); await flush();
+  const drawer = document.body.querySelector(".subagent-drawer");
+  assert.match(drawer.textContent, /step 1/);
+  tick(5000); panel.render([working]); await flush();
+  assert.match(drawer.textContent, /step 2/);
+  panel.close(); tick(5000); panel.render([working]); await flush();
+  assert.equal(requests.length, 2, "a closed one is not refreshed");
+});
+
+test("the list loads at most three subagents' details at a time", async () => {
+  const requests = [], pending = [];
+  const { host, panel } = setup({ loadDetail: value => { requests.push(value.id); return new Promise(resolve => pending.push(() => resolve({ log: [], model: `model-${value.id}` }))); } });
+  panel.render(["a", "b", "c", "d", "e"].map(id => row(id, { source: "codex", log: [], status: "completed" })));
+  host.querySelector(".subagent-bubble").click(); await flush();
+  assert.deepEqual(requests, ["a", "b", "c"]);
+  pending.shift()(); await flush(); await flush();
+  assert.deepEqual(requests, ["a", "b", "c", "d"]);
+  while (pending.length) { pending.shift()(); await flush(); await flush(); }
+  assert.deepEqual(requests, ["a", "b", "c", "d", "e"]);
+  assert.deepEqual(host.querySelectorAll(".subagent-execution-model").map(node => node.textContent), ["model-a", "model-b", "model-c", "model-d", "model-e"]);
+});
+
+test("a saved Claude conversation's subagent loads its details, and a model the stream reported is kept until the Host has one", async () => {
+  const requests = [];
+  const { document, panel } = setup({ loadDetail: async value => { requests.push(value.id); return { log: [], harness: "claude-code", model: value.id === "toolu_saved" ? "claude-opus-5-5" : "", reasoningEffort: value.id === "toolu_saved" ? "high" : "" }; } });
+  panel.show([row("toolu_saved", { source: "history", harness: "claude-code", history: true, status: "completed", log: [], startedAt: null })]); await flush();
+  const drawer = document.body.querySelector(".subagent-drawer");
+  assert.deepEqual(requests, ["toolu_saved"]);
+  assert.equal(drawer.querySelector(".subagent-execution-model").textContent, "claude-opus-5-5");
+  assert.equal(drawer.querySelector(".subagent-execution-thinking").textContent, "high");
+  panel.show([row("pi_saved", { source: "history", harness: "pi", history: true, status: "completed", log: [] })]); await flush();
+  assert.deepEqual(requests, ["toolu_saved"], "other saved subagents keep what their record says");
+  panel.render([row("toolu_live", { source: "claude", model: "stream-model", log: [] })]); panel.open("toolu_live"); await flush();
+  assert.equal(drawer.querySelector(".subagent-execution-model").textContent, "stream-model");
+});

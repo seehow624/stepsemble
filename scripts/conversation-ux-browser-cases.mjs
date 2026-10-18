@@ -92,9 +92,12 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await context.route("**/api/subagent/detail?**", async route => {
         const url = new URL(route.request().url()), id = url.searchParams.get("id"), entry = url.searchParams.get("entry");
         reads.push({ id, entry });
-        const harness = id === "ui-codex-child" ? "codex" : id === "ui-opencode-child" ? "opencode" : null;
-        if (!harness || entry !== keys[harness]) return route.fulfill({ status: 404, json: { error: "subagent_not_owned" } });
-        await route.fulfill({ json: { harness, model: `reported-${harness}-child`, reasoningEffort: harness === "codex" ? "xhigh" : "high", log: [{ kind: "text", text: "Owned child result." }] } });
+        // What each agent keeps of its own subagent: Claude Code in its transcript.
+        const owned = { "ui-codex-child": ["codex", "reported-codex-child", "xhigh"], "ui-opencode-child": ["opencode", "reported-opencode-child", "high"],
+          "ui-claude-child": ["claude-code", "reported-claude-child", "max"], "ui-claude-background": ["claude-code", "reported-background-child", "high"],
+          "ui-claude-saved": ["claude-code", "reported-saved-child", "medium"] }[id];
+        if (!owned || entry !== keys[owned[0]]) return route.fulfill({ status: 404, json: { error: "subagent_not_owned" } });
+        await route.fulfill({ json: { harness: owned[0], model: owned[1], reasoningEffort: owned[2], log: [{ kind: "text", text: `Owned child result of ${id}.` }] } });
       });
       await context.route("**/api/codex/items?**", async route => {
         const response = await route.fetch(), body = await response.json();
@@ -115,6 +118,7 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       let ui = await openFromSidebar(page, "Claude composer fixture");
       await ui.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !!rpc?.nativeClaudeStructured && !rpc.nativeLoading);
       const values = frame => frame.locator(".subagent-drawer > .subagent-execution dd").allTextContents();
+      const listed = frame => frame.locator(".subagent-item .subagent-execution dd").allTextContents();
       const shot = async (name, frame = ui) => {
         const bounds = await frame.locator(".subagent-drawer").evaluate(node => ({ width: node.clientWidth, scrollWidth: node.scrollWidth }));
         assert.ok(bounds.scrollWidth <= bounds.width + 1, JSON.stringify(bounds));
@@ -124,12 +128,20 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
         subagentTracker.reset();
         subagentTracker.claude({ type: "assistant", message: { model: "parent-model", content: [{ type: "tool_use", id: "ui-claude-child", name: "Agent", input: { prompt: "Inspect the child files", subagent_type: "researcher", model: "requested-alias", effort: "high" } }] } });
         subagentTracker.claude({ type: "assistant", parentToolUseId: "ui-claude-child", message: { model: "reported-claude-child", content: [{ type: "text", text: "Read the child files." }] } });
+        // A background agent streams nothing; its model and work are in its transcript.
+        subagentTracker.claude({ type: "system", subtype: "task_started", tool_use_id: "ui-claude-background", task_id: "ui-task", description: "Watch the build", subagent_type: "watcher", prompt: "Watch the build", is_backgrounded: true });
       });
       await ui.locator(".subagent-bubble").click();
-      assert.deepEqual(await ui.locator(".subagent-item .subagent-execution dd").allTextContents(), ["Claude Code", "reported-claude-child", unknown]);
-      await ui.locator(".subagent-item").click();
-      assert.deepEqual(await values(ui), ["Claude Code", "reported-claude-child", unknown]);
+      await ui.waitForFunction(() => [...document.querySelectorAll(".subagent-item .subagent-execution-thinking")].map(node => node.textContent).join() === "max,high");
+      assert.deepEqual(await listed(ui), ["Claude Code", "reported-claude-child", "max", "Claude Code", "reported-background-child", "high"]);
+      await ui.locator(".subagent-item").first().click();
+      assert.deepEqual(await values(ui), ["Claude Code", "reported-claude-child", "max"]);
+      assert.match(await ui.locator(".subagent-drawer .subagent-log").textContent(), /Read the child files\./, "a streamed subagent keeps its live activity");
       await shot("claude"); await ui.locator(".subagent-close").click();
+      await ui.locator(".subagent-item").nth(1).click();
+      assert.deepEqual(await values(ui), ["Claude Code", "reported-background-child", "high"]);
+      assert.match(await ui.locator(".subagent-drawer .subagent-log").textContent(), /Owned child result of ui-claude-background\./);
+      await shot("claude-background"); await ui.locator(".subagent-close").click();
       await ui.evaluate(() => {
         subagentTracker.reset();
         subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
@@ -151,17 +163,26 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       });
       assert.deepEqual(await values(ui), [unknown, unknown, unknown]);
       await shot("history"); await ui.locator(".subagent-close").click();
-      assert.equal(reads.length, 0, "known live and saved metadata does not add requests");
+      await ui.evaluate(() => {
+        subagentTracker.remember({ toolId: "ui-claude-saved", name: "Agent", args: { description: "Saved", prompt: "Old Claude task" }, result: "Done", harness: "claude-code" });
+        subagentPanel.show(subagentTracker.byTool("ui-claude-saved"));
+      });
+      await ui.waitForFunction(() => document.querySelector(".subagent-drawer .subagent-execution-model")?.textContent === "reported-saved-child");
+      assert.deepEqual(await values(ui), ["Claude Code", "reported-saved-child", "medium"]);
+      await ui.locator(".subagent-close").click();
+      assert.deepEqual([...new Set(reads.map(read => read.id))].sort(), ["ui-claude-background", "ui-claude-child", "ui-claude-saved"],
+        "only subagents whose agent keeps their settings are read; Pi's and a record's own say are shown as they are");
+      assert.ok(reads.every(read => read.entry === keys["claude-code"]));
       await ui.evaluate(() => subagentTracker.reset());
       ui = await openFromSidebar(page, "Codex composer fixture");
       await ui.locator(".subagent-bubble").waitFor(); await ui.locator(".subagent-bubble").click();
-      assert.deepEqual(await ui.locator(".subagent-item .subagent-execution dd").allTextContents(), ["Codex", unknown, unknown]);
-      await ui.locator(".subagent-item").click();
-      await ui.waitForFunction(() => document.querySelector(".subagent-drawer .subagent-execution-model")?.textContent === "reported-codex-child");
-      assert.deepEqual(await values(ui), ["Codex", "reported-codex-child", "xhigh"]);
+      await ui.waitForFunction(() => document.querySelector(".subagent-item .subagent-execution-model")?.textContent === "reported-codex-child");
+      assert.deepEqual(await listed(ui), ["Codex", "reported-codex-child", "xhigh"]);
       const count = reads.length;
+      await ui.locator(".subagent-item").click();
+      assert.deepEqual(await values(ui), ["Codex", "reported-codex-child", "xhigh"]);
       await ui.evaluate(() => { subagentPanel.render(subagentTracker.list()); subagentPanel.render(subagentTracker.list()); });
-      assert.equal(reads.length, count, "rendering does not refetch execution settings");
+      assert.equal(reads.length, count, "opening and rendering do not refetch a finished subagent's settings");
       await shot("codex"); await ui.locator(".subagent-close").click();
       ui = await openFromSidebar(page, "OpenCode composer fixture");
       await ui.locator(".subagent-bubble").waitFor(); await ui.locator(".subagent-bubble").click(); await ui.locator(".subagent-item").click();

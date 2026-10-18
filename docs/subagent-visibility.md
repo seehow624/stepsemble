@@ -10,9 +10,10 @@ not report their subagents get no bubble; Stepsemble never guesses.
   task, state, elapsed time and current action. Nested subagents are indented
   under their parent. Missing execution values say **Not provided**.
 - Click a name for the read-only detail panel: the same execution fields, full
-  task, reported activity and final result. Codex and OpenCode details load on
-  demand and update both views. The panel opens from the right on a desktop
-  and the bottom on a phone; Escape closes it and returns focus.
+  task, reported activity and final result. Claude Code, Codex and OpenCode
+  details load from the Host when the list or the panel shows the subagent,
+  and update both views. The panel opens from the right on a desktop and the
+  bottom on a phone; Escape closes it and returns focus.
 - A subagent tool card in the transcript has a **Details** button that opens
   the same panel, including for earlier turns and for a conversation opened
   again from its saved record.
@@ -24,25 +25,34 @@ conversation to stop its work.
 
 | Agent | Source | Detail panel |
 | --- | --- | --- |
-| Claude Code | `Agent` (older `Task`) tool calls; events whose `parent_tool_use_id` names the call are the subagent's own work. A background Agent answers its call at once ("Async agent launched"); its `task_started`, `task_updated` and `task_notification` events say when it really ends. | The activity seen live |
+| Claude Code | `Agent` (older `Task`) tool calls; events whose `parent_tool_use_id` names the call are the subagent's own work. A background Agent answers its call at once ("Async agent launched"); its `task_started`, `task_updated` and `task_notification` events say when it really ends. | The activity seen live; otherwise, as for a background Agent, which streams nothing, the subagent's own transcript, read from the Host |
 | Codex | `collabAgentToolCall` items (`spawnAgent` prompt, `receiverThreadIds`, `agentsStates`) and `subAgentActivity` | The child thread, read from the Host |
 | OpenCode | `task` tool parts and `subtask` parts after the last user message | The child session's messages, read from the Host |
 | Pi with `pi-subagents` | The `subagent` tool's `tool_execution_update` progress and its final `details.results` | Recent tools, output and result the extension reports |
 | Other agents | Not shown | — |
 
 Execution identity belongs to the harness, not the child's role or model name.
-Claude models come from the child's assistant messages or message-start events;
-CLI-generated synthetic notices and launch aliases do not establish a model.
+Claude Code writes each subagent's transcript beside the conversation's
+(`<session>/subagents/agent-<id>.jsonl`, with `agent-<id>.meta.json` naming the
+`Agent` call that started it). Its model is the `message.model` of the latest
+assistant entry there, and its thinking mode the `effort` recorded with that
+entry; while the transcript has none yet, the model of the child's live
+assistant messages is shown. CLI-generated synthetic notices and launch aliases
+(the call's `model` and `effort`, also kept in `.meta.json`) do not establish a
+model or a thinking mode.
 Codex uses the requested child's own `model` and `reasoningEffort`, never an
 ancestor's settings. OpenCode uses its child's latest assistant `modelID` and
 `variant`. Pi keeps its child's response model and explicitly reported
 `thinkingLevel` when the extension supplies one. A thinking block or a parent's
 thinking setting is not proof of the child's thinking mode.
 
-These fields reuse existing events and owned detail reads. They do not add a
-background poll, a model-provider request or a scan of all saved conversations.
-Claude Code does not always report a child's thinking setting; absent values
-remain **Not provided** instead of being copied from the launch request.
+These fields reuse existing events and owned detail reads. A shown subagent's
+details load once for each state it reports; while it works they load again
+every five seconds until its model is known, or while its panel is open, and
+at most three load at a time. Nothing loads for a subagent that is not shown,
+and there is no model-provider request or scan of all saved conversations.
+A model without reasoning levels records no `effort`; absent values remain
+**Not provided** instead of being copied from the launch request.
 
 A Pi run in background mode shows the state known when the tool returned and is
 marked **Background**.
@@ -57,7 +67,8 @@ saved conversation still offers **Details**, built from what the record keeps:
   tokens, duration and up to 20 recent tool lines), never the child messages.
 - Claude Code and OpenCode cards use the call's own arguments and result. A
   Claude background Agent's saved result only says it started, so its state
-  reads **Started**, not Done.
+  reads **Started**, not Done. A Claude Code card's panel also reads the
+  subagent's transcript for its model, thinking mode and activity.
 
 These panels say they come from the saved conversation and show no times the
 record does not hold.
@@ -84,8 +95,12 @@ cases.
 
 ## Host interface
 
-`GET /api/subagent/detail?entry=<workspace entry key>&id=<child thread or session id>`
-returns a Codex child thread's or OpenCode child session's activity as a
-bounded log. The Host resolves the conversation from the workspace entry and
-only reads children it owns (Codex up to four levels of `parentThreadId`,
-OpenCode through `/session/:id/children`).
+`GET /api/subagent/detail?entry=<workspace entry key>&id=<child thread or session id, or Claude's Agent tool call id>`
+returns a Codex child thread's, OpenCode child session's or Claude Code
+subagent's activity as a bounded log, with its harness, model and reasoning
+effort. The Host resolves the conversation from the workspace entry and only
+reads children it owns (Codex up to four levels of `parentThreadId`, OpenCode
+through `/session/:id/children`, Claude Code from the `subagents` folder of the
+conversation's own transcript, matched by the `.meta.json` `toolUseId`).
+Claude files are opened without following links; a subagent transcript is read
+from its last 4 MB.

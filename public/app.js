@@ -19414,7 +19414,8 @@ function syncSubagentCards() {
 subagentTracker = window.StepsembleSubagents?.create() || null;
 const subagentBar = document.getElementById("subagent-bar");
 subagentPanel = subagentTracker && subagentBar && window.StepsembleSubagentPanel?.mount({ document, container: subagentBar, t: subagentCopy,
-  // Codex and OpenCode keep a subagent's work as its own thread or session.
+  // Codex and OpenCode keep a subagent's work as its own thread or session,
+  // Claude Code as its own transcript beside the conversation's.
   loadDetail: async row => {
     const id = row.source === "opencode" ? row.childSessionId : row.id;
     if (!id || !WORKSPACE_ENTRY_KEY) throw new Error("subagent_detail_unavailable");

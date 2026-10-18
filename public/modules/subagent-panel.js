@@ -2,7 +2,9 @@
 (function(root,factory){const node=typeof module==="object"&&module.exports;const api=factory(node?require("./agent-identity"):root.StepsembleAgentIdentity);if(node)module.exports=api;else root.StepsembleSubagentPanel=api;})(typeof window!=="undefined"?window:globalThis,function(identity){
   "use strict";
   const TERMINAL=new Set(["completed","failed"]);
-  const LOADED_ELSEWHERE=new Set(["codex","opencode"]);
+  // Agents that keep a subagent's work and settings where the Host can read them.
+  const LOADED_ELSEWHERE=new Set(["codex","opencode","claude"]);
+  const REFRESH_MS=5000, MAX_LOADING=3;
   function elapsed(row,now){
     // A saved conversation's subagent may carry no times at all.
     if(!Number.isSafeInteger(row?.durationMs)&&!Number.isFinite(row?.startedAt))return "";
@@ -14,7 +16,7 @@
   function mount({document,container,t,now=Date.now,loadDetail=null}){
     const el=(tag,cls="",text="")=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text)node.textContent=text;return node;};
     // extra: subagents of an earlier turn, opened from their transcript card.
-    let rows=[],extra=new Map(),choices=null,openId=null,opener=null,loaded=new Map(),loading=new Set(),failed=new Set(),loadedStatus=new Map(),flagged=new Set();
+    let rows=[],extra=new Map(),choices=null,openId=null,opener=null,loaded=new Map(),loading=new Set(),failed=new Set(),loadedStatus=new Map(),loadedAt=new Map(),flagged=new Set();
     const bubble=el("button","subagent-bubble");bubble.type="button";bubble.hidden=true;bubble.setAttribute("aria-expanded","false");
     const list=el("div","subagent-list");list.hidden=true;list.setAttribute("role","region");
     container.append(bubble,list);
@@ -36,7 +38,7 @@
     function execution(row){
       const detail=loaded.get(row.id),source=detail?.harness||row.harness||row.source;
       const tool=identity.lookup(source==="claude"?"claude-code":source);
-      const values=[["tool","harness",tool.id==="agent"?"":tool.label],["model","model",detail?.model??row.model],["thinking","thinking",detail?.reasoningEffort??row.reasoningEffort]];
+      const values=[["tool","harness",tool.id==="agent"?"":tool.label],["model","model",detail?.model||row.model],["thinking","thinking",detail?.reasoningEffort||row.reasoningEffort]];
       const metadata=el("dl","subagent-execution");
       for(const [name,label,value] of values){
         const field=el("div","subagent-execution-field"),text=typeof value==="string"?value.trim():"";
@@ -60,7 +62,18 @@
       }
       return items;
     }
-    function renderList(){if(!list.hidden)list.replaceChildren(itemsFor(rows));}
+    // A shown subagent's details load when its status changed since they last
+    // did; while it runs, again every few seconds until its model is known,
+    // or while its details are open.
+    function loadable(row){return !!loadDetail&&(LOADED_ELSEWHERE.has(row.source)||row.source==="history"&&row.harness==="claude-code");}
+    function wanted(row,opened){
+      if(!loadable(row)||loading.has(row.id))return false;
+      if(loadedStatus.get(row.id)!==row.status)return true;
+      if(TERMINAL.has(row.status)||now()-(loadedAt.get(row.id)||0)<REFRESH_MS)return false;
+      return opened||!loaded.get(row.id)?.model;
+    }
+    function request(values,opened=false){for(const row of values)if(loading.size<MAX_LOADING&&wanted(row,opened))void fetchDetail(row);}
+    function renderList(){if(list.hidden)return;list.replaceChildren(itemsFor(rows));request(rows);}
     function entryNode(entry){
       if(entry.kind==="tool"){const node=el("li","subagent-log-tool");node.dataset.done=String(entry.done!==false);if(entry.error)node.dataset.error="true";node.append(el("strong","",entry.name||"tool"));if(entry.summary)node.append(el("span","",entry.summary));return node;}
       const node=el("li","subagent-log-text");node.append(el("p","",entry.text||""));return node;
@@ -70,12 +83,13 @@
       if(choices){
         const header=el("header","subagent-drawer-header"),dismiss=el("button","subagent-close","×");dismiss.type="button";dismiss.setAttribute("aria-label",t("close"));dismiss.addEventListener("click",close);
         header.append(el("h2","",t("listLabel")),dismiss);
-        drawer.replaceChildren(header,itemsFor(choices.map(id=>rows.find(item=>item.id===id)||extra.get(id)).filter(Boolean)));
+        const shown=choices.map(id=>rows.find(item=>item.id===id)||extra.get(id)).filter(Boolean);
+        drawer.replaceChildren(header,itemsFor(shown));request(shown);
         drawer.setAttribute("aria-label",t("listLabel"));drawer.hidden=false;return;
       }
       const row=rows.find(item=>item.id===openId)||extra.get(openId);
       if(!row){drawer.hidden=true;return;}
-      if(loadDetail&&LOADED_ELSEWHERE.has(row.source)&&!loading.has(row.id)&&loadedStatus.get(row.id)!==row.status)void fetchDetail(row);
+      if(wanted(row,true))void fetchDetail(row);
       const header=el("header","subagent-drawer-header"),heading=el("div");
       heading.append(el("h2","",row.name),statusChip(row.status));
       const meta=[elapsed(row,now()),Number.isSafeInteger(row.tokens)?t("tokens",{count:row.tokens.toLocaleString?row.tokens.toLocaleString():row.tokens}):""].filter(Boolean).join(" · ");
@@ -95,14 +109,15 @@
       drawer.setAttribute("aria-label",row.name);drawer.hidden=false;
     }
     async function fetchDetail(row){
-      loading.add(row.id);failed.delete(row.id);loadedStatus.set(row.id,row.status);
+      loading.add(row.id);loadedStatus.set(row.id,row.status);loadedAt.set(row.id,now());
       try{
         const detail=await loadDetail(row),text=(value,max)=>typeof value==="string"?value.slice(0,max):undefined;
         loaded.set(row.id,{log:Array.isArray(detail?.log)?detail.log:[],harness:text(detail?.harness,32),model:text(detail?.model,120),reasoningEffort:text(detail?.reasoningEffort,64)});
         if(detail?.approvalUnavailable)flagged.add(row.id);
+        failed.delete(row.id);
       }
       catch{failed.add(row.id);}
-      finally{loading.delete(row.id);renderList();if(openId===row.id)renderDrawer();}
+      finally{loading.delete(row.id);renderList();if(openId===row.id||choices?.includes(row.id))renderDrawer();}
     }
     function open(id){if(!rows.some(row=>row.id===id)&&!extra.has(id))return;if(openId===null)opener=document.activeElement;openId=id;renderDrawer();}
     // Opens subagents a transcript card refers to, current or from an earlier turn.
@@ -123,7 +138,7 @@
       rows=Array.isArray(next)?next:[];
       renderBubble();renderList();
       if(openId!==null)renderDrawer();
-      for(const id of [...loaded.keys()])if(!rows.some(row=>row.id===id)&&id!==openId){loaded.delete(id);loadedStatus.delete(id);failed.delete(id);}
+      for(const id of new Set([...loaded.keys(),...loadedStatus.keys()]))if(!rows.some(row=>row.id===id)&&!extra.has(id)&&id!==openId){loaded.delete(id);loadedStatus.delete(id);loadedAt.delete(id);failed.delete(id);}
     }
     function destroy(){document.removeEventListener("keydown",onKey);drawer.remove?.();bubble.remove?.();list.remove?.();}
     return {render,open,show,close,destroy,isOpen:()=>openId!==null};
