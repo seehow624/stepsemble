@@ -72,11 +72,22 @@
     details.append(detailLabel, metrics, result); live.append(liveHead, objective, activity, details);
     localized.push([moreLabel, "more"], [detailLabel, "details"], [pause, "pause"], [resume, "resume"], [stop, "stop"]);
     const error = node("p", "goal-error"); error.hidden = true; error.setAttribute("role", "alert");
-    section.append(draft, live, error); inner.before(section);
+    // A Goal under way is a small chip beside the subagents; it opens its
+    // progress and closes it again. The draft stays above the input, and so
+    // does progress on a page without that bar.
+    const bar = document.getElementById("subagent-bar");
+    const chip = node("button", "goal-chip"), chipState = node("span", "goal-chip-state"), chipClock = node("span", "goal-chip-clock");
+    chip.type = "button"; chip.hidden = true; chip.setAttribute("aria-expanded", "false");
+    chip.append(node("span", "goal-chip-label", "Goal"), chipState, chipClock);
+    const panel = node("div", "goal-panel"); panel.hidden = true; panel.dataset.i18nIgnore = ""; panel.setAttribute("aria-label", "Goal");
+    chip.addEventListener("click", () => { expanded = !expanded; render(); });
+    if (bar) { panel.append(live); bar.append(chip, panel); }
+    section.append(draft, ...(bar ? [] : [live]), error); inner.before(section);
     let latest = null, received = 0, loading = false, disconnected = false, creating = false, acting = false, closed = false, attempt = null, revision = 0;
+    let expanded = false, shownRun = null;
     const supports = () => { const c = getConnection(); return !!c && AGENTS.has(getAgentId()) && !c.readOnly && !c.nativeHistoryReadonly; };
     const current = context => !closed && context === getContext();
-    function showError(key, detail = null) { error.textContent = detail || t(key); error.hidden = false; }
+    function showError(key, detail = null) { error.textContent = detail || t(key); error.hidden = false; section.hidden = false; }
     // The Host stops the clock while an approval or a retry waits.
     const ticking = run => typeof run?.clockRunning === "boolean" ? run.clockRunning : ["starting", "running", "waiting"].includes(run?.status);
     const elapsedMs = () => (latest?.elapsedMs || 0) + (!disconnected && ticking(latest) ? Math.max(0, Date.now() - received) : 0);
@@ -95,7 +106,8 @@
       if (!latest) return;
       const ms = elapsedMs();
       const s = Math.floor(ms / 1000), time = `${Math.floor(s / 3600) ? Math.floor(s / 3600) + ":" : ""}${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-      clock.textContent = t("elapsed", { time });
+      clock.textContent = t("elapsed", { time }); chipClock.textContent = time;
+      chip.dataset.ticking = String(!disconnected && ticking(latest));
     }
     function accept(run, text) {
       latest = run; received = Date.now(); disconnected = false; attempt = null; revision++;
@@ -106,15 +118,21 @@
       if (closed) return;
       for (const [n, key] of localized) { const label = t(key); if (n.textContent !== label) n.textContent = label; }
       cancel.setAttribute("aria-label", t("cancel")); cancel.title = t("cancel");
-      const command = parse(input.value), draftVisible = !!command && !ACTIVE.has(latest?.status);
-      section.hidden = !command && !latest; draft.hidden = !draftVisible; live.hidden = draftVisible || !latest;
+      const command = parse(input.value), draftVisible = !!command && !ACTIVE.has(latest?.status), progress = !!latest && !draftVisible;
+      // Another Goal starts closed.
+      if ((latest?.id || null) !== shownRun) { shownRun = latest?.id || null; expanded = false; }
+      section.hidden = !draftVisible && error.hidden && !(progress && !bar); draft.hidden = !draftVisible;
+      live.hidden = !progress || !!bar && !expanded;
+      chip.hidden = !bar || !progress; panel.hidden = !bar || !progress || !expanded;
+      chip.setAttribute("aria-expanded", String(progress && expanded)); chip.title = t("details");
       if (draftVisible) {
         section.dataset.state = creating ? "starting" : "draft";
         ready.textContent = creating ? t("starting") : t("ready"); preview.textContent = command.objective || t("hint");
         for (const n of [minutes, tokens, turns, title, cancel]) n.disabled = creating;
       }
       if (!latest || draftVisible) return;
-      section.dataset.state = latest.status; status.textContent = t("state." + latest.status); elapsed();
+      section.dataset.state = panel.dataset.state = chip.dataset.state = latest.status;
+      status.textContent = chipState.textContent = t("state." + latest.status); elapsed();
       objective.textContent = latest.objective;
       const activityKey = ["thinking", "approval", "queued", "starting", "waiting"].includes(latest.activity) ? "state." + latest.activity : null;
       const currentActivity = activityKey ? t(activityKey) : latest.activity || t("state." + latest.status);

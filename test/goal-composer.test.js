@@ -21,11 +21,12 @@ class Element {
   async click() { for (const fn of this.events.click || []) await fn(); }
   all() { return [this, ...this.children.flatMap(n => n.all())]; }
 }
-async function harness({ agent = "pi", connection = {}, post: postImpl, crypto, runs = [], workflowI18n } = {}) {
+async function harness({ agent = "pi", connection = {}, post: postImpl, crypto, runs = [], workflowI18n, subagentBar = true } = {}) {
   const composer = new Element("footer"), input = new Element("textarea"), inner = new Element("div"); composer.append(inner);
+  const bar = subagentBar ? new Element("div") : null;
   const events = {}, intervals = new Map(); let nextTimer = 0, uuid = 0;
-  const h = { input, composer, connection, agent, context: "host:1", runs, posts: [], changed: 0, started: [], now: 10000 };
-  const root = { document: { getElementById: () => input, querySelector: () => inner, createElement: tag => new Element(tag), documentElement: { lang: "en" }, hidden: false },
+  const h = { input, composer, bar, connection, agent, context: "host:1", runs, posts: [], changed: 0, started: [], now: 10000 };
+  const root = { document: { getElementById: id => id === "input" ? input : id === "subagent-bar" ? bar : null, querySelector: () => inner, createElement: tag => new Element(tag), documentElement: { lang: "en" }, hidden: false },
     location: { search: "?entry=fixture-entry", origin: "http://localhost" }, parent: {},
     crypto: crypto || { randomUUID: () => "request-" + ++uuid }, Event: class { constructor(type) { this.type = type; } },
     stepsembleI18n: { tKey: (key, vars) => key + (vars ? " " + JSON.stringify(vars) : "") }, StepsembleWorkflowI18n: workflowI18n,
@@ -34,9 +35,10 @@ async function harness({ agent = "pi", connection = {}, post: postImpl, crypto, 
   const context = { window: root, module: { exports: {} }, URLSearchParams, Date: class extends Date { static now() { return h.now; } } };
   vm.runInNewContext(source, context);
   h.type = text => { input.value = text; input.dispatchEvent(new root.Event("input")); };
-  h.find = cls => composer.all().find(n => (n.className || "").split(" ").includes(cls));
-  h.field = name => composer.all().find(n => n.name === name);
-  h.button = label => composer.all().find(n => n.tagName === "button" && n.textContent === "goalComposer." + label);
+  const nodes = () => [composer, ...(bar ? [bar] : [])].flatMap(n => n.all());
+  h.find = cls => nodes().find(n => (n.className || "").split(" ").includes(cls));
+  h.field = name => nodes().find(n => n.name === name);
+  h.button = label => nodes().find(n => n.tagName === "button" && n.textContent === "goalComposer." + label);
   h.controller = context.module.exports.mount({ api: async () => h.api ? h.api() : ({ runs: h.runs.map(r => ({ ...r })) }),
     post: async (route, body) => {
       h.posts.push({ route, body: JSON.parse(JSON.stringify(body)) });
@@ -70,16 +72,61 @@ test("Goal requests keep multiline objectives and validate every budget before p
   for (const text of ["/goal", "/goal " + "x".repeat(16001)]) assert.throws(() => createRequest({ text, limits }), /objective/);
 });
 
-test("one submission starts the current entry and swaps draft limits for progress above the input", async () => {
+test("one submission starts the current entry and swaps the draft above the input for a Goal chip beside the subagents", async () => {
   const h = await harness(); h.type("/goal 修復並測試");
   assert.equal(h.composer.children[0], h.find("goal-composer"));
-  assert.equal(h.find("goal-draft").hidden, false);
+  assert.equal(h.find("goal-draft").hidden, false); assert.equal(h.find("goal-chip").hidden, true);
   h.field("minutes").value = "30"; h.field("tokens").value = "20000"; h.field("turns").value = "5";
   await h.controller.submit(h.input.value);
   assert.equal(h.posts.length, 1); assert.deepEqual(h.posts[0].body.limits, { minutes: 30, outputTokens: 20000, turns: 5 });
   assert.equal(h.posts[0].body.entry, "fixture-entry"); assert.equal(h.input.value, "");
-  assert.equal(h.find("goal-draft").hidden, true); assert.equal(h.find("goal-live").hidden, false);
+  assert.equal(h.find("goal-composer").hidden, true, "nothing is left above the input");
+  assert.equal(h.find("goal-chip").parentElement, h.bar); assert.equal(h.find("goal-chip").hidden, false);
+  assert.equal(h.find("goal-panel").hidden, true, "progress starts closed");
   assert.equal(h.changed, 1); assert.equal(h.controller.commandItem().name, "goal"); h.close();
+});
+
+test("the Goal chip says how the Goal is doing and for how long, and opens its progress and closes it again", async () => {
+  const h = await harness({ runs: [{ id: "g1", entry: "fixture-entry", objective: "Ship the release", status: "running", elapsedMs: 65000, activity: "thinking", turns: 2, outputTokens: 900 }] });
+  await h.controller.refresh();
+  const chip = h.find("goal-chip"), panel = h.find("goal-panel");
+  assert.equal(h.find("goal-chip-state").textContent, "goalComposer.state.running");
+  assert.equal(h.find("goal-chip-clock").textContent, "01:05");
+  assert.equal(chip.dataset.state, "running"); assert.equal(chip.dataset.ticking, "true");
+  h.now += 5000; h.tick(); assert.equal(h.find("goal-chip-clock").textContent, "01:10", "a working Goal's time goes on");
+  assert.equal(panel.hidden, true); assert.equal(chip["aria-expanded"], "false");
+  await chip.click();
+  assert.equal(panel.hidden, false); assert.equal(h.find("goal-live").hidden, false); assert.equal(chip["aria-expanded"], "true");
+  assert.equal(h.find("goal-live").children[1].textContent, "Ship the release");
+  await chip.click();
+  assert.equal(panel.hidden, true); assert.equal(chip["aria-expanded"], "false");
+  // Finished: it says so and keeps the time it took.
+  h.runs = [{ ...h.runs[0], status: "completed", elapsedMs: 3723000, result: "Released" }];
+  await h.controller.refresh(); h.now += 60000; h.tick();
+  assert.equal(h.find("goal-chip-state").textContent, "goalComposer.state.completed");
+  assert.equal(h.find("goal-chip-clock").textContent, "1:02:03"); assert.equal(chip.dataset.ticking, "false");
+  await chip.click(); assert.equal(panel.hidden, false);
+  // Another Goal starts closed.
+  h.runs = [{ id: "g2", entry: "fixture-entry", objective: "Next", status: "running", elapsedMs: 0, activity: "thinking" }];
+  await h.controller.refresh(); assert.equal(panel.hidden, true); h.close();
+});
+
+test("a /goal draft typed while a Goal shows keeps the chip; an error shows above the input", async () => {
+  const h = await harness({ post: () => { throw new Error("Host refused"); },
+    runs: [{ id: "g1", entry: "fixture-entry", objective: "Done before", status: "completed", elapsedMs: 1000 }] });
+  await h.controller.refresh();
+  h.type("/goal again");
+  assert.equal(h.find("goal-draft").hidden, false); assert.equal(h.find("goal-chip").hidden, true, "the draft replaces a finished Goal's chip");
+  await h.controller.submit(h.input.value);
+  assert.equal(h.find("goal-composer").hidden, false); assert.equal(h.find("goal-error").hidden, false);
+  assert.equal(h.find("goal-error").textContent, "Host refused"); h.close();
+});
+
+test("a page without the subagent bar keeps Goal progress above the input", async () => {
+  const h = await harness({ subagentBar: false, runs: [{ id: "g1", entry: "fixture-entry", objective: "work", status: "running", elapsedMs: 0, activity: "thinking" }] });
+  await h.controller.refresh();
+  assert.equal(h.find("goal-composer").hidden, false); assert.equal(h.find("goal-live").hidden, false);
+  assert.equal(h.find("goal-live").parentElement, h.find("goal-composer")); h.close();
 });
 
 test("repeated Enter while creation is pending cannot create two Goals or erase a newer draft", async () => {
@@ -162,9 +209,9 @@ test("the real send handler routes /goal to the Host controller before native ag
 test("an older poll cannot erase a Goal that has just been acknowledged", async () => {
   const h = await harness(), pending = deferred(); h.api = () => pending.promise;
   const polling = h.controller.refresh(); h.type("/goal fresh"); await h.controller.submit(h.input.value);
-  assert.equal(h.find("goal-live").hidden, false);
+  assert.equal(h.find("goal-chip").hidden, false);
   pending.resolve({ runs: [] }); await polling;
-  assert.equal(h.find("goal-live").hidden, false); assert.equal(h.find("goal-live").children[1].textContent, "fresh"); h.close();
+  assert.equal(h.find("goal-chip").hidden, false); assert.equal(h.find("goal-live").children[1].textContent, "fresh"); h.close();
 });
 
 test("a poll recovers a Goal when its POST response was lost without issuing a second write", async () => {
@@ -174,7 +221,7 @@ test("a poll recovers a Goal when its POST response was lost without issuing a s
   } });
   h.type("/goal recover"); await h.controller.submit(h.input.value); assert.equal(h.input.value, "/goal recover");
   await h.controller.refresh(); assert.equal(h.input.value, ""); assert.equal(h.posts.length, 1); assert.equal(h.started.length, 1);
-  assert.equal(h.find("goal-live").hidden, false); h.close();
+  assert.equal(h.find("goal-chip").hidden, false); h.close();
 });
 
 test("a poll acknowledgment and a late successful POST acknowledge the draft only once", async () => {

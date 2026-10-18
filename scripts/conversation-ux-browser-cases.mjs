@@ -196,6 +196,71 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
   }
 }
 
+// A Goal under way is a chip beside the subagent bubble that opens its
+// progress and closes it again; finished, it says so with the time it took.
+export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
+  for (const width of [393, 320, 1280]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
+    try {
+      const locale = width === 1280 ? "en" : "zh-Hant", words = locale === "en" ? { running: "Working", completed: "Completed" } : { running: "工作中", completed: "已完成" };
+      await context.addInitScript(({ locale, theme }) => {
+        localStorage.setItem("stepsemble.onboarding.v1", "complete");
+        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme, reducedMotion: true }));
+      }, { locale, theme: width === 393 ? "light" : "dark" });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      // The Host's Goal for the conversation shown, as /api/workflows reports it.
+      let goal = { id: "ui-goal", objective: "Ship the release notes and check every link", status: "running", elapsedMs: 754_000, activity: "thinking", turns: 3, outputTokens: 1200, clockRunning: true };
+      await context.route("**/api/workflows?entry=**", route => {
+        const entry = new URL(route.request().url()).searchParams.get("entry");
+        return route.fulfill({ json: { runs: [{ ...goal, entry }] } });
+      });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const ui = await openFromSidebar(page, "Claude composer fixture");
+      await ui.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !rpc?.nativeLoading);
+      await ui.evaluate(() => subagentTracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "ui-goal-child", name: "Agent",
+        input: { description: "Check the links", prompt: "Check the links", subagent_type: "researcher" } }] } }));
+      const chip = ui.locator(".goal-chip"), bubble = ui.locator(".subagent-bubble"), panel = ui.locator(".goal-panel");
+      await chip.waitFor();
+      assert.match(await chip.textContent(), new RegExp(`Goal.*${words.running}.*12:3\\d`));
+      // Side by side where both fit; a screen too narrow for both stacks them.
+      const sideBySide = async () => {
+        const [chipBox, bubbleBox, composerBox] = [await chip.boundingBox(), await bubble.boundingBox(), await ui.locator(".composer-inner").boundingBox()];
+        const room = await ui.locator("#subagent-bar").evaluate(node => { const style = getComputedStyle(node); return node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight); });
+        if (chipBox.width + 8 + bubbleBox.width <= room) assert.ok(Math.abs(chipBox.y - bubbleBox.y) < 4 && chipBox.x < bubbleBox.x, JSON.stringify({ chipBox, bubbleBox, room }));
+        else assert.ok(chipBox.y + chipBox.height <= bubbleBox.y, JSON.stringify({ chipBox, bubbleBox, room }));
+        assert.ok(Math.max(chipBox.y + chipBox.height, bubbleBox.y + bubbleBox.height) <= composerBox.y, "both sit above the message box");
+      };
+      await sideBySide();
+      assert.equal(await panel.isHidden(), true);
+      assert.equal(await ui.locator(".goal-composer").isHidden(), true, "nothing large above the input");
+      const overflow = () => ui.evaluate(() => [document.documentElement, document.getElementById("subagent-bar")].map(node => node.scrollWidth - node.clientWidth));
+      assert.deepEqual(await overflow(), [0, 0]);
+      const shot = async name => { if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `goal-${name}-${width}.png`) }); } };
+      await shot("chip");
+      await chip.click();
+      await panel.waitFor();
+      assert.equal(await chip.getAttribute("aria-expanded"), "true");
+      assert.match(await panel.textContent(), /Ship the release notes/);
+      assert.equal(await ui.locator(".goal-panel .goal-actions button:visible").count() > 0, true, "its controls are inside");
+      assert.deepEqual(await overflow(), [0, 0]);
+      await shot("open");
+      await chip.click();
+      await panel.waitFor({ state: "hidden" });
+      assert.equal(await chip.getAttribute("aria-expanded"), "false");
+      goal = { ...goal, status: "completed", elapsedMs: 3_723_000, clockRunning: false, activity: null, result: "Released." };
+      await ui.waitForFunction(text => document.querySelector(".goal-chip")?.textContent.includes(text), words.completed);
+      assert.match(await chip.textContent(), new RegExp(`${words.completed}.*1:02:03`));
+      await sideBySide();
+      await shot("done");
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Goal chip", width, result: "passed" }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
 export async function runSessionRecoveryBrowserCases(browser, { screenshots } = {}) {
   for (const width of [393, 1280]) {
     const preview = await createNativeComposerPreview();
@@ -460,6 +525,7 @@ export async function runEarlySendBrowserCases(browser) {
 
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
+  await runGoalChipBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {

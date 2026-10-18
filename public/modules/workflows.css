@@ -168,13 +168,27 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 
 /* Goal belongs to the composer: draft limits become progress after submission. */
 .goal-composer {box-sizing:border-box;width:100%;padding:6px 5px 12px;border-bottom:1px solid var(--line);color:var(--ink);min-width:0;}
-.goal-composer[hidden],.goal-composer [hidden] {display:none!important;}
+.goal-composer[hidden],.goal-composer [hidden],.goal-panel[hidden],.goal-panel [hidden],.goal-chip[hidden] {display:none!important;}
+/* A Goal under way: a chip beside the subagent bubble that opens its progress. */
+.goal-chip {order:0;display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;margin:4px 0;padding:4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--paper);color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;}
+.goal-chip::before {content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--pine-soft);}
+.goal-chip[data-state=completed]::before {background:var(--ok);}
+.goal-chip[data-ticking=true]::before {background:var(--accent);animation:compaction-pulse 1.2s ease-in-out infinite;}
+.goal-chip:is([data-state=waiting],[data-state=blocked],[data-state=paused],[data-state=limited])::before {background:#bc8f4c;}
+.goal-chip:is([data-state=failed],[data-state=stopped],[data-state=interrupted])::before {background:#d2876f;}
+.goal-chip:hover,.goal-chip:focus-visible,.goal-chip[aria-expanded=true] {background:var(--bubble-user);}
+.goal-chip-label {font-weight:600;}
+.goal-chip-state {overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.goal-chip-state::before,.goal-chip-clock::before {content:"·";margin-right:5px;color:var(--pine-soft);}
+.goal-chip-clock {font-variant-numeric:tabular-nums;color:var(--pine-soft);}
+.reduced-motion .goal-chip::before {animation:none;}
+.goal-panel {order:2;flex-basis:100%;box-sizing:border-box;min-width:0;margin:2px 0 6px;padding:2px 12px 10px;max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--milk);box-shadow:0 8px 24px rgba(0,0,0,.08);color:var(--ink);}
 .goal-head {display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-height:36px;}
 .goal-label {font-size:.82rem;font-weight:600;letter-spacing:-.015em;white-space:nowrap;}
 .goal-state {font-size:.73rem;color:var(--pine-soft);}
 .goal-clock {margin-left:auto;color:var(--pine-soft);font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap;}
-.goal-composer[data-state=running] .goal-state,.goal-composer[data-state=completed] .goal-state {color:var(--accent);}
-.goal-composer[data-state=waiting] .goal-state,.goal-composer[data-state=blocked] .goal-state {color:#bc8f4c;}
+.goal-composer[data-state=running] .goal-state,.goal-composer[data-state=completed] .goal-state,.goal-panel[data-state=running] .goal-state,.goal-panel[data-state=completed] .goal-state {color:var(--accent);}
+.goal-composer[data-state=waiting] .goal-state,.goal-composer[data-state=blocked] .goal-state,.goal-panel[data-state=waiting] .goal-state,.goal-panel[data-state=blocked] .goal-state {color:#bc8f4c;}
 .goal-objective {margin:5px 0 9px;font-size:.85rem;line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .goal-dismiss.btn {margin-left:auto;padding:0;width:36px;height:36px;font-size:1.25rem;color:var(--pine-soft);}
 .goal-draft-controls {display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;}
@@ -196,8 +210,8 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 .goal-run-details>summary {min-height:30px;}
 .goal-result {font:inherit;font-size:.8rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow-y:auto;margin:8px 0 0;}
 .goal-error {margin:8px 0 0;font-size:.8rem;line-height:1.5;color:#d2876f;overflow-wrap:anywhere;}
-.goal-composer :is(button,input,summary):focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
-.goal-composer button:disabled,.goal-composer input:disabled {opacity:.55;}
+.goal-composer :is(button,input,summary):focus-visible,.goal-panel :is(button,summary):focus-visible,.goal-chip:focus-visible {outline:2px solid var(--accent);outline-offset:2px;}
+.goal-composer button:disabled,.goal-composer input:disabled,.goal-panel button:disabled {opacity:.55;}
 @media(max-width:640px) {
   .goal-composer {padding:4px 2px 9px;}
   .goal-head {gap:6px;}

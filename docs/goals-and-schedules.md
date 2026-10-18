@@ -1,8 +1,13 @@
 # Goals and schedules
 
 Goals and Schedules belong to the selected Workspace Host. A Goal runs inside a
-conversation: type `/goal` followed by the objective, and its limits, progress
-and controls appear above the composer. To start a Goal in a new conversation,
+conversation: type `/goal` followed by the objective, and its limits appear
+above the composer. Once it starts, the Goal is a small chip above the message
+box, beside the subagent bubble, saying how it is doing and for how long, such
+as "Goal · Working · 12:34" or "Goal · Completed · 1:02:03". Click it to open
+its progress and controls below it; click it again to close them. A new Goal
+starts closed. On a screen too narrow for both, the chip and the subagent
+bubble stack. To start a Goal in a new conversation,
 open the conversation with the agent, project and model you want, then type
 `/goal`. Schedules have their own panel, opened from the Schedules button in the
 sidebar. The desktop app and browser use the same controls.
@@ -26,8 +31,8 @@ again. Polling preserves selection, expanded details and keyboard focus.
 Describe the objective and completion criteria after `/goal`, and adjust the
 limits if needed. The Host sends the objective through the agent's normal native
 conversation interface and continues in that conversation when another turn is
-needed. The Goal bar shows elapsed time, current activity, turns, output tokens
-and the most recent result.
+needed. The Goal's chip shows its state and elapsed time; opened, it also shows
+current activity, turns, output tokens and the most recent result.
 
 Supported native agents: Pi, Claude Code, Codex, OpenCode, Oh My Pi (OMP), Cline,
 Kilo, Hermes and Grok Build. The installed agent must be signed in and its native
