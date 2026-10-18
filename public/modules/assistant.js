@@ -10,7 +10,8 @@
   const t = (key, vars) => AI.t(key, vars, prefs.locale);
   const shell = document.getElementById("assistant-main"), listPane = document.getElementById("assistant-list"), main = document.getElementById("assistant-view");
   const top = document.querySelector(".assistant-top"), machineSelect = document.getElementById("assistant-machine");
-  const MACHINE_KEY = "stepsemble.assistant.machine", MAX_FILE = 10 * 1024 * 1024, MAX_FILES = 4;
+  // Attachments follow Telegram (and the Host's own check): ten to a message, 20 MB each.
+  const MACHINE_KEY = "stepsemble.assistant.machine", MAX_FILE = 20 * 1024 * 1024, MAX_FILES = 10;
   // 嵌在 Workspace 的分頁裡：只顯示這個分頁的頁面，路由留在記憶體，
   // 以訊息告訴 Workspace 目前的頁面、標題與頭像。
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
@@ -610,6 +611,18 @@
     });
   }
 
+  // A pasted screenshot arrives as "image.png" or with no name, so it gets one
+  // of its own; a file copied in Finder keeps its name.
+  function pastedName(file, taken) {
+    if (file.name && !/^image\.\w+$/i.test(file.name)) return file.name;
+    const at = new Date(), pad = value => String(value).padStart(2, "0");
+    const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+    const ext = (/\.(\w+)$/.exec(file.name || "")?.[1] || (file.type.split("/")[1] || "png").replace(/\W.*$/, "").replace("jpeg", "jpg")).toLowerCase();
+    let name = `pasted-${stamp}.${ext}`;
+    for (let count = 2; taken.has(name); count += 1) name = `pasted-${stamp}-${count}.${ext}`;
+    return name;
+  }
+
   function composer() {
     // 固定這個表單所屬的對話與 API，避免送出等待期間切換 Bot 而寫到別筆。
     const entry = chat, owner = api;
@@ -632,17 +645,30 @@
       send.disabled = entry.sending || !(input.value.trim() || entry.attachments.length);
       input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
     }
-    file.addEventListener("change", async () => {
+    async function addFiles(list, { pasted = false } = {}) {
       try {
-        for (const picked of file.files) {
-          if (entry.attachments.length >= MAX_FILES) { toast(t("tooMany")); break; }
-          if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name })); continue; }
+        for (const picked of list) {
+          if (entry.attachments.length >= MAX_FILES) { toast(t("tooMany", { count: MAX_FILES })); break; }
+          if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name, size: MAX_FILE / 1024 / 1024 })); continue; }
           const data = await readBase64(picked);
-          entry.attachments.push({ kind: picked.type.startsWith("image/") ? "image" : "file", name: picked.name, mime: picked.type || "application/octet-stream", data });
+          const name = pasted ? pastedName(picked, new Set(entry.attachments.map(item => item.name))) : picked.name;
+          entry.attachments.push({ kind: picked.type.startsWith("image/") ? "image" : "file", name, mime: picked.type || "application/octet-stream", data });
         }
         remember(entry); renderChips(); sync();
       } catch (error) { toast(t("failed", { message: error.message })); }
-      finally { file.value = ""; }
+    }
+    file.addEventListener("change", async () => {
+      try { await addFiles([...file.files]); } finally { file.value = ""; }
+    });
+    input.addEventListener("paste", event => {
+      const files = [...(event.clipboardData?.files || [])];
+      if (!files.length) return;
+      // Excel, Numbers and Word put a picture of the copied part beside its
+      // text; that stays a text paste. Finder puts the file name beside a file.
+      const text = event.clipboardData.getData("text/plain");
+      if (text.trim() && files.every(picked => picked.type.startsWith("image/") && !text.includes(picked.name))) return;
+      event.preventDefault();
+      void addFiles(files, { pasted: true });
     });
     input.addEventListener("input", () => { entry.draft = input.value; remember(entry); sync(); });
     input.addEventListener("keydown", event => {

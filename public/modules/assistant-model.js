@@ -26,7 +26,7 @@
   }
   function userItem(text, attachments = []) {
     const value = item("user", text);
-    value.attachments = attachments.slice(0, 8);
+    value.attachments = [...attachments];
     return value;
   }
   const systemItem = text => item("system", text);
