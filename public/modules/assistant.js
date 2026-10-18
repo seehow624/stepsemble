@@ -10,7 +10,8 @@
   const t = (key, vars) => AI.t(key, vars, prefs.locale);
   const shell = document.getElementById("assistant-main"), listPane = document.getElementById("assistant-list"), main = document.getElementById("assistant-view");
   const top = document.querySelector(".assistant-top"), machineSelect = document.getElementById("assistant-machine");
-  const MACHINE_KEY = "stepsemble.assistant.machine", MAX_FILE = 10 * 1024 * 1024, MAX_FILES = 4;
+  // Attachments follow Telegram (and the Host's own check): ten to a message, 20 MB each.
+  const MACHINE_KEY = "stepsemble.assistant.machine", MAX_FILE = 20 * 1024 * 1024, MAX_FILES = 10;
   // 嵌在 Workspace 的分頁裡：只顯示這個分頁的頁面，路由留在記憶體，
   // 以訊息告訴 Workspace 目前的頁面、標題與頭像。
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
@@ -647,8 +648,8 @@
     async function addFiles(list, { pasted = false } = {}) {
       try {
         for (const picked of list) {
-          if (entry.attachments.length >= MAX_FILES) { toast(t("tooMany")); break; }
-          if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name })); continue; }
+          if (entry.attachments.length >= MAX_FILES) { toast(t("tooMany", { count: MAX_FILES })); break; }
+          if (picked.size > MAX_FILE) { toast(t("tooLarge", { name: picked.name, size: MAX_FILE / 1024 / 1024 })); continue; }
           const data = await readBase64(picked);
           const name = pasted ? pastedName(picked, new Set(entry.attachments.map(item => item.name))) : picked.name;
           entry.attachments.push({ kind: picked.type.startsWith("image/") ? "image" : "file", name, mime: picked.type || "application/octet-stream", data });

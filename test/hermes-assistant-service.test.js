@@ -242,6 +242,21 @@ test("attachments are sent before the message, files as references in the text",
   await assert.rejects(service.prompt({ sessionId: chat.sessionId, text: "  " }), error => error.code === "empty_message");
 });
 
+test("a message takes ten attachments of up to 20 MB each, like Telegram", async t => {
+  const { fake, service } = await setup(t);
+  const chat = await service.openBotChat("default");
+  const note = { kind: "file", name: "note.txt", mime: "text/plain", data: Buffer.from("hi").toString("base64") };
+  const full = { kind: "image", name: "scan.png", mime: "image/png", data: Buffer.alloc(20 * 1024 * 1024).toString("base64") };
+  const tooMany = Array.from({ length: 11 }, () => note);
+  const tooBig = { ...full, data: Buffer.alloc(20 * 1024 * 1024 + 1).toString("base64") };
+  await assert.rejects(service.prompt({ sessionId: chat.sessionId, text: "x", attachments: tooMany }), error => error.code === "invalid_attachments");
+  await assert.rejects(service.prompt({ sessionId: chat.sessionId, text: "x", attachments: [tooBig] }), error => error.code === "invalid_attachments");
+  assert.equal(fake.state.attachments.length, 0, "nothing reaches Hermes before the whole message checks out");
+  await service.prompt({ sessionId: chat.sessionId, text: "all of these", attachments: [full, ...Array.from({ length: 9 }, () => note)] });
+  assert.equal(fake.state.attachments.length, 10);
+  assert.equal(fake.state.attachments[0].bytes, 20 * 1024 * 1024, "a file of exactly 20 MB fits");
+});
+
 test("after a dropped connection the missing part of a reply is replayed in order, once", async t => {
   const { fake, service } = await setup(t);
   const chat = await service.openBotChat("default");

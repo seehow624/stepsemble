@@ -27,7 +27,8 @@ const WATCH_MS = 45_000, MAX_WATCHERS = 64, MAX_SESSIONS = 200, MAX_OFFERED = 40
 // Stepsemble is a graphical client: with this source Hermes teaches a Bot to
 // send files as MEDIA:/path instead of pasting the path.
 const SOURCE = "desktop";
-const MAX_TEXT = 512 * 1024, MAX_ATTACHMENTS = 4, MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+// Attachments follow Telegram: ten to a message, 20 MB each.
+const MAX_TEXT = 512 * 1024, MAX_ATTACHMENTS = 10, MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const ASKS = new Set(["approval", "clarify", "sudo", "secret"]);
 const APPROVAL_CHOICES = new Set(["once", "session", "always", "deny"]);
 // Hermes hands a routine's output to a Bot Chat as a user message that starts
@@ -80,7 +81,9 @@ function cleanAttachments(list) {
   if (!Array.isArray(list) || list.length > MAX_ATTACHMENTS) throw invalid("invalid_attachments");
   return list.map(item => {
     const data = typeof item?.data === "string" ? item.data : "";
-    if (!["image", "file"].includes(item?.kind) || !data || !BASE64.test(data) || data.length * 0.75 > MAX_ATTACHMENT_BYTES) throw invalid("invalid_attachments");
+    // The padding is not file content: a file of exactly the limit must fit.
+    const bytes = data.length * 0.75 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+    if (!["image", "file"].includes(item?.kind) || !data || !BASE64.test(data) || bytes > MAX_ATTACHMENT_BYTES) throw invalid("invalid_attachments");
     const name = clip(item.name, 200).replace(/[\\/\r\n\0]/g, "_") || (item.kind === "image" ? "image" : "file");
     const mime = MIME.test(String(item.mime || "")) ? item.mime : "application/octet-stream";
     return { kind: item.kind, name, mime, data };

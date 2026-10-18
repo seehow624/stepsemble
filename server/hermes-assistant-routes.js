@@ -223,4 +223,4 @@ function createHermesAssistantRoutes({ service, routines, groups, bots, skills, 
   };
 }
 
-module.exports = { createHermesAssistantRoutes };
+module.exports = { createHermesAssistantRoutes, PROMPT };
