@@ -4,6 +4,8 @@ const fs = require("node:fs"), os = require("node:os"), path = require("node:pat
 const { createWorkflows, nextOccurrence, scheduleSpec, outcome } = require("../server/workflows");
 const { createWorkflowEvents } = require("../server/workflow-events");
 const wait = ms => new Promise(r => setTimeout(r, ms));
+// A dispatch runs asynchronously; a busy runner can need more than a fixed pause.
+const until = async (check, timeoutMs = 3000) => { const end = Date.now() + timeoutMs; while (!check() && Date.now() < end) await wait(5); };
 const def = { title:"Verify login",objective:"Implement login and test it",agentId:"pi",cwd:os.tmpdir() };
 // Runs in one project wait for each other; capacity tests use separate projects.
 const project = name => path.join(os.tmpdir(), "stepsemble-capacity-test", String(name));
@@ -250,10 +252,10 @@ test("two schedules targeting one conversation serialize while unrelated project
   const f=fixture(t),targetEntry=require("node:crypto").randomUUID();f.bridge.prepare=async()=>true;
   const input={...def,kind:"schedule",targetEntry,mode:"task",schedule:{kind:"interval",minutes:15}};
   const first=f.host.create(input),second=f.host.create(input);
-  await f.host.action({id:first.id,action:"run"});await wait(10);
-  await f.host.action({id:second.id,action:"run"});await wait(10);
+  await f.host.action({id:first.id,action:"run"});await until(()=>f.sends.length===1);
+  await f.host.action({id:second.id,action:"run"});await until(()=>f.host.list().runs[1]?.status==="queued");await wait(10);
   assert.equal(f.sends.length,1);assert.equal(f.host.list().runs[1].status,"queued");
-  f.host.create({...def,cwd:project("unrelated"),mode:"task"});await wait(10);assert.equal(f.sends.length,2);
-  f.pending.shift().resolve({text:"First done"});await wait(10);await f.host.tick();await wait(10);
+  f.host.create({...def,cwd:project("unrelated"),mode:"task"});await until(()=>f.sends.length===2);assert.equal(f.sends.length,2);
+  f.pending.shift().resolve({text:"First done"});await wait(10);await f.host.tick();await until(()=>f.sends.length===3);
   assert.equal(f.sends.length,3);assert.equal(f.host.list().runs[1].status,"running");assert.equal(f.host.list().runs[1].entry,targetEntry);
 });
