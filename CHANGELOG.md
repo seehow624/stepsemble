@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.22
+
+- Show a small spinner in the conversation header while a turn runs, in place of "Working…" and the run clock beside it. The work log under the turn already says how long it ran; the status words stay for screen readers and as the tooltip.
+- Name the computer and project under a conversation's title, such as "OneStep-MacMini · Stepsemble", instead of its folder path, which moves to the tooltip. In a narrow header the computer's name gives way before the project's.
+- Open a Bot's More options on its picture, name and description, with Routines and Settings each shown with an icon and what it holds; on a wide screen it is a small menu under its button instead of a dialog. History is now two speech bubbles, More options three drawn dots, and panels close with a round X.
+- Say what a Bot is for under its name, or "Working…" with a green dot while it answers, in place of "Bot Chat".
+- Show pictures in a Bot's message box as thumbnails and other files as chips with their type; pictures you send show above your message. The open, save and share buttons float over a picture's corner, and Send and Stop are round.
+
 ## 3.9.21
 
 - Paste a screenshot or a file into a Bot conversation. Pasting into the message box attaches it the same way the paperclip does; a screenshot is named `pasted-<date>-<time>`, because the clipboard calls every one `image.png`, and a copy from Excel, Numbers or Word, which carries a picture beside its text, still pastes as text.
