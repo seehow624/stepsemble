@@ -53,7 +53,7 @@ function dom() {
 }
 async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[schedule()],mobile=false,crypto}={}) {
   const doc=dom(),timers=new Map();let timerId=0,uuid=0;
-  const h={doc,runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],optionRequests:[],now:1700000000000,available:true};
+  const h={doc,targets:[{key:"entry-1",record:{name:"Maintenance",agentId:"pi",cwd:"/demo/Website"}}],runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],optionRequests:[],now:1700000000000,available:true};
   const root={document:doc,StepsembleWorkflowI18n:i18n,crypto:crypto||{randomUUID:()=>"request-"+(++uuid)},confirm:()=>true,
     Event:class{constructor(type){this.type=type;}},dispatchEvent(){},matchMedia:()=>({matches:mobile}),
     setTimeout(fn,ms){timers.set(++timerId,{fn,ms,interval:false});return timerId;},clearTimeout(id){timers.delete(id);},
@@ -63,6 +63,7 @@ async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[sch
     context:async target=>({target:target||"host-1",hostName:"Fixture",projects:["/demo/Website","/demo/API"],entries:[{key:"entry-1",record:{agentId:"pi",cwd:"/demo/Website"}}]}),
     onChanged(){h.changed++;},openConversation(...args){h.opened.push(args);},
     api:async(route,body,target)=>{
+      if(route==="/api/workflows/targets"){h.targetsHost=target;return h.targetsImpl?h.targetsImpl():{entries:clone(h.targets)};}
       if(route==="/api/agents")return h.agentsImpl?h.agentsImpl():{connectors:[{id:"pi",installed:true},{id:"codex",installed:true},{id:"antigravity",installed:true},{id:"hermes",installed:false}]};
       if(route.startsWith("/api/workflows/options?")){h.optionRequests.push(route);return h.optionsImpl?h.optionsImpl(route):{current:null,models:[],modes:[]};}
       if(!body)return h.readImpl?h.readImpl():{available:h.available,keepsAwake:h.keepsAwake,runs:clone(h.runs),schedules:clone(h.schedules)};
@@ -307,4 +308,61 @@ test("the approval wait limit is editable, validated, and shown with a schedule'
 test("the footer says the Host keeps the computer awake only when it can",async()=>{
   const h=await harness();assert.match(h.find(".wf-footer").textContent,/Keep the computer awake/);
   h.keepsAwake=true;await h.tick(4000);assert.match(h.find(".wf-footer").textContent,/keeps the computer awake while tasks run/);h.close();
+});
+
+for(const mobile of [false,true])test(`schedule binding edits in place with explicit new/existing choice (${mobile?"mobile":"desktop"})`,async()=>{
+  const h=await harness({mobile,runs:[]});await h.byKey("schedule-1:edit").click();
+  assert.equal(h.field("conversationMode").value,"new");assert.equal(h.targetsHost,"host-1");
+  h.input("conversationMode","existing");h.input("targetConversation","entry-1");
+  for(const name of ["agent","project","model","permission","reasoning"])assert.equal(h.field(name).disabled,true,name);
+  assert.match(h.find("form").textContent,/Keeps this conversation’s model/);
+  await h.submit();assert.equal(h.posts[0].body.id,"schedule-1");assert.equal(h.posts[0].body.action,"edit");assert.equal(h.posts[0].body.targetEntry,"entry-1");assert.equal(h.schedules.length,1);
+  assert.match(h.find(".wf-plan").textContent,/Continue an existing conversation/);
+  await h.byKey("schedule-1:target").click();assert.equal(h.opened[0][0],"entry-1");assert.equal(h.opened[0][2],"host-1");h.close();
+});
+
+test("a missing binding is never silently replaced; only explicitly selecting new sends null",async()=>{
+  const h=await harness({runs:[],schedules:[{...schedule(),targetEntry:"removed",choice:{model:"pinned-but-ignored"},permission:"workspace"}]});
+  await h.byKey("schedule-1:edit").click();assert.equal(h.field("conversationMode").value,"existing");assert.equal(h.field("targetConversation").value,"removed");
+  await h.submit();assert.equal(h.posts.length,0);assert.match(h.find("form").textContent,/target conversation is unavailable/);
+  h.input("conversationMode","new");await flush();await h.submit();assert.equal(h.posts[0].body.targetEntry,null);h.close();
+});
+
+for(const edit of [false,true])for(const status of [404,501])test(`targets ${status} preserves old Host new-conversation ${edit?"editing":"creation"}`,async()=>{
+  const h=await harness({runs:[]});h.targetsImpl=async()=>{throw Object.assign(new Error("targets not supported"),{status});};
+  await h.byKey(edit?"schedule-1:edit":"new").click();
+  assert.equal(h.field("conversationMode").value,"new");assert.equal(h.field("conversationMode").options.find(option=>option.value==="existing").disabled,true);
+  assert.equal(h.field("agent").value,"pi");h.input("objectivePrompt","Keep old Host scheduling working");await h.submit();
+  assert.equal(h.posts.length,1);assert.equal(h.posts[0].body.targetEntry,null);assert.equal(h.posts[0].body.action,edit?"edit":undefined);h.close();
+});
+
+for(const status of [404,503])test(`targets ${status} never silently clears an existing binding`,async()=>{
+  const h=await harness({runs:[],schedules:[{...schedule(),targetEntry:"entry-1"}]});h.targetsImpl=async()=>{throw Object.assign(new Error("Target catalog unavailable"),{status});};
+  await h.byKey("schedule-1:edit").click();assert.equal(h.field("conversationMode").value,"existing");assert.equal(h.field("targetConversation").value,"entry-1");
+  await h.submit();assert.equal(h.posts.length,0);assert.equal(h.schedules[0].targetEntry,"entry-1");
+  h.input("conversationMode","new");await flush();await h.submit();assert.equal(h.posts[0].body.targetEntry,null);assert.equal(h.posts[0].body.id,"schedule-1");h.close();
+});
+
+test("retrying a failed target catalog preserves the agent, model and text draft",async()=>{
+  const h=await harness({runs:[]});h.targetsImpl=async()=>{throw Object.assign(new Error("Temporary target failure"),{status:503});};h.optionsImpl=codexOptions;
+  await h.byKey("new").click();h.input("agent","codex");await flush();h.input("model",JSON.stringify({model:"gpt-6"}));h.input("reasoning","high");h.input("objectivePrompt","Keep this draft through target retry");
+  h.targetsImpl=null;const retry=h.find("form").querySelectorAll("button").find(node=>node.textContent==="Try again");assert.equal(retry.hidden,false);await retry.click();await flush();
+  assert.equal(h.field("agent").value,"codex");assert.equal(h.field("model").value,JSON.stringify({model:"gpt-6"}));assert.equal(h.field("reasoning").value,"high");assert.match(h.field("objectivePrompt").value,/Keep this draft/);
+  await h.submit();assert.deepEqual(h.posts[0].body.choice,{model:"gpt-6",effort:"high"});h.close();
+});
+
+test("a slow unsupported target catalog does not block new-conversation saving or damage the saved view",async()=>{
+  const h=await harness({runs:[]}),pending=deferred();h.targetsImpl=()=>pending.promise;
+  const opening=h.byKey("new").click();await flush();h.input("objectivePrompt","Draft saved before target catalog returns");await h.submit();
+  assert.equal(h.posts.length,1);assert.equal(h.posts[0].body.targetEntry,null);assert.equal(h.find("form"),null);
+  pending.reject(Object.assign(new Error("Late targets 404"),{status:404}));await opening;
+  assert.equal(h.find(".wf-error").textContent,"");assert.match(h.find(".wf-objective").textContent,/Draft saved before/);h.close();
+});
+
+test("late target catalogs cannot cross Hosts or replace the editor's draft",async()=>{
+  const h=await harness(),pending=deferred();h.targetsImpl=()=>pending.promise;
+  const opening=h.byKey("new").click();await flush();h.input("objectivePrompt","Keep this exact draft");
+  h.targetsImpl=null;await h.controller.open("host-2");await h.byKey("new").click();h.input("objectivePrompt","Other Host draft");
+  pending.resolve({entries:[{key:"foreign-target",record:{agentId:"pi",cwd:"/other"}}]});await opening;
+  assert.equal(h.field("objectivePrompt").value,"Other Host draft");assert(!h.field("targetConversation").options.some(o=>o.value==="foreign-target"));h.close();
 });

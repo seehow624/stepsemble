@@ -419,6 +419,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/workspace/usage" && req.method === "GET") return json(res, 200, { providers: [] });
       // Workflow UI fixture; never launches an agent or a model request.
+      if (pathname === "/api/workflows/targets" && req.method === "GET") return json(res, 200, { entries: workspaceEntries().filter(row => !row.record.nativeHistoryReadonly && (row.record.nativeCodex || row.record.nativeClaudeStructured || row.record.nativeAcp || row.record.nativeOpenCode || row.record.agentId === "pi")) });
       if (pathname === "/api/workflows/options" && req.method === "GET") {
         const agentId = requestUrl.searchParams.get("agentId");
         const fixture = {
@@ -435,7 +436,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         const body = await parseJsonBody(req);
         state.goalRequests.push(body);
         const makeRun = (input, entry) => {
-          const run = { ...input, id: "fixture-goal-" + (state.goals.length + 1), entry: input.entry || entry?.key, agentId: entry?.record.agentId || input.agentId, cwd: entry?.record.cwd || input.cwd,
+          const run = { ...input, id: "fixture-goal-" + (state.goals.length + 1), entry: input.targetEntry || input.entry || entry?.key, agentId: entry?.record.agentId || input.agentId, cwd: entry?.record.cwd || input.cwd,
             createdAt: Date.now(), startedAt: Date.now(), status: "running", elapsedMs: 0, updatedAt: Date.now(), activity: "Reviewing the requested implementation", turns: 1, outputTokens: 1200 };
           state.goals.push(run); return run;
         };
@@ -449,7 +450,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
           if (body.action === "pause") schedule.enabled = false;
           if (body.action === "resume") { schedule.nextAt = nextOccurrence(schedule.schedule, Date.now()); schedule.enabled = true; }
           if (body.action === "edit") {
-            const config = definition(body), spec = scheduleSpec(body.schedule, Date.now());
+            const config = definition({ ...body, targetEntry: body.targetEntry === undefined ? schedule.targetEntry : body.targetEntry }), spec = scheduleSpec(body.schedule, Date.now());
             Object.assign(schedule, config, { schedule: spec, nextAt: nextOccurrence(spec, Date.now()), enabled: body.enabled !== false });
           }
           if (body.action === "delete") state.schedules = state.schedules.filter(row => row.id !== schedule.id);

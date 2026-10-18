@@ -27,7 +27,7 @@
     usageReset: "Waiting for the usage limit to reset · {time}",
     hostNoteAwake: "Runs on this Host. Stepsemble keeps the computer awake while tasks run, but cannot wake it from sleep.",
     emptyGoals: "A clear goal. A place to follow its progress.", emptySchedules: "Make room for work that runs itself.",
-    emptyGoalsHint: "Start here, or type /goal in any supported conversation.", emptySchedulesHint: "Choose a task and a time. Each run opens its own conversation.",
+    emptyGoalsHint: "Start here, or type /goal in any supported conversation.", emptySchedulesHint: "Choose a task, a time and a conversation.",
     elapsed: "Time worked", workingFor: "Working for", live: "Current activity", unavailable: "Goals and schedules are unavailable on this Host.",
     noAgents: "No supported agents installed.", noProjects: "Add a project before creating a task.", refreshError: "Connection interrupted. Showing the last update.",
     removeConfirm: "Delete this schedule? Existing runs are kept.", newHint: "Describe the work and how to verify it is complete…",
@@ -43,7 +43,10 @@
     objectiveRequired: "Describe an objective before starting.",
     resultEmpty: "The result will appear here when the agent finishes a turn.", historyEmpty: "No runs yet. The first result will appear here.",
     nextNone: "No upcoming run", editTime: "Choose a new time to run this schedule again.", requestPending: "Saving…",
-    waitingCapacity: "Waiting for capacity",
+    waitingCapacity: "Waiting for capacity", conversationMode: "Conversation", newConversation: "New conversation each run",
+    existingConversation: "Continue an existing conversation", targetConversation: "Existing conversation", chooseConversation: "Choose a conversation",
+    targetUnavailable: "The target conversation is unavailable. Choose another conversation or explicitly switch to a new conversation.",
+    conversationBusy: "Waiting for this conversation to become idle",
   };
   const aliases = { pause: "pause", resume: "resume", stop: "stop", minutes: "minutes", turns: "turns", tokens: "tokens", limitsError: "limitsError", thinking: "state.thinking", approval: "state.waiting" };
   const locale = () => root?.document.documentElement.lang || "en";
@@ -336,6 +339,7 @@
       box.append(controls(row)); return box;
     }
     function activityText(row) {
+      if (row.activity === "conversation_busy") return t("conversationBusy");
       if (row.activity === "project_busy") return t("projectBusy");
       if (row.activity === "retrying") return t("retrying", { time: row.retryAt ? stamp(row.retryAt, null, { month: undefined, day: undefined }) : "—" });
       if (row.activity === "usage_reset") return t("usageReset", { time: row.notBefore ? stamp(row.notBefore) : "—" });
@@ -355,6 +359,12 @@
         const days=el("div","","wf-week"); [1,2,3,4,5,6,0].forEach(day=>{const chip=el("span",t(["sun","mon","tue","wed","thu","fri","sat"][day]));chip.dataset.selected=String(row.schedule.days.includes(day));days.append(chip);}); plan.append(days);
       }
       if (scheduleState(row)==="finished") plan.append(el("p",t("editTime"),"wf-muted"));
+      if (row.targetEntry) {
+        const target = el("div", "", "wf-context wf-target");
+        const targetName=contextValue.entries?.find(entry=>entry.key===row.targetEntry)?.record.name||row.targetEntry;
+        target.append(el("span", t("existingConversation") + " · " + targetName), button(t("conversation") + " ↗", () => showConversation({ entry: row.targetEntry, title: targetName }), "wf-open-chat", row.id + ":target"));
+        plan.append(target);
+      }
       const actions=el("div","","wf-actions"); const executing=history.find(active);
       const run=mutateButton(row,"run","run","primary"); run.dataset.running=String(!!executing); actions.append(run);
       const edit=button(t("edit"),()=>form(row),"",row.id+":edit");edit.dataset.mutation="";actions.append(edit);
@@ -372,7 +382,7 @@
       const runRow=history.find(item=>item.id===historyId); if(runRow)node.append(runProgress(runRow),result(runRow));
       const meta=el("details","","wf-project-details");meta.dataset.key="settings:"+row.id;
       const pinned=`${t("model")}: ${row.choice?.model?row.choice.model+(row.choice.effort?" · "+row.choice.effort:""):t("agentDefault")} · ${t("permission")}: ${row.permission?modeLabel(row.agentId,{id:row.permission}):t("agentDefault")}`;
-      meta.append(el("summary",t("limits")),el("p",t(row.mode==="goal"?"goal":"task")),el("p",`${t("minutes")}: ${row.limits.minutes} · ${t("turns")}: ${row.limits.turns} · ${t("tokens")}: ${row.limits.outputTokens.toLocaleString(locale())} · ${t("approvalMinutes")}: ${row.limits.approvalMinutes ?? 30}`),el("p",pinned),el("code",row.cwd));node.append(meta);
+      meta.append(el("summary",t("limits")),el("p",t(row.mode==="goal"?"goal":"task")),el("p",`${t("minutes")}: ${row.limits.minutes} · ${t("turns")}: ${row.limits.turns} · ${t("tokens")}: ${row.limits.outputTokens.toLocaleString(locale())} · ${t("approvalMinutes")}: ${row.limits.approvalMinutes ?? 30}`),el("p",row.targetEntry?t("conversationNote"):pinned),el("code",row.cwd));node.append(meta);
       node.append(mutateButton(row,"delete","remove","ghost wf-delete"));return node;
     }
     function updateClock() {
@@ -412,6 +422,10 @@
       f.noValidate=true;
       const title=field(main,"title","text",row?.title||"");title.required=false;title.maxLength=120;title.placeholder=t("nameHint");
       const prompt=field(main,"objectivePrompt","textarea",row?.objective||"");prompt.rows=7;prompt.maxLength=16000;prompt.placeholder=t("newHint");
+      const conversationMode=field(main,"conversationMode","text",row?.targetEntry?"existing":"new",[["new",t("newConversation")],["existing",t("existingConversation")]]);
+      const targetConversation=field(main,"targetConversation","text","",[["",t("loading")]]);
+      const targetPath=el("small","","wf-path");main.append(targetPath);
+      let targets=[],targetsAvailable=false,targetsTicket=0,targetsError="";
       const pair=el("div","","wf-grid");main.append(pair);
       const projects=[...new Set([...(contextValue.projects||[]),row?.cwd].filter(Boolean))];
       const cwd=field(pair,"project","text",row?.cwd||projects[0],projects.map(path=>[path,baseName(path)]));
@@ -460,10 +474,24 @@
       advanced.append(el("p",t("limitsHint"),"wf-muted"),el("p",t("approvalHint"),"wf-muted"));
       const footer=el("div","","wf-editor-footer"),errorBox=el("p","","wf-error");errorBox.setAttribute("role","alert");errorBox.hidden=true;
       const submit=el("button",t("save"),"btn primary");submit.type="submit";submit.disabled=true;
-      const retry=button(t("retry"),()=>void loadAgents(),"ghost");retry.hidden=true;
+      const retry=button(t("retry"),()=>void loadCatalogs(),"ghost");retry.hidden=true;
       footer.append(errorBox,el("p",t(data?.keepsAwake?"hostNoteAwake":"hostNote"),"wf-muted"),retry,submit);f.append(footer);modal.replaceChildren(header,f);shell={error:errorBox};error("");(row?back:prompt).focus();
       let id=requestId(), catalogReady=false, sending=false;f.addEventListener("input",()=>{if(!sending)id=requestId();});
-      function ready(){submit.disabled=sending||!catalogReady||!agent.value||!cwd.value||data?.available===false;}
+      function selectedTarget(){return targets.find(entry=>entry.key===targetConversation.value);}
+      function ready(){submit.disabled=sending||!catalogReady||data?.available===false||(conversationMode.value==="existing"?!targetsAvailable||!selectedTarget():!agent.value||!cwd.value);}
+      function syncTarget(){
+        const existing=conversationMode.value==="existing", entry=selectedTarget();
+        conversationMode.options[1].disabled=!targetsAvailable;conversationMode.options[1].title=targetsAvailable?"":t("targetUnavailable");
+        targetConversation.parentElement.hidden=!existing;targetConversation.disabled=!existing||!targetsAvailable||sending;
+        pair.hidden=existing;picks.hidden=existing;projectPath.hidden=existing;modelHint.hidden=existing||!modelHint.textContent;
+        for(const control of [agent,cwd,model,permission])control.disabled=existing||sending;
+        reasoning.disabled=existing||sending||reasoning.parentElement.hidden;
+        targetPath.hidden=!existing;targetPath.textContent=entry?`${agentName(entry.record.agentId)} · ${entry.record.cwd}`:t("targetUnavailable");
+        note.textContent=t(existing?"conversationNote":"modelNote");
+        if(errorText===t("targetUnavailable")&&(!existing||entry))error("");ready();
+      }
+      conversationMode.addEventListener("change",()=>{syncTarget();if(conversationMode.value==="new")void loadOptions(true);});
+      targetConversation.addEventListener("change",syncTarget);
       agent.addEventListener("change",ready);cwd.addEventListener("change",ready);
       const option=(value,label)=>{const node=el("option",label);node.value=value;return node;};
       const baseChoice=choice=>({model:choice.model,...(choice.provider?{provider:choice.provider}:{})});
@@ -474,12 +502,13 @@
       }
       // keep: the folder changed, so current picks stay if the agent still offers them.
       async function loadOptions(keep=false){
+        if(conversationMode.value==="existing"){syncTarget();return;}
         const ticket=++optionsTicket,agentId=agent.value;
         const own=row&&row.agentId===agentId?row:null;
         const wanted=keep?{choice:model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null,permission:permission.value||null}:{choice:own?.choice||null,permission:own?.permission||null};
         let result={models:[],modes:[]};
         if(agentId){try{result=await api(`/api/workflows/options?agentId=${encodeURIComponent(agentId)}&cwd=${encodeURIComponent(cwd.value||"")}`,undefined,target)||result;}catch{result={models:[],modes:[],modelsUnavailable:true};}}
-        if(ticket!==optionsTicket||token!==epoch||!modal)return;
+        if(ticket!==optionsTicket||token!==epoch||!modal||!editing)return;
         catalog=(Array.isArray(result.models)?result.models:[]).filter(item=>item?.choice?.model);
         const modes=(Array.isArray(result.modes)?result.modes:[]).filter(mode=>mode?.id);
         // A pinned choice the catalog no longer lists stays selectable.
@@ -488,24 +517,47 @@
         model.replaceChildren(option("",t("agentDefault")),...catalog.map(item=>option(JSON.stringify(baseChoice(item.choice)),item.label||item.choice.model)));
         model.value=wanted.choice?JSON.stringify(baseChoice(wanted.choice)):"";syncReasoning(wanted.choice?.effort||"");
         permission.replaceChildren(option("",t("agentDefault")),...modes.map(mode=>option(mode.id,modeLabel(agentId,mode))));permission.value=wanted.permission||"";
-        modelHint.textContent=result.modelsUnavailable?t("modelsUnavailable"):"";modelHint.hidden=!result.modelsUnavailable;
+        modelHint.textContent=result.modelsUnavailable?t("modelsUnavailable"):"";modelHint.hidden=!result.modelsUnavailable;syncTarget();
       }
       model.addEventListener("change",()=>syncReasoning());agent.addEventListener("change",()=>void loadOptions());cwd.addEventListener("change",()=>void loadOptions(true));
       async function loadAgents(){
-        retry.hidden=true;
         try{
-          const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!modal)return;
+          const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!modal||!editing)return;
+          const keep=catalogReady,wanted=agent.value||row?.agentId;
           agent.replaceChildren();for(const item of catalog.connectors||[])if(item.installed&&AGENTS.includes(item.id)){const option=el("option",item.label||agentName(item.id));option.value=item.id;agent.append(option);}
-          agent.value=row?.agentId||agent.options[0]?.value||"";catalogReady=true;
-          error(!agent.value?t("noAgents"):!cwd.value?t("noProjects"):"");ready();await loadOptions();
-        }catch(e){if(token===epoch){error(e.message);retry.hidden=false;}}
+          agent.value=wanted||agent.options[0]?.value||"";catalogReady=true;
+          error(targetsError||(conversationMode.value==="existing"?(!selectedTarget()?t("targetUnavailable"):""):!agent.value?t("noAgents"):!cwd.value?t("noProjects"):""));syncTarget();await loadOptions(keep);
+        }catch(e){if(token===epoch&&modal&&editing){error(e.message);retry.hidden=false;}}
       }
+      async function loadTargets(){
+        const wanted=targetsTicket?targetConversation.value:row?.targetEntry||"",ticket=++targetsTicket;
+        targetsAvailable=false;syncTarget();let available=null,failure=null;
+        try{available=await api("/api/workflows/targets",undefined,target);}catch(e){failure=e;}
+        if(ticket!==targetsTicket||token!==epoch||!modal||!editing)return;
+        const previousError=targetsError;
+        // Old Hosts keep their original new-conversation editor. A failed
+        // target lookup never selects New or clears a saved binding for them.
+        targetsError=failure&&![404,501].includes(failure.status)?failure.message||t("refreshError"):"";
+        targetsAvailable=!failure;targets=available?.entries||[];
+        targetConversation.replaceChildren(option("",t("chooseConversation")),...targets.map(entry=>option(entry.key,`${entry.record.name||agentName(entry.record.agentId)} · ${baseName(entry.record.cwd)}`)));
+        if(wanted&&!targets.some(entry=>entry.key===wanted))targetConversation.append(option(wanted,t("targetUnavailable")));
+        targetConversation.value=wanted;
+        if(targetsError){error(targetsError);retry.hidden=false;}
+        else if(conversationMode.value==="existing"&&!selectedTarget())error(t("targetUnavailable"));
+        else if(errorText===previousError||errorText===t("targetUnavailable"))error("");
+        syncTarget();
+      }
+      async function loadCatalogs(){retry.hidden=true;await Promise.all([loadAgents(),loadTargets()]);}
       f.onsubmit=async event=>{
-        event.preventDefault();if(sending||!catalogReady||!agent.value||!cwd.value)return;
+        event.preventDefault();if(sending||!catalogReady)return;
+        const existing=conversationMode.value==="existing", chosen=selectedTarget();
+        if(existing?!targetsAvailable||!chosen:!agent.value||!cwd.value)return;
         if(!turns.checkValidity()||!tokens.checkValidity()||!approval.checkValidity())advanced.open=true;
         if(!f.reportValidity())return;
         const input={requestId:id,kind:"schedule",title:title.value.trim()||prompt.value.trim().split("\n")[0].slice(0,120),objective:prompt.value.trim(),cwd:cwd.value,agentId:agent.value,mode:mode.value,limits:{minutes:Number(minutes.value),turns:Number(turns.value),outputTokens:Number(tokens.value),approvalMinutes:Number(approval.value)}};
-        input.choice=model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null;input.permission=permission.value||null;
+        input.targetEntry=existing?chosen.key:null;
+        if(existing){input.agentId=chosen.record.agentId;input.cwd=chosen.record.cwd;}
+        input.choice=existing?(row?.choice||null):model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null;input.permission=existing?(row?.permission||null):permission.value||null;
         const date=new Date(at.value);input.schedule={kind:repeat.value,at:repeat.value==="once"&&Number.isFinite(date.getTime())?date.toISOString():null,time:time.value,timeZone:zone.value.trim(),minutes:Number(interval.value),days:dayInputs.filter(day=>day.checked).map(day=>Number(day.value))};
         if(row)Object.assign(input,{id:row.id,action:"edit",enabled:row.enabled});
         const invalid=validate(input);if(invalid){error(t(invalid.slice(invalid.indexOf(".")+1)));return;}
@@ -518,7 +570,7 @@
           shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();
         }catch(e){if(token===epoch){error(e.message);sending=false;pending=false;fields.forEach((field,i)=>field.disabled=disabled[i]);submit.textContent=t("save");ready();}}
       };
-      await loadAgents();
+      syncTarget();await loadCatalogs();
     }
     async function open(target=null) {
       close();const token=++epoch;const resolved=await context(target);if(token!==epoch)return;

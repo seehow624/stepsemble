@@ -164,3 +164,96 @@ test("a session's list row shows its latest Goal while it runs, pauses or needs 
   assert.equal(f.get().status,"blocked");assert.equal(f.host.goalState(entry),"attention");
   await f.host.action({id:f.get().id,action:"stop"});await wait(10);assert.equal(f.host.goalState(entry),null,"a finished Goal leaves no mark");
 });
+
+test("schedule target persists, edits in place, and only explicit null unbinds it", async t => {
+  const f=fixture(t),targetEntry=require("node:crypto").randomUUID();
+  const input={...def,kind:"schedule",targetEntry,schedule:{kind:"interval",minutes:15}};
+  const schedule=f.host.create(input);
+  await f.host.action({...input,targetEntry:undefined,id:schedule.id,action:"edit",title:"Edited"});
+  assert.equal(f.host.list().schedules.length,1);
+  assert.equal(f.host.list().schedules[0].targetEntry,targetEntry);
+  const reopened=createWorkflows({file:f.file,bridge:f.bridge,autoStart:false});t.after(()=>reopened.close());
+  assert.equal(reopened.list().schedules[0].targetEntry,targetEntry);
+  await f.host.action({...input,id:schedule.id,action:"edit",targetEntry:null});
+  assert.equal(f.host.list().schedules[0].targetEntry,null);
+  assert.equal(f.host.create({...input,targetEntry:undefined}).targetEntry,null);
+  assert.throws(()=>f.host.create({...input,targetEntry:"foreign-host:short-rpc-sid"}),/Invalid target/);
+});
+
+test("busy schedule targets wait without locking users, slots, elapsed time or retry budget", async t => {
+  const f=fixture(t),targetEntry=require("node:crypto").randomUUID();let busy=true;
+  f.bridge.prepare=async()=>!busy;
+  const s=f.host.create({...def,kind:"schedule",mode:"task",targetEntry,schedule:{kind:"interval",minutes:15}});
+  await f.host.action({id:s.id,action:"run"});await wait(10);
+  assert.equal(f.get().status,"queued");assert.equal(f.host.locked(targetEntry),false);
+  for(let i=0;i<5;i++){f.advance(3600000);await f.host.tick();}
+  assert.equal(f.get().elapsedMs,0);assert.equal(f.get().turns,0);assert.equal(f.get().retries,undefined);assert.equal(f.sends.length,0);
+  // The user's original /goal or follow-up gets priority over queued automation.
+  const inline=f.host.create({...def,entry:targetEntry});await wait(10);assert.equal(f.sends.length,1);
+  busy=false;await f.host.tick();assert.equal(f.sends.length,1);
+  await f.host.action({id:inline.id,action:"pause"});await wait(10);await f.host.tick();assert.equal(f.sends.length,1,"a paused Goal still defers automation");
+  await f.host.action({id:inline.id,action:"resume"});await wait(10);
+  assert.equal(f.sends.length,2);
+  const turn=f.pending.shift();turn.resolve({text:`[[STEPSEMBLE_GOAL:${turn.run.nonce}:complete]]`});await wait(10);
+  await f.host.tick();await wait(10);assert.equal(f.sends.length,3);assert.equal(f.get().id,inline.id);
+  const scheduled=f.host.list().runs.find(r=>r.scheduleId===s.id);
+  assert.equal(scheduled.entry,targetEntry);assert.equal(f.host.locked(targetEntry),true);
+  f.pending.shift().resolve({text:"Done"});await wait(10);
+  assert.equal(f.host.list().runs.find(r=>r.id===scheduled.id).status,"completed");
+});
+
+test("a native busy race requeues the same scheduled turn without retry or time charges", async t => {
+  const f=fixture(t),targetEntry=require("node:crypto").randomUUID();
+  f.bridge.prepare=async()=>true;
+  const send=f.bridge.turn;let raced=true;
+  f.bridge.turn=async(...args)=>{if(raced){raced=false;f.advance(9000);throw Object.assign(new Error("busy"),{code:"workflow_target_busy"});}return send(...args);};
+  const s=f.host.create({...def,kind:"schedule",mode:"task",targetEntry,schedule:{kind:"interval",minutes:15}});
+  await f.host.action({id:s.id,action:"run"});await wait(10);
+  assert.equal(f.get().status,"queued");assert.equal(f.get().turns,0);assert.equal(f.get().elapsedMs,0);assert.equal(f.get().retries,undefined);assert.equal(f.host.locked(targetEntry),false);
+  await f.host.tick();await wait(10);assert.equal(f.get().turns,1);assert.equal(f.sends.length,1);
+});
+
+test("missing scheduled targets fail before opening and never fall back to a new conversation", async t => {
+  const f=fixture(t);f.bridge.prepare=async()=>{throw new Error("target removed");};
+  const s=f.host.create({...def,kind:"schedule",targetEntry:require("node:crypto").randomUUID(),schedule:{kind:"interval",minutes:15}});
+  await f.host.action({id:s.id,action:"run"});await wait(10);
+  assert.equal(f.get().status,"failed");assert.match(f.get().error,/removed/);assert.equal(f.sends.length,0);
+});
+
+for (const action of ["stop", "pause"]) for (const outcome of [true, false, "reject"]) test(`target preparation cannot overwrite ${action} when it settles as ${outcome}`, async t => {
+  const f=fixture(t);let resolve,reject,entered,opens=0;
+  const pending=new Promise((yes,no)=>{resolve=yes;reject=no;}),preparing=new Promise(yes=>{entered=yes;});
+  f.bridge.prepare=()=>{entered();return pending;};
+  const open=f.bridge.open;f.bridge.open=async(...args)=>{opens++;return open(...args);};
+  const schedule=f.host.create({...def,kind:"schedule",mode:"task",targetEntry:require("node:crypto").randomUUID(),schedule:{kind:"interval",minutes:15}});
+  const run=await f.host.action({id:schedule.id,action:"run"});await preparing;
+  await f.host.action({id:run.id,action});const settled=f.get();f.advance(1000);
+  if(outcome==="reject")reject(new Error("stale prepare failure"));else resolve(outcome);
+  await wait(10);assert.deepEqual(f.get(),settled);assert.equal(opens,0);assert.equal(f.sends.length,0);
+});
+
+for (const outcome of [true, false, "reject"]) test(`pause and resume invalidate an older target preparation settling as ${outcome}`, async t => {
+  const f=fixture(t);let resolve,reject,entered,opens=0;
+  const pending=new Promise((yes,no)=>{resolve=yes;reject=no;}),preparing=new Promise(yes=>{entered=yes;});
+  f.bridge.prepare=()=>{entered();return pending;};
+  const open=f.bridge.open;f.bridge.open=async(...args)=>{opens++;return open(...args);};
+  const schedule=f.host.create({...def,kind:"schedule",mode:"task",targetEntry:require("node:crypto").randomUUID(),schedule:{kind:"interval",minutes:15}});
+  const run=await f.host.action({id:schedule.id,action:"run"});await preparing;
+  await f.host.action({id:run.id,action:"pause"});await f.host.action({id:run.id,action:"resume"});const queued=f.get();
+  if(outcome==="reject")reject(new Error("stale prepare failure"));else resolve(outcome);
+  await wait(10);assert.deepEqual(f.get(),queued);assert.equal(opens,0);assert.equal(f.sends.length,0);
+  f.bridge.prepare=async()=>true;await f.host.tick();await wait(10);assert.equal(opens,1);assert.equal(f.sends.length,1);
+  f.pending.shift().resolve({text:"Only the fresh preparation can send"});await wait(10);assert.equal(f.get().status,"completed");
+});
+
+test("two schedules targeting one conversation serialize while unrelated projects still dispatch",async t=>{
+  const f=fixture(t),targetEntry=require("node:crypto").randomUUID();f.bridge.prepare=async()=>true;
+  const input={...def,kind:"schedule",targetEntry,mode:"task",schedule:{kind:"interval",minutes:15}};
+  const first=f.host.create(input),second=f.host.create(input);
+  await f.host.action({id:first.id,action:"run"});await wait(10);
+  await f.host.action({id:second.id,action:"run"});await wait(10);
+  assert.equal(f.sends.length,1);assert.equal(f.host.list().runs[1].status,"queued");
+  f.host.create({...def,cwd:project("unrelated"),mode:"task"});await wait(10);assert.equal(f.sends.length,2);
+  f.pending.shift().resolve({text:"First done"});await wait(10);await f.host.tick();await wait(10);
+  assert.equal(f.sends.length,3);assert.equal(f.host.list().runs[1].status,"running");assert.equal(f.host.list().runs[1].entry,targetEntry);
+});

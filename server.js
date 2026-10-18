@@ -5052,7 +5052,7 @@ const historyHost = (() => {
 })();
 
 // Shared launch path for browser sessions and Host-owned Goals/schedules.
-async function openAgentTask(body, { signal } = {}) {
+async function openAgentTask(body, { signal, resumeEntry } = {}) {
   workspaceRegistry.list();
   await ensureOpenCodeNativeProbe();
   await ensureCodexNativeProbe();
@@ -5077,9 +5077,17 @@ async function openAgentTask(body, { signal } = {}) {
         // A new session without a typed name is named after its first
         // message (POST /api/workspace/rename with auto).
         if (origin === "created") value.named = !!workspaceSessionName(body.name);
-        value.workspaceEntry = workspaceRegistry.remember(value, origin);
+        if (resumeEntry) {
+          const prior = workspaceRegistry.get(resumeEntry);
+          if (!prior || prior.record.agentId !== value.agentId
+            || (value.agentId === "pi" ? prior.record.file !== value.file
+              : (prior.record.nativeThreadId || prior.record.nativeSessionId) !== (value.nativeThreadId || value.nativeSessionId))) {
+            throw new Error("The resumed conversation identity changed");
+          }
+          value.workspaceEntry = workspaceRegistry.update(resumeEntry, { ...value, name: prior.record.name });
+        } else value.workspaceEntry = workspaceRegistry.remember(value, origin);
       }
-      catch { value.workspaceError = "Could not save workspace membership; the agent was started. Do not retry the launch."; }
+      catch (error) { value.workspaceError = resumeEntry ? `Could not safely resume the target conversation: ${error.message}` : "Could not save workspace membership; the agent was started. Do not retry the launch."; }
     }
     return value;
   };
@@ -5380,10 +5388,15 @@ async function workflowBusy(record) {
   const { agent, id } = workflowIdentity(record);
   if (agent === "pi") return rpcHasWork(rpcSessions.get(id) || { state: {} });
   if (agent === "claude-code") { const session = resolveClaudeStructuredSession(id)?.session; return session ? !!publicClaudeStructuredTask(id, session).isRunning : false; }
-  if (agent === "codex") return !!codexNative.nativeState(id)?.turnId || !!(await codexPersistedObserver.observe(id).catch(() => null))?.working;
-  if (agent === "opencode") return (await openCodeNative.sessionStatus({ directory: record.cwd }))[id]?.type === "busy";
+  if (agent === "codex") return !!codexNative.nativeState(id)?.turnId || codexNative.pendingApprovals(id).length > 0 || !!(await codexPersistedObserver.observe(id).catch(() => null))?.working;
+  if (agent === "opencode") {
+    const [statuses, approvals] = await Promise.all([openCodeNative.sessionStatus({ directory: record.cwd }), openCodeNative.permissions({ sessionId: id, directory: record.cwd })]);
+    return ["busy", "retry", "waiting", "reconnecting"].includes(statuses[id]?.type) || approvals.permissions?.length > 0;
+  }
   const adapter = agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent);
-  return adapter?.sessions().find(row => row.id === id)?.status === "running";
+  // Partial plan completion can display idle while a native prompt still owns it.
+  return !!(adapter?.sessionWorking(id) || adapter?.pendingPermissions().some(row => (row.sessionId || row.params?.sessionId) === id)
+    || adapter?.sessions().find(row => row.id === id)?.status === "running");
 }
 // A pinned model and permission mode apply to the new conversation a Goal
 // opens, before its first prompt; a conversation it continues keeps its own.
@@ -5445,6 +5458,53 @@ const workflowOptions = require("./server/workflow-options").createWorkflowOptio
 // Running Goals and scheduled tasks keep the computer from idling to sleep.
 const workflowSleepGuard = require("./server/sleep-guard").createSleepGuard({ onError: error => console.warn("[stepsemble] Keep awake:", error.message) });
 let workflowRunsActive = 0;
+const workflowOwnedTurns = new Set(), workflowDispatches = new Map();
+function workflowTarget(key) {
+  const entry = workspaceRegistry.get(key), r = entry?.record;
+  if (!r || !require("./server/workflows").AGENTS.includes(r.agentId) || !workflowNative(r)) throw new Error("The target conversation is missing or does not support schedules");
+  nativeAgentDirectory(r.cwd, r.agentId);
+  if (r.nativeAcp && !acpAdapterForAgent(r.agentId) || r.nativeGrokAcp && !grokAcp
+    || r.nativeClaudeStructured && !(claudeStructuredEnabled && claudeStructuredCommand)) throw new Error("The target native adapter is unavailable");
+  if (r.agentId === "pi") {
+    const live = rpcSessions.get(r.sid);
+    if (r.file ? !safeSessionPath(r.file) : !live || live.exited) throw new Error("The target Pi conversation file is missing");
+  } else if (!(r.nativeThreadId || r.nativeSessionId)) throw new Error("The target has no native conversation to resume");
+  if (r.agentId === "claude-code") {
+    const live = resolveClaudeStructuredSession(workflowIdentity(r).id)?.session;
+    if (!live || live.status().closed) {
+      const id = r.nativeSessionId;
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(id)) throw new Error("Invalid native conversation identity");
+      const root = process.env.CLAUDE_CONFIG_DIR && path.isAbsolute(process.env.CLAUDE_CONFIG_DIR) ? process.env.CLAUDE_CONFIG_DIR : path.join(APP_HOME, ".claude");
+      const file = path.join(root, "projects", r.cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
+      if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new Error("The target Claude conversation file is missing");
+    }
+  }
+  return entry;
+}
+async function resolveWorkflowTarget(key) {
+  const entry = workflowTarget(key), r = entry.record;
+  if (r.agentId === "pi" && r.file) {
+    const file = safeSessionPath(r.file), stat = await fs.promises.stat(file), cached = scanCache.get(r.file);
+    const saved = cached?.mtimeMs === stat.mtimeMs && cached?.size === stat.size ? cached.info : await parseSessionFile(file);
+    if (!saved?.cwd || nativeAgentDirectory(saved.cwd, "pi") !== nativeAgentDirectory(r.cwd, "pi")) throw new Error("The target Pi conversation project does not match");
+  }
+  if (r.agentId === "opencode") {
+    const session = await openCodeNative.getSession(r.nativeSessionId, { directory: r.cwd });
+    if (session?.id !== r.nativeSessionId || (session.directory || session.path) !== r.cwd) throw new Error("The target OpenCode conversation is missing or changed");
+  }
+  if (r.agentId === "codex") {
+    await ensureCodexNativeProbe();
+    const result = await codexNative.readThread(r.nativeThreadId || r.nativeSessionId, { includeTurns: false });
+    if (!result?.thread || result.thread.id !== (r.nativeThreadId || r.nativeSessionId) || result.thread.cwd !== r.cwd) throw new Error("The target Codex conversation is missing or changed");
+  }
+  return entry;
+}
+function workflowTargetBusy() { return Object.assign(new Error("The target conversation is busy"), { code: "workflow_target_busy" }); }
+async function workflowTargetReady(run) {
+  const entry = await resolveWorkflowTarget(run.targetEntry);
+  if (entry.record.agentId !== run.agentId || entry.record.cwd !== run.cwd) throw new Error("The target conversation's agent or project changed");
+  return !compactions.locked(entry.key) && !workflows.targetBusy(entry.key, run.id) && !await workflowBusy(entry.record);
+}
 const workflows = require("./server/workflows").createWorkflows({
   file: path.join(CONFIG_DIR, "workflows.json"),
   onFinished: run => hostNotifications.finished(run),
@@ -5459,7 +5519,9 @@ const workflows = require("./server/workflows").createWorkflows({
       const { agent, id } = workflowIdentity(run.record), meter = hostRates.get(agent, id)?.meter;
       return meter && meter.startedAt >= run.turnStartedAt - 100 ? Math.max(meter.reported || 0, meter.estimated || 0) : 0;
     },
+    prepare: workflowTargetReady,
     async open(run, signal) {
+      if (run.targetEntry && !await workflowTargetReady(run)) throw workflowTargetBusy();
       if (run.entry && compactions.locked(run.entry)) throw new Error("compaction_busy");
       if (shutdownState || harnessUpdateService.isRunning()) throw new Error("Host is updating or shutting down; try again later");
       nativeAgentDirectory(run.cwd, run.agentId);
@@ -5467,7 +5529,7 @@ const workflows = require("./server/workflows").createWorkflows({
       if (run.entry && !existing) throw new Error("The Goal's conversation was removed");
       if (existing) {
         if (!workflowNative(existing.record)) throw new Error("This conversation does not support Goals");
-        if (await workflowBusy(existing.record)) throw new Error("This conversation is busy; wait for it to finish");
+        if (await workflowBusy(existing.record)) { if (run.targetEntry) throw workflowTargetBusy(); throw new Error("This conversation is busy; wait for it to finish"); }
         const r = existing.record, { agent, id } = workflowIdentity(r);
         if (agent === "pi" && rpcSessions.has(id) && !rpcSessions.get(id).exited
           || agent === "claude-code" && resolveClaudeStructuredSession(id) && !resolveClaudeStructuredSession(id).session.status().closed
@@ -5476,8 +5538,9 @@ const workflows = require("./server/workflows").createWorkflows({
       }
       const r = existing?.record;
       if (r?.agentId === "pi" && !r.file) throw new Error("Pi has no saved conversation to resume");
-      const task = await openAgentTask({ agentId: run.agentId, cwd: run.cwd, name: run.title, workflow: true,
-        ...(r ? r.agentId === "pi" ? { file: r.file } : { resumeSessionId: r.nativeThreadId || r.nativeSessionId } : run.choice ? { choice: run.choice } : {}) }, { signal });
+      if (r && r.agentId !== "pi" && !(r.nativeThreadId || r.nativeSessionId)) throw new Error("No native conversation to resume");
+      const task = await openAgentTask({ agentId: run.agentId, cwd: run.cwd, name: r ? r.name : run.title, workflow: true,
+        ...(r ? r.agentId === "pi" ? { file: r.file } : { resumeSessionId: r.nativeThreadId || r.nativeSessionId } : run.choice ? { choice: run.choice } : {}) }, { signal, resumeEntry: r ? existing.key : null });
       if (!task) throw new Error("Task launch was cancelled");
       if (!task.workspaceEntry) throw new Error(task.workspaceError || "Could not save the task's conversation");
       if (!workflowNative(task)) throw new Error("Native background execution is unavailable for this agent");
@@ -5487,25 +5550,53 @@ const workflows = require("./server/workflows").createWorkflows({
     async turn(run, prompt, signal, activity) {
       const r = run.record, { agent, id } = workflowIdentity(r);
       if (signal.aborted) return { error: "Task paused" };
-      if (await workflowBusy(r)) throw new Error("Conversation is busy; Goal continuation was stopped");
-      if (signal.aborted) return { error: "Task paused" };
+      // Native preparation can yield. Check again at the actual send boundary,
+      // before observing or owning work that may belong to someone else.
+      if (agent === "codex") {
+        await ensureCodexNativeProbe();
+        if (!codexNative.nativeState(id).threadId) {
+          const resumed = await codexNative.resumeThread({ threadId: id });
+          if (resumed?.kind === "reject") throw new Error(resumed.error || resumed.code);
+        }
+      }
+      const baseline = agent === "opencode" ? await openCodeNative.messages(id, { directory: r.cwd }) : null;
+      const readyToSend = async () => {
+        if (run.targetEntry) {
+          if (!await workflowTargetReady(run)) throw workflowTargetBusy();
+          const current = workflowTarget(run.targetEntry), identity = workflowIdentity(current.record);
+          if (identity.agent !== agent || identity.id !== id || current.record.cwd !== r.cwd) throw new Error("The target conversation changed before sending");
+          if (compactions.locked(current.key) || workflows.targetBusy(current.key, run.id)) throw workflowTargetBusy();
+        } else if (await workflowBusy(r)) throw new Error("Conversation is busy; Goal continuation was stopped");
+        if (signal.aborted) throw new Error("Task paused");
+      };
+      await readyToSend();
       const observed = workflowEvents.observe(agent, id, activity), at = Date.now();
-      const check = value => { if (!value || value.kind === "reject") throw new Error(value?.error || value?.code || "Agent rejected the prompt"); return value; };
+      let sendError = null;
+      const check = value => {
+        if (value?.kind === "reject" && run.targetEntry && /(?:^|_)busy(?:_|$)|turn_already_running|^(?:acp|grok)_prompt_in_flight$/.test(String(value.code || ""))) throw workflowTargetBusy();
+        if (!value || value.kind === "reject") throw new Error(value?.error || value?.code || "Agent rejected the prompt"); return value;
+      };
+      // A Stop arriving during native admission waits for acknowledgement;
+      // a refused send must never interrupt someone else's native turn.
+      const dispatch = async effect => {
+        let settled; workflowDispatches.set(run.id, new Promise(resolve => { settled = resolve; }));
+        try { check(await effect()); workflowOwnedTurns.add(run.id); }
+        catch (error) {
+          if (run.targetEntry && error.code === "upstream_http_409" && await workflowBusy(r)) throw workflowTargetBusy();
+          throw error;
+        } finally { workflowDispatches.delete(run.id); settled(); }
+      };
       const send = async () => {
-        if (agent === "pi") { if (!rpcWrite(id, { type: "prompt", message: prompt })) throw new Error("Pi is unavailable"); }
-        else if (agent === "claude-code") check(await resolveClaudeStructuredSession(id).session.send(prompt));
+        if (agent === "pi") { if (!rpcWrite(id, { type: "prompt", message: prompt })) throw new Error("Pi is unavailable"); workflowOwnedTurns.add(run.id); }
+        else if (agent === "claude-code") await dispatch(() => resolveClaudeStructuredSession(id).session.send(prompt));
         else if (agent === "codex") {
-          await ensureCodexNativeProbe();
-          if (!codexNative.nativeState(id).threadId) check(await codexNative.resumeThread({ threadId: id }));
-          if (signal.aborted) { observed.finish("Task paused"); return; }
-          check(await codexNative.startTurn([{ type: "text", text: prompt }], { cwd: r.cwd, ...codexTurnPermissions(agentModes.get("codex", id)) }, id));
+          await dispatch(() => codexNative.startTurn([{ type: "text", text: prompt }], { cwd: r.cwd, ...codexTurnPermissions(agentModes.get("codex", id)) }, id));
         } else if (agent === "opencode") {
-          const baseline = await openCodeNative.messages(id, { directory: r.cwd });
           const known = new Set(baseline.messages.map(row => (row.info || row).id));
           if (signal.aborted) { observed.finish("Task paused"); return; }
           const choice = choiceForSession("opencode", id)?.model, slash = choice?.indexOf("/") ?? -1;
           const model = slash > 0 ? { providerID: choice.slice(0,slash), modelID: choice.slice(slash+1) } : null;
-          await hostRates.sendOpenCode(openCodeNative, id, prompt, { directory: r.cwd, model, agent: agentModes.get("opencode", id) || undefined });
+          await dispatch(() => hostRates.sendOpenCode(openCodeNative, id, prompt, { directory: r.cwd, model, agent: agentModes.get("opencode", id) || undefined }, readyToSend));
           while (!observed.ended) {
             const [page, statuses, permissions] = await Promise.all([openCodeNative.messages(id, { directory: r.cwd }), openCodeNative.sessionStatus({ directory: r.cwd }), openCodeNative.permissions({ sessionId: id, directory: r.cwd })]);
             const replies = page.messages.filter(row => (row.info || row).role === "assistant" && !known.has((row.info || row).id));
@@ -5519,17 +5610,22 @@ const workflows = require("./server/workflows").createWorkflows({
           }
         } else {
           const adapter = agent === "grok-build" ? grokAcp : acpAdapterForAgent(agent);
-          check(await adapter.prompt(id, prompt)); observed.finish();
+          // ACP admits on the already-loaded local adapter synchronously;
+          // its prompt promise resolves only when the native turn finishes.
+          workflowOwnedTurns.add(run.id); check(await adapter.prompt(id, prompt)); observed.finish();
         }
       };
-      void send().catch(error => observed.finish(error.message));
+      void send().catch(error => { sendError = error; observed.finish(error.message); });
       const result = await observed.promise;
+      workflowOwnedTurns.delete(run.id);
+      if (sendError?.code === "workflow_target_busy") throw sendError;
       const rates = hostRates.read(run.entry).rates || [];
       result.outputTokens = rates.filter(row => row.startedAt >= at - 100).reduce((sum, row) => sum + row.tokens, 0);
       return result;
     },
     async stop(run) {
-      if (!run.record) return;
+      await workflowDispatches.get(run.id);
+      if (!run.record || !workflowOwnedTurns.has(run.id)) return;
       const r = run.record, { agent, id } = workflowIdentity(r);
       let result;
       if (agent === "pi") { if (!rpcWrite(id, { type: "abort" })) throw new Error("Pi is unavailable"); }
@@ -6048,6 +6144,14 @@ const server = http.createServer(async (req, res) => {
         res.once("finish", release); res.once("close", release);
       }
 
+      if (p === "/api/workflows/targets" && req.method === "GET") {
+        const entries = [];
+        for (const row of workspaceRegistry.list().entries) {
+          try { const entry = await resolveWorkflowTarget(row.key); entries.push({ key: entry.key, record: { agentId: entry.record.agentId, cwd: entry.record.cwd, name: entry.record.name } }); }
+          catch { /* Missing or unsupported native conversations are not offered. */ }
+        }
+        sendJSON(res, 200, { entries }); return;
+      }
       if (p === "/api/workflows/options" && req.method === "GET") {
         const agentId = String(url.searchParams.get("agentId") || "");
         if (!require("./server/workflows").AGENTS.includes(agentId)) { sendJSON(res, 400, { error: "invalid_agent" }); return; }
@@ -6060,6 +6164,16 @@ const server = http.createServer(async (req, res) => {
         const body = await readJSON(req, 64 * 1024);
         try {
           if (!body.action || body.action === "edit") {
+            if (body.action === "edit" && body.targetEntry === undefined) {
+              body.targetEntry = workflows.list().schedules.find(row => row.id === body.id)?.targetEntry ?? null;
+            }
+            if (body.targetEntry !== undefined && body.targetEntry !== null) {
+              if (body.kind !== "schedule" && body.action !== "edit") throw new Error("Only schedules can bind a target conversation");
+              const entry = await resolveWorkflowTarget(body.targetEntry);
+              if (body.agentId !== undefined && body.agentId !== entry.record.agentId || body.cwd !== undefined && body.cwd !== entry.record.cwd) throw new Error("The target conversation's agent or project does not match");
+              body.agentId = entry.record.agentId; body.cwd = entry.record.cwd;
+            }
+            if (body.entry && (body.kind === "schedule" || body.action === "edit" || body.targetEntry)) throw new Error("Use targetEntry to bind a schedule");
             if (body.entry) {
               const entry = workspaceRegistry.get(String(body.entry));
               if (!entry || !workflowNative(entry.record)) throw Object.assign(new Error("This conversation does not support Goals"), { statusCode: 400 });
