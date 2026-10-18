@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.9.20
+
+- Send messages to a long Codex conversation again. After a resume Codex reports the thread's token usage under an earlier turn, for a thread it compacted the first one, and Stepsemble closed the connection when that turn was older than the 32 it keeps. Since idle release resumes the thread for every message, a long compacted conversation failed on each one with `native_usage_mismatch` and then `native_not_ready`. Usage is matched to its thread only.
+- Let go of a Codex app-server whose connection failed, and start a fresh one with the next message. It was kept and reported as working, so the conversation stayed unusable and Host updates waited for it; a write it sent stays recorded as uncertain.
+- Count only an agent's task as a Claude Code subagent. Claude Code reports a task for every Bash command, foreground ones too, and for monitors and workflows; each was listed as a subagent with no model or thinking mode, such as "29 subagents finished" for a turn of commands.
+- Show a Goal as a small chip beside the subagent bubble, with its state and time, such as "Goal · Working · 12:34" or "Goal · Completed · 1:02:03". Click it to open the Goal's progress and controls, and again to close them; the `/goal` draft stays above the message box.
+- Let a schedule continue an existing conversation, keeping its agent, project, model, reasoning, permission mode, name and history, instead of opening a new conversation for each run. A bound run waits for work, approvals, another Goal or a compaction in that conversation to settle, and fails rather than opening a new conversation when its target is gone.
+- Push a Bot's answer to a routine to the phone when it arrives while no browser is connected, titled with the Bot and the routine.
+
 ## 3.9.19
 
 - Deliver Web Push notifications to iPhone, iPad and Safari. Apple's push service refused every notification with 403 BadJwtToken because the VAPID contact was a localhost address; it is now the public repository URL. Send test notification waits for the push service's answer and reports a refusal instead of saying it was sent, and the Host log records a refusal once with the push service's host name. A notice for the conversation on screen is shown and closed at once, because Safari takes back a subscription whose pushes show nothing.
