@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.24
+
+- Open a Bot's pictures and videos over the conversation instead of at their own address. In an app added to the iPhone home screen that address opened in the app's own window, with no browser bar and no way back, so the only way out was to close the app. The viewer closes with Close, Escape, a tap beside the picture or a swipe down, and gives focus back to what opened it; pictures you sent open there too, and a browser keeps "Open in a new tab".
+- Play a Bot's video full screen from the viewer's Full screen button and come back to the viewer. An iPhone opens its own player, which turns with the phone; elsewhere the video itself goes full screen. Workspace panes allow full screen, so a video in a Bot tab can use it too.
+- In an app on the home screen, open a Bot's PDFs and text files in the viewer as well, and save files through Share (Save Image, Save to Files) rather than a download button, since iOS opens a download inside the app too.
+
 ## 3.9.23
 
 - Keep a conversation's first message clear of the Changes and More buttons on a desktop, and never start a phone's subtitle with a lone "·" when the computer's name cannot fit beside the project.
