@@ -577,9 +577,57 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
   }
 }
 
-// The pane's header controls (Changes, More) float over its top-right corner
-// on a desktop; the first message, usually the person's at the right, starts
-// below them. A phone keeps its title row in the flow.
+// A conversation's summary opens from the pane's title bar on a desktop and
+// from the title row on a phone: its goal, subagents, the files it wrote and
+// what it read. A subagent in it opens its details.
+export async function runSessionSummaryBrowserCases(browser, { screenshots } = {}) {
+  for (const viewport of [{ width: 1440, height: 900, mobile: false }, { width: 393, height: 852, mobile: true }]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      await context.route("**/api/workflows?entry=**", route => {
+        const entry = new URL(route.request().url()).searchParams.get("entry");
+        const history = new URL(route.request().url()).searchParams.get("history") === "1";
+        const runs = [{ id: "summary-goal", entry, objective: "Tidy the release notes", status: "completed", elapsedMs: 65_000, turns: 2, outputTokens: 10, dismissedAt: 5 }];
+        return route.fulfill({ json: { runs: history ? runs : [] } });
+      });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const codex = await openFromSidebar(page, "Codex composer fixture");
+      await codex.locator("#native-run-toggle").waitFor();
+      await codex.waitForFunction(() => typeof subagentTracker !== "undefined" && document.querySelectorAll("#messages .tool-card").length > 0);
+      await codex.evaluate(() => subagentTracker.codex([{ type: "collabAgentToolCall", id: "summary-spawn", tool: "spawnAgent", receiverThreadIds: ["summary-child"],
+        prompt: "Check the links", agentsStates: { "summary-child": { status: "completed", message: "All links work" } } }], "summary-turn"));
+      if (viewport.mobile) await codex.locator("#btn-summary").click();
+      else await page.locator(".workspace-summary-button").click();
+      const panel = codex.locator(".session-summary");
+      await panel.waitFor();
+      await panel.getByText("Tidy the release notes", { exact: true }).waitFor();
+      const sections = await panel.locator(".session-summary-section h3").allTextContents();
+      assert.deepEqual(sections, ["Goals", "Subagents", "Outputs", "Sources"]);
+      assert.equal(await panel.getByText("Keep the synthetic Codex task moving until browser parity is verified", { exact: true }).count(), 1, "Codex's own goal leads");
+      assert.ok(await panel.locator(".session-summary-section").nth(2).locator(".session-summary-path").count() >= 1, "the file it edited is listed");
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `summary-${viewport.width}.png`) }); }
+      await panel.locator(".session-summary-item", { hasText: "Subagent 1" }).click();
+      await codex.locator(".subagent-drawer:not([hidden])").waitFor();
+      assert.equal(await panel.isVisible(), false, "the subagent's details replace the summary");
+      await codex.locator(".subagent-drawer .subagent-close").click();
+      if (viewport.mobile) await codex.locator("#btn-summary").click(); else await page.locator(".workspace-summary-button").click();
+      await panel.waitFor();
+      await codex.locator("#input").click();
+      await panel.waitFor({ state: "hidden" });
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Session summary", width: viewport.width, result: "passed" }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
+// On a desktop the pane's title bar in the Workspace holds the conversation's
+// controls, so none float over the first message; a phone keeps its title row
+// in the flow, clear of it too.
 export async function runPaneHeaderBrowserCases(browser, { screenshots } = {}) {
   for (const viewport of [{ width: 1280, height: 860, mobile: false }, { width: 393, height: 852, mobile: true }, { width: 320, height: 640, mobile: true }]) {
     const preview = await createNativeComposerPreview();
@@ -600,6 +648,7 @@ export async function runPaneHeaderBrowserCases(browser, { screenshots } = {}) {
           return { first: box(first), controls: [...document.querySelectorAll("#btn-changes, #btn-chat-menu")].filter(node => node.offsetParent).map(box) };
         });
         const overlap = boxes.controls.filter(c => c.left < boxes.first.right && c.right > boxes.first.left && c.top < boxes.first.bottom && c.bottom > boxes.first.top);
+        if (!viewport.mobile) assert.deepEqual(boxes.controls, [], "a desktop pane shows no controls of its own");
         // A phone's title row: where the session runs, never a stray separator.
         if (viewport.mobile) {
           const place = await ui.evaluate(() => { const sub = document.getElementById("chat-sub"); return { text: sub.innerText.trim(), seps: [...sub.querySelectorAll(".chat-sub-sep")].filter(node => node.offsetWidth > 0).length, machines: [...sub.querySelectorAll(".chat-sub-machine")].filter(node => node.offsetWidth > 0).length }; });
@@ -899,6 +948,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runHistoryEmptyBrowserCases(browser, options);
   await runConversationColumnBrowserCases(browser, options);
   await runConversationDockBrowserCases(browser, options);
+  await runSessionSummaryBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
@@ -1145,27 +1195,27 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       });
       assert.equal(out.acpRate.plain, true, "a reply with nothing to fold keeps a plain line: " + JSON.stringify(out.acpRate));
 
-      stage = "Tabs: one width, the agent's logo, no title row";
+      stage = "Title bar: one session per pane with its agent's logo; no title row in the pane";
       if (viewport.mobile) {
         const head = await ui.evaluate(() => ({ title: getComputedStyle(document.querySelector("#chat-head-info")).display !== "none",
           back: getComputedStyle(document.querySelector("#btn-back")).display !== "none" }));
         assert.deepEqual(head, { title: true, back: true }, "a phone keeps the title row with Back");
         out.tabs = "phone title row";
       } else {
-        const tabs = await page.evaluate(() => [...document.querySelectorAll(".workspace-tab")].map(tab => ({
-          width: Math.round(tab.getBoundingClientRect().width), agent: tab.querySelector(".agent-logo")?.dataset.agentId || null })));
-        assert.deepEqual(tabs.map(tab => tab.agent), ["pi", "pi", "claude-code", "kilo"], JSON.stringify(tabs));
-        assert.equal(new Set(tabs.map(tab => tab.width)).size, 1, "every tab has one width: " + JSON.stringify(tabs));
+        // Each session opened from the list took the main pane's place.
+        const bars = await page.evaluate(() => [...document.querySelectorAll(".workspace-tab")].map(tab => ({
+          agent: tab.querySelector(".agent-logo")?.dataset.agentId || null, title: tab.querySelector(".workspace-tab-title")?.textContent || "" })));
+        assert.deepEqual(bars, [{ agent: "kilo", title: "UX ACP" }], JSON.stringify(bars));
+        assert.equal(await page.locator(".workspace-summary-button").isVisible(), true, "the title bar holds the summary");
         const pane = await ui.evaluate(() => {
           const shown = selector => { const node = document.querySelector(selector); return !!node && getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0; };
-          const menu = document.querySelector("#btn-chat-menu").getBoundingClientRect();
           return { title: shown("#chat-head-info"), path: shown("#chat-sub"), timer: shown("#run-timer"), menu: shown("#btn-chat-menu"),
-            corner: menu.top < 60 && innerWidth - menu.right < 40, messagesTop: Math.round(document.querySelector("#messages").getBoundingClientRect().top) };
+            messagesTop: Math.round(document.querySelector("#messages").getBoundingClientRect().top) };
         });
-        assert.deepEqual({ title: pane.title, path: pane.path, timer: pane.timer, menu: pane.menu, corner: pane.corner },
-          { title: false, path: false, timer: false, menu: true, corner: true }, JSON.stringify(pane));
+        assert.deepEqual({ title: pane.title, path: pane.path, timer: pane.timer, menu: pane.menu },
+          { title: false, path: false, timer: false, menu: false }, JSON.stringify(pane));
         assert(pane.messagesTop <= 2, "the conversation starts at the top of the pane: " + pane.messagesTop);
-        out.tabs = tabs[0].width + "px with logos";
+        out.tabs = "title bar";
 
         stage = "Refresh reads the allowances again";
         const asked = page.waitForRequest(request => { const url = new URL(request.url()); return url.pathname === "/api/workspace/usage" && url.searchParams.get("fresh") === "1"; });

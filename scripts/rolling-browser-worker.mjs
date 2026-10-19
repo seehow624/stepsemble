@@ -21,7 +21,8 @@ import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs
 import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.mjs";
 import { runScrollbarBrowserCases } from "./scrollbar-browser-cases.mjs";
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
-import { runWorkspaceTabsBrowserCases } from "./workspace-tabs-browser-cases.mjs";
+import { runWorkspacePanesBrowserCases } from "./workspace-panes-browser-cases.mjs";
+import { runWorkspaceMachinesBrowserCases } from "./workspace-machines-browser-cases.mjs";
 import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
@@ -192,7 +193,8 @@ try {
     await runScrollbarBrowserCases(browser);
     await runProjectFilesBrowserCases(browser);
     await runWorkspaceReorderBrowserCases(browser);
-    await runWorkspaceTabsBrowserCases(browser);
+    await runWorkspacePanesBrowserCases(browser);
+    await runWorkspaceMachinesBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
     await runAssistantBrowserCases(browser);

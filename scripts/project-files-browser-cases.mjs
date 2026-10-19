@@ -105,7 +105,10 @@ export async function runProjectFilesBrowserCases(browser, { screenshots } = {})
       release(); await settled; await context.unroute("**/api/project-file?*", delayed);
       assert.equal(await pane.getByText("STALE_FILE_RESPONSE", { exact: false }).count(), 0);
       stage = "live worktree separate from recorded turn";
-      await pane.locator("#changes-close").click(); await pane.locator("#btn-changes").click();
+      await pane.locator("#changes-close").click();
+      // A phone's title row keeps Changes; a desktop pane's title bar offers it in its menu.
+      if (await pane.locator("#btn-changes").isVisible()) await pane.locator("#btn-changes").click();
+      else { await page.locator(".workspace-pane-menu").click(); await page.getByRole("menuitem", { name: "View changes" }).click(); }
       await pane.getByText("No local changes", { exact: true }).waitFor();
       await fs.appendFile(path.join(preview.root, "src/workspace.js"), "// Live worktree change\n");
       await fs.appendFile(path.join(preview.root, "README.md"), "\nNot selected for commit.\n");

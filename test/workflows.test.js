@@ -282,3 +282,15 @@ test("a Goal that ended or waits can be removed from its conversation; one under
   const next=host.list("entry-1").runs[0];assert.equal(next.status,"completed");
   await host.action({id:next.id,action:"dismiss"});assert.deepEqual(host.list("entry-1").runs,[]);
 });
+
+test("a conversation's Goal history lists its runs newest first, removed ones too, without touching the latest-Goal answer",async t=>{
+  const f=fixture(t);
+  f.host.create({...def,entry:"entry-h"});await wait(10);
+  const first=f.host.list("entry-h").runs[0];await f.host.action({id:first.id,action:"pause"});await wait(10);await f.host.action({id:first.id,action:"dismiss"});
+  f.host.create({...def,entry:"entry-h",objective:"Second goal"});await wait(10);
+  const history=f.host.list("entry-h",{history:true}).runs;
+  assert.deepEqual(history.map(run=>run.objective),["Second goal",def.objective]);
+  assert.ok(history[1].dismissedAt);
+  assert.equal(f.host.list("entry-h").runs.length,1);assert.equal(f.host.list("entry-h").runs[0].objective,"Second goal");
+  assert.deepEqual(f.host.list("other",{history:true}).runs,[]);
+});

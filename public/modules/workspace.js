@@ -89,12 +89,10 @@
   const mobile = () => matchMedia("(max-width:760px)").matches;
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
   function button(text, action, label = text, className = "btn") { const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
-  // Workspace | Assistant. On a desktop the switch changes the sidebar in
-  // place and a Bot opens as a tab beside the sessions; a phone keeps the
-  // assistant page of its own.
-  const SIDEBAR_KEY = "stepsemble.workspace.sidebar.v1";
-  let sidebarMode = "workspace", preferredSidebar = "workspace";
-  try { if (localStorage.getItem(SIDEBAR_KEY) === "assistant") preferredSidebar = "assistant"; } catch {}
+  // The Bots and groups share the sidebar with the sessions, below Recent; a
+  // Bot opens in a pane as a session does, on a phone as well. The list is
+  // redrawn around their block, which keeps its own state.
+  const botsBlock = $("workspace-assistant");
   const assistantTab = (host, route) => WAM.findTab(allRefs(), host, route) || assistantUI.ref(host, route);
   assistantUI = window.StepsembleWorkspaceAssistant.create({
     locale: () => prefs.locale, wt: t,
@@ -105,29 +103,15 @@
     menu: (anchor, actions) => openPaneMenu(anchor, actions),
     newWindow: (target, route) => newWindow(assistantTab(target, route)),
     onInstalled(installed) {
-      $("workspace-mode").hidden = !installed;
-      if (!installed && sidebarMode === "assistant") setSidebarMode("workspace", false);
+      $("workspace-routines").hidden = !installed; botsBlock.hidden = !installed;
+      if (installed && !assistantUI.active) { assistantUI.setQuery($("workspace-search").value.trim()); assistantUI.activate(botsBlock, { inline: true }); }
+      if (!installed && assistantUI.active) assistantUI.deactivate();
+      renderSidebar();
     },
   });
   function renderMode() {
-    const nav = $("workspace-mode"), assistant = sidebarMode === "assistant";
-    const item = (key, href, mode, current) => {
-      const element = node(current ? "span" : "a", t(key)); element.dataset.workspaceI18n = key;
-      if (current) element.setAttribute("aria-current", "page");
-      else { element.href = href; element.onclick = event => { if (mobile()) return; event.preventDefault(); setSidebarMode(mode); }; }
-      return element;
-    };
-    nav.replaceChildren(item("workspace", "/workspace.html", "workspace", !assistant), item("assistant", "/assistant.html", "assistant", assistant));
     const routines = $("workspace-routines"), label = assistantUI.text("allRoutines");
     routines.title = label; routines.setAttribute("aria-label", label);
-  }
-  function setSidebarMode(mode, remember = true) {
-    if (remember) { preferredSidebar = mode; try { localStorage.setItem(SIDEBAR_KEY, mode); } catch {} }
-    sidebarMode = mode === "assistant" && !mobile() ? "assistant" : "workspace";
-    document.body.dataset.sidebar = sidebarMode;
-    renderMode();
-    if (sidebarMode === "assistant") assistantUI.activate($("workspace-assistant")); else assistantUI.deactivate();
-    reportDragRegions();
   }
   function icon(path, className = "") {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -222,6 +206,8 @@
   }
   // A session's tab starts with its agent's logo; a Bot tab with the Bot.
   const tabIcon = ref => ref.assistant ? assistantUI.tabIcon(ref) : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
+  // A title bar names the computer too once there is more than one.
+  const tabLabel = ref => [tabIcon(ref), node("span", ref.title, "workspace-tab-title"), ...(machines.length > 1 ? [node("span", hostName(ref.host), "workspace-tab-host")] : [])];
   function updateTabMetadata(ref) {
     const current = allRefs().find(tab => L.identity(tab) === L.identity(ref));
     if (!current) return;
@@ -229,7 +215,7 @@
       if (tab.dataset.identity !== L.identity(ref)) continue;
       const label = tab.querySelector(".workspace-tab-label");
       label.title = `${current.title} · ${hostName(current.host)}`; label.setAttribute("aria-label", label.title);
-      label.replaceChildren(tabIcon(current), node("span", current.title, "workspace-tab-title"));
+      label.replaceChildren(...tabLabel(current));
       const close = tab.lastElementChild; close.title = t("closeTab", { title: current.title }); close.setAttribute("aria-label", close.title);
     }
   }
@@ -282,12 +268,18 @@
     if (document.querySelector(".wf-panel[open]")) { workflowUI.close(); return; }
     if ($("workspace-dialog").open) { closeDialog(); return; }
     const pane = L.leaves(tree).find(row => row.id === focused) || L.leaves(tree)[0];
+    if (active(pane)) closeSession(pane);
+  }
+  // Closing a pane's session closes the pane too when others remain; the
+  // session itself keeps working.
+  function closeSession(pane) {
     const ref = active(pane);
-    if (ref && commit(L.remove(tree, ref))) {
-      const next = L.leaves(tree).find(row => row.id === focused) || L.leaves(tree)[0];
-      focused = next.id;
-      if (mobile() && !next.tabs.length) showMobileList();
-    }
+    if (!ref) return;
+    const next = L.drop(tree, ref);
+    if (maximized === pane.id) maximized = null;
+    if (!commit(next)) return;
+    focused = (L.leaves(tree).find(row => row.id === focused) || L.leaves(tree)[0]).id;
+    if (mobile() && !active(L.leaves(tree).find(row => row.id === focused))) showMobileList();
   }
   window.addEventListener("stepsemble-close-tab", closeActiveTab);
   function commit(next, reveal = null) {
@@ -310,13 +302,15 @@
     const pane = L.leaves(tree).find(p => p.id === paneId);
     if (!pane?.tabs.some(ref => L.identity(ref) === key)) return false;
     const previous = focused; focused = paneId;
-    if (commit(L.replace(tree, paneId, { ...pane, active: key }), paneId)) return true;
+    if (commit(tree, paneId)) return true;
     focused = previous; return false;
   }
+  // The previous or next pane with a session takes the focus.
   function selectAdjacentTab(direction, paneId = focused) {
     if (![-1, 1].includes(direction) || settingsLayer || $("workspace-dialog").open || usageUI.isOpen()) return;
-    const next = L.selectAdjacent(tree, paneId, direction), pane = L.leaves(next).find(p => p.id === paneId);
-    if (pane?.active && selectTab(paneId, pane.active)) requestAnimationFrame(() => frames.get(pane.active)?.frame.focus({ preventScroll: true }));
+    const panes = L.leaves(tree).filter(p => p.active || p.id === paneId), index = panes.findIndex(p => p.id === paneId);
+    const pane = panes[(index + direction + panes.length) % panes.length];
+    if (pane?.active && pane.id !== paneId && selectTab(pane.id, pane.active)) requestAnimationFrame(() => frames.get(pane.active)?.frame.focus({ preventScroll: true }));
   }
   addEventListener("stepsemble-select-tab", event => selectAdjacentTab(event.detail?.direction));
   addEventListener("keydown", event => {
@@ -328,12 +322,19 @@
     if (!machines.some(machine => machine.id === target) || !Array.isArray(keys)) return;
     const valid = keys.filter(key => typeof key === "string" && /^[a-f0-9-]{36}$/.test(key));
     let next = tree;
-    for (const key of valid) next = L.remove(next, { host: target, key });
+    for (const key of valid) next = L.drop(next, { host: target, key });
     if (JSON.stringify(next) !== JSON.stringify(tree)) commit(next);
     if (broadcast) channel?.postMessage({ type: "untracked", host: target, keys: valid });
     void refresh();
   }
-  function open(ref, paneId = focused, edge = "center", move = false, index = null) {
+  // The top-left pane is the main one: a session picked from the list shows
+  // there, and the other panes keep theirs. An empty pane in focus, as a
+  // split just made, takes it instead.
+  function primaryPane() {
+    const shown = L.leaves(tree).find(p => p.id === focused);
+    return shown && !shown.active ? shown.id : cornerPanes(tree).start;
+  }
+  function open(ref, paneId = primaryPane(), edge = "center", move = false) {
     try {
       const existing = !move && edge === "center" && L.leaves(tree).find(p => p.tabs.some(tab => L.identity(tab) === L.identity(ref)));
       if (existing) {
@@ -346,13 +347,11 @@
         }
         return true;
       }
-      const next = index === null ? L.insert(tree, paneId, ref, edge) : L.moveAt(tree, paneId, ref, index);
+      const next = L.insert(tree, paneId, ref, edge);
       const previousFocus = focused;
-      const samePane = move && edge === "center" && L.leaves(tree).find(p => p.id === paneId)?.tabs.some(tab => L.identity(tab) === L.identity(ref));
       focused = L.leaves(next).find(p => p.tabs.some(r => L.identity(r) === L.identity(ref))).id;
       maximized = null;
-      if (samePane) focused = previousFocus;
-      if (!commit(next, samePane ? paneId : focused)) { focused = previousFocus; return false; }
+      if (!commit(next, focused)) { focused = previousFocus; return false; }
       if (mobile()) {
         if (!document.body.classList.contains("sidebar-hidden")) window.history.pushState({ stepsembleWorkspaceView: "session" }, "", location.href);
         document.body.classList.add("sidebar-hidden");
@@ -391,30 +390,6 @@
     try { save(); } catch (error) { toast(error.message); }
     updateTabMetadata(ref); assistantUI.mark();
   }
-  function tabInsertionIndex(list, x) {
-    const tabs = [...list.querySelectorAll(".workspace-tab")];
-    const index = tabs.findIndex(tab => { const r = tab.getBoundingClientRect(); return x < r.left + r.width / 2; });
-    return index < 0 ? tabs.length : index;
-  }
-  let insertionList = null, insertionX = 0, insertionFrame = 0;
-  function clearTabInsertion() {
-    cancelAnimationFrame(insertionFrame); insertionFrame = 0; insertionList = null;
-    for (const tab of document.querySelectorAll("[data-insert]")) delete tab.dataset.insert;
-  }
-  function showTabInsertion(list, x) {
-    clearTabInsertion(); insertionList = list; insertionX = x;
-    const tick = () => {
-      if (!insertionList?.isConnected) return clearTabInsertion();
-      const r = list.getBoundingClientRect();
-      if (insertionX < r.left + 28) list.scrollLeft -= 8;
-      else if (insertionX > r.right - 28) list.scrollLeft += 8;
-      const tabs = [...list.querySelectorAll(".workspace-tab")], index = tabInsertionIndex(list, insertionX);
-      for (const tab of tabs) delete tab.dataset.insert;
-      if (tabs.length) tabs[Math.min(index, tabs.length - 1)].dataset.insert = index === tabs.length ? "after" : "before";
-      insertionFrame = requestAnimationFrame(tick);
-    };
-    tick();
-  }
   function dragStart(event, ref, fromTab) {
     const payload = { version: 1, ref: L.reference(ref), source: fromTab ? windowId : null, transfer: crypto.randomUUID() };
     if (fromTab) { pendingTransfers.set(payload.transfer, { ref: payload.ref, drag: true }); setTimeout(() => pendingTransfers.delete(payload.transfer), 30000); }
@@ -431,7 +406,7 @@
     item.frame.contentWindow?.postMessage({ type: "workspace-reference-session", session: { key: ref.key, host: ref.host, hostName: hostName(ref.host),
       title: plainTitle(ref.title) || ref.title || "", agentId: entry?.record.agentId || ref.agentId || "" } }, location.origin);
   }
-  function dragEnd() { clearTabInsertion(); renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
+  function dragEnd() { renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
   addEventListener("keydown", event => { if (event.key === "Escape") dragEnd(); });
   let nativeOwnedDrag = null;
   // Native owns mouse tracking only; placement and save-before-ACK stay here.
@@ -441,11 +416,11 @@
     if (data.phase === "receive") {
       const pane = [...document.querySelectorAll(".workspace-pane")].find(element => { const r = element.getBoundingClientRect(); return data.x >= r.left && data.x <= r.right && data.y >= r.top && data.y <= r.bottom; });
       if (!pane) return;
-      const list = pane.querySelector(".workspace-tablist"), r = list?.getBoundingClientRect();
-      const inStrip = r && data.x >= r.left && data.x <= r.right && data.y >= r.top && data.y <= r.bottom;
+      const bar = pane.querySelector(".workspace-tabs")?.getBoundingClientRect();
+      const onBar = bar && data.x >= bar.left && data.x <= bar.right && data.y >= bar.top && data.y <= bar.bottom;
       const p = pane.getBoundingClientRect(), x = (data.x - p.left) / p.width, y = (data.y - p.top) / p.height;
-      const edge = inStrip ? "center" : x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center";
-      try { acceptTransfer(data.payload, pane.dataset.pane, edge, inStrip ? tabInsertionIndex(list, data.x) : null); }
+      const edge = onBar ? "center" : x < .22 ? "left" : x > .78 ? "right" : y < .22 ? "top" : y > .78 ? "bottom" : "center";
+      try { acceptTransfer(data.payload, pane.dataset.pane, edge); }
       catch (error) { toast(error.message); }
       return;
     }
@@ -460,10 +435,6 @@
       pendingTransfers.set(data.token, { ref: nativeOwnedDrag.ref, drag: true });
       setTimeout(() => { pendingTransfers.delete(data.token); if (nativeOwnedDrag?.transfer === data.token) nativeOwnedDrag = null; }, 30000);
       document.body.classList.add("workspace-dragging"); channel?.postMessage({ type: "drag", active: true }); reportDragRegions();
-    }
-    if (data.phase === "move" && nativeOwnedDrag?.transfer === data.token) {
-      const list = document.elementFromPoint(data.x, data.y)?.closest(".workspace-tablist");
-      if (list) showTabInsertion(list, data.x); else clearTabInsertion();
     }
     if (data.phase === "tear-out" && nativeOwnedDrag?.transfer === data.token) { newWindow(ref); nativeOwnedDrag = null; dragEnd(); }
   });
@@ -481,11 +452,11 @@
     const opened = window.open(url.href, `stepsemble-${target}`, "popup,width=1100,height=820");
     if (!opened) { pendingTransfers.delete(token); toast(t("popupBlocked")); }
   }
-  function acceptTransfer(payload, paneId, edge, index = null) {
+  function acceptTransfer(payload, paneId, edge) {
     if (payload.version !== 1) throw new Error(t("invalidDrop"));
     const ref = L.reference(payload.ref);
     if (!machines.some(m => m.id === ref.host)) throw new Error(t("missingHost"));
-    if (open(ref, paneId, edge, true, index) && payload.source && payload.source !== windowId) {
+    if (open(ref, paneId, edge, true) && payload.source && payload.source !== windowId) {
       channel?.postMessage({ type: "moved", source: payload.source, ref, transfer: payload.transfer });
     }
   }
@@ -593,53 +564,76 @@
       }
       const pane = node("section", "", "workspace-pane"); pane.dataset.focused = String(n.id === focused); pane.dataset.pane = n.id;
       pane.onpointerdown = () => { if (focused !== n.id) { focused = n.id; for (const p of document.querySelectorAll(".workspace-pane")) p.dataset.focused = String(p.dataset.pane === focused); } };
+      // The pane's title bar: its session's agent, name and computer, which
+      // drags the session elsewhere, then the session's summary and actions.
       const tabs = node("div", "", "workspace-tabs");
-      const tablist = node("div", "", "workspace-tablist"); tablist.setAttribute("role", "tablist");
-      for (const ref of n.tabs) {
-        const key = L.identity(ref), tab = node("div", "", "workspace-tab"); tab.setAttribute("aria-selected", String(n.active === key)); tab.dataset.identity = key; tab.setAttribute("role", "tab"); tab.draggable = true;
-        tab.ondragstart = e => dragStart(e, ref, true); tab.ondragend = dragEnd;
-        // A middle click closes the tab, as in a browser; its press must not
-        // start the platform's autoscroll.
+      const tablist = node("div", "", "workspace-tablist");
+      const shownRef = active(n);
+      if (shownRef) {
+        const key = L.identity(shownRef), tab = node("div", "", "workspace-tab"); tab.dataset.identity = key; tab.draggable = true;
+        tab.ondragstart = e => dragStart(e, shownRef, true); tab.ondragend = dragEnd;
+        // A middle click closes it, as in a browser; its press must not start
+        // the platform's autoscroll.
         tab.onmousedown = e => { if (e.button === 1) e.preventDefault(); };
-        tab.onauxclick = e => { if (e.button !== 1) return; e.preventDefault(); commit(L.remove(tree, ref)); };
-        // Every tab is the same width and starts with its agent's logo; the
-        // conversation below it shows no title row of its own.
-        const label = button("", () => selectTab(n.id, key), `${ref.title} · ${hostName(ref.host)}`, "btn workspace-tab-label");
-        label.append(tabIcon(ref), node("span", ref.title, "workspace-tab-title"));
-        tab.append(label, button("×", () => commit(L.remove(tree, ref)), t("closeTab", { title: ref.title }))); tablist.append(tab);
+        tab.onauxclick = e => { if (e.button !== 1) return; e.preventDefault(); closeSession(n); };
+        const label = button("", () => selectTab(n.id, key), `${shownRef.title} · ${hostName(shownRef.host)}`, "btn workspace-tab-label");
+        label.append(...tabLabel(shownRef));
+        tab.append(label, button("×", () => closeSession(n), t("closeTab", { title: shownRef.title }))); tablist.append(tab);
       }
-      tablist.onscroll = reportDragRegions;
+      // A session dropped on the title bar takes this pane's place.
       tablist.ondragover = e => {
         if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return;
-        e.preventDefault(); e.stopPropagation(); showTabInsertion(tablist, e.clientX); delete overlay.dataset.edge;
+        e.preventDefault(); e.stopPropagation(); overlay.dataset.edge = "center";
       };
-      tablist.ondragleave = e => { if (!tablist.contains(e.relatedTarget)) clearTabInsertion(); };
       tablist.ondrop = e => {
         e.preventDefault(); e.stopPropagation();
-        try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, "center", tabInsertionIndex(tablist, e.clientX)); }
+        try { acceptTransfer(JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), n.id, "center"); }
         catch (error) { toast(error.message); } finally { dragEnd(); }
       };
       tabs.append(tablist);
-      // Layout actions collapse into one overflow control. A permanent row of
-      // buttons costs every pane a strip of height that belongs to the
-      // conversation, and these actions are occasional.
+      const frameCommand = command => frames.get(n.active)?.frame.contentWindow?.postMessage({ type: "workspace-command", command }, location.origin);
+      if (shownRef && !shownRef.assistant) {
+        const summary = button("", () => frameCommand("summary"), t("summary"), "btn workspace-strip-button workspace-summary-button");
+        summary.append(icon("M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01")); tabs.append(summary);
+      }
+      // A Bot's conversation keeps its history at the same place.
+      const botChat = shownRef?.assistant?.page === "bot";
+      if (botChat) {
+        const history = button("", () => frameCommand("history"), assistantUI.text("historyAction"), "btn workspace-strip-button workspace-history-button");
+        history.append(icon("M12 7v5l3 2M3.5 12a8.5 8.5 0 1 0 2.5-6M3 4v4h4")); tabs.append(history);
+      }
+      // Occasional actions collapse into one overflow control. A permanent row
+      // of buttons costs every pane a strip of height that belongs to the
+      // conversation.
       const actions = [];
-      if (active(n) && !active(n).assistant) actions.push([t("rename"), () => renameSession(active(n))]);
-      if (!mobile() && n.tabs.length) {
+      if (shownRef && !shownRef.assistant) {
+        actions.push([t("rename"), () => renameSession(shownRef)]);
+        if (shownRef.host === host) {
+          const pinned = O.normalize(snapshot.presentation, snapshot).pinnedSessions.includes(shownRef.key);
+          actions.push([t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind: "session", id: shownRef.key, pinned: !pinned })]);
+        }
+        actions.push([t("viewChanges"), () => frameCommand("changes")]);
+      }
+      if (!mobile() && shownRef) {
         for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) actions.push([label, () => {
-          if (!active(n)) { toast(t("openFirst")); return; }
           // Split with an empty destination, preserving the current conversation.
           if (L.leaves(tree).length >= 8) { toast(t("paneLimit")); return; }
           const empty = L.pane(); focused = empty.id; maximized = null;
           commit(L.replace(tree, n.id, { type: "split", id: crypto.randomUUID(), axis: edge === "right" ? "row" : "column", ratio: .5, first: n, second: empty }));
         }]);
-        // The strip's window button opens an empty window; this one carries the
-        // pane's own conversation, so it must not repeat that label.
-        actions.push([t("moveWindow"), () => newWindow(active(n))]);
+        // The corner's window button opens an empty window; this one carries
+        // the pane's own conversation, so it must not repeat that label.
+        actions.push([t("moveWindow"), () => newWindow(shownRef)]);
         actions.push([maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); requestAnimationFrame(() => revealActiveTabs()); }]);
       }
+      if (botChat) {
+        const profile = shownRef.assistant.profile;
+        actions.unshift([assistantUI.text("settings"), () => openAssistant(shownRef.host, { page: "settings", profile })],
+          [assistantUI.text("routines"), () => openAssistant(shownRef.host, { page: "routines", profile })]);
+      }
+      if (shownRef && (!shownRef.assistant || botChat)) actions.push([t("moreActions"), () => frameCommand("menu")]);
       if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
-      if (n.tabs.length || L.leaves(tree).length > 1) actions.push([t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
+      if (shownRef || L.leaves(tree).length > 1) actions.push([t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
       if (actions.length) {
         const overflow = button("⋯", () => openPaneMenu(overflow, actions), t("paneActions"), "btn workspace-pane-menu");
         overflow.setAttribute("aria-haspopup", "menu");
@@ -664,7 +658,7 @@
         return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height ? item : null;
       };
       overlay.dataset.label = t("referenceDrop");
-      pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); clearTabInsertion(); overlay.dataset.edge = referenceTarget(e) ? "reference" : edgeAt(e); };
+      pane.ondragover = e => { if (!Array.from(e.dataTransfer.types).includes("application/x-stepsemble-session")) return; e.preventDefault(); overlay.dataset.edge = referenceTarget(e) ? "reference" : edgeAt(e); };
       pane.ondrop = e => { e.preventDefault(); try { const payload = JSON.parse(e.dataTransfer.getData("application/x-stepsemble-session")), target = referenceTarget(e);
         if (target) referenceSession(payload, target); else acceptTransfer(payload, n.id, edgeAt(e)); } catch (error) { toast(error.message); } finally { dragEnd(); } };
       // A pane with no tabs, actions or corner controls keeps no strip, so the
@@ -677,44 +671,119 @@
     layoutFrames();
     requestAnimationFrame(() => revealActiveTabs(L.leaves(tree).filter(p => !scrolls.has(p.id)).map(p => p.id))); renderSidebar();
   }
+  // Computers folded in the merged list, and how each answered last.
+  const foldedMachines = new Set((() => { try { const saved = JSON.parse(localStorage.getItem("stepsemble.workspace.machines.folded.v1")); return Array.isArray(saved) ? saved.filter(id => typeof id === "string") : []; } catch { return []; } })());
+  const machineStatus = new Map(), machinePolledAt = new Map();
+  const refFor = (target, entry) => ({ host: target, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session",
+    ...(entry.record.agentId ? { agentId: entry.record.agentId } : {}) });
+  const snapshotOf = target => target === host ? snapshot : hostSnapshots.get(target) || null;
+  // The current computer first, then the others as listed.
+  const orderedMachines = () => [...machines.filter(m => m.id === host), ...machines.filter(m => m.id !== host)];
+  const RECENT_SHOWN = 5;
+  // The sessions most recently used on any computer, those at work first.
+  function recentEntries(search) {
+    const rows = [];
+    for (const machine of machines) for (const entry of snapshotOf(machine.id)?.entries || []) {
+      if (search && !`${entry.record.name} ${entry.record.agentId} ${entry.record.cwd || ""}`.toLowerCase().includes(search)) continue;
+      rows.push({ target: machine.id, entry, working: entry.working === true ? 1 : 0, at: Number(entry.activityAt) || 0 });
+    }
+    return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_SHOWN);
+  }
+  // With more than one computer, every computer's sessions share one list:
+  // the most recent across them first, then each computer's projects. The
+  // current computer, which Settings, Schedules and the allowances follow,
+  // keeps ordering and pins; another one's sessions open, rename and start
+  // there as well.
   function renderSidebar() {
     if (sidebarDragging) return;
     sidebarOrderPending = false;
     // A redraw (a new order, a new session) keeps keyboard focus on the same control.
     const focusedRow = document.activeElement?.closest?.(".workspace-session-row, .workspace-project");
-    const focusTarget = focusedRow && { entry: focusedRow.dataset.entry || null, cwd: focusedRow.dataset.cwd ?? null,
+    const focusTarget = focusedRow && { entry: focusedRow.dataset.entry || null, host: focusedRow.dataset.host || null, cwd: focusedRow.dataset.cwd ?? null,
       part: ["workspace-session", "workspace-session-menu", "workspace-session-more", "workspace-project-toggle", "workspace-project-add", "workspace-project-menu"].find(name => document.activeElement.classList.contains(name)) };
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
     const selectedRefs = mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean);
     const openKeys = new Set(selectedRefs.map(L.identity));
-    const presentation = O.normalize(snapshot.presentation, snapshot);
-    for (const cwd of O.projects(snapshot)) {
+    const bots = botsBlock;
+    if (machines.length <= 1) {
+      if (assistantUI.installed) box.append(bots);
+      renderProjects(box, host, snapshot, search, openKeys);
+      if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
+    } else {
+      const recent = recentEntries(search);
+      if (recent.length) {
+        const section = node("section", "", "workspace-recent");
+        section.append(node("h2", t("recentSessions"), "workspace-section-title"));
+        for (const row of recent) section.append(sessionRow(row.target, row.entry, { openKeys, recent: true }));
+        box.append(section);
+      }
+      if (assistantUI.installed) box.append(bots);
+      for (const machine of orderedMachines()) box.append(machineSection(machine, search, openKeys));
+    }
+    if (focusTarget?.part) {
+      const row = focusTarget.entry ? [...box.querySelectorAll(".workspace-session-row")].find(item => item.dataset.entry === focusTarget.entry && (!focusTarget.host || item.dataset.host === focusTarget.host))
+        : [...box.querySelectorAll(".workspace-project")].find(item => item.dataset.cwd === focusTarget.cwd);
+      const control = row?.querySelector(`.${focusTarget.part}`);
+      if (control && control.offsetParent !== null) control.focus({ preventScroll: true });
+    }
+    assistantUI.mark();
+  }
+  function machineSection(machine, search, openKeys) {
+    const target = machine.id, snap = snapshotOf(target), status = target === host ? null : machineStatus.get(target);
+    const section = node("section", "", "workspace-machine"); section.dataset.host = target;
+    const offline = status?.online === false;
+    section.dataset.state = target === host ? "current" : offline ? "offline" : snap ? "online" : "waiting";
+    const header = node("header", "", "workspace-machine-header");
+    const folded = !search && foldedMachines.has(target);
+    const contents = node("div", "", "workspace-machine-projects"); contents.hidden = folded;
+    const toggle = button("", () => {
+      if (foldedMachines.has(target)) foldedMachines.delete(target); else foldedMachines.add(target);
+      try { localStorage.setItem("stepsemble.workspace.machines.folded.v1", JSON.stringify([...foldedMachines])); } catch {}
+      const hidden = foldedMachines.has(target) && !search;
+      contents.hidden = hidden; toggle.setAttribute("aria-expanded", String(!hidden));
+    }, machine.name, "btn workspace-machine-toggle");
+    toggle.setAttribute("aria-expanded", String(!folded));
+    const state = target === host ? t("currentMachine") : offline ? (status.at ? t("machineOfflineSince", { time: new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "2-digit", minute: "2-digit" }).format(status.at) }) : t("machineOffline")) : "";
+    toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), node("strong", machine.name), ...(state ? [node("small", state, "workspace-machine-state")] : []));
+    header.append(toggle);
+    if (target !== host) {
+      const actions = button("⋯", () => openPaneMenu(actions, [[t("useMachine"), () => selectHost(target)]]), t("machineActions"), "btn workspace-project-menu");
+      actions.setAttribute("aria-haspopup", "menu"); header.append(actions);
+    }
+    section.append(header, contents);
+    if (snap) renderProjects(contents, target, snap, search, openKeys);
+    else contents.append(node("small", offline ? t("machineUnreachable") : t("loadingSession"), "workspace-machine-note"));
+    return section;
+  }
+  function renderProjects(box, target, snap, search, openKeys) {
+    const current = target === host, presentation = O.normalize(snap.presentation, snap);
+    for (const cwd of O.projects(snap)) {
       const matchesProject = !!search && cwd.toLowerCase().includes(search);
-      const rows = O.entries(snapshot, cwd).filter(e => !search || matchesProject || `${e.record.name} ${e.record.agentId}`.toLowerCase().includes(search));
+      const rows = O.entries(snap, cwd).filter(e => !search || matchesProject || `${e.record.name} ${e.record.agentId}`.toLowerCase().includes(search));
       if (search && !matchesProject && !rows.length) continue;
-      const section = node("section", "", "workspace-project"), header = node("header"); section.dataset.cwd = cwd;
+      const section = node("section", "", "workspace-project"), header = node("header"); section.dataset.cwd = cwd; section.dataset.host = target;
       const title = cwd.split(/[\\/]/).filter(Boolean).pop() || t("ungrouped");
       const toggle = button("", () => {
-        const collapsed = collapsedFor();
+        const collapsed = collapsedFor(target);
         if (collapsed.has(cwd)) collapsed.delete(cwd); else collapsed.add(cwd);
-        saveCollapsed();
+        saveCollapsed(target);
         const hidden = collapsed.has(cwd) && !search;
         section.dataset.collapsed = String(hidden); toggle.setAttribute("aria-expanded", String(!hidden)); contents.hidden = hidden;
       }, cwd || title, "btn workspace-project-toggle");
-      const pinned = presentation.pinnedProjects.includes(cwd);
+      const pinned = current && presentation.pinnedProjects.includes(cwd);
       const copy = node("span", "", "workspace-project-copy");
       copy.append(node("strong", title)); if (cwd) copy.append(node("small", cwd));
       if (pinned) toggle.append(pinMark());
       toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), copy);
       const contents = node("div", "", "workspace-project-sessions");
-      const hidden = !search && collapsedFor().has(cwd);
+      const hidden = !search && collapsedFor(target).has(cwd);
       section.dataset.collapsed = String(hidden); contents.hidden = hidden; toggle.setAttribute("aria-expanded", String(!hidden));
-      const add = button("", () => newSession(cwd), t("newSession"), "btn workspace-project-add");
+      const add = button("", () => newSession(cwd, target), t("newSession"), "btn workspace-project-add");
       add.append(icon("M12 5v14M5 12h14")); header.append(toggle, add);
       if (cwd) {
-        reorderRow(toggle, section, "project", cwd, "", pinned);
-        const actions = button("⋯", () => openPaneMenu(actions, [...orderActions("project", cwd, "", pinned), [t("removeProject"), async () => {
-          const target = host; actions.disabled = true;
+        if (current) reorderRow(toggle, section, "project", cwd, "", pinned);
+        const actions = button("⋯", () => openPaneMenu(actions, [...(current ? orderActions("project", cwd, "", pinned) : []), [t("removeProject"), async () => {
+          actions.disabled = true;
           try {
             const result = await api("/api/workspace/project/remove", { cwd }, target);
             collapsedFor(target).delete(cwd); saveCollapsed(target);
@@ -727,56 +796,55 @@
       section.append(header, contents);
       const overflow = !search && rows.length > SESSIONS_SHOWN;
       rows.forEach((entry, index) => {
-        const ref = refOf(entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
-        const displayTitle = plainTitle(ref.title) || ref.title;
-        const row = node("div", "", "workspace-session-row");
-        row.dataset.entry = entry.key;
+        const row = sessionRow(target, entry, { openKeys, presentation });
         if (overflow && index >= SESSIONS_SHOWN) row.dataset.overflow = "true";
-        const pinned = presentation.pinnedSessions.includes(entry.key);
-        const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
-        b.dataset.open = String(openKeys.has(L.identity(ref)));
-        b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
-        if (pinned) b.append(pinMark());
-        const goal = node("span", "", "workspace-session-goal"), indicator = node("span", "", "workspace-session-status");
-        goal.setAttribute("aria-hidden", "true"); goal.hidden = true;
-        b.append(goal, indicator);
-        // Sessions follow their activity; dragging one only places it in a pane.
-        b.draggable = true; b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
-        const actions = button("⋯", () => openPaneMenu(actions, [
-          [t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind: "session", id: entry.key, pinned: !pinned })],
-          [t("rename"), () => renameSession(ref)],
-          [t("moveWindow"), () => newWindow(ref)],
-          [t("remove"), async () => {
-            const target = ref.host; actions.disabled = true;
-            try { await api("/api/workspace/remove", { key: entry.key }, target); untrackMembership(target, [entry.key]); }
-            catch (error) { toast(error.message); actions.disabled = false; }
-          }],
-        ]), t("sessionActions"), "btn workspace-session-menu");
-        actions.disabled = sidebarBusy;
-        actions.setAttribute("aria-haspopup", "menu");
-        b.oncontextmenu = e => { e.preventDefault(); actions.click(); };
-        row.append(b, actions); contents.append(row);
-        sessionStatus(row, entry);
+        contents.append(row); sessionStatus(row, entry);
       });
       if (overflow) {
         const more = button("", () => {
-          const expanded = expandedFor(), open = !expanded.has(cwd);
+          const expanded = expandedFor(target), open = !expanded.has(cwd);
           if (open) expanded.add(cwd); else expanded.delete(cwd);
           more.setAttribute("aria-expanded", String(open)); syncSessionMore(section);
         }, "", "btn workspace-session-more");
-        more.setAttribute("aria-expanded", String(expandedFor().has(cwd)));
+        more.setAttribute("aria-expanded", String(expandedFor(target).has(cwd)));
         contents.append(more); syncSessionMore(section);
       }
       if (!rows.length) contents.append(node("small", t("noSessions"))); box.append(section);
     }
-    if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
-    if (focusTarget?.part) {
-      const row = focusTarget.entry ? [...box.querySelectorAll(".workspace-session-row")].find(item => item.dataset.entry === focusTarget.entry)
-        : [...box.querySelectorAll(".workspace-project")].find(item => item.dataset.cwd === focusTarget.cwd);
-      const control = row?.querySelector(`.${focusTarget.part}`);
-      if (control && control.offsetParent !== null) control.focus({ preventScroll: true });
-    }
-    assistantUI.mark();
+  }
+  // One session's row; a row in Recent also names its computer.
+  function sessionRow(target, entry, { openKeys, presentation = null, recent = false }) {
+    const ref = refFor(target, entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
+    const displayTitle = plainTitle(ref.title) || ref.title, current = target === host && !!presentation;
+    const row = node("div", "", "workspace-session-row");
+    row.dataset.entry = entry.key; row.dataset.host = target;
+    const pinned = current && presentation.pinnedSessions.includes(entry.key);
+    const b = button("", () => open(ref), `${identity.label}: ${displayTitle}`, "btn workspace-session");
+    b.dataset.open = String(openKeys.has(L.identity(ref)));
+    b.append(window.StepsembleAgentIdentity.create(document, entry.record.agentId, true), node("strong", displayTitle));
+    if (recent) b.append(node("small", hostName(target), "workspace-session-host"));
+    if (pinned) b.append(pinMark());
+    const goal = node("span", "", "workspace-session-goal"), indicator = node("span", "", "workspace-session-status");
+    goal.setAttribute("aria-hidden", "true"); goal.hidden = true;
+    b.append(goal, indicator);
+    // Sessions follow their activity; dragging one only places it in a pane.
+    b.draggable = true; b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
+    const actions = button("⋯", () => openPaneMenu(actions, [
+      ...(current ? [[t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind: "session", id: entry.key, pinned: !pinned })]] : []),
+      [t("rename"), () => renameSession(ref)],
+      [t("moveWindow"), () => newWindow(ref)],
+      [t("remove"), async () => {
+        actions.disabled = true;
+        try { await api("/api/workspace/remove", { key: entry.key }, target); untrackMembership(target, [entry.key]); }
+        catch (error) { toast(error.message); actions.disabled = false; }
+      }],
+    ]), t("sessionActions"), "btn workspace-session-menu");
+    actions.disabled = sidebarBusy;
+    actions.setAttribute("aria-haspopup", "menu");
+    b.oncontextmenu = e => { e.preventDefault(); actions.click(); };
+    row.append(b, actions);
+    if (recent) sessionStatus(row, entry);
+    return row;
   }
   function sessionStatus(row, entry) {
     const indicator = row.querySelector(".workspace-session-status");
@@ -795,7 +863,7 @@
     if (goal) { goal.hidden = !goalLabel; goal.dataset.state = goalLabel ? entry.goal : ""; goal.title = goalLabel; }
     syncSessionMore(row.closest?.(".workspace-project"));
     const identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
-    const title = plainTitle(refOf(entry).title) || refOf(entry).title;
+    const ref = refFor(row.dataset?.host || host, entry), title = plainTitle(ref.title) || ref.title;
     const spoken = [goalLabel, label].filter(Boolean).join(" · ");
     row.querySelector(".workspace-session").setAttribute("aria-label", `${identity.label}: ${title}${spoken ? " · " + spoken : ""}`);
   }
@@ -845,8 +913,8 @@
       while (readCompletions.size > 1000) readCompletions.delete(readCompletions.values().next().value);
       const current = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
       if (current?.completion?.id === completionId) current.completion.read = true;
-      if (host === ref.host) for (const row of document.querySelectorAll(".workspace-session-row")) {
-        if (row.dataset.entry === ref.key && current) sessionStatus(row, current);
+      for (const row of document.querySelectorAll(".workspace-session-row")) {
+        if (row.dataset.entry === ref.key && (row.dataset.host || host) === ref.host && current) sessionStatus(row, current);
       }
       channel?.postMessage({ type: "refresh" });
     } catch { /* Keep unread on failure; a visible conversation retries on refresh. */ }
@@ -927,6 +995,14 @@
     snapshotRequests.set(target, request);
     return request;
   }
+  // What a list redraw depends on, without the states that change in place.
+  const listStructure = value => JSON.stringify({ ...value, entries: value.entries.map(({ working, completion, goal, activityAt, ...row }) => ({ ...row, record: { ...row.record, status: undefined } })) });
+  function updateRows(target, data) {
+    for (const row of document.querySelectorAll(".workspace-session-row")) {
+      if ((row.dataset.host || host) !== target) continue;
+      const entry = data.entries.find(entry => entry.key === row.dataset.entry); if (entry) sessionStatus(row, entry);
+    }
+  }
   async function refresh() {
     const epoch = ++refreshEpoch, target = host;
     try { const data = await requestSnapshot(target); if (epoch !== refreshEpoch || target !== host || sidebarBusy || sidebarDragging) return;
@@ -940,9 +1016,7 @@
         snapshot = data;
         if (!document.body.classList.contains("workspace-dragging")) {
           if (statusOnly && (!reordered || sidebarHeld())) {
-            for (const row of document.querySelectorAll(".workspace-session-row")) {
-              const entry = data.entries.find(entry => entry.key === row.dataset.entry); if (entry) sessionStatus(row, entry);
-            }
+            updateRows(target, data);
             if (reordered) sidebarOrderPending = true;
           }
           else renderSidebar();
@@ -957,14 +1031,30 @@
       const available = new Set(data.entries.map(entry => entry.key));
       // A Bot tab is not a session of the Host's list.
       const stale = allRefs().filter(ref => ref.host === target && !ref.assistant && !available.has(ref.key));
-      if (stale.length) { let next = tree; for (const ref of stale) next = L.remove(next, ref); commit(next); }
+      if (stale.length) { let next = tree; for (const ref of stale) next = L.drop(next, ref); commit(next); }
       setConnection(true, `${hostName(host)} · ${t("connected")}`);
-      // A split pane may still show a conversation from another Host.
-      // An offline computer in another pane must not hold up this Host's list.
-      for (const id of new Set(visibleSessions().map(ref => ref.host))) if (id !== target) {
+      // The other computers' lists, every ten seconds, and those a split pane
+      // shows a conversation from at once. An offline computer must not hold
+      // up this Host's list.
+      const merged = machines.length > 1, now = Date.now();
+      const others = new Set([...visibleSessions().map(ref => ref.host), ...(merged ? machines.map(m => m.id).filter(id => now - (machinePolledAt.get(id) || 0) >= 10_000) : [])]);
+      for (const id of others) if (id !== target) {
+        machinePolledAt.set(id, now);
         void requestSnapshot(id).then(data => {
-          if (id !== host && visibleSessions().some(ref => ref.host === id)) { rememberSnapshot(id, data); probeVisibleResults(); }
-        }, () => { hostSnapshots.delete(id); });
+          if (id === host) return;
+          const before = hostSnapshots.get(id), was = machineStatus.get(id);
+          rememberSnapshot(id, data); machineStatus.set(id, { online: true, at: Date.now() });
+          if (merged && !document.body.classList.contains("workspace-dragging")) {
+            if (was?.online !== true || !before || listStructure(before) !== listStructure(data)) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
+            else updateRows(id, data);
+          }
+          probeVisibleResults();
+        }, () => {
+          const was = machineStatus.get(id);
+          machineStatus.set(id, { online: false, at: was?.at || 0 });
+          if (!merged) hostSnapshots.delete(id);
+          else if (was?.online !== false) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
+        });
       }
       probeVisibleResults(); }
     catch (error) { if (epoch === refreshEpoch) setConnection(false, error.message); }
@@ -1300,8 +1390,8 @@
     }
     void navigate();
   }
-  async function newSession(cwd) {
-    const body = dialog(t("newSession")), epoch = dialogEpoch, target = host;
+  async function newSession(cwd, target = host) {
+    const body = dialog(t("newSession")), epoch = dialogEpoch;
     $("workspace-dialog").classList.add("workspace-new-session-dialog");
     body.append(node("small", `${hostName(target)} · ${cwd}`));
     // The agent and the name share one row; the action sits on its own, compact.
@@ -1436,9 +1526,9 @@
       if (data.type === "drag") { document.body.classList.toggle("workspace-dragging", data.active === true); reportDragRegions(); }
       if (data.type === "moved" && data.source === windowId) {
         const pending = pendingTransfers.get(data.transfer);
-        if (pending?.drag && L.identity(pending.ref) === L.identity(L.reference(data.ref))) { pendingTransfers.delete(data.transfer); commit(L.remove(tree, pending.ref)); }
+        if (pending?.drag && L.identity(pending.ref) === L.identity(L.reference(data.ref))) { pendingTransfers.delete(data.transfer); commit(L.drop(tree, pending.ref)); }
       }
-      if (data.type === "window-ready" && data.source === windowId) { const pending = pendingTransfers.get(data.token); if (pending?.target === data.target) { pendingTransfers.delete(data.token); commit(L.remove(tree, pending.ref)); } }
+      if (data.type === "window-ready" && data.source === windowId) { const pending = pendingTransfers.get(data.token); if (pending?.target === data.target) { pendingTransfers.delete(data.token); commit(L.drop(tree, pending.ref)); } }
       if (data.type === "untracked") untrackMembership(data.host, data.keys, false);
       if (data.type === "refresh") void refresh();
     } catch {}
@@ -1460,14 +1550,14 @@
     if (item.ref.assistant) {
       const data = event.data || {};
       if (data.type === "assistant-route" && data.route && typeof data.route === "object") updateAssistantTab(item.ref, { route: WAM.tabRoute(data.route), title: data.title, avatar: data.avatar });
-      if (data.type === "assistant-close") commit(L.remove(tree, item.ref));
+      if (data.type === "assistant-close") commit(L.drop(tree, item.ref));
       if (data.type === "assistant-changed") {
         const profile = typeof data.profile === "string" ? data.profile : null;
         assistantUI.changed(profile);
         if (profile) for (const tab of allRefs()) if (tab.assistant?.profile === profile) updateTabMetadata(tab);
       }
       // The tab that only signed in to Hermes has done its job.
-      if (data.type === "assistant-signed-in") { assistantUI.changed(); if (item.ref.assistant.page === "home") commit(L.remove(tree, item.ref)); }
+      if (data.type === "assistant-signed-in") { assistantUI.changed(); if (item.ref.assistant.page === "home") commit(L.drop(tree, item.ref)); }
     }
     if (event.data?.type === "workspace-select-tab" && !item.frame.hidden) {
       const pane = L.leaves(tree).find(p => p.active === L.identity(item.ref));
@@ -1487,10 +1577,11 @@
     }
     if (event.data?.type === "workspace-refresh") { void refresh(); channel?.postMessage({ type: "refresh" }); }
     // A conversation this one made (Branch in new chat), on the same Host,
-    // opens as a tab of the pane beside it.
+    // opens in a pane beside it, or in its place when no more panes fit.
     if (event.data?.type === "workspace-open" && typeof event.data.key === "string" && event.data.key && event.data.key.length <= 256) {
       const pane = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref)));
-      open({ host: item.ref.host, key: event.data.key, title: String(event.data.title || "").slice(0, 160) }, pane?.id || focused);
+      const beside = !mobile() && pane && L.leaves(tree).length < 8;
+      open({ host: item.ref.host, key: event.data.key, title: String(event.data.title || "").slice(0, 160) }, pane?.id || focused, beside ? "right" : "center");
       void refresh();
     }
   });
@@ -1576,13 +1667,13 @@
       setTimeout(() => { delete control.dataset.busy; control.removeAttribute("aria-busy"); }, Math.max(0, 450 - (performance.now() - started)));
     }
   };
-  $("workspace-search").oninput = renderSidebar;
+  $("workspace-search").oninput = () => { assistantUI.setQuery($("workspace-search").value.trim()); renderSidebar(); };
   function selectHost(value) {
     if (!machines.some(machine => machine.id === value) || value === host) return;
     window.StepsembleWorkspaceReorder.cancel(); sidebarEditEpoch++; sidebarBusy = false;
     host = value; $("workspace-host").value = host;
     try { localStorage.setItem("stepsemble.selected.v1", host); } catch {}
-    snapshot = { projects: [], entries: [] }; renderUsage(null); renderSidebar(); usageUI.followHost(host); void refresh(); void refreshUsage();
+    snapshot = hostSnapshots.get(host) || { projects: [], entries: [] }; renderUsage(null); renderSidebar(); usageUI.followHost(host); void refresh(); void refreshUsage();
   }
   $("workspace-host").onchange = () => selectHost($("workspace-host").value);
   $("workspace-sidebar-close").onclick = () => { document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
@@ -1601,7 +1692,7 @@
   });
   let wasMobile = mobile();
   window.addEventListener("resize", () => {
-    if (mobile() !== wasMobile) { wasMobile = mobile(); document.body.classList.remove("sidebar-hidden"); setSidebarMode(preferredSidebar, false); render(); }
+    if (mobile() !== wasMobile) { wasMobile = mobile(); document.body.classList.remove("sidebar-hidden"); render(); }
     else layoutFrames();
   });
   window.addEventListener("pagehide", () => { try { save(); } catch {} });
@@ -1641,7 +1732,7 @@
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }
       $("workspace-host").value = host;
       booted = true;
-      setSidebarMode(preferredSidebar, false);
+      renderMode();
       await refresh(); render(); void refreshUsage(); void checkAssistant();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);

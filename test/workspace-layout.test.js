@@ -2,24 +2,53 @@
 const test = require("node:test"), assert = require("node:assert/strict"), crypto = require("node:crypto");
 const L = require("../public/modules/workspace-layout");
 const ref = (host = "local", key = crypto.randomUUID()) => ({ host, key, title: "Same title" });
-test("split, move, and close preserve exact host/session identity", () => {
-  let tree = L.pane(); const a = ref(), b = ref("remote", a.key);
+test("a pane shows one session: opening another there replaces it, and identity keeps host and session", () => {
+  let tree = L.pane(); const a = ref(), b = ref("remote", a.key), c = ref();
   tree = L.insert(tree, tree.id, a); tree = L.insert(tree, tree.id, b, "right");
-  assert.equal(L.leaves(tree).length, 2); assert.equal(L.leaves(tree).flatMap(p => p.tabs).length, 2);
-  const right = L.leaves(tree)[1]; tree = L.insert(tree, right.id, a);
-  assert.equal(L.leaves(tree).flatMap(p => p.tabs).length, 2);
-  assert.equal(L.leaves(tree)[1].tabs.length, 2);
-  tree = L.remove(tree, b); assert.deepEqual(L.leaves(tree)[1].tabs, [a]);
-  tree = L.closePane(tree, L.leaves(tree)[0].id); assert.equal(tree.type, "pane");
+  assert.equal(L.leaves(tree).length, 2); assert.deepEqual(L.leaves(tree).map(p => p.tabs.map(r => r.host)), [["local"], ["remote"]]);
+  tree = L.insert(tree, L.leaves(tree)[0].id, c);
+  assert.deepEqual(L.leaves(tree)[0].tabs, [c], "the session shown there is replaced, not stacked");
+  assert.equal(L.leaves(tree)[0].active, L.identity(c));
+  tree = L.remove(tree, b); assert.deepEqual(L.leaves(tree)[1].tabs, []);
+  tree = L.closePane(tree, L.leaves(tree)[1].id); assert.equal(tree.type, "pane");
   assert.deepEqual(L.normalize(JSON.parse(JSON.stringify(tree))), tree);
 });
-test("all four edge targets retain tree topology and active tab", () => {
+test("all four edge targets retain tree topology and the session shown", () => {
   for (const edge of ["left", "right", "top", "bottom"]) {
     const p = L.pane(), a = ref(), b = ref();
     const tree = L.insert(L.insert(p, p.id, a), p.id, b, edge);
     assert.equal(tree.axis, ["left", "right"].includes(edge) ? "row" : "column");
     assert.equal(L.leaves(tree).find(p => p.tabs.some(r => r.key === b.key)).active, L.identity(b));
+    assert.deepEqual(L.leaves(tree).map(p => p.tabs.length), [1, 1]);
   }
+});
+test("a session moved to another pane leaves no empty pane behind; moving it onto itself changes nothing", () => {
+  let tree = L.pane(); const a = ref(), b = ref(), c = ref();
+  tree = L.insert(tree, tree.id, a); tree = L.insert(tree, tree.id, b, "right"); tree = L.insert(tree, L.leaves(tree)[1].id, c, "bottom");
+  assert.equal(L.leaves(tree).length, 3);
+  tree = L.insert(tree, L.leaves(tree)[0].id, c);
+  assert.deepEqual(L.leaves(tree).map(p => p.tabs.map(r => r.key)), [[c.key], [b.key]], "its old pane closed and it replaced the target's");
+  tree = L.insert(tree, L.leaves(tree)[1].id, c, "left");
+  assert.deepEqual(L.leaves(tree).map(p => p.tabs.map(r => r.key)), [[c.key], [b.key]], "moved beside b, its old pane gone");
+  const same = L.insert(tree, L.leaves(tree)[0].id, c, "right");
+  assert.deepEqual(same, tree, "a pane's own session dropped on its own edge stays");
+  assert.deepEqual(L.insert(tree, L.leaves(tree)[0].id, c), tree);
+});
+test("a session leaving the layout takes its pane along while others remain", () => {
+  let tree = L.pane(); const a = ref(), b = ref();
+  tree = L.insert(tree, tree.id, a); tree = L.insert(tree, tree.id, b, "right");
+  tree = L.drop(tree, a);
+  assert.equal(tree.type, "pane"); assert.deepEqual(tree.tabs, [b]);
+  tree = L.drop(tree, b);
+  assert.equal(tree.type, "pane"); assert.deepEqual(tree.tabs, [], "the last pane stays, empty");
+  assert.equal(L.drop(tree, ref()), tree);
+});
+test("a layout saved while panes held tabs keeps each pane's shown session", () => {
+  const a = ref(), b = ref(), c = ref();
+  const saved = { type: "split", id: "s", axis: "row", ratio: .4, first: { type: "pane", id: "p1", tabs: [a, b], active: L.identity(b) }, second: { type: "pane", id: "p2", tabs: [c], active: null } };
+  const tree = L.normalize(saved);
+  assert.deepEqual(L.leaves(tree).map(p => p.tabs.map(r => r.key)), [[b.key], [c.key]]);
+  assert.equal(L.leaves(tree)[1].active, L.identity(c));
 });
 test("malformed or excessive persisted layouts are rejected", () => {
   assert.throws(() => L.reference({ host: "../../other", key: crypto.randomUUID() }));
@@ -27,27 +56,8 @@ test("malformed or excessive persisted layouts are rejected", () => {
   let tree = L.pane(); for (let i = 0; i < 7; i++) tree = L.insert(tree, L.leaves(tree)[0].id, ref(), "right");
   assert.throws(() => L.insert(tree, L.leaves(tree)[0].id, ref(), "bottom"), /8/);
   assert.throws(() => L.insert(tree, "missing", ref()), /no longer/);
-});
-
-test("tab insertion preserves selection, supports both directions and the 32-tab bound", () => {
-  let tree = L.pane(); const refs = Array.from({ length: 32 }, () => ref());
-  for (const r of refs) tree = L.insert(tree, tree.id, r);
-  const selected = tree.active;
-  tree = L.moveAt(tree, tree.id, refs[0], 32);
-  assert.equal(tree.tabs[31].key, refs[0].key); assert.equal(tree.active, selected);
-  tree = L.moveAt(tree, tree.id, refs[0], 0);
-  assert.deepEqual(tree.tabs, refs); assert.equal(tree.active, selected);
-  assert.throws(() => L.moveAt(tree, tree.id, ref(), 0), /Too many tabs/);
-  assert.equal(L.selectAdjacent(tree, tree.id, 1).active, L.identity(refs[0]));
-  assert.equal(L.selectAdjacent(tree, tree.id, -1).active, L.identity(refs[30]));
-});
-test("closing active tabs selects their nearest neighbour, not the first tab", () => {
-  const refs = Array.from({ length: 4 }, () => ref());
-  let tree = L.pane(); for (const r of refs) tree = L.insert(tree, tree.id, r);
-  assert.equal(L.remove(tree, refs[3]).active, L.identity(refs[2]));
-  tree.active = L.identity(refs[1]);
-  assert.equal(L.remove(tree, refs[1]).active, L.identity(refs[2]));
-  assert.equal(L.remove(tree, refs[0]).active, tree.active);
+  const moved = L.leaves(tree)[7].tabs[0];
+  assert.equal(L.leaves(L.insert(tree, L.leaves(tree)[0].id, moved, "bottom")).length, 8, "moving a session between eight panes keeps eight");
 });
 test("a tab keeps its agent for the logo, and a tab saved without one still loads", () => {
   const key = crypto.randomUUID();
@@ -64,7 +74,7 @@ test("an assistant tab keeps its route and avatar through moves, splits and save
   let tree = L.pane();
   tree = L.insert(tree, tree.id, bot);
   tree = L.insert(tree, tree.id, ref("local"), "right");
-  tree = L.moveAt(tree, L.leaves(tree)[1].id, bot, 0);
+  tree = L.insert(tree, L.leaves(tree)[1].id, bot, "bottom");
   const saved = L.normalize(JSON.parse(JSON.stringify(tree)));
   const tab = L.leaves(saved).flatMap(p => p.tabs).find(r => r.key === bot.key);
   assert.deepEqual(tab.assistant, { page: "bot", profile: "default", session: "20261016_1" }, "the computer is the tab's host and panels are not kept");

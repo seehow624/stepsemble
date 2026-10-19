@@ -1,6 +1,7 @@
-/* The Workspace sidebar's Assistant mode: the Bots and groups of the computer
-   that runs Hermes. A Bot, a group or an Assistant page opens as a Workspace
-   tab; this module reads Hermes only through Stepsemble's assistant API. */
+/* The Bots and groups of the computer that runs Hermes, in the Workspace's
+   own list beside the sessions. A Bot, a group or an Assistant page opens in
+   a Workspace pane; this module reads Hermes only through Stepsemble's
+   assistant API. */
 "use strict";
 (function (root) {
   const A = root.StepsembleAssistantAvatars, AI = root.StepsembleAssistantI18n, Api = root.StepsembleAssistantApi;
@@ -25,7 +26,7 @@
     function button(text, action, label = text, className = "btn") {
       const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b;
     }
-    let root = null, active = false, choices = [], current = null, state = "loading", failure = null, query = "";
+    let root = null, active = false, inline = false, choices = [], current = null, state = "loading", failure = null, query = "";
     let data = { bots: [], allBots: [], groups: { supported: false, rooms: [] }, asks: [] }, epoch = 0, timer = 0, soon = 0;
     const pictures = new Map();
     let collapsed = new Set();
@@ -201,23 +202,33 @@
       if (action) box.append(action);
       return box;
     }
+    // In the Workspace's list, Manage and New Bot sit on the Bots heading.
+    function inlineActions() {
+      const box = node("span", "", "workspace-assistant-actions"), ready = state === "ready";
+      const manage = button("", () => go({ page: "bots" }), t("manageBots"), "btn workspace-project-add"); manage.id = "workspace-assistant-manage"; manage.append(icon(ICONS.manage));
+      const add = button("", () => go({ page: "newbot" }), t("newBot"), "btn workspace-project-add"); add.id = "workspace-assistant-add"; add.append(icon(ICONS.plus));
+      manage.disabled = add.disabled = !ready; box.append(manage, add); return box;
+    }
     function renderList() {
       const list = root?.querySelector("#workspace-assistant-list");
       if (!list) return;
       const keep = list.scrollTop, name = current?.name || "";
       list.replaceChildren();
-      if (state === "loading") list.append(note(t("loading")));
-      else if (state === "missing" || !current) list.append(note(t("notInstalledTitle"), t("notInstalledBody")));
-      else if (state === "stopped") list.append(note(t("notRunningTitle"), t("notRunningBody", { computer: name }), button(t("retry"), () => void refresh(), t("retry"), "btn ghost")));
-      else if (state === "oauth") list.append(note(t("signInTitle"), t("oauthOnly")));
-      else if (state === "signin") list.append(note(t("signInTitle"), t("signInBody", { computer: name }), button(t("signIn"), () => go({ page: "home" }), t("signIn"), "btn primary")));
-      else if (state === "error") list.append(note(t("failed", { message: failure?.message || "" }), "", button(t("retry"), () => void refresh(), t("retry"), "btn ghost")));
+      let notice = null;
+      if (state === "loading") notice = note(t("loading"));
+      else if (state === "missing" || !current) notice = note(t("notInstalledTitle"), t("notInstalledBody"));
+      else if (state === "stopped") notice = note(t("notRunningTitle"), t("notRunningBody", { computer: name }), button(t("retry"), () => void refresh(), t("retry"), "btn ghost"));
+      else if (state === "oauth") notice = note(t("signInTitle"), t("oauthOnly"));
+      else if (state === "signin") notice = note(t("signInTitle"), t("signInBody", { computer: name }), button(t("signIn"), () => go({ page: "home" }), t("signIn"), "btn primary"));
+      else if (state === "error") notice = note(t("failed", { message: failure?.message || "" }), "", button(t("retry"), () => void refresh(), t("retry"), "btn ghost"));
+      if (notice && inline) { const bots = section("bots", t("bots"), inlineActions()); bots.contents.append(notice); list.append(bots.box); }
+      else if (notice) list.append(notice);
       else {
         if (data.asks.length) {
           const pending = button(t("pending", { count: data.asks.length }), () => go({ page: "pending" }), t("pendingTitle"), "btn workspace-assistant-pending");
           list.append(pending);
         }
-        const bots = section("bots", t("bots"));
+        const bots = section("bots", t("bots"), inline ? inlineActions() : null);
         const botRows = W.botRows(data.bots, query, locale());
         for (const bot of botRows) bots.contents.append(botRow(bot));
         if (!botRows.length) bots.contents.append(node("small", t(query ? "noMatches" : "noBots")));
@@ -240,7 +251,10 @@
       if (!root || !active) return;
       const focused = document.activeElement?.id === "workspace-assistant-search";
       drawn = { card: "", list: "" };
-      root.replaceChildren(machineCard(), searchRow(), Object.assign(node("div"), { id: "workspace-assistant-list" }));
+      // In the Workspace's list the Workspace's search filters the Bots too,
+      // and the computer shows only when more than one runs Hermes.
+      if (inline) root.replaceChildren(...(choices.length > 1 ? [machineCard()] : []), Object.assign(node("div"), { id: "workspace-assistant-list" }));
+      else root.replaceChildren(machineCard(), searchRow(), Object.assign(node("div"), { id: "workspace-assistant-list" }));
       update();
       if (focused) root.querySelector("#workspace-assistant-search")?.focus();
     }
@@ -265,15 +279,16 @@
         row.dataset.open = String(isSelected(route));
       }
     }
-    function activate(container) {
-      root = container; active = true;
+    function activate(container, options = {}) {
+      root = container; active = true; inline = options.inline === true;
       render(); void refresh();
     }
+    function setQuery(value) { query = String(value || ""); update(); }
     function deactivate() { active = false; clearTimeout(timer); clearTimeout(soon); epoch++; }
     document.addEventListener("visibilitychange", () => { if (active && !document.hidden) void refresh(); });
 
     // The Assistant's own words, for the Workspace controls that open it.
-    return Object.freeze({ discover, activate, deactivate, refresh, changed, render, mark, ref, tabIcon, text: t, get active() { return active; },
+    return Object.freeze({ discover, activate, deactivate, refresh, changed, render, mark, ref, tabIcon, setQuery, text: t, get active() { return active; },
       get machine() { return current; }, get installed() { return !!current; } });
   }
 

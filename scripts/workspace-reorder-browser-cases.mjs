@@ -4,7 +4,7 @@ import { createWorkspaceInteractionsPreview } from "./workspace-interactions-pre
 
 export async function runWorkspaceReorderBrowserCases(browser) {
   for (const mobile of [false, true]) {
-    const fixture = await createWorkspaceInteractionsPreview();
+    const fixture = await createWorkspaceInteractionsPreview(0, { computers: 1 });
     const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1280, height: mobile ? 600 : 860 },
       isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
     const page = await context.newPage(), errors = [];

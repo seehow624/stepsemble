@@ -208,8 +208,11 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     outputTokens: run.outputTokens + (ACTIVE.has(run.status) ? bridge.tokens?.(run) || 0 : 0), nonce: undefined, record: undefined, progressHash: undefined }; }
   function hasRunCapacity() { return state.runs.length < 200 || state.runs.some(r => ["limited", "completed", "failed", "stopped"].includes(r.status)); }
   function scheduledRunPending(id) { return state.runs.some(r => r.scheduleId === id && (ACTIVE.has(r.status) || ["queued", "stopping"].includes(r.status))); }
-  // A conversation shows its latest Goal until the person removes it.
-  function list(entry = null) { return { available: healthy, runs: (entry ? state.runs.filter(r => r.entry === entry).slice(-1).filter(r => !r.dismissedAt) : state.runs).map(summary), schedules: entry ? [] : clone(state.schedules).map(row => ({ ...row,
+  // A conversation shows its latest Goal until the person removes it; its
+  // history, newest first, includes removed ones.
+  function list(entry = null, { history = false } = {}) {
+    const runs = !entry ? state.runs : history ? state.runs.filter(r => r.entry === entry).slice(-20).reverse() : state.runs.filter(r => r.entry === entry).slice(-1).filter(r => !r.dismissedAt);
+    return { available: healthy, runs: runs.map(summary), schedules: entry ? [] : clone(state.schedules).map(row => ({ ...row,
     capacityBlocked: row.enabled && row.nextAt !== null && row.nextAt <= now() && !scheduledRunPending(row.id) && !hasRunCapacity() })), serverNow: now() }; }
   function trim() {
     const disposable = state.runs.filter(r => ["limited", "completed", "failed", "stopped"].includes(r.status));

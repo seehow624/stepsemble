@@ -19,6 +19,15 @@
   const tell = message => workspace?.postMessage(message, location.origin);
   let shown = true;
   document.body.classList.toggle("assistant-embedded", embedded);
+  // On a desktop the pane's title bar in the Workspace names the Bot and holds
+  // its History and More; a phone shows one pane and keeps the Bot's own head,
+  // with Back to the list. The Workspace's width decides, not this frame's.
+  let mobilePane = false;
+  if (embedded) try {
+    const outer = window.parent.matchMedia("(max-width: 760px)");
+    const sync = () => { mobilePane = outer.matches; document.body.classList.toggle("assistant-workspace-mobile", mobilePane); };
+    sync(); outer.addEventListener?.("change", sync);
+  } catch {}
   const asks = new Map(), avatars = new Map(), drafts = new Map(), sessionTitles = new Map(), groupDrafts = new Map();
   // 同一個視窗的每個 Bot 分頁各自回報正在看哪個對話。
   const clientId = (() => {
@@ -120,7 +129,7 @@
   }
   function go(route) { navigation?.go({ ...route, machine: route.machine || machine?.id }); }
   // 分頁沒有自己的首頁：回到首頁的動作（取消、刪除、解散）關閉這個分頁。
-  function showRoster() { if (embedded) tell({ type: "assistant-close" }); else go({ page: "home" }); }
+  function showRoster() { if (embedded) tell({ type: mobilePane ? "workspace-show-list" : "assistant-close" }); else go({ page: "home" }); }
   function report() {
     if (!embedded || !navigation) return;
     const route = navigation.current;
@@ -819,6 +828,8 @@
       const data = event.data || {};
       if (data.type === "workspace-detach") { stream?.close(); shown = false; watchNow(); }
       if (data.type === "workspace-visibility") { shown = data.visible === true; watchNow(); }
+      // The pane's title bar holds the conversation's History and More.
+      if (data.type === "workspace-command" && navigation && chat && ["history", "menu"].includes(data.command)) go({ ...navigation.current, panel: data.command });
       if (data.type === "assistant-navigate" && navigation && data.route && typeof data.route === "object") {
         const route = N.normalize({ ...data.route, machine: machine?.id });
         if (route.page === data.route.page) go(route);

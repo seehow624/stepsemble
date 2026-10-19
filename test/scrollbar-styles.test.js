@@ -27,7 +27,8 @@ test("individual UI surfaces cannot accidentally switch back to the native scrol
   assert.match(css, /#view-list \.session-list::-webkit-scrollbar \{ display: none; \}/);
   const workspace = fs.readFileSync(path.join(root, "public/modules/workspace.css"), "utf8");
   assert.match(workspace, /#workspace-projects::-webkit-scrollbar \{ display: none; \}/);
-  assert.match(workspace, /\.workspace-tablist::-webkit-scrollbar \{ display: none; \}/);
+  // A pane's title bar holds one name and never scrolls.
+  assert.match(workspace, /\.workspace-tablist \{[^}]*overflow: hidden;/);
 });
 
 test("browser regression cases stay in the rolling workspace gate", () => {

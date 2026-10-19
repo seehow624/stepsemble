@@ -6171,7 +6171,7 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 200, await workflowOptions(agentId, url.searchParams.get("cwd") || null)); return;
       }
       if (p === "/api/workflows" && req.method === "GET") {
-        sendJSON(res, 200, { ...workflows.list(url.searchParams.get("entry") || null), keepsAwake: workflowSleepGuard.supported }); return;
+        sendJSON(res, 200, { ...workflows.list(url.searchParams.get("entry") || null, { history: url.searchParams.get("history") === "1" }), keepsAwake: workflowSleepGuard.supported }); return;
       }
       if (p === "/api/workflows" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);

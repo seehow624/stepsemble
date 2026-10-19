@@ -163,6 +163,22 @@ small { color: var(--pine-soft); }
 #workspace-projects::-webkit-scrollbar { display: none; }
 #workspace-assistant-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 4px 2px 12px; scrollbar-width: none; }
 #workspace-assistant-list::-webkit-scrollbar { display: none; }
+/* With more than one computer: Recent across them, then each computer. */
+.workspace-recent { margin: 0 0 12px; }
+.workspace-section-title { margin: 6px 7px 4px; color: var(--pine-soft); font-size: .71rem; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.workspace-session-host { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-machine { margin: 0 0 10px; border-top: .5px solid var(--line); padding-top: 6px; }
+.workspace-machine-header { display: flex; align-items: center; gap: 2px; min-height: 40px; margin: 0 2px 2px; }
+#workspace-projects .workspace-machine-toggle { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 9px; text-align: left; }
+.workspace-machine-toggle:hover, .workspace-machine-toggle:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-machine-toggle strong { min-width: 0; overflow: hidden; font-size: .82rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-machine-toggle[aria-expanded=false] .workspace-project-chevron { transform: rotate(-90deg); }
+.workspace-machine-state { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-machine[data-state=offline] .workspace-machine-state { color: var(--warn-ink, var(--pine-soft)); }
+.workspace-machine[data-state=offline] .workspace-machine-projects { opacity: .62; }
+.workspace-machine-projects[hidden] { display: none; }
+.workspace-machine-note { display: block; padding: 4px 9px 8px 25px; color: var(--pine-soft); font-size: .72rem; }
+.workspace-machine-header .btn:hover { background: var(--bubble-user); color: var(--ink); }
 .workspace-project { margin: 0 0 10px; }
 .workspace-project > header {
   display: flex;
@@ -350,24 +366,24 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
 /* The strip is the pane's only chrome: the tabs scroll, the overflow control
    stays pinned to its right edge, and nothing else costs the pane height. */
 .workspace-tabs { display: flex; align-items: stretch; min-height: 38px; flex-shrink: 0; border-bottom: .5px solid var(--line); background: var(--milk); }
-.workspace-tablist { display: flex; min-width: 0; flex: 1 1 auto; overflow-x: auto; scrollbar-width: none; }
-.workspace-tablist::-webkit-scrollbar { display: none; }
+.workspace-tablist { display: flex; min-width: 0; flex: 1 1 auto; overflow: hidden; }
 .workspace-dragging .workspace-tabs { position: relative; z-index: 6; }
-.workspace-tab[data-insert]::after { content: ""; position: absolute; top: 5px; bottom: 5px; width: 2px; border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 1; }
-.workspace-tab[data-insert=before]::after { left: 0; }
-.workspace-tab[data-insert=after]::after { right: 0; }
 /* Tabs share one width, whatever their titles, and narrow together when many
    are open before the strip scrolls. */
-.workspace-tab { position: relative; display: flex; flex: 0 1 188px; min-width: 128px; max-width: 188px; border-right: .5px solid var(--line); }
-.workspace-tab > .btn { min-height: 38px; padding: 0 10px; border: 0; border-radius: 0; color: var(--pine-soft); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A pane's title bar names its one session; dragging the name moves it. */
+.workspace-tab { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
+.workspace-tab > .btn { min-height: 38px; padding: 0 10px; border: 0; border-radius: 0; color: var(--ink); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab > .btn:first-child { min-width: 0; flex: 1; }
 .workspace-tab > .workspace-tab-label { display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding-right: 4px; text-align: left; }
-.workspace-tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tab-title { min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tab-host { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tab-host::before { content: "·"; margin-right: 6px; }
 .workspace-tab .agent-logo { flex: 0 0 18px; width: 18px; height: 18px; border-radius: 5px; background: none; }
 .workspace-tab .agent-logo-mark { width: 15px; height: 15px; }
-.workspace-tab > .btn:last-child { min-width: 30px; padding: 0 6px; color: var(--pine-soft); }
-.workspace-tab[aria-selected=true] { background: var(--bubble-user); box-shadow: inset 0 -2px var(--accent); }
-.workspace-tab[aria-selected=true] > .btn:first-child { color: var(--ink); }
+.workspace-tab > .btn:first-child { flex: 0 1 auto; }
+.workspace-tab > .btn:last-child { min-width: 30px; padding: 0 6px; color: var(--pine-soft); opacity: 0; }
+.workspace-tab:hover > .btn:last-child, .workspace-tab > .btn:last-child:focus-visible { opacity: 1; }
+.workspace-split .workspace-pane[data-focused=true] .workspace-tabs { box-shadow: inset 0 -2px color-mix(in srgb, var(--accent) 55%, transparent); }
 .workspace-pane-menu {
   min-width: 34px;
   min-height: 38px;
@@ -655,10 +671,13 @@ body.compact .workspace-session strong { font-size: .78rem; }
 /* Assistant in the sidebar: the Bots and groups of the computer that runs
    Hermes take the place of the Host, the search and the session list. A Bot
    opens as a tab beside the sessions. */
-body[data-sidebar="assistant"] .workspace-host-block, body[data-sidebar="assistant"] #workspace-sidebar > .workspace-search-row,
-body[data-sidebar="assistant"] #workspace-projects, body[data-sidebar="assistant"] #workspace-sidebar > footer,
-body[data-sidebar="assistant"] #workspace-workflows, body:not([data-sidebar="assistant"]) #workspace-assistant,
-body:not([data-sidebar="assistant"]) #workspace-routines { display: none; }
+/* The Bots share the session list; Manage and New Bot sit on their heading. */
+#workspace-assistant[hidden], #workspace-routines[hidden] { display: none; }
+#workspace-projects #workspace-assistant { flex: none; gap: 6px; margin: 0 0 6px; }
+#workspace-projects #workspace-assistant-list { flex: none; overflow: visible; padding: 0; }
+#workspace-projects .workspace-assistant-host { margin: 0 2px 6px; }
+.workspace-assistant-actions { display: flex; flex: none; gap: 2px; }
+#workspace-projects .workspace-assistant-actions .workspace-project-add { display: grid; place-items: center; }
 .btn.workspace-workflows#workspace-routines { width: 34px; padding: 0; }
 .workspace-assistant { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; }
 .workspace-assistant-row { min-height: 52px; }

@@ -246,13 +246,15 @@
       return found.length>0;
     }
     function list(){return JSON.parse(JSON.stringify([...rows.values()]));}
+    // Every subagent the conversation showed, the current ones last in, so first out.
+    function all(){const every=new Map(archive);for(const [id,row] of rows){every.delete(id);every.set(id,row);}return JSON.parse(JSON.stringify([...every.values()].reverse()));}
     function summary(){const values=[...rows.values()];return {total:values.length,running:values.filter(row=>!TERMINAL.has(row.status)).length,completed:values.filter(row=>row.status==="completed").length,failed:values.filter(row=>row.status==="failed").length};}
     function reset(){retire(rows);rows=new Map();piCalls.clear();claudeTasks.clear();endedTurns.clear();codexTurn=null;claudeEnded=false;emit();}
     function onChange(fn){listeners.add(fn);return()=>listeners.delete(fn);}
     const copy=row=>row?JSON.parse(JSON.stringify(row)):null;
     function get(id){return copy(rows.get(id)||archive.get(id));}
     function byTool(toolId){if(!toolId)return [];const found=[...rows.values()].filter(row=>row.toolId===toolId);return (found.length?found:[...archive.values()].filter(row=>row.toolId===toolId)).map(copy);}
-    return {claude,pi,codex,openCode,newTurn,reset,list,summary,onChange,get,byTool,remember};
+    return {claude,pi,codex,openCode,newTurn,reset,list,all,summary,onChange,get,byTool,remember};
   }
   return {create,piRecord};
 });

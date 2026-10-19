@@ -122,7 +122,7 @@ const el = {
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"), chatAgentLogo: $("chat-agent-logo"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
-  btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
+  btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"), btnSummary: $("btn-summary"),
   changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesCommit: $("changes-commit"), changesClose: $("changes-close"),
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
   changesFooter: $("changes-footer"), changesStagingCopy: $("changes-staging-copy"),
@@ -19313,6 +19313,12 @@ if (WORKSPACE_PANE) {
     if (event.origin !== location.origin || event.source !== parent) return;
     if (event.data?.type === "workspace-detach") closeChat(true);
     if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
+    // The pane's title bar holds the conversation's summary and actions.
+    if (event.data?.type === "workspace-command") {
+      if (event.data.command === "summary") void toggleSessionSummary();
+      if (event.data.command === "changes") el.btnChanges?.click();
+      if (event.data.command === "menu") el.btnChatMenu?.click();
+    }
     if (event.data?.type === "workspace-reference-session") {
       const result = sessionReferences?.add(event.data.session);
       if (result && !result.added) toast(referenceCopy(result.reason === "unsupported" ? "reference_source_unavailable" : result.reason), true);
@@ -19501,6 +19507,40 @@ subagentBar?.addEventListener("click", event => {
 }, true);
 // Elapsed times move while a subagent works; nothing redraws when none does.
 setInterval(() => { if (subagentTracker?.summary().running) subagentPanel?.render(subagentTracker.list()); }, 1000);
+
+// The conversation's summary: its goals, subagents, the files it wrote and
+// what it read, opened from the pane's title bar or the phone's title row.
+const sessionSummary = window.StepsembleSessionSummary?.mount({ document, container: el.viewChat, t: key => tKey("sessionSummary." + key),
+  onSubagent: id => { const row = subagentTracker?.get(id); if (row) subagentPanel?.show([row]); },
+  onFile: link => openHostFile(link), onChanges: () => el.btnChanges?.click(), fileLink: path => hostFileLink(path) }) || null;
+let summaryGoalRuns = [];
+function sessionSummaryData() {
+  const goals = [];
+  const codexGoal = rpc?.nativeCodex ? rpc.nativeTranscriptState?.goal : null;
+  if (codexGoal) goals.push({ objective: codexGoal.objective, state: codexGoal.status, label: codexGoal.status === "complete" ? tKey("goalComposer.state.completed") : codexGoalTitle(codexGoal.status),
+    elapsed: runElapsedText(Math.max(0, Number(codexGoal.timeUsedSeconds) || 0) * 1000) });
+  for (const run of summaryGoalRuns) goals.push({ objective: run.objective, state: run.status, label: tKey("goalComposer.state." + run.status),
+    elapsed: runElapsedText(Math.max(0, Number(run.elapsedMs) || 0)) });
+  const subagents = (subagentTracker?.all() || []).map(row => ({ id: row.id, name: row.name, task: row.task, status: row.status, statusLabel: subagentCopy("status_" + (row.status || "running")) }));
+  const tools = [...el.messages.querySelectorAll(".tool-card")].map(card => card.__tool).filter(Boolean);
+  const links = [...el.messages.querySelectorAll(".msg.assistant a[href]")].map(link => link.getAttribute("href"));
+  return { goals, subagents, outputs: window.StepsembleSessionSummary.outputs(tools), sources: window.StepsembleSessionSummary.sources(tools, links) };
+}
+async function toggleSessionSummary() {
+  if (!sessionSummary) return;
+  if (sessionSummary.isOpen()) { sessionSummary.hide(); return; }
+  subagentPanel?.collapse?.(); conversationGoal?.collapse?.(); setNativeGoalOpen(false);
+  sessionSummary.show(sessionSummaryData);
+  if (!WORKSPACE_ENTRY_KEY) return;
+  const base = apiBase;
+  try {
+    const data = await api("/api/workflows?entry=" + encodeURIComponent(WORKSPACE_ENTRY_KEY) + "&history=1");
+    if (base !== apiBase) return;
+    summaryGoalRuns = (data.runs || []).filter(run => run.entry === WORKSPACE_ENTRY_KEY && run.mode !== "task");
+    sessionSummary.render();
+  } catch {}
+}
+el.btnSummary?.addEventListener("click", () => void toggleSessionSummary());
 
 conversationGoal = window.StepsembleWorkflows?.mountConversation({ api, post,
   getConnection: () => rpc, getAgentId: () => conversationAgentId(),

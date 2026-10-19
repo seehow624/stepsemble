@@ -1,6 +1,7 @@
 (function (root) {
   "use strict";
-  const MAX_PANES = 8, MAX_TABS = 32;
+  // A pane shows one session; the panes split the window between them.
+  const MAX_PANES = 8;
   const id = () => globalThis.crypto.randomUUID();
   const identity = ref => JSON.stringify([ref.host, ref.key]);
   // An assistant tab shows one Assistant page. Its route follows the
@@ -30,16 +31,18 @@
   const pane = () => ({ type: "pane", id: id(), tabs: [], active: null });
   function leaves(node) { return node.type === "pane" ? [node] : [...leaves(node.first), ...leaves(node.second)]; }
   function normalize(raw) {
-    let count = 0, tabs = 0;
+    let count = 0;
     const ids = new Set(), seen = new Set();
     function walk(n, depth = 0) {
       if (!n || depth > 8 || typeof n.id !== "string" || ids.has(n.id)) throw new Error("Invalid layout");
       ids.add(n.id);
       if (n.type === "pane") {
-        if (++count > MAX_PANES || !Array.isArray(n.tabs)) throw new Error("Too many panes");
-        const refs = n.tabs.map(reference).filter(r => { const key = identity(r); if (seen.has(key)) return false; seen.add(key); return true; });
-        if ((tabs += refs.length) > MAX_TABS) throw new Error("Too many tabs");
-        return { type: "pane", id: n.id, tabs: refs, active: refs.some(r => identity(r) === n.active) ? n.active : refs[0] ? identity(refs[0]) : null };
+        if (++count > MAX_PANES || !Array.isArray(n.tabs) || n.tabs.length > 32) throw new Error("Too many panes");
+        // A layout saved while a pane held tabs keeps the one it showed.
+        const refs = n.tabs.map(reference), shown = refs.find(r => identity(r) === n.active) || refs[0];
+        if (!shown || seen.has(identity(shown))) return { type: "pane", id: n.id, tabs: [], active: null };
+        seen.add(identity(shown));
+        return { type: "pane", id: n.id, tabs: [shown], active: identity(shown) };
       }
       if (n.type !== "split" || !["row", "column"].includes(n.axis)) throw new Error("Invalid split");
       return { type: "split", id: n.id, axis: n.axis, ratio: Math.max(.15, Math.min(.85, Number(n.ratio) || .5)), first: walk(n.first, depth + 1), second: walk(n.second, depth + 1) };
@@ -58,37 +61,31 @@
     const neighbour = tabs[Math.min(node.tabs.findIndex(r => identity(r) === key), tabs.length - 1)];
     return { ...node, tabs, active: node.active === key ? (neighbour ? identity(neighbour) : null) : node.active };
   }
+  // Shows a session in a pane, replacing the one there, or beside it in a new
+  // pane at an edge. A session moved from another pane leaves no empty pane.
   function insert(tree, target, ref, edge = "center") {
     ref = reference(ref);
     if (!["center", "left", "right", "top", "bottom"].includes(edge)) throw new Error("Invalid drop location");
     const targetPane = leaves(tree).find(p => p.id === target);
     if (!targetPane) throw new Error("Pane no longer exists");
-    if (edge !== "center" && leaves(tree).length >= MAX_PANES) throw new Error("最多同時顯示 8 個面板");
+    const source = leaves(tree).find(p => p.tabs.some(r => identity(r) === identity(ref)));
+    if (source?.id === target) return tree;
     let next = remove(tree, ref);
-    const destination = edge === "center" ? leaves(next).find(p => p.id === target) : pane();
-    destination.tabs = [...destination.tabs, ref]; destination.active = identity(ref);
+    if (source && leaves(next).length > 1) next = closePane(next, source.id);
+    if (edge !== "center" && leaves(next).length >= MAX_PANES) throw new Error("最多同時顯示 8 個面板");
+    const destination = edge === "center" ? { ...leaves(next).find(p => p.id === target) } : pane();
+    destination.tabs = [ref]; destination.active = identity(ref);
     if (edge === "center") return normalize(replace(next, target, destination));
     const old = leaves(next).find(p => p.id === target);
     const before = edge === "left" || edge === "top";
     return normalize(replace(next, target, { type: "split", id: id(), axis: ["left", "right"].includes(edge) ? "row" : "column", ratio: .5,
       first: before ? destination : old, second: before ? old : destination }));
   }
-  // index is a boundary in the original destination strip, before removal.
-  function moveAt(tree, target, ref, index) {
-    ref = reference(ref);
-    const destination = leaves(tree).find(p => p.id === target);
-    if (!destination) throw new Error("Pane no longer exists");
-    if (!Number.isInteger(index) || index < 0 || index > destination.tabs.length) throw new Error("Invalid tab position");
-    const oldIndex = destination.tabs.findIndex(r => identity(r) === identity(ref));
-    const next = remove(tree, ref), pane = leaves(next).find(p => p.id === target);
-    const tabs = [...pane.tabs]; tabs.splice(index - (oldIndex >= 0 && oldIndex < index ? 1 : 0), 0, ref);
-    return normalize(replace(next, target, { ...pane, tabs, active: oldIndex >= 0 ? destination.active : identity(ref) }));
-  }
-  function selectAdjacent(tree, target, direction) {
-    const pane = leaves(tree).find(p => p.id === target);
-    if (!pane?.tabs.length || ![-1, 1].includes(direction)) return tree;
-    const index = pane.tabs.findIndex(r => identity(r) === pane.active);
-    return replace(tree, target, { ...pane, active: identity(pane.tabs[(index + direction + pane.tabs.length) % pane.tabs.length]) });
+  // A session leaving the layout takes its pane along while other panes remain.
+  function drop(tree, ref) {
+    const pane = leaves(tree).find(p => p.tabs.some(r => identity(r) === identity(ref)));
+    if (!pane) return tree;
+    return leaves(tree).length > 1 ? closePane(tree, pane.id) : remove(tree, ref);
   }
   function closePane(tree, target) {
     if (tree.type === "pane") return tree.id === target ? pane() : tree;
@@ -96,7 +93,7 @@
     if (tree.second.id === target) return tree.first;
     return { ...tree, first: closePane(tree.first, target), second: closePane(tree.second, target) };
   }
-  const api = { pane, leaves, identity, reference, normalize, replace, remove, insert, moveAt, selectAdjacent, closePane };
+  const api = { pane, leaves, identity, reference, normalize, replace, remove, drop, insert, closePane };
   if (typeof module !== "undefined") module.exports = api;
   else root.StepsembleLayout = api;
 })(globalThis);

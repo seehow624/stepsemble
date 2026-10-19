@@ -317,3 +317,15 @@ test("closing the conversation clears every subagent, running ones too", () => {
   tracker.reset();
   assert.deepEqual(tracker.list(), []);
 });
+
+test("the conversation's subagents, current and from earlier turns, newest first and each once", () => {
+  const tracker = create();
+  tracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "first", name: "Agent", input: { description: "First", subagent_type: "a" } }] } });
+  tracker.claude({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "first", content: "done" }] } });
+  tracker.newTurn();
+  tracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "second", name: "Agent", input: { description: "Second", subagent_type: "b" } }] } });
+  assert.deepEqual(tracker.list().map(row => row.id), ["second"]);
+  assert.deepEqual(tracker.all().map(row => row.id), ["second", "first"]);
+  tracker.all()[0].name = "changed";
+  assert.equal(pick(tracker, "second").name, "b", "values are copies");
+});

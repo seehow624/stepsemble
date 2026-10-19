@@ -107,7 +107,7 @@ export async function runConversationBrowserCases(browser) {
         assert.equal(await pane.locator('#chat-agent-logo .agent-logo[data-agent-id="codex"]').count(), 1);
       } else {
         // On a desktop the tab names the conversation and shows its agent.
-        const selected = page.locator('.workspace-tab[aria-selected="true"]');
+        const selected = page.locator('.workspace-pane[data-focused="true"] .workspace-tab');
         await selected.locator(".workspace-tab-title").getByText("Same title", { exact: true }).waitFor();
         assert.equal(await selected.locator('.agent-logo[data-agent-id="codex"]').count(), 1);
       }
