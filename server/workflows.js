@@ -4,6 +4,7 @@
 const fs = require("node:fs"), path = require("node:path"), { randomUUID, createHash } = require("node:crypto");
 const ACTIVE = new Set(["starting", "running", "waiting"]);
 const RESUMABLE = new Set(["paused", "blocked", "interrupted"]);
+const FINISHED = new Set(["limited", "completed", "failed", "stopped"]);
 const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build"];
 const CHOICE = /^[^\s\u0000-\u001f\u007f]{1,256}$/, PERMISSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 // A temporary failure retries the same turn; a usage limit waits for its reset.
@@ -188,10 +189,10 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
   function elapsed(run) { return run.elapsedMs + (run.resumedAt === null ? 0 : Math.max(0, now() - run.resumedAt)); }
   // The clock stops while an approval or a retry waits, not just on pause.
   function holdClock(run) { run.elapsedMs = elapsed(run); run.resumedAt = null; }
-  function finish(run, status, error = null) {
+  function finish(run, status, error = null, announce = true) {
     run.elapsedMs = elapsed(run); run.resumedAt = null; run.waitingSince = null; run.retryAt = null; run.status = status; run.activity = status;
     run.error = error; run.updatedAt = now(); run.endedAt = now(); save();
-    try { onFinished(summary(run)); } catch (error) { onError(error); }
+    if (announce) try { onFinished(summary(run)); } catch (error) { onError(error); }
   }
   // An uncertain send is never replayed on Host restart.
   if (healthy) {
@@ -207,7 +208,11 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
     outputTokens: run.outputTokens + (ACTIVE.has(run.status) ? bridge.tokens?.(run) || 0 : 0), nonce: undefined, record: undefined, progressHash: undefined }; }
   function hasRunCapacity() { return state.runs.length < 200 || state.runs.some(r => ["limited", "completed", "failed", "stopped"].includes(r.status)); }
   function scheduledRunPending(id) { return state.runs.some(r => r.scheduleId === id && (ACTIVE.has(r.status) || ["queued", "stopping"].includes(r.status))); }
-  function list(entry = null) { return { available: healthy, runs: (entry ? state.runs.filter(r => r.entry === entry).slice(-1) : state.runs).map(summary), schedules: entry ? [] : clone(state.schedules).map(row => ({ ...row,
+  // A conversation shows its latest Goal until the person removes it; its
+  // history, newest first, includes removed ones.
+  function list(entry = null, { history = false } = {}) {
+    const runs = !entry ? state.runs : history ? state.runs.filter(r => r.entry === entry).slice(-20).reverse() : state.runs.filter(r => r.entry === entry).slice(-1).filter(r => !r.dismissedAt);
+    return { available: healthy, runs: runs.map(summary), schedules: entry ? [] : clone(state.schedules).map(row => ({ ...row,
     capacityBlocked: row.enabled && row.nextAt !== null && row.nextAt <= now() && !scheduledRunPending(row.id) && !hasRunCapacity() })), serverNow: now() }; }
   function trim() {
     const disposable = state.runs.filter(r => ["limited", "completed", "failed", "stopped"].includes(r.status));
@@ -420,6 +425,10 @@ function createWorkflows({ file, bridge, now = Date.now, autoStart = true, sleep
       if (limit(run)) throw invalid("Task limit reached; create a new Goal", 409);
       run.status = "queued"; run.activity = "queued"; run.error = null; run.notBefore = null;
       run.stalls = 0; run.progressHash = null; run.retries = 0; run.quotaSince = null; save(); void tick();
+    } else if (body.action === "dismiss" && (FINISHED.has(run.status) || RESUMABLE.has(run.status))) {
+      // A waiting Goal removed ends without a notification: the person did it.
+      if (RESUMABLE.has(run.status)) finish(run, "stopped", null, false);
+      run.dismissedAt = now(); save();
     } else throw invalid("This task cannot perform that action", 409);
     return summary(run);
   }

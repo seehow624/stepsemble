@@ -28,7 +28,7 @@
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 5v4h4M4 13a8 8 0 0 0 14.9 3M20 19v-4h-4"/></symbol>
   <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
   <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
-  <symbol id="i-ellipsis" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
+  <symbol id="i-ellipsis" viewBox="0 0 24 24"><g style="fill:currentColor;stroke:none"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></g></symbol>
   <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m8.5 12.5 6.9-6.9a3.2 3.2 0 1 1 4.5 4.5l-8.7 8.7a5 5 0 0 1-7.1-7.1l8.4-8.4"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
@@ -207,6 +207,7 @@
         <svg class="icon" aria-hidden="true"><use href="#i-branch"></use></svg>
         <span id="changes-badge" class="changes-badge hidden" data-i18n-ignore></span>
       </button>
+      <button id="btn-summary" class="btn ghost icon-btn" type="button" title="Summary" aria-label="Summary" data-summary-toggle><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
       <button id="btn-chat-menu" class="btn ghost icon-btn" title="More" aria-label="More"><svg class="icon"><use href="#i-ellipsis"></use></svg></button>
     </header>
     <div id="messages" class="messages">
@@ -224,8 +225,16 @@
           <strong id="native-run-title"></strong>
           <span id="native-run-meta" class="native-run-meta"></span>
         </button>
-        <p id="native-run-detail" class="native-run-detail" hidden></p>
+        <button id="native-run-dismiss" class="native-run-dismiss" type="button" hidden>×</button>
       </section>
+      <div id="native-run-detail" class="native-run-detail" hidden>
+        <p id="native-run-objective" class="native-run-objective"></p>
+        <div id="native-run-actions" class="native-run-actions" hidden>
+          <button id="native-goal-pause" class="btn ghost" type="button"></button>
+          <button id="native-goal-resume" class="btn ghost" type="button"></button>
+          <button id="native-goal-remove" class="btn ghost" type="button"></button>
+        </div>
+      </div>
     </div>
     <div id="compaction-status" class="compaction-status hidden" role="status" aria-live="polite" data-i18n-ignore></div>
     <div id="reference-wait" class="compaction-status reference-wait hidden" role="status" aria-live="polite" data-i18n-ignore></div>
@@ -317,26 +326,11 @@
     <div class="settings-scroll">
       <div class="settings-layout">
         <nav id="settings-nav" class="settings-nav" aria-label="Settings sections">
-          <button id="settings-host-card" class="settings-host-card" type="button" data-settings-open="devices">
-            <span id="settings-host-dot" class="settings-host-dot" aria-hidden="true"></span>
-            <span class="settings-host-copy"><small>Selected host</small><strong id="set-machine-name" data-i18n-ignore>Loading…</strong></span>
-            <span id="set-machine-host" class="settings-host-status">—</span>
-            <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
-          </button>
+          <h3 class="settings-nav-group" data-i18n-key="settings.groupGeneral">General</h3>
           <div class="settings-nav-list">
             <button class="settings-nav-item" type="button" data-settings-open="appearance">
               <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-palette"></use></svg></span>
               <span class="settings-nav-copy"><strong>Appearance</strong><small id="settings-summary-appearance" data-i18n-ignore></small></span>
-              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
-            </button>
-            <button class="settings-nav-item" type="button" data-settings-open="notifications">
-              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-bell"></use></svg></span>
-              <span class="settings-nav-copy"><strong data-i18n-key="settings.notificationsTitle">Notifications</strong><small id="settings-summary-notifications" data-i18n-ignore></small></span>
-              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
-            </button>
-            <button class="settings-nav-item" type="button" data-settings-open="agents">
-              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-cpu"></use></svg></span>
-              <span class="settings-nav-copy"><strong>Agents &amp; models</strong><small id="settings-summary-agents" data-i18n-key="settings.summaryAgents">Models, providers and quota sources</small></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
             <button class="settings-nav-item" type="button" data-settings-open="devices">
@@ -344,15 +338,34 @@
               <span class="settings-nav-copy"><strong>Devices &amp; access</strong><small id="settings-summary-devices" data-i18n-ignore></small></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
+            <button class="settings-nav-item" type="button" data-settings-open="about">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-info"></use></svg></span>
+              <span class="settings-nav-copy"><strong>About</strong><small id="settings-summary-about" data-i18n-ignore></small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+          </div>
+          <h3 class="settings-nav-group" data-i18n-key="settings.groupComputer">Computer settings</h3>
+          <button id="settings-host-card" class="settings-host-card" type="button" data-settings-open="devices">
+            <span id="settings-host-dot" class="settings-host-dot" aria-hidden="true"></span>
+            <span class="settings-host-copy"><small>Selected host</small><strong id="set-machine-name" data-i18n-ignore>Loading…</strong></span>
+            <span id="set-machine-host" class="settings-host-status">—</span>
+            <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+          </button>
+          <div class="settings-nav-list">
+            <button class="settings-nav-item" type="button" data-settings-open="agents">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-cpu"></use></svg></span>
+              <span class="settings-nav-copy"><strong>Agents &amp; models</strong><small id="settings-summary-agents" data-i18n-key="settings.summaryAgents">Models, providers and quota sources</small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-open="notifications">
+              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-bell"></use></svg></span>
+              <span class="settings-nav-copy"><strong data-i18n-key="settings.notificationsTitle">Notifications</strong><small id="settings-summary-notifications" data-i18n-ignore></small></span>
+              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+            </button>
             <button class="settings-nav-item" type="button" data-settings-open="updates">
               <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-update"></use></svg></span>
               <span class="settings-nav-copy"><strong>Updates</strong><small id="settings-summary-updates" data-i18n-ignore></small></span>
               <span id="settings-updates-badge" class="settings-nav-badge hidden" aria-hidden="true"></span>
-              <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
-            </button>
-            <button class="settings-nav-item" type="button" data-settings-open="about">
-              <span class="settings-nav-icon" aria-hidden="true"><svg class="icon"><use href="#i-info"></use></svg></span>
-              <span class="settings-nav-copy"><strong>About</strong><small id="settings-summary-about" data-i18n-ignore></small></span>
               <svg class="icon settings-nav-chevron" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
             </button>
           </div>
@@ -859,6 +872,7 @@
       <h2 id="sa-title" class="sa-title">Session</h2>
       <button id="sa-model" class="action-row" type="button">⚡ Model &amp; reasoning…</button>
       <button id="sa-rename" class="action-row" type="button">✏️ Rename</button>
+      <button id="sa-changes" class="action-row" type="button">🔀 View changes</button>
       <button id="sa-export" class="action-row" type="button">⬇️ Export as Markdown</button>
       <button id="sa-delete" class="action-row" type="button">Archive chats</button>
       <button id="sa-cancel" class="action-row cancel" type="button">Cancel</button>
@@ -1113,7 +1127,7 @@
 <script src="/modules/composer-ime.js?v=3.9.26"></script>
 <script src="/modules/workflow-text.js?v=3.9.26"></script>
 <script src="/modules/goal-composer.js?v=3.9.26"></script>
-<script src="/modules/session-reference-i18n.js?v=3.9.26"></script><script src="/modules/session-reference.js?v=3.9.26"></script><script src="/modules/subagent-i18n.js?v=3.9.26"></script><script src="/modules/subagents.js?v=3.9.26"></script><script src="/modules/subagent-panel.js?v=3.9.26"></script><script src="/modules/compaction-i18n.js?v=3.9.26"></script><script src="/modules/agent-compaction.js?v=3.9.26"></script>
+<script src="/modules/session-reference-i18n.js?v=3.9.26"></script><script src="/modules/session-reference.js?v=3.9.26"></script><script src="/modules/subagent-i18n.js?v=3.9.26"></script><script src="/modules/subagents.js?v=3.9.26"></script><script src="/modules/subagent-panel.js?v=3.9.26"></script><script src="/modules/session-summary.js?v=3.9.26"></script><script src="/modules/compaction-i18n.js?v=3.9.26"></script><script src="/modules/agent-compaction.js?v=3.9.26"></script>
 <script src="/modules/workflows-i18n.js?v=3.9.26"></script><script src="/modules/workflows-ui.js?v=3.9.26"></script>
 <script src="/app.js?v=3.9.26"></script>
 </body>

@@ -122,7 +122,7 @@ const el = {
   machineCatalogStatus: $("machine-catalog-status"), machineCatalogStatusCopy: $("machine-catalog-status-copy"), machineCatalogRetry: $("machine-catalog-retry"),
   btnBack: $("btn-back"), chatTitle: $("chat-title"), chatSub: $("chat-sub"), chatAgentLogo: $("chat-agent-logo"),
   chatHeadInfo: $("chat-head-info"), thinkingStatus: $("thinking-status"), btnChatMenu: $("btn-chat-menu"),
-  btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"),
+  btnChanges: $("btn-changes"), changesBadge: $("changes-badge"), changesLayer: $("changes-layer"), btnSummary: $("btn-summary"),
   changesTitle: $("changes-title"), changesRepository: $("changes-repository"), changesRefresh: $("changes-refresh"), changesCommit: $("changes-commit"), changesClose: $("changes-close"),
   changesSummary: $("changes-summary"), changesFilesPane: $("changes-files-pane"), changesState: $("changes-state"), changesList: $("changes-list"),
   changesFooter: $("changes-footer"), changesStagingCopy: $("changes-staging-copy"),
@@ -131,6 +131,9 @@ const el = {
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
   nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
   nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
+  nativeRunObjective: $("native-run-objective"), nativeRunActions: $("native-run-actions"),
+  nativeGoalPause: $("native-goal-pause"), nativeGoalResume: $("native-goal-resume"), nativeGoalRemove: $("native-goal-remove"),
+  nativeRunDismiss: $("native-run-dismiss"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -200,7 +203,7 @@ const el = {
   newCancel: $("new-cancel"), newStart: $("new-start"), newFolderUp: $("new-folder-up"),
   newFolderHome: $("new-folder-home"), newFolderPath: $("new-folder-path"), newFolderList: $("new-folder-list"),
   saSheet: $("session-action-sheet"), saTitle: $("sa-title"),
-  saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saExport: $("sa-export"), saCancel: $("sa-cancel"),
+  saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saExport: $("sa-export"), saCancel: $("sa-cancel"), saChanges: $("sa-changes"),
   projectActionSheet: $("project-action-sheet"), projectActionTitle: $("pa-title"),
   projectActionPin: $("pa-pin"), projectActionEdit: $("pa-edit"), projectActionReveal: $("pa-reveal"),
   projectActionWorktree: $("pa-worktree"), projectActionArchive: $("pa-archive"), projectActionRemove: $("pa-remove"),
@@ -3831,9 +3834,13 @@ el.btnLayout?.addEventListener("click", () => {
 
 // ---- 長按動作 sheet ----
 let actionTarget = null;
+// A Pi conversation's file can be exported or archived; every conversation
+// can be renamed and its project's changes reviewed from here.
 function openSessionActions(s) {
   actionTarget = s;
   el.saTitle.textContent = sessionDisplayTitle(s).slice(0, 60);
+  for (const row of [el.saModel, el.saExport, el.saDelete]) if (row) row.hidden = !s?.file;
+  if (el.saChanges) el.saChanges.hidden = !!el.btnChanges?.hidden || el.btnChanges?.classList.contains("hidden");
   el.saSheet.classList.remove("hidden");
 }
 function closeSessionActions() {
@@ -5783,13 +5790,43 @@ function codexGoalTitle(status) {
   return window.stepsembleI18n?.t("Pursuing goal") || "Pursuing goal";
 }
 
+// A Codex goal that is not at work can be closed from the row of chips. It
+// is only hidden here, so the summary still lists it; it shows again once it
+// works again or another goal starts.
+const CODEX_GOALS_CLOSED_KEY = "stepsemble.codexGoals.closed.v1";
+function closedCodexGoals() {
+  try { const value = JSON.parse(localStorage.getItem(CODEX_GOALS_CLOSED_KEY)); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
+  catch { return {}; }
+}
+function codexGoalClosed(threadId, goal) {
+  if (!threadId || !goal) return false;
+  const closed = closedCodexGoals();
+  if (goal.status === "active" && closed[threadId]) {
+    delete closed[threadId];
+    try { localStorage.setItem(CODEX_GOALS_CLOSED_KEY, JSON.stringify(closed)); } catch {}
+    return false;
+  }
+  return closed[threadId] === `${goal.createdAt}:${goal.objective.length}`;
+}
+function closeCodexGoal() {
+  const connection = rpc, goal = connection?.nativeTranscriptState?.goal, threadId = connection?.nativeThreadId;
+  if (!goal || !threadId || goal.status === "active") return;
+  const closed = closedCodexGoals();
+  closed[threadId] = `${goal.createdAt}:${goal.objective.length}`;
+  // Only the newest few are kept.
+  const ids = Object.keys(closed); for (const id of ids.slice(0, Math.max(0, ids.length - 200))) delete closed[id];
+  try { localStorage.setItem(CODEX_GOALS_CLOSED_KEY, JSON.stringify(closed)); } catch {}
+  renderCodexNativeRunState(connection);
+}
+el.nativeRunDismiss?.addEventListener("click", closeCodexGoal);
+
 function renderCodexNativeRunState(connection) {
   const root = el.nativeRunState;
   if (!root) return;
   const state = connection?.nativeCodex ? connection.nativeTranscriptState : null;
   const running = connection?.taskStatus === "running" || state?.thread?.status?.type === "active"
     || state?.observation?.working === true;
-  const goal = state?.goal && state.goal.status !== "complete" ? state.goal : null;
+  const goal = state?.goal && state.goal.status !== "complete" && !codexGoalClosed(connection?.nativeThreadId, state.goal) ? state.goal : null;
   // Plain work is shown in the conversation's own "Working for …" header;
   // this banner remains only for a Codex goal, which spans several turns.
   if (!connection || !goal) {
@@ -5809,13 +5846,52 @@ function renderCodexNativeRunState(connection) {
     : (window.stepsembleI18n?.t("Working…") || "Working…");
   root.setAttribute("aria-label", title);
   el.nativeRunTitle.textContent = title;
-  el.nativeRunDetail.textContent = goal.objective;
-  el.nativeRunMeta.textContent = [running ? (window.stepsembleI18n?.t("Working…") || "Working…") : "", elapsed]
-    .filter(Boolean).join(" · ");
+  el.nativeRunObjective.textContent = goal.objective;
+  // A narrow pane keeps the time: the pulsing dot already says it works.
+  const part = (cls, text) => { const span = document.createElement("span"); span.className = cls; span.textContent = text; return span; };
+  el.nativeRunMeta.replaceChildren(...[running && part("native-run-working", window.stepsembleI18n?.t("Working…") || "Working…"),
+    elapsed && part("native-run-elapsed", elapsed)].filter(Boolean));
+  el.nativeRunDismiss.hidden = goal.status === "active";
+  const close = tKey("goalComposer.close"); el.nativeRunDismiss.title = close; el.nativeRunDismiss.setAttribute("aria-label", close);
+  root.dataset.closable = String(!el.nativeRunDismiss.hidden);
+  // A conversation Stepsemble can write to pauses, resumes or removes its goal.
+  el.nativeRunActions.hidden = !connection.nativeCodexMutation || !connection.nativeThreadId;
+  for (const [button, key, shown] of [[el.nativeGoalPause, "pause", goal.status === "active"],
+    [el.nativeGoalResume, "resume", goal.status === "paused"], [el.nativeGoalRemove, "remove", true]]) {
+    button.textContent = tKey("goalComposer." + key); button.hidden = !shown; button.disabled = connection.codexGoalChanging === true;
+  }
 }
 
-// Codex's own goal is a chip like Stepsemble's Goal: its objective opens below
-// it and closes again.
+// Codex records the change as the person's own; reads begun before it do not
+// put the earlier goal back.
+async function changeCodexGoal(action) {
+  const connection = rpc, threadId = connection?.nativeThreadId;
+  if (!connection?.nativeCodexMutation || !threadId || connection.codexGoalChanging) return;
+  connection.codexGoalChanging = true;
+  connection.nativeGoalRevision = (connection.nativeGoalRevision || 0) + 1;
+  renderCodexNativeRunState(connection);
+  try {
+    const result = await post("/api/codex/mutation/goal", { threadId, action });
+    if (rpc !== connection) return;
+    const state = connection.nativeTranscriptState;
+    if (state && result?.kind === "thread_goal_cleared") {
+      if (state.goal) state.clearedGoal = { objective: state.goal.objective, createdAt: state.goal.createdAt };
+      state.goal = null;
+    } else if (state && result?.goal) state.goal = result.goal;
+  } catch {
+    if (rpc === connection) toast(tKey("goalComposer.changeFailed"), true);
+  } finally {
+    connection.codexGoalChanging = false;
+    connection.nativeGoalRevision += 1;
+    if (rpc === connection) renderCodexNativeRunState(connection);
+  }
+}
+el.nativeGoalPause?.addEventListener("click", () => void changeCodexGoal("pause"));
+el.nativeGoalResume?.addEventListener("click", () => void changeCodexGoal("resume"));
+el.nativeGoalRemove?.addEventListener("click", () => void changeCodexGoal("clear"));
+
+// Codex's own goal is a chip like Stepsemble's Goal: its objective and actions
+// open below the row of chips and close again.
 function setNativeGoalOpen(open) {
   if (!el.nativeRunToggle) return;
   el.nativeRunToggle.setAttribute("aria-expanded", String(open));
@@ -6031,9 +6107,10 @@ function reconcileCodexNativeEchoes(connection) {
 function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) {
   if (rpc !== connection || !connection?.nativeCodex) return;
   const state = connection.nativeTranscriptState;
-  // The newest turn's collab items name its subagents and their states.
+  // The newest turn's collab items name its subagents and their states; the
+  // turn's id tells the tracker when a new one began.
   const chronological = [...(state?.entries || [])].reverse(), latestTurn = chronological.at(-1)?.turnId;
-  subagentTracker?.codex(chronological.filter(entry => entry.turnId === latestTurn).map(entry => entry.item));
+  subagentTracker?.codex(chronological.filter(entry => entry.turnId === latestTurn).map(entry => entry.item), latestTurn ?? null);
   const rendered = connection.nativeRenderedItems ||= new Map();
   const oldTop = el.messages.scrollTop;
   const oldHeight = el.messages.scrollHeight;
@@ -6213,7 +6290,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
   if (!connection || rpc !== connection || !connection.nativeCodex) return;
   if (connection.nativeTranscriptState.loading || connection.nativeRefreshInFlight) return;
   const generation = viewGeneration;
-  const sendRevision = connection.nativeSendRevision || 0;
+  const sendRevision = connection.nativeSendRevision || 0, goalRevision = connection.nativeGoalRevision || 0;
   const controller = new AbortController();
   const isCurrent = () => rpc === connection && generation === viewGeneration;
   connection.nativeHistoryRequest = controller;
@@ -6233,7 +6310,9 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     // Leave an older-page error visible until that page is successfully retried.
     applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
     connection.nativeTranscriptState.goalAvailable = page.goalAvailable;
-    connection.nativeTranscriptState.goal = page.goal || null;
+    const cleared = connection.nativeTranscriptState.clearedGoal;
+    if (goalRevision === (connection.nativeGoalRevision || 0)) connection.nativeTranscriptState.goal = page.goal
+      && !(cleared && page.goal.objective === cleared.objective && page.goal.createdAt === cleared.createdAt) ? page.goal : null;
     connection.nativeTranscriptState.observation = page.observation || null;
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
@@ -7501,6 +7580,8 @@ function agentOpenFailureText(error, options = {}) {
     return tKey("agentHub.projectFolderUnavailable");
   }
   if (code === "claude_folder_pending") return tKey("agentHub.claudeFolderPending");
+  // Codex lets one process write a conversation; the Codex app may hold it.
+  if (code === "codex_thread_open_elsewhere" || message === "codex_thread_open_elsewhere") return tKey("agentHub.codexThreadOpenElsewhere");
   if (code === "desktop_workspace_denied" || message === "desktop_workspace_denied") return tKey("agentHub.claudeFolderDenied");
   return message || tKey("runtime.openChatFailed", { detail: "unknown error" });
 }
@@ -11845,9 +11926,10 @@ el.btnAbort.addEventListener("click", async () => {
 // sessions also keep their other actions.
 el.btnChatMenu.addEventListener("click", () => {
   if (currentSessionFile) { openSessionActions({ ...actionStubFrom(currentSessionFile) }); }
-  else if (WORKSPACE_ENTRY_KEY && rpc) openRenameDialog({ name: el.chatTitle.textContent });
+  else if (WORKSPACE_ENTRY_KEY && rpc) openSessionActions({ name: el.chatTitle.textContent });
   else toast(tKey("runtime.newChatNeedsMessage"));
 });
+el.saChanges?.addEventListener("click", () => { closeSessionActions(); el.btnChanges?.click(); });
 let currentSessionFile = null;
 function actionStubFrom(file) {
   const s = sessionsCache.find(x => x.file === file);
@@ -19272,6 +19354,12 @@ if (WORKSPACE_PANE) {
     if (event.origin !== location.origin || event.source !== parent) return;
     if (event.data?.type === "workspace-detach") closeChat(true);
     if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
+    // The pane's title bar holds the conversation's summary and actions.
+    if (event.data?.type === "workspace-command") {
+      if (event.data.command === "summary") void toggleSessionSummary();
+      if (event.data.command === "changes") el.btnChanges?.click();
+      if (event.data.command === "menu") el.btnChatMenu?.click();
+    }
     if (event.data?.type === "workspace-reference-session") {
       const result = sessionReferences?.add(event.data.session);
       if (result && !result.added) toast(referenceCopy(result.reason === "unsupported" ? "reference_source_unavailable" : result.reason), true);
@@ -19449,8 +19537,53 @@ subagentPanel = subagentTracker && subagentBar && window.StepsembleSubagentPanel
     return api(`/api/subagent/detail?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}&id=${encodeURIComponent(id)}`);
   } }) || null;
 subagentTracker?.onChange(() => { subagentPanel?.render(subagentTracker.list()); syncSubagentCards(); });
+// The Goal, Codex goal and subagent chips sit side by side; one of their
+// panels opens at a time, below them.
+subagentBar?.addEventListener("click", event => {
+  const chip = event.target.closest?.(".subagent-bubble, .goal-chip, #native-run-toggle");
+  if (!chip) return;
+  if (!chip.matches(".subagent-bubble")) subagentPanel?.collapse?.();
+  if (!chip.matches(".goal-chip")) conversationGoal?.collapse?.();
+  if (!chip.matches("#native-run-toggle")) setNativeGoalOpen(false);
+}, true);
 // Elapsed times move while a subagent works; nothing redraws when none does.
 setInterval(() => { if (subagentTracker?.summary().running) subagentPanel?.render(subagentTracker.list()); }, 1000);
+
+// The conversation's summary: its goals, subagents, the files it wrote and
+// what it read, opened from the pane's title bar or the phone's title row.
+const sessionSummary = window.StepsembleSessionSummary?.mount({ document, container: el.viewChat, t: key => tKey("sessionSummary." + key),
+  onSubagent: id => { const row = subagentTracker?.get(id); if (row) subagentPanel?.show([row]); },
+  onFile: link => openHostFile(link), onChanges: () => el.btnChanges?.click(), fileLink: path => hostFileLink(path) }) || null;
+let summaryGoalRuns = [];
+function sessionSummaryData() {
+  const goals = [];
+  const codexGoal = rpc?.nativeCodex ? rpc.nativeTranscriptState?.goal : null;
+  if (codexGoal) goals.push({ objective: codexGoal.objective, state: codexGoal.status, label: codexGoal.status === "complete" ? tKey("goalComposer.state.completed") : codexGoalTitle(codexGoal.status),
+    elapsed: runElapsedText(Math.max(0, Number(codexGoal.timeUsedSeconds) || 0) * 1000) });
+  for (const run of summaryGoalRuns) goals.push({ objective: run.objective, state: run.status, label: tKey("goalComposer.state." + run.status),
+    elapsed: runElapsedText(Math.max(0, Number(run.elapsedMs) || 0)) });
+  const subagents = (subagentTracker?.all() || []).map(row => ({ id: row.id, name: row.name, task: row.task, status: row.status, statusLabel: subagentCopy("status_" + (row.status || "running")) }));
+  const tools = [...el.messages.querySelectorAll(".tool-card")].map(card => card.__tool).filter(Boolean);
+  const links = [...el.messages.querySelectorAll(".msg.assistant a[href]")].map(link => link.getAttribute("href"));
+  // How many files the project has changed, as the title row's badge said.
+  const changes = el.changesBadge && !el.changesBadge.classList.contains("hidden") ? el.changesBadge.textContent.trim() : "";
+  return { goals, subagents, changes, outputs: window.StepsembleSessionSummary.outputs(tools), sources: window.StepsembleSessionSummary.sources(tools, links) };
+}
+async function toggleSessionSummary() {
+  if (!sessionSummary) return;
+  if (sessionSummary.isOpen()) { sessionSummary.hide(); return; }
+  subagentPanel?.collapse?.(); conversationGoal?.collapse?.(); setNativeGoalOpen(false);
+  sessionSummary.show(sessionSummaryData);
+  if (!WORKSPACE_ENTRY_KEY) return;
+  const base = apiBase;
+  try {
+    const data = await api("/api/workflows?entry=" + encodeURIComponent(WORKSPACE_ENTRY_KEY) + "&history=1");
+    if (base !== apiBase) return;
+    summaryGoalRuns = (data.runs || []).filter(run => run.entry === WORKSPACE_ENTRY_KEY && run.mode !== "task");
+    sessionSummary.render();
+  } catch {}
+}
+el.btnSummary?.addEventListener("click", () => void toggleSessionSummary());
 
 conversationGoal = window.StepsembleWorkflows?.mountConversation({ api, post,
   getConnection: () => rpc, getAgentId: () => conversationAgentId(),

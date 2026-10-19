@@ -688,3 +688,5 @@ html.reduced-motion .assistant-menu-sheet, html.reduced-motion .assistant-toast,
 /* 嵌在 Workspace 分頁裡：Workspace 已有切換、電腦與 Bot 列表，分頁只留頁面本身。 */
 .assistant-embedded .ios-status-strip, .assistant-embedded .assistant-top, .assistant-embedded .assistant-back.to-list { display: none !important; }
 .assistant-embedded.assistant-offline .assistant-bot-head { box-shadow: inset 0 -2px 0 var(--warn); }
+.assistant-embedded:not(.assistant-workspace-mobile) .assistant-bot-head { display: none; }
+.assistant-embedded.assistant-workspace-mobile .assistant-back.to-list { display: inline-flex !important; }

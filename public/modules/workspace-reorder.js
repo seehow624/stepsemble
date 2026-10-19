@@ -19,9 +19,10 @@
     function begin(event, native) {
       cancel();
       const origin = [event.clientX, event.clientY], grab = source.querySelector("header") || source;
-      const bounds = grab.getBoundingClientRect(), scroller = source.closest("#workspace-projects");
+      // Each computer's section orders its own projects; the list scrolls.
+      const bounds = grab.getBoundingClientRect(), scroller = source.closest("#workspace-projects"), within = source.closest(".workspace-machine") || scroller;
       let ghost = null, marker = null, active = false, closed = false, before = id, frame = 0, timer = 0, point = origin;
-      const peers = () => [...scroller.querySelectorAll("[data-reorder-kind]")].filter(node => node.dataset.reorderKind === kind && node.dataset.reorderGroup === group && node.dataset.pinned === String(pinned));
+      const peers = () => [...within.querySelectorAll("[data-reorder-kind]")].filter(node => node.dataset.reorderKind === kind && node.dataset.reorderGroup === group && node.dataset.pinned === String(pinned));
       const update = () => {
         if (ghost) ghost.style.transform = `translate(${point[0] - origin[0]}px,${point[1] - origin[1]}px)`;
         const rows = peers();

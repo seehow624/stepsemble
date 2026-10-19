@@ -360,10 +360,11 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.getByText("Gateway restarted").waitFor();
       assert.ok(preview.fake.state.consoleCalls.some(call => call.method === "gateway.restart"));
 
-      stage = "Workspace switch";
+      stage = "Workspace list";
+      // The Bots share the Workspace's list with the sessions; there is no switch.
       await page.goto(preview.origin + "/workspace.html");
-      await page.locator("#workspace-mode:not([hidden])").waitFor({ state: "attached" });
-      assert.equal(await page.locator("#workspace-mode a").getAttribute("href"), "/assistant.html");
+      await page.locator("#workspace-projects #workspace-assistant .workspace-assistant-row[data-profile=default]").waitFor();
+      assert.equal(await page.locator("#workspace-mode").isVisible(), false);
       assert.deepEqual(errors, []);
     } catch (error) {
       error.message = `assistant ${viewport.width} at ${stage}: ${error.message}`;

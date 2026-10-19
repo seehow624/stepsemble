@@ -23,7 +23,8 @@ export async function runWorkspaceStatusBrowserCases(browser) {
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
       });
       await page.goto(fixture.origin + "/workspace.html");
-      const rows = page.locator(".workspace-session-row"), status = index => rows.nth(index).locator(".workspace-session-status");
+      // With two computers the current one's section comes first, below Recent.
+      const rows = page.locator(".workspace-machine").first().locator(".workspace-session-row"), status = index => rows.nth(index).locator(".workspace-session-status");
       const state = async (index, value) => status(index).and(page.locator(`[data-state="${value}"]`)).waitFor();
       await state(0, "working"); await state(1, "unread"); await state(2, "attention");
       assert.match(await rows.nth(0).locator(".workspace-session").getAttribute("aria-label"), /Working/);
@@ -40,7 +41,7 @@ export async function runWorkspaceStatusBrowserCases(browser) {
       await page.reload(); await state(0, "unread");
       stage = "open reads on Host";
       await rows.nth(0).locator(".workspace-session")[mobile ? "tap" : "click"]();
-      await page.waitForFunction(() => document.querySelector(".workspace-session-status")?.dataset.state === "idle");
+      await page.waitForFunction(() => document.querySelector(".workspace-machine .workspace-session-status")?.dataset.state === "idle");
       assert.ok(fixture.reads.some(row => row.key === key && row.completionId === completion(1).id));
       const backToList = async () => {
         if (mobile) {
@@ -62,27 +63,33 @@ export async function runWorkspaceStatusBrowserCases(browser) {
       stage = "cross-device read sync";
       const second = await context.newPage();
       await second.goto(fixture.origin + "/workspace.html");
-      await second.locator(`.workspace-session-row[data-entry="${key}"] .workspace-session`).click();
-      await second.waitForFunction(() => document.querySelector(".workspace-session-status")?.dataset.state === "idle");
+      await second.locator(`.workspace-machine[data-host="mini"] .workspace-session-row[data-entry="${key}"] .workspace-session`).click();
+      await second.waitForFunction(() => document.querySelector(".workspace-machine .workspace-session-status")?.dataset.state === "idle");
       await second.close(); await page.bringToFront(); await state(0, "idle");
       stage = "Host isolation";
-      await page.locator("#workspace-host").selectOption("mbp");
-      await state(0, "idle");
+      // The other computer's section, read every ten seconds, shows its own states.
+      const otherRows = page.locator('.workspace-machine[data-host="mbp"] .workspace-session-row');
+      const other = index => otherRows.nth(index).locator(".workspace-session-status");
+      const otherState = async (index, value) => other(index).and(page.locator(`[data-state="${value}"]`)).waitFor({ timeout: 30_000 });
+      await page.mouse.move(5, 5);
+      if (mobile) await page.locator("#workspace-sidebar").dispatchEvent("pointerleave");
+      await otherState(0, "idle");
       await fixture.setActivity("mbp", 0, { working: false, completion: completion(5) });
-      await state(0, "unread");
+      await otherState(0, "unread");
+      await state(0, "idle");
       assert.equal((await fixture.snapshot("mini")).entries[0].completion.read, true);
       stage = "reduced motion";
       await fixture.setActivity("mbp", 0, { working: true });
-      await state(0, "working");
+      await otherState(0, "working");
       await page.emulateMedia({ reducedMotion: "reduce" });
-      assert.equal(await status(0).evaluate(el => getComputedStyle(el, "::after").animationName), "none");
+      assert.equal(await other(0).evaluate(el => getComputedStyle(el, "::after").animationName), "none");
       stage = "slow Host does not starve status refresh";
       await page.route("**/api/workspace", async route => {
         await new Promise(resolve => setTimeout(resolve, 4000));
         await route.continue();
       });
       await fixture.setActivity("mbp", 0, { working: false, completion: completion(6) });
-      await state(0, "unread");
+      await otherState(0, "unread");
       await page.unrouteAll({ behavior: "wait" });
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "Session status " + (mobile ? "mobile" : "desktop"), result: "passed", modelCalls: 0 }));

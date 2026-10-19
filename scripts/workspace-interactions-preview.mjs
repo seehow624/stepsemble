@@ -7,11 +7,12 @@ import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 import Order from "../public/modules/workspace-order.js";
 import { createRequire } from "node:module";
 const appVersion = createRequire(import.meta.url)("../package.json").version;
-export async function createWorkspaceInteractionsPreview(port = 0) {
+// One computer keeps the plain single list; two share one merged list.
+export async function createWorkspaceInteractionsPreview(port = 0, { computers = 2 } = {}) {
   const now = Date.now();
   const base = { entry: "00000000-0000-4000-8000-000000000001", title: "改善專案操作體驗", objective: "完成介面調整並驗證操作。", agentId: "codex", cwd: "/tmp/Stepsemble/Website", mode: "goal", createdAt: now, updatedAt: now, startedAt: now, resumedAt: now, elapsedMs: 72000, turns: 2, outputTokens: 3200, limits: { minutes: 30, turns: 10, outputTokens: 100000 } };
   const backend = await createNativeComposerPreview({ workflows: { runs: [{ ...base, id: "preview-goal", status: "running", activity: "驗證拖動與通知" }], schedules: [{ ...base, id: "preview-schedule", title: "每日專案健康檢查", enabled: true, mode: "task", schedule: { kind: "daily", time: "09:00", timeZone: "Asia/Kuala_Lumpur" }, nextAt: now + 3600000 }] } });
-  const machines = [{ id: "mini", name: "Mac Mini", self: true, local: true }, { id: "mbp", name: "MacBook Pro", self: false, local: false }].map(row => ({ ...row, host: "127.0.0.1", authMode: "local", managed: true }));
+  const machines = [{ id: "mini", name: "Mac Mini", self: true, local: true }, { id: "mbp", name: "MacBook Pro", self: false, local: false }].slice(0, computers).map(row => ({ ...row, host: "127.0.0.1", authMode: "local", managed: true }));
   const presentations = new Map();
   const activity = new Map(), reads = [];
   let cached;

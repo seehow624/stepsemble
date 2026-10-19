@@ -218,9 +218,7 @@ export async function runAssistantMobileBrowserCases(browser, { only, screenshot
           if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `assistant-layout-${item.width}-${item.theme}.png`) }); }
         }
       } else {
-        await page.goto(preview.origin + "/workspace.html");
-        await page.locator("#workspace-mode:not([hidden])").waitFor({ state: "attached" });
-        await page.locator("#workspace-mode a").click();
+        await page.goto(preview.origin + "/assistant.html");
         await page.locator(".assistant-bot-row[data-profile=default]").click();
         await page.locator(".assistant-input").waitFor();
         await page.goBack();

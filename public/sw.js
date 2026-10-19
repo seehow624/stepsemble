@@ -28,6 +28,7 @@ const SHELL = [
   "/modules/subagent-i18n.js?v=3.9.26",
   "/modules/subagents.js?v=3.9.26",
   "/modules/subagent-panel.js?v=3.9.26",
+  "/modules/session-summary.js?v=3.9.26",
   "/modules/compaction-i18n.js?v=3.9.26",
   "/modules/agent-compaction.js?v=3.9.26",
   "/modules/workflows-ui.js?v=3.9.26",

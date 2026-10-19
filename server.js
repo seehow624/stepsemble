@@ -2128,7 +2128,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -6171,7 +6171,7 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 200, await workflowOptions(agentId, url.searchParams.get("cwd") || null)); return;
       }
       if (p === "/api/workflows" && req.method === "GET") {
-        sendJSON(res, 200, { ...workflows.list(url.searchParams.get("entry") || null), keepsAwake: workflowSleepGuard.supported }); return;
+        sendJSON(res, 200, { ...workflows.list(url.searchParams.get("entry") || null, { history: url.searchParams.get("history") === "1" }), keepsAwake: workflowSleepGuard.supported }); return;
       }
       if (p === "/api/workflows" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024);
@@ -6936,6 +6936,25 @@ const server = http.createServer(async (req, res) => {
           const result = await codexNative.resumeThread({ threadId: body?.threadId, ...(body?.excludeTurns === true ? { excludeTurns: true } : {}) });
           sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_resume_failed" }); }
+        return;
+      }
+      // A Codex goal the person pauses, lets go on, or clears. Only the Codex
+      // process holding the thread may change it, so a thread none holds is
+      // resumed first, as a Goal's own turn does.
+      if (p === "/api/codex/mutation/goal" && req.method === "POST") {
+        try {
+          await ensureCodexNativeProbe();
+          const body = await readJSON(req, 4096);
+          const change = { pause: "paused", resume: "active", clear: "clear" }[body?.action];
+          const threadId = typeof body?.threadId === "string" ? body.threadId : "";
+          if (!change || !threadId) { sendJSON(res, 400, { error: "invalid_goal_change" }); return; }
+          if (!codexNative.nativeState(threadId).threadId) {
+            const resumed = await codexNative.resumeThread({ threadId });
+            if (resumed?.kind === "reject") { sendJSON(res, 409, resumed); return; }
+          }
+          const result = await codexNative.changeThreadGoal(threadId, change);
+          sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "codex_goal_change_failed" }); }
         return;
       }
       if (p === "/api/codex/mutation/approval" && req.method === "POST") {

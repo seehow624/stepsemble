@@ -37,7 +37,8 @@ const APPROVAL_METHODS = Object.freeze([
 ]);
 const CLIENT_METHODS = Object.freeze([
   "initialize", "account/rateLimits/read", "thread/start", "thread/resume", "thread/read", "thread/list",
-  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/name/set", "thread/compact/start", "model/list", "turn/start", "turn/interrupt",
+  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/goal/set", "thread/goal/clear", "thread/name/set", "thread/compact/start",
+  "model/list", "turn/start", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
@@ -243,6 +244,8 @@ function normalizeThreadItemsResponse(value) {
 }
 
 const THREAD_GOAL_STATUSES = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
+// The states a person sets: pause a goal, or let it go on.
+const THREAD_GOAL_SET_STATUSES = new Set(["active", "paused"]);
 
 function normalizeThreadGoal(value) {
   if (!plain(value) || !nativeId(value.threadId) || typeof value.objective !== "string"
@@ -944,10 +947,12 @@ function createCodexAppServerTransport({
       if (!row) { fail("native_response_unmatched"); return; }
       pending.delete(key(value.id)); clearTimeout(row.timer);
       if (value.error) {
-        const error = new Error("native_request_rejected"); error.code = "native_request_rejected";
         // Codex refuses history reads for a thread whose first message has
-        // not been sent. Keep only that fact; the upstream text stays here.
+        // not been sent, and any write to a thread another process (the Codex
+        // app) holds open. Keep only those facts; the upstream text stays here.
         const message = typeof value.error.message === "string" ? value.error.message.slice(0, 1024) : "";
+        const code = /\balready has an active writer\b/i.test(message) ? "codex_thread_open_elsewhere" : "native_request_rejected";
+        const error = new Error(code); error.code = code;
         if (/\bnot materialized\b/i.test(message)) error.threadUnmaterialized = true;
         row.reject(error); return;
       }
@@ -1056,6 +1061,32 @@ function createCodexAppServerTransport({
     if (params.threadId !== threadId) return reject("native_thread_mismatch");
     await request("thread/name/set", { threadId: params.threadId, name: params.name }, { check: value => plain(value) });
     return { kind: "named", threadId: params.threadId, name: params.name };
+  }
+
+  // Pauses or resumes, or clears, the goal of the thread this process owns.
+  // Codex lets only the process holding a thread change its goal, and marks
+  // the change as the person's own.
+  function goalMutationRefused(params, keys) {
+    if (!plain(params) || Reflect.ownKeys(params).length !== keys || !nativeId(params.threadId)) return reject("invalid_native_params");
+    if (!initialized || closed || failure || !threadId || !["thread_started", "turn_running"].includes(state)) return reject("native_lifecycle_conflict");
+    return params.threadId === threadId ? null : reject("native_thread_mismatch");
+  }
+  async function setThreadGoal(params = {}) {
+    if (plain(params) && !THREAD_GOAL_SET_STATUSES.has(params.status)) return reject("invalid_native_params");
+    const refused = goalMutationRefused(params, 2);
+    if (refused) return refused;
+    const response = await request("thread/goal/set", { threadId: params.threadId, status: params.status, origin: "user" }, {
+      check: value => normalizeThreadGoalResponse(value)?.goal?.threadId === params.threadId,
+    });
+    return { kind: "thread_goal", ...normalizeThreadGoalResponse(response) };
+  }
+  async function clearThreadGoal(params = {}) {
+    const refused = goalMutationRefused(params, 1);
+    if (refused) return refused;
+    const response = await request("thread/goal/clear", { threadId: params.threadId, origin: "user" }, {
+      check: value => plain(value) && typeof value.cleared === "boolean",
+    });
+    return { kind: "thread_goal_cleared", threadId: params.threadId, cleared: response.cleared };
   }
 
   // The last 32 turns, newest first and without their items: their ids and
@@ -1271,6 +1302,8 @@ function createCodexAppServerTransport({
     startThread,
     resumeThread,
     setThreadName,
+    setThreadGoal,
+    clearThreadGoal,
     listThreads,
     readThread,
     listThreadTurns,

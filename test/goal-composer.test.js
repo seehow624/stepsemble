@@ -81,7 +81,7 @@ test("one submission starts the current entry and swaps the draft above the inpu
   assert.equal(h.posts.length, 1); assert.deepEqual(h.posts[0].body.limits, { minutes: 30, outputTokens: 20000, turns: 5 });
   assert.equal(h.posts[0].body.entry, "fixture-entry"); assert.equal(h.input.value, "");
   assert.equal(h.find("goal-composer").hidden, true, "nothing is left above the input");
-  assert.equal(h.find("goal-chip").parentElement, h.bar); assert.equal(h.find("goal-chip").hidden, false);
+  assert.equal(h.find("goal-chip").parentElement, h.find("goal-chip-group")); assert.equal(h.find("goal-chip-group").parentElement, h.bar); assert.equal(h.find("goal-chip").hidden, false);
   assert.equal(h.find("goal-panel").hidden, true, "progress starts closed");
   assert.equal(h.changed, 1); assert.equal(h.controller.commandItem().name, "goal"); h.close();
 });
@@ -257,4 +257,52 @@ test("a Goal waiting to retry, for its project or for a usage reset says so, and
   assert.match(busy.find("goal-activity").textContent, /Waiting for another task in this project/); busy.close();
   const quota = await harness({ runs: [{ ...row, status: "queued", activity: "usage_reset", notBefore: 7200000, error: "usage limit" }], workflowI18n });
   assert.match(quota.find("goal-activity").textContent, /usage limit to reset/); quota.close();
+});
+
+test("a running Goal pauses or stops; a waiting or ended one is removed from the conversation; another panel opening closes it", async () => {
+  const h = await harness({ post: (body, state) => {
+    const run = state.runs[0];
+    if (body.action === "pause") run.status = "paused";
+    if (body.action === "dismiss") { run.status = "stopped"; run.dismissedAt = 5; state.runs = []; return run; }
+    return run;
+  } });
+  h.runs = [{ id: "shown", entry: "fixture-entry", objective: "work", status: "running", activity: "thinking", elapsedMs: 1000 }];
+  await h.controller.refresh();
+  const visible = () => ["pause", "resume", "stop", "remove"].filter(label => !h.button(label).hidden);
+  assert.deepEqual(visible(), ["pause", "stop"]);
+  await h.button("pause").click();
+  assert.deepEqual(visible(), ["resume", "remove"], "a paused Goal goes on or is removed");
+  const chip = h.find("goal-chip");
+  await chip.click(); assert.equal(h.find("goal-panel").hidden, false);
+  h.controller.collapse(); assert.equal(h.find("goal-panel").hidden, true);
+  await h.button("remove").click();
+  assert.deepEqual(h.posts.at(-1).body, { id: "shown", action: "dismiss" });
+  assert.equal(chip.hidden, true, "a removed Goal leaves the conversation");
+  h.runs = [{ id: "done", entry: "fixture-entry", objective: "work", status: "completed", activity: "completed", elapsedMs: 1000, result: "All done" }];
+  await h.controller.refresh();
+  assert.equal(chip.hidden, false); assert.deepEqual(visible(), ["remove"]);
+  h.close();
+});
+
+test("a finished Goal's chip closes with its ×; the next Goal shows again", async () => {
+  const h = await harness({ post: (body, state) => {
+    const run = state.runs[0];
+    if (body.action === "dismiss") { run.dismissedAt = 5; state.runs = []; return run; }
+    return run;
+  } });
+  const close = () => h.find("goal-chip-close"), chip = () => h.find("goal-chip");
+  h.runs = [{ id: "working", entry: "fixture-entry", objective: "work", status: "running", activity: "thinking", elapsedMs: 1000 }];
+  await h.controller.refresh();
+  assert.equal(close().hidden, true, "a Goal at work has no ×");
+  h.runs = [{ id: "done", entry: "fixture-entry", objective: "work", status: "completed", activity: "completed", elapsedMs: 1000, result: "Done" }];
+  await h.controller.refresh();
+  assert.equal(close().hidden, false); assert.equal(close().parentElement, chip().parentElement, "it sits beside its chip");
+  assert.equal(chip().dataset.closable, "true");
+  await close().click();
+  assert.deepEqual(h.posts.at(-1).body, { id: "done", action: "dismiss" });
+  assert.equal(chip().hidden, true); assert.equal(close().hidden, true); assert.equal(h.find("goal-chip-group").hidden, true);
+  h.runs = [{ id: "next", entry: "fixture-entry", objective: "again", status: "running", activity: "thinking", elapsedMs: 0 }];
+  await h.controller.refresh();
+  assert.equal(chip().hidden, false, "the next Goal is shown"); assert.equal(close().hidden, true);
+  h.close();
 });

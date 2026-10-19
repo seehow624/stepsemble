@@ -2,7 +2,7 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm");
 const L = require("../public/modules/workspace-layout");
 const source = fs.readFileSync(require.resolve("../public/modules/workspace.js"), "utf8");
-test("Close Tab closes the focused session, retains other panes, and keeps the last empty pane", () => {
+test("Close closes the focused pane's session, and its pane while others remain; the last pane stays, empty", () => {
   const a = { host: "mini", key: "00000000-0000-4000-8000-000000000001", title: "A" };
   const b = { ...a, key: "00000000-0000-4000-8000-000000000002", title: "B" };
   let left = L.pane(); left = L.insert(left, left.id, a);
@@ -10,20 +10,20 @@ test("Close Tab closes the focused session, retains other panes, and keeps the l
   let usageOpen = true, usageClosed = 0;
   const context = vm.createContext({ L, settingsLayer: null, usageUI: { isOpen: () => usageOpen, close() { usageOpen = false; usageClosed++; } }, workflowUI: { close() { assert.fail("No workflow open"); } },
     document: { querySelector: () => null }, $: () => ({ open: false }), mobile: () => false,
-    closeSettings() {}, closeDialog() {}, showMobileList() {} });
+    closeSettings() {}, closeDialog() {}, showMobileList() {}, maximized: null });
   context.tree = L.insert({ type: "split", id: "split", axis: "row", ratio: .5, first: left, second: right }, right.id, b);
   context.focused = right.id;
   context.active = pane => pane.tabs.find(ref => L.identity(ref) === pane.active);
   context.commit = next => { context.tree = next; return true; };
   const from = source.indexOf("  function closeActiveTab()"), to = source.indexOf('  window.addEventListener("stepsemble-close-tab"', from);
   vm.runInContext(source.slice(from, to), context); context.closeActiveTab();
-  assert.equal(usageClosed, 1); assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 2, "closing Usage preserves both session tabs");
+  assert.equal(usageClosed, 1); assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 2, "closing Usage preserves both sessions");
   context.closeActiveTab();
-  assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 1);
-  assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs)[0].title, "A");
-  context.focused = left.id; context.closeActiveTab();
-  assert.equal(L.leaves(context.tree).flatMap(pane => pane.tabs).length, 0);
-  assert.ok(L.leaves(context.tree).length >= 1); context.closeActiveTab();
+  assert.equal(L.leaves(context.tree).length, 1, "the right pane closed with its session");
+  assert.equal(L.leaves(context.tree)[0].tabs[0].title, "A"); assert.equal(context.focused, left.id);
+  context.closeActiveTab();
+  assert.equal(L.leaves(context.tree).length, 1); assert.deepEqual(L.leaves(context.tree)[0].tabs, []);
+  context.closeActiveTab();
 });
 test("embedded tab shortcut intercepts only exact Cmd+Option arrows, including text inputs", () => {
   const app = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
@@ -49,7 +49,7 @@ function reorderFixture({ pinned = false, kind = "session" } = {}) {
   const target = { dataset: { reorderKind: kind, reorderId: "B", reorderGroup: "/project", pinned: "false" },
     querySelector: () => ({ getBoundingClientRect: () => rect(50) }), getBoundingClientRect: () => rect(50), closest() { return this; } };
   const scroller = { scrollTop: 0, getBoundingClientRect: () => ({ top: 0, bottom: 500, left: 0, right: 200 }), querySelectorAll: () => [source, target] };
-  source.closest = selector => selector === "#workspace-projects" ? scroller : source;
+  source.closest = selector => selector === "#workspace-projects" ? scroller : selector === ".workspace-machine" ? null : source;
   const surface = { dataset: {}, disabled: false, setAttribute() {}, closest() { return this; },
     setPointerCapture: id => captured.add(id), hasPointerCapture: id => captured.has(id), releasePointerCapture: id => captured.delete(id),
     addEventListener: (name, fn) => local.set(name, fn), removeEventListener: name => local.delete(name) };
@@ -184,7 +184,7 @@ test("a session row marks its running, paused or blocked Goal and drops the mark
   const goal = span("workspace-session-goal"), indicator = span("workspace-session-status"), button = span("workspace-session");
   const row = { querySelector: selector => ({ ".workspace-session-goal": goal, ".workspace-session-status": indicator, ".workspace-session": button })[selector] || null };
   const labels = { goalRunning: "Goal in progress", goalPaused: "Goal paused", goalAttention: "Goal needs attention", sessionWorking: "Working" };
-  const context = vm.createContext({ t: key => labels[key] || key, plainTitle: value => value, refOf: entry => ({ title: entry.title }),
+  const context = vm.createContext({ t: key => labels[key] || key, plainTitle: value => value, refFor: (target, entry) => ({ title: entry.title }), host: "mini",
     window: { StepsembleAgentIdentity: { lookup: () => ({ label: "Pi Agent" }) } } });
   const from = source.indexOf("  function sessionStatus(row, entry) {"), to = source.indexOf("  function rememberSnapshot(", from);
   vm.runInContext(source.slice(from, to), context);
@@ -197,10 +197,10 @@ test("a session row marks its running, paused or blocked Goal and drops the mark
   context.sessionStatus(row, entry(undefined));
   assert.equal(goal.hidden, true); assert.equal(goal.dataset.state, ""); assert.doesNotMatch(button.attrs["aria-label"], /Goal/);
 });
-test("a middle click closes a tab through the same path as its close button, without autoscroll", () => {
+test("a middle click on a pane's title closes its session through the same path as its close button, without autoscroll", () => {
   assert.match(source, /tab\.onmousedown = e => \{ if \(e\.button === 1\) e\.preventDefault\(\); \};/);
-  assert.match(source, /tab\.onauxclick = e => \{ if \(e\.button !== 1\) return; e\.preventDefault\(\); commit\(L\.remove\(tree, ref\)\); \};/);
-  assert.match(source, /button\("×", \(\) => commit\(L\.remove\(tree, ref\)\)/, "the close button uses the same removal");
+  assert.match(source, /tab\.onauxclick = e => \{ if \(e\.button !== 1\) return; e\.preventDefault\(\); closeSession\(n\); \};/);
+  assert.match(source, /button\("×", \(\) => closeSession\(n\)/, "the close button uses the same path");
 });
 
 test("scrolling back near the top loads earlier messages only for the person's own scrolling, and never retries a failed page", () => {

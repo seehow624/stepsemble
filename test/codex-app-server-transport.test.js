@@ -357,6 +357,42 @@ test("Codex names only the thread its process owns, with one bounded line", asyn
   assert.equal(transport.state().failure, null);
 });
 
+test("Codex pauses, resumes and clears the goal only of the thread its process owns, as the person's own act", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
+  await initializing; await writes.next();
+  assert.equal((await transport.setThreadGoal({ threadId: "thread-goal", status: "paused" })).code, "native_lifecycle_conflict");
+  const starting = transport.startThread({ cwd: "/owned" }); request = await writes.next();
+  frame(child, { id: request.id, result: { thread: { id: "thread-goal" } } }); await starting;
+  for (const status of ["complete", "blocked", "", null, "PAUSED"]) {
+    assert.equal((await transport.setThreadGoal({ threadId: "thread-goal", status })).code, "invalid_native_params");
+  }
+  assert.equal((await transport.setThreadGoal({ threadId: "thread-goal", status: "paused", objective: "new" })).code, "invalid_native_params");
+  assert.equal((await transport.setThreadGoal({ threadId: "thread-other", status: "paused" })).code, "native_thread_mismatch");
+  assert.equal((await transport.clearThreadGoal({ threadId: "thread-other" })).code, "native_thread_mismatch");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(writes.rows.length, 0, "a refused change never reaches Codex");
+  const goal = { threadId: "thread-goal", objective: "Ship it", status: "paused", tokenBudget: null, tokensUsed: 10, timeUsedSeconds: 3, createdAt: 1, updatedAt: 2 };
+  const pausing = transport.setThreadGoal({ threadId: "thread-goal", status: "paused" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/goal/set");
+  assert.deepEqual(request.params, { threadId: "thread-goal", status: "paused", origin: "user" });
+  frame(child, { id: request.id, result: { goal } });
+  assert.deepEqual(await pausing, { kind: "thread_goal", goal });
+  const clearing = transport.clearThreadGoal({ threadId: "thread-goal" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/goal/clear");
+  assert.deepEqual(request.params, { threadId: "thread-goal", origin: "user" });
+  frame(child, { id: request.id, result: { cleared: true } });
+  assert.deepEqual(await clearing, { kind: "thread_goal_cleared", threadId: "thread-goal", cleared: true });
+  assert.equal(transport.state().failure, null);
+});
+
 test("Codex marks only the history rejection of a thread with no first message yet", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);
@@ -614,6 +650,26 @@ test("An older Codex without the turn list resumes with its full answer", async 
   assert.equal(result.kind, "resumed");
   assert.equal(transport.state().state, "thread_started");
   assert.equal(transport.state().failure, null);
+});
+
+test("A conversation the Codex app holds open is refused as such, and this process stays usable", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("held-resume") });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
+  await initializing; await writes.next();
+  const resumed = transport.resumeThread({ threadId: "thread-held" });
+  await answerTurns(writes, child, "thread-held", [{ id: "turn-done", status: "completed" }]);
+  request = await writes.next();
+  assert.equal(request.method, "thread/resume");
+  // Codex 0.163's words when another process writes the thread.
+  frame(child, { jsonrpc: "2.0", id: request.id, error: { code: -32603, message: "failed to resume thread: thread thread-held already has an active writer" } });
+  await assert.rejects(resumed, error => error.code === "codex_thread_open_elsewhere" && error.message === "codex_thread_open_elsewhere");
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.state().state, "ready");
 });
 
 test("Codex resume keeps the 8 MiB history cap and ordinary responses keep the 1 MiB cap", async t => {

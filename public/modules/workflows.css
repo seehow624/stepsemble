@@ -170,7 +170,7 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 
 /* Goal belongs to the composer: draft limits become progress after submission. */
 .goal-composer {box-sizing:border-box;width:100%;padding:6px 5px 12px;border-bottom:1px solid var(--line);color:var(--ink);min-width:0;}
-.goal-composer[hidden],.goal-composer [hidden],.goal-panel[hidden],.goal-panel [hidden],.goal-chip[hidden] {display:none!important;}
+.goal-composer[hidden],.goal-composer [hidden],.goal-panel[hidden],.goal-panel [hidden],.goal-chip[hidden],.goal-chip-group[hidden] {display:none!important;}
 /* A Goal under way: a chip beside the subagent bubble that opens its progress. */
 .goal-chip {order:0;display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;margin:4px 0;padding:4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--paper);color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;}
 .goal-chip::before {content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--pine-soft);}
@@ -180,6 +180,14 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 .goal-chip:is([data-state=failed],[data-state=stopped],[data-state=interrupted])::before {background:#d2876f;}
 .goal-chip:hover,.goal-chip:focus-visible,.goal-chip[aria-expanded=true] {background:var(--bubble-user);}
 .goal-chip-label {font-weight:600;}
+/* The chip and a finished Goal's ×, joined to its end. */
+.goal-chip-group {order:0;display:inline-flex;align-items:stretch;min-width:0;max-width:100%;margin:4px 0;}
+.goal-chip-group > .goal-chip {flex:0 1 auto;margin:0;}
+.goal-chip[data-closable=true] {border-top-right-radius:0;border-bottom-right-radius:0;padding-right:8px;}
+.goal-chip-close.btn {flex:none;display:inline-grid;place-items:center;min-width:28px;min-height:0;margin:0;padding:0 10px 0 6px;border:1px solid var(--line);border-left:0;border-radius:0 999px 999px 0;background:var(--paper);color:var(--pine-soft);font:inherit;font-size:14px;line-height:1;cursor:pointer;}
+.goal-chip-close.btn:hover,.goal-chip-close.btn:focus-visible {background:var(--bubble-user);color:var(--ink);}
+.goal-chip-close[hidden] {display:none!important;}
+@media (pointer:coarse) {.goal-chip-close.btn {min-width:36px;}}
 .goal-chip-state {overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .goal-chip-state::before,.goal-chip-clock::before {content:"·";margin-right:5px;color:var(--pine-soft);}
 .goal-chip-clock {font-variant-numeric:tabular-nums;color:var(--pine-soft);}

@@ -688,6 +688,16 @@ function createCodexNativePool({
     return invokeEntry(entry, "setThreadName", [threadId, name]);
   }
 
+  // A goal is changed by the process that holds its thread; Codex refuses
+  // any other.
+  async function changeThreadGoal(threadId, change) {
+    if (!validThreadId(threadId)) throw poolError("invalid_thread_id", "Codex thread id is invalid", 400);
+    if (!["active", "paused", "clear"].includes(change)) return { kind: "reject", code: "invalid_native_params" };
+    const entry = byThread.get(threadId);
+    if (!entry || entry.closeRequested) return { kind: "reject", code: "native_thread_not_loaded" };
+    return invokeEntry(entry, "changeThreadGoal", [threadId, change]);
+  }
+
   async function knownThread(threadId) {
     if (!validThreadId(threadId)) return { kind: "reject", code: "invalid_thread_id" };
     const source = await getHistory();
@@ -1059,6 +1069,7 @@ function createCodexNativePool({
     readThread,
     getThreadGoal,
     setThreadName,
+    changeThreadGoal,
     listThreadTurns,
     listThreadItems,
     listModels,
