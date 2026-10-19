@@ -60,7 +60,9 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await panel.locator(".usage-quota-card").count(), 2);
       const codexQuota = panel.locator(".usage-quota-card").filter({ hasText: "Codex" });
       assert.equal(await codexQuota.getByRole("progressbar").getAttribute("aria-valuenow"), "72");
-      const host = panel.locator(".usage-controls select"), geometry = async () => ({ panel: await panel.boundingBox(), header: await panel.locator(".usage-header").boundingBox(), top: await panel.locator(".usage-top").boundingBox() });
+      // The panel's height follows its content; its top, header and controls stay put.
+      const place = async () => { const { x, y, width } = await panel.boundingBox(); return { x, y, width }; };
+      const host = panel.locator(".usage-controls select"), geometry = async () => ({ panel: await place(), header: await panel.locator(".usage-header").boundingBox(), top: await panel.locator(".usage-top").boundingBox() });
       const beforeTab = await geometry();
       await panel.getByRole("button", { name: mobile ? "重新整理" : "Refresh", exact: true }).click(); await readyLimits();
       assert.ok(quotaRequests.some(url => new URL(url).searchParams.get("fresh") === "1"), "refresh reads fresh limits");

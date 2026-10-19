@@ -138,7 +138,8 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-bot-list, .assistant-session-list { margin: 0; padding: 0; list-style: none; }
 .assistant-bot-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 10px; border: 0; border-radius: 12px;
   background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background .12s ease; }
-.assistant-bot-row:hover { background: color-mix(in srgb, var(--bubble-user) 70%, transparent); }
+/* Only a pointer that hovers highlights a row; a tap leaves nothing behind. */
+@media (hover: hover) { .assistant-bot-row:hover { background: color-mix(in srgb, var(--bubble-user) 70%, transparent); } }
 .assistant-bot-row[aria-current="true"] { background: var(--bubble-user); }
 .assistant-bot-row.is-hidden { opacity: .55; }
 .assistant-avatar { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 50%; background-position: center; background-size: cover;
@@ -156,7 +157,7 @@ body.assistant-offline .assistant-top { box-shadow: inset 0 -2px 0 var(--warn); 
 .assistant-hidden-bots { margin: 4px 10px 0; }
 .assistant-groups { margin-top: 18px; }
 .assistant-groups .assistant-section-head { margin-bottom: 2px; }
-.assistant-groups h2, .assistant-routine-group { margin: 0; color: var(--pine-soft); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.assistant-groups h2 { margin: 0; color: var(--pine-soft); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .assistant-groups .assistant-empty { padding: 6px 10px 10px; font-size: .82rem; }
 .assistant-group-faces { display: flex; flex: 0 0 auto; padding-right: 6px; }
 .assistant-group-faces .assistant-avatar { flex-basis: 28px; width: 28px; height: 28px; margin-right: -9px; box-shadow: 0 0 0 2px var(--paper); font-size: .68rem; }
@@ -329,17 +330,39 @@ html.reduced-motion .assistant-viewer { animation: none; }
 
 /* ---- routines ---------------------------------------------------------- */
 
-.assistant-routines { display: grid; gap: 10px; }
-.assistant-new-routine { justify-self: start; }
-.assistant-routine-group { margin: 14px 4px 0; }
-.assistant-routine { padding: 14px; border: .5px solid var(--line); border-radius: 14px; background: var(--milk); }
-.assistant-routine.paused { opacity: .7; }
-.assistant-routine-head { display: flex; align-items: center; gap: 8px; }
-.assistant-routine-head strong { font-size: .95rem; font-weight: 640; }
-.assistant-routine-tag { padding: 1px 8px; border-radius: 999px; background: var(--bubble-user); color: var(--pine-soft); font-size: .72rem; font-weight: 600; }
-.assistant-routine-facts { display: block; margin: 3px 0 10px; color: var(--pine-soft); font-size: .8rem; }
-.assistant-routine-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: .5px solid var(--line); }
-.assistant-routine-actions .btn { min-height: 30px; padding: 0 11px; font-size: .8rem; }
+/* Rows as quiet as the list beside the page. A row's fill reaches past the
+   text, so names line up with the page title and each Bot's heading. */
+.assistant-routines { display: grid; gap: 2px; }
+.assistant-routine-group { display: flex; align-items: center; gap: 10px; margin: 20px 0 4px; color: var(--ink); font-size: .92rem; font-weight: 640; letter-spacing: -.01em; }
+.assistant-routine-group:first-child { margin-top: 4px; }
+.assistant-routine-group .assistant-avatar { flex-basis: 28px; width: 28px; height: 28px; font-size: .66rem; }
+.assistant-routine-group .assistant-avatar.has-picture { border-radius: 9px; }
+.assistant-routine { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin: 0 -10px; padding-right: 4px; border-radius: 12px; transition: background .12s ease; }
+.assistant-routine-open { display: grid; flex: 1 1 0; gap: 3px; min-width: 0; min-height: 60px; align-content: center; padding: 8px 6px 8px 10px; border: 0; border-radius: 12px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.assistant-routine-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.assistant-routine.paused .assistant-routine-open { opacity: .7; }
+.assistant-routine-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.assistant-routine-head strong, .assistant-routine-facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-routine-head strong { font-size: .92rem; font-weight: 640; }
+.assistant-routine-tag { flex: none; padding: 1px 8px; border-radius: 999px; background: var(--bubble-user); color: var(--pine-soft); font-size: .72rem; font-weight: 600; }
+.assistant-routine-facts { color: var(--pine-soft); font-size: .8rem; }
+.assistant-page .btn.assistant-routine-run { flex: none; min-height: 32px; padding: 0 12px; border-color: var(--line); border-radius: 999px; background: transparent; color: var(--ink); font-size: .8rem; }
+.assistant-routine-more { border-radius: 50%; }
+.assistant-routine-more svg { width: 20px; height: 20px; stroke-width: 2.6; }
+.assistant-routine > .assistant-runs { flex: 1 1 100%; margin: 0 10px 8px; }
+@media (hover: hover) {
+  .assistant-routine:hover, .assistant-routine-add:hover { background: color-mix(in srgb, var(--bubble-user) 70%, transparent); }
+  .assistant-page .btn.assistant-routine-run:hover:not(:disabled) { background: var(--paper); }
+}
+/* New Bot and New routine: a quiet first row with a + where a face would be. */
+.assistant-routine-add { display: flex; align-items: center; gap: 12px; width: calc(100% + 20px); min-height: 56px; margin: 0 -10px 4px; padding: 6px 10px; border: 0;
+  border-radius: 12px; background: transparent; color: var(--ink); font: inherit; font-size: .92rem; text-align: left; cursor: pointer; transition: background .12s ease; }
+.assistant-routine-add:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.assistant-add-tile { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--bubble-user); color: var(--ink); }
+.assistant-routine-add .assistant-add-tile { flex-basis: 36px; width: 36px; height: 36px; border-radius: 11px; }
+.assistant-add-tile svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.assistant-routine-add strong, .assistant-add-row strong { font-size: .92rem; font-weight: 620; }
 .assistant-check { display: flex; align-items: center; gap: 8px; font-size: .86rem; cursor: pointer; }
 .assistant-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .assistant-runs { margin: 10px 0 0; padding: 0; list-style: none; }
@@ -509,6 +532,7 @@ html.reduced-motion .assistant-viewer { animation: none; }
 .assistant-home-links .assistant-link, .assistant-hidden-bots, .assistant-sign-out { min-height: 44px; }
 .assistant-sign-out { margin-top: 10px; font-size: .78rem; }
 .assistant-row-chevron { color: var(--pine-soft); font-size: 1.2rem; }
+.assistant-bot-row.assistant-add-row { min-height: 64px; }
 
 .assistant-bot-head { min-height: 68px; padding: 6px 14px; gap: 8px; border-bottom: .5px solid var(--line); }
 .assistant-bot-head .assistant-avatar { flex-basis: 40px; width: 40px; height: 40px; border-radius: 11px; }
@@ -597,6 +621,7 @@ html.reduced-motion .assistant-viewer { animation: none; }
 .assistant-menu-row + .assistant-menu-row::before { content: ""; position: absolute; top: 0; right: 0; left: 64px; border-top: .5px solid var(--line); }
 .assistant-menu-row:hover { background: color-mix(in srgb, var(--bubble-user) 60%, transparent); }
 .assistant-menu-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 18px; }
+.assistant-menu-row.assistant-danger, .assistant-menu-row.assistant-danger .assistant-menu-icon { color: var(--err-ink); }
 .assistant-menu-icon { display: grid; flex: 0 0 36px; width: 36px; height: 36px; place-items: center; border-radius: 11px; background: var(--bubble-user); color: var(--ink); }
 .assistant-menu-copy { display: grid; flex: 1; gap: 2px; min-width: 0; }
 .assistant-menu-copy strong { font-size: .95rem; font-weight: 620; }
@@ -609,7 +634,7 @@ html.reduced-motion .assistant-viewer { animation: none; }
   .assistant-detail .assistant-top { display: none; }
   .assistant-detail .assistant-bot-head, .assistant-detail .assistant-page-head { padding-top: calc(env(safe-area-inset-top, 0px) + 8px); }
   .assistant-detail .assistant-view > .assistant-roster { padding-top: 4px; }
-  .assistant-page .btn, .assistant-page .btn.small, .assistant-routine-actions .btn, .assistant-skill-actions .btn { min-height: 44px; }
+  .assistant-page .btn, .assistant-page .btn.small, .assistant-skill-actions .btn { min-height: 44px; }
   .assistant-group-mentions .assistant-choice { min-height: 40px; }
   .assistant-card { flex-shrink: 0; }
 }
@@ -690,3 +715,7 @@ html.reduced-motion .assistant-menu-sheet, html.reduced-motion .assistant-toast,
 .assistant-embedded.assistant-offline .assistant-bot-head { box-shadow: inset 0 -2px 0 var(--warn); }
 .assistant-embedded:not(.assistant-workspace-mobile) .assistant-bot-head { display: none; }
 .assistant-embedded.assistant-workspace-mobile .assistant-back.to-list { display: inline-flex !important; }
+/* On a desktop the pane's title bar already names the page and shows its Bot,
+   so the page keeps only a way back, when it has one. */
+.assistant-embedded:not(.assistant-workspace-mobile) .assistant-page-head > :is(h1, .assistant-avatar) { display: none; }
+.assistant-embedded:not(.assistant-workspace-mobile) .assistant-page-head:not(:has(> .assistant-back:not(.to-list))) { display: none; }

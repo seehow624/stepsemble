@@ -104,7 +104,7 @@
     dragStart: (event, target, route) => dragStart(event, assistantTab(target, route), false), dragEnd,
     menu: (anchor, actions) => openPaneMenu(anchor, actions),
     newWindow: (target, route) => newWindow(assistantTab(target, route)),
-    sectionActions: () => sectionActions("bots"),
+    sectionActions: () => [null, ...sectionActions("bots")],
     decorate: toggle => reorderSection(toggle, botsBlock, "bots"),
     onLoaded: () => void refreshAutomations(),
     onInstalled(installed) {
@@ -159,7 +159,11 @@
     if (reopening) return;
     const element = node("div", "", "workspace-menu");
     element.setAttribute("role", "menu");
-    for (const [label, run] of actions) {
+    // null between actions draws a thin rule between groups (never at an end, never twice).
+    const rows = actions.filter((row, index, all) => row || index > 0 && index < all.length - 1 && all[index - 1] && all.slice(index + 1).some(Boolean));
+    for (const row of rows) {
+      if (!row) { const rule = node("div", "", "workspace-menu-separator"); rule.setAttribute("role", "separator"); element.append(rule); continue; }
+      const [label, run] = row;
       const item = button(label, () => { closePaneMenu(); run(); }, label, "btn workspace-menu-item");
       item.setAttribute("role", "menuitem");
       element.append(item);
@@ -604,7 +608,7 @@
       const frameCommand = command => toFrame(frames.get(n.active)?.frame, { type: "workspace-command", command });
       if (shownRef && !shownRef.assistant) {
         const summary = button("", () => frameCommand("summary"), t("summary"), "btn workspace-strip-button workspace-summary-button");
-        summary.append(icon("M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01")); tabs.append(summary);
+        summary.append(icon("M6.5 3.5h11A2.5 2.5 0 0 1 20 6v12a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18V6a2.5 2.5 0 0 1 2.5-2.5zM8 8.5h8M8 12h8M8 15.5h5")); tabs.append(summary);
       }
       // A Bot's conversation keeps its history at the same place.
       const botChat = shownRef?.assistant?.page === "bot";
@@ -625,6 +629,7 @@
         actions.push([t("viewChanges"), () => frameCommand("changes")]);
       }
       if (!mobile() && shownRef) {
+        actions.push(null);
         for (const [label, edge] of [[t("splitHorizontal"), "right"], [t("splitVertical"), "bottom"]]) actions.push([label, () => {
           // Split with an empty destination, preserving the current conversation.
           if (L.leaves(tree).length >= 8) { toast(t("paneLimit")); return; }
@@ -639,14 +644,14 @@
       if (botChat) {
         const profile = shownRef.assistant.profile;
         actions.unshift([assistantUI.text("settings"), () => openAssistant(shownRef.host, { page: "settings", profile })],
-          [assistantUI.text("routines"), () => openAssistant(shownRef.host, { page: "routines", profile })]);
+          [assistantUI.text("routines"), () => openAssistant(shownRef.host, { page: "routines", profile })], null);
       }
       // The conversation's own sheet (model, export, archive where they apply)
       // and a Bot's menu.
-      if (shownRef && (!shownRef.assistant || botChat)) actions.push([t("moreActions"), () => frameCommand("menu")]);
+      if (shownRef && (!shownRef.assistant || botChat)) actions.push(null, [t("moreActions"), () => frameCommand("menu")]);
       if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
-      if (shownRef || L.leaves(tree).length > 1) actions.push([t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
-      if (actions.length) {
+      if (shownRef || L.leaves(tree).length > 1) actions.push(null, [t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
+      if (actions.some(Boolean)) {
         const overflow = button("⋯", () => openPaneMenu(overflow, actions), t("paneActions"), "btn workspace-pane-menu");
         overflow.setAttribute("aria-haspopup", "menu");
         tabs.append(overflow);
@@ -760,7 +765,7 @@
     const copy = node("span", "", "workspace-section-copy"); copy.append(node("strong", title));
     toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), copy);
     toggle.setAttribute("aria-expanded", String(!hidden)); section.dataset.collapsed = String(hidden); contents.hidden = hidden;
-    const more = button("⋯", () => openPaneMenu(more, [...menu(), ...sectionActions(id)]), t("sectionActions", { section: title }), "btn workspace-project-menu");
+    const more = button("⋯", () => openPaneMenu(more, [...menu(), null, ...sectionActions(id)]), t("sectionActions", { section: title }), "btn workspace-project-menu");
     more.setAttribute("aria-haspopup", "menu");
     header.append(toggle, ...extra, more); section.append(header, contents);
     reorderSection(toggle, section, id);
@@ -784,6 +789,7 @@
       schedules: orderedMachines().filter(m => automationData.schedules.has(m.id)).map(m => ({ target: m.id, owner: machines.length > 1 ? m.name || m.id : "", items: automationData.schedules.get(m.id) })),
       routines: automationData.routines, scheduleLabel: spec => window.StepsembleWorkflows.scheduleLabel(spec),
       routineLabel: schedule => A.routineCadence(schedule, { M, t: assistantUI.text, locale: prefs.locale }),
+      routineTitle: item => M.routineName(item.name) || String(item.prompt || "").slice(0, 60),
     });
   }
   // A read asked for during another (the Bots just loaded) follows it.
@@ -919,7 +925,7 @@
     const state = offline ? (status.at ? t("machineOfflineSince", { time: new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "2-digit", minute: "2-digit" }).format(status.at) }) : t("machineOffline")) : "";
     toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), node("strong", machine.name), ...(state ? [node("small", state, "workspace-machine-state")] : []));
     const more = button("⋯", () => openPaneMenu(more, [[t("addProject"), () => addProject(target)], [window.StepsembleWorkflows.label("schedules"), () => void workflowUI.open(target).catch(error => toast(error.message))],
-      ...sectionActions(machineSectionId(target))]), t("sectionActions", { section: machine.name }), "btn workspace-machine-menu");
+      null, ...sectionActions(machineSectionId(target))]), t("sectionActions", { section: machine.name }), "btn workspace-machine-menu");
     more.setAttribute("aria-haspopup", "menu");
     header.append(toggle, more);
     reorderSection(toggle, section, machineSectionId(target));
@@ -1671,8 +1677,10 @@
       const query = search.value.trim().toLowerCase(), filtered = rows.filter(r => (prefs.showTemporarySessions || !r.record.isTemporary)
         && `${r.record.name} ${r.record.agentId} ${r.record.cwd}`.toLowerCase().includes(query));
       list.replaceChildren(); more.hidden = limit >= filtered.length;
-      // A Host with no other history says so; a search with no match keeps the count.
+      // A Host with no other history says so, with nothing to search; a search
+      // with no match keeps the count.
       status.textContent = rows.length ? t("count", { count: filtered.length }) : t("historyEmpty");
+      search.hidden = !rows.length; status.dataset.empty = String(!rows.length);
       for (const row of filtered.slice(0, limit)) {
         const item = node("article", "", "workspace-history-row"), copy = node("div"); copy.append(node("strong", row.record.name || row.record.firstMessage || row.record.agentId || "Pi"), node("small", `${row.record.agentId || "pi"} · ${row.record.cwd || ""}`));
         const add = button(t("addWorkspace"), async () => { add.disabled = true; try { await api("/api/workspace/adopt", { kind: row.kind, reference: row.reference }, target); add.textContent = t("added"); add.title = t("added"); add.setAttribute("aria-label", t("added")); await refresh(); } catch (error) { toast(error.message); add.disabled = false; } });

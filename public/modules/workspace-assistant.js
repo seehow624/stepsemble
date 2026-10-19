@@ -10,6 +10,8 @@
   const ICONS = {
     computer: "M3 4.5h18v12H3zM9 20h6M12 16.5V20", chevron: "M8 9.5l4-4 4 4M8 14.5l4 4 4-4", down: "m6 9 6 6 6-6",
     manage: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4", plus: "M12 5v14M5 12h14",
+    // The repeat arrows the Automations list gives a routine.
+    routines: "M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4",
     page: "M5 5.5h14v10H9.5L5 19.5z", group: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3.5 19a5.5 5.5 0 0 1 11 0M16 11a2.5 2.5 0 1 0 0-5M17.5 14.5a4.5 4.5 0 0 1 3 4.5",
   };
 
@@ -117,7 +119,7 @@
       }
       const mark = node("span", "", "workspace-tab-avatar workspace-tab-page");
       mark.setAttribute("aria-hidden", "true");
-      mark.append(icon(route.page === "group" ? ICONS.group : ICONS.page));
+      mark.append(icon({ group: ICONS.group, routines: ICONS.routines, bots: ICONS.manage }[route.page] || ICONS.page));
       return mark;
     }
     function isSelected(route) {

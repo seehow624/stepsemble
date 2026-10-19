@@ -8,7 +8,9 @@
   const time = value => { const at = typeof value === "number" ? value : Date.parse(value || ""); return Number.isFinite(at) ? at : null; };
   // schedules: [{ target, owner, items }] from each computer's /api/workflows;
   // routines: { target, items, bots } from the computer that runs Hermes.
-  function collect({ schedules = [], routines = null, scheduleLabel = () => "", routineLabel = () => "" } = {}) {
+  // routineTitle names a routine as its Bot's Routines page does (without
+  // Hermes's "[bot:…]" tag, or by its instructions when it has no name).
+  function collect({ schedules = [], routines = null, scheduleLabel = () => "", routineLabel = () => "", routineTitle = item => item.name } = {}) {
     const rows = [];
     for (const group of schedules) for (const item of group.items || []) {
       if (!item?.id) continue;
@@ -24,7 +26,7 @@
       const state = item.enabled === false ? "paused" : failed ? "attention" : "scheduled";
       const bot = bots.get(item.profile) || { name: item.profile };
       rows.push({ kind: "routine", key: `routine:${item.profile}:${item.id}`, target: routines.target, id: String(item.id), profile: item.profile || "",
-        title: String(item.name || ""), cadence: item.schedule ? routineLabel(item.schedule) : "", nextAt: item.enabled === false ? null : time(item.nextRunAt),
+        title: String(routineTitle(item) || ""), cadence: item.schedule ? routineLabel(item.schedule) : "", nextAt: item.enabled === false ? null : time(item.nextRunAt),
         state, owner: bot.displayName || bot.name || item.profile || "", bot });
     }
     return sorted(rows);

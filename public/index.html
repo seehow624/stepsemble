@@ -207,7 +207,7 @@
         <svg class="icon" aria-hidden="true"><use href="#i-branch"></use></svg>
         <span id="changes-badge" class="changes-badge hidden" data-i18n-ignore></span>
       </button>
-      <button id="btn-summary" class="btn ghost icon-btn" type="button" title="Summary" aria-label="Summary" data-summary-toggle><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button id="btn-summary" class="btn ghost icon-btn" type="button" title="Summary" aria-label="Summary" data-summary-toggle><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h11A2.5 2.5 0 0 1 20 6v12a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18V6a2.5 2.5 0 0 1 2.5-2.5zM8 8.5h8M8 12h8M8 15.5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="btn-chat-menu" class="btn ghost icon-btn" title="More" aria-label="More"><svg class="icon"><use href="#i-ellipsis"></use></svg></button>
     </header>
     <div id="messages" class="messages">
@@ -258,7 +258,7 @@
     <footer class="composer">
       <p id="agent-input-note" class="agent-input-note hidden" role="status" aria-live="polite"></p>
       <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
-        <svg class="icon scroll-bottom-arrow" aria-hidden="true"><use href="#i-arrow-down"></use></svg><span class="scroll-bottom-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <svg class="icon scroll-bottom-arrow" aria-hidden="true"><use href="#i-arrow-down"></use></svg>
       </button>
       <div id="session-references" class="session-references hidden" data-i18n-ignore></div>
       <div id="img-preview" class="img-preview hidden"></div>
@@ -449,7 +449,6 @@
           <section class="settings-group settings-reset-group" data-settings-category="appearance">
             <button id="btn-reset-settings" class="settings-row settings-button-row" type="button">
               <span><strong>Restore interface defaults</strong><small data-i18n-key="settings.resetNote">Resets everything on this page except Language.</small></span>
-              <span class="row-chevron" aria-hidden="true">↺</span>
             </button>
           </section>
 
@@ -868,13 +867,15 @@
 
   <!-- Session actions sheet -->
   <div id="session-action-sheet" class="sheet-layer hidden" role="dialog" aria-modal="true" aria-labelledby="sa-title">
-    <div class="sheet action-sheet">
+    <div class="sheet action-sheet session-action-sheet">
       <h2 id="sa-title" class="sa-title">Session</h2>
-      <button id="sa-model" class="action-row" type="button">⚡ Model &amp; reasoning…</button>
-      <button id="sa-rename" class="action-row" type="button">✏️ Rename</button>
-      <button id="sa-changes" class="action-row" type="button">🔀 View changes</button>
-      <button id="sa-export" class="action-row" type="button">⬇️ Export as Markdown</button>
-      <button id="sa-delete" class="action-row" type="button">Archive chats</button>
+      <div class="project-action-list">
+        <button id="sa-model" class="project-action-row" type="button"><svg class="icon" aria-hidden="true"><use href="#i-sliders"></use></svg><span data-i18n-key="sessionActions.model">Model &amp; reasoning…</span></button>
+        <button id="sa-rename" class="project-action-row" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pencil"></use></svg><span data-i18n-key="sessionActions.rename">Rename</span></button>
+        <button id="sa-changes" class="project-action-row" type="button"><svg class="icon" aria-hidden="true"><use href="#i-diff"></use></svg><span data-i18n-key="sessionActions.changes">View changes</span></button>
+        <button id="sa-export" class="project-action-row" type="button"><svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg><span data-i18n-key="sessionActions.export">Export as Markdown</span></button>
+        <button id="sa-delete" class="project-action-row" type="button"><svg class="icon" aria-hidden="true"><use href="#i-archive"></use></svg><span data-i18n-key="sessionActions.archive">Archive chats</span></button>
+      </div>
       <button id="sa-cancel" class="action-row cancel" type="button">Cancel</button>
     </div>
   </div>
@@ -954,13 +955,13 @@
       <div id="model-list"><p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">Loading…</p></div>
       <label class="field-label" for="thinking-select">Thinking level</label>
       <select id="thinking-select">
-        <option value="off">off</option>
-        <option value="minimal">minimal</option>
-        <option value="low">low</option>
-        <option value="medium">medium</option>
-        <option value="high">high</option>
-        <option value="xhigh">xhigh</option>
-        <option value="max">max</option>
+        <option value="off">Off</option>
+        <option value="minimal">Minimal</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+        <option value="xhigh">Extra high</option>
+        <option value="max">Max</option>
       </select>
       <p id="thinking-hint" class="field-hint hidden"></p>
     </div>
