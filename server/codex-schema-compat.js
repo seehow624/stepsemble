@@ -21,6 +21,8 @@ const EXTRA_READ_FILES = Object.freeze([
   "v2/ThreadForkResponse.json",
   "v2/ThreadSetNameResponse.json",
   "v2/ThreadGoalGetResponse.json",
+  "v2/ThreadGoalSetResponse.json",
+  "v2/ThreadGoalClearResponse.json",
   "v2/ThreadCompactStartResponse.json",
   "v2/GetAccountRateLimitsResponse.json",
   "v2/TurnStartResponse.json",
@@ -33,7 +35,7 @@ const CONTRACT_FILES = Object.freeze([...SCHEMA_FILES, ...EXTRA_READ_FILES]);
 // change or go away without affecting Stepsemble.
 const USED_CLIENT_METHODS = Object.freeze([
   "initialize", "thread/start", "thread/resume", "thread/read", "thread/list", "thread/loaded/list",
-  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/name/set", "thread/fork",
+  "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/goal/set", "thread/goal/clear", "thread/name/set", "thread/fork",
   "model/list", "turn/start", "turn/interrupt", "thread/compact/start", "account/rateLimits/read",
 ]);
 
@@ -43,7 +45,8 @@ const MAX_PROBLEMS = 40;
 // made again (server/codex-release-check.js keeps verdicts per release).
 // 2: the same values written another way are compared shape by shape.
 // 3: a union written with oneOf and with anyOf is the same union.
-const COMPARISON_VERSION = 3;
+// 4: the responses of setting and clearing a goal are compared too.
+const COMPARISON_VERSION = 4;
 
 // Documents Stepsemble writes are checked so that what it sends stays valid;
 // the others so that what it reads keeps its shape.

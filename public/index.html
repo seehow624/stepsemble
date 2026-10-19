@@ -224,8 +224,15 @@
           <strong id="native-run-title"></strong>
           <span id="native-run-meta" class="native-run-meta"></span>
         </button>
-        <p id="native-run-detail" class="native-run-detail" hidden></p>
       </section>
+      <div id="native-run-detail" class="native-run-detail" hidden>
+        <p id="native-run-objective" class="native-run-objective"></p>
+        <div id="native-run-actions" class="native-run-actions" hidden>
+          <button id="native-goal-pause" class="btn ghost" type="button"></button>
+          <button id="native-goal-resume" class="btn ghost" type="button"></button>
+          <button id="native-goal-remove" class="btn ghost" type="button"></button>
+        </div>
+      </div>
     </div>
     <div id="compaction-status" class="compaction-status hidden" role="status" aria-live="polite" data-i18n-ignore></div>
     <div id="reference-wait" class="compaction-status reference-wait hidden" role="status" aria-live="polite" data-i18n-ignore></div>

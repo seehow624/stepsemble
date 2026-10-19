@@ -258,3 +258,28 @@ test("a Goal waiting to retry, for its project or for a usage reset says so, and
   const quota = await harness({ runs: [{ ...row, status: "queued", activity: "usage_reset", notBefore: 7200000, error: "usage limit" }], workflowI18n });
   assert.match(quota.find("goal-activity").textContent, /usage limit to reset/); quota.close();
 });
+
+test("a running Goal pauses or stops; a waiting or ended one is removed from the conversation; another panel opening closes it", async () => {
+  const h = await harness({ post: (body, state) => {
+    const run = state.runs[0];
+    if (body.action === "pause") run.status = "paused";
+    if (body.action === "dismiss") { run.status = "stopped"; run.dismissedAt = 5; state.runs = []; return run; }
+    return run;
+  } });
+  h.runs = [{ id: "shown", entry: "fixture-entry", objective: "work", status: "running", activity: "thinking", elapsedMs: 1000 }];
+  await h.controller.refresh();
+  const visible = () => ["pause", "resume", "stop", "remove"].filter(label => !h.button(label).hidden);
+  assert.deepEqual(visible(), ["pause", "stop"]);
+  await h.button("pause").click();
+  assert.deepEqual(visible(), ["resume", "remove"], "a paused Goal goes on or is removed");
+  const chip = h.find("goal-chip");
+  await chip.click(); assert.equal(h.find("goal-panel").hidden, false);
+  h.controller.collapse(); assert.equal(h.find("goal-panel").hidden, true);
+  await h.button("remove").click();
+  assert.deepEqual(h.posts.at(-1).body, { id: "shown", action: "dismiss" });
+  assert.equal(chip.hidden, true, "a removed Goal leaves the conversation");
+  h.runs = [{ id: "done", entry: "fixture-entry", objective: "work", status: "completed", activity: "completed", elapsedMs: 1000, result: "All done" }];
+  await h.controller.refresh();
+  assert.equal(chip.hidden, false); assert.deepEqual(visible(), ["remove"]);
+  h.close();
+});

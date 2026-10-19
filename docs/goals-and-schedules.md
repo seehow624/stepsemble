@@ -5,17 +5,19 @@ conversation: type `/goal` followed by the objective, and its limits appear
 above the composer. Once it starts, the Goal is a small chip above the message
 box, beside the subagent bubble, saying how it is doing and for how long, such
 as "Goal · Working · 12:34" or "Goal · Completed · 1:02:03". Click it to open
-its progress and controls below it; click it again to close them. A new Goal
-starts closed. On a screen too narrow for both, the chip and the subagent
-bubble stack. To start a Goal in a new conversation,
+its progress and controls below the row; click it again to close them. A new Goal
+starts closed. The chip, Codex's own goal and the subagent bubble always sit
+side by side, a long one ending in "…", and one of their panels opens at a time.
+To start a Goal in a new conversation,
 open the conversation with the agent, project and model you want, then type
 `/goal`. Schedules have their own panel, opened from the Schedules button in the
 sidebar. The desktop app and browser use the same controls.
 
 While a conversation's Goal is running, paused or needs attention, the sidebar
 shows a small target beside the conversation's name. The mark disappears when
-the Goal completes, stops or fails. There is no separate list of past Goals;
-each conversation keeps its own record.
+the Goal completes, stops or fails. A finished Goal's chip stays until you
+remove it. There is no separate list of past Goals; each conversation keeps its
+own record, and a removed Goal remains in the task history.
 
 The Schedules panel uses a searchable list with an adjacent inspector on
 desktop. On a phone, select a schedule to open its details and use Back to
@@ -46,7 +48,8 @@ the agent cannot apply fails the run before its first prompt. Approval questions
 remain in the native conversation.
 
 Pause interrupts the current native turn and retains the Goal. Resume continues
-the same Goal. Stop ends it. While a Goal owns a conversation, ordinary message
+the same Goal. Stop ends it. Remove takes a paused, finished or stopped Goal off
+its conversation; a paused one removed ends without a notification. While a Goal owns a conversation, ordinary message
 sends are rejected with a request to pause the Goal first. Work already performed
 by the agent is not undone by pausing or stopping.
 

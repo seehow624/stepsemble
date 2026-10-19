@@ -7,6 +7,7 @@
   "use strict";
   const ACTIVE = new Set(["queued", "starting", "running", "waiting", "stopping"]);
   const RESUMABLE = new Set(["paused", "blocked", "interrupted"]);
+  const FINISHED = new Set(["limited", "completed", "failed", "stopped"]);
   const AGENTS = new Set(["pi", "codex", "claude-code", "opencode", "omp", "cline", "kilo", "hermes", "grok-build"]);
   function requestId() {
     if (root.crypto.randomUUID) return root.crypto.randomUUID();
@@ -66,11 +67,13 @@
     const pause = button(t("pause"), () => action("pause"));
     const resume = button(t("resume"), () => action("resume"));
     const stop = button(t("stop"), () => action("stop"));
-    actions.append(pause, resume, stop); liveHead.append(liveLabel, status, clock, actions);
+    // Removing ends a waiting Goal and takes it off the conversation.
+    const remove = button(t("remove"), () => action("dismiss"), "goal-remove");
+    actions.append(pause, resume, stop, remove); liveHead.append(liveLabel, status, clock, actions);
     const objective = node("p", "goal-objective"), activity = node("p", "goal-activity"); activity.setAttribute("role", "status");
     const details = node("details", "goal-run-details"), detailLabel = node("summary", "", t("details")), metrics = node("p", "goal-metrics"), result = node("pre", "goal-result");
     details.append(detailLabel, metrics, result); live.append(liveHead, objective, activity, details);
-    localized.push([moreLabel, "more"], [detailLabel, "details"], [pause, "pause"], [resume, "resume"], [stop, "stop"]);
+    localized.push([moreLabel, "more"], [detailLabel, "details"], [pause, "pause"], [resume, "resume"], [stop, "stop"], [remove, "remove"]);
     const error = node("p", "goal-error"); error.hidden = true; error.setAttribute("role", "alert");
     // A Goal under way is a small chip beside the subagents; it opens its
     // progress and closes it again. The draft stays above the input, and so
@@ -140,8 +143,9 @@
       if (activity.textContent !== activityText) activity.textContent = activityText;
       pause.hidden = !ACTIVE.has(latest.status) || latest.status === "stopping";
       resume.hidden = !RESUMABLE.has(latest.status);
-      stop.hidden = !(ACTIVE.has(latest.status) || RESUMABLE.has(latest.status)) || latest.status === "stopping" && !latest.error;
-      for (const b of [pause, resume, stop]) b.disabled = acting;
+      stop.hidden = !ACTIVE.has(latest.status) || latest.status === "stopping" && !latest.error;
+      remove.hidden = !(RESUMABLE.has(latest.status) || FINISHED.has(latest.status));
+      for (const b of [pause, resume, stop, remove]) b.disabled = acting;
       metrics.textContent = t("metrics", { turns: latest.turns, tokens: (latest.outputTokens || 0).toLocaleString(root.document.documentElement.lang) });
       result.textContent = latest.result || latest.objective;
     }
@@ -192,7 +196,7 @@
         const updated = await post("/api/workflows", { id, action: name });
         if (current(context)) {
           revision++;
-          if (updated?.id === id) { latest = updated; received = Date.now(); disconnected = false; }
+          if (updated?.id === id) { latest = updated.dismissedAt ? null : updated; received = Date.now(); disconnected = false; }
           onChanged(); await refresh();
         }
       }
@@ -204,7 +208,9 @@
     const poll = root.setInterval(() => void refresh(), 1500), ticker = root.setInterval(elapsed, 1000);
     root.addEventListener("pagehide", () => { closed = true; root.clearInterval(poll); root.clearInterval(ticker); }, { once: true });
     render(); void refresh();
-    return { submit, refresh, commandItem: () => supports() ? { name: "goal", description: t("description"), source: "workflow" } : null };
+    // Another panel above the message box opening closes this one.
+    function collapse() { if (expanded) { expanded = false; render(); } }
+    return { submit, refresh, collapse, commandItem: () => supports() ? { name: "goal", description: t("description"), source: "workflow" } : null };
   }
   return Object.freeze({ parse, createRequest, mount });
 });

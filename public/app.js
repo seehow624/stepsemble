@@ -131,6 +131,8 @@ const el = {
   messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
   nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
   nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
+  nativeRunObjective: $("native-run-objective"), nativeRunActions: $("native-run-actions"),
+  nativeGoalPause: $("native-goal-pause"), nativeGoalResume: $("native-goal-resume"), nativeGoalRemove: $("native-goal-remove"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -5809,13 +5811,49 @@ function renderCodexNativeRunState(connection) {
     : (window.stepsembleI18n?.t("Working…") || "Working…");
   root.setAttribute("aria-label", title);
   el.nativeRunTitle.textContent = title;
-  el.nativeRunDetail.textContent = goal.objective;
-  el.nativeRunMeta.textContent = [running ? (window.stepsembleI18n?.t("Working…") || "Working…") : "", elapsed]
-    .filter(Boolean).join(" · ");
+  el.nativeRunObjective.textContent = goal.objective;
+  // A narrow pane keeps the time: the pulsing dot already says it works.
+  const part = (cls, text) => { const span = document.createElement("span"); span.className = cls; span.textContent = text; return span; };
+  el.nativeRunMeta.replaceChildren(...[running && part("native-run-working", window.stepsembleI18n?.t("Working…") || "Working…"),
+    elapsed && part("native-run-elapsed", elapsed)].filter(Boolean));
+  // A conversation Stepsemble can write to pauses, resumes or removes its goal.
+  el.nativeRunActions.hidden = !connection.nativeCodexMutation || !connection.nativeThreadId;
+  for (const [button, key, shown] of [[el.nativeGoalPause, "pause", goal.status === "active"],
+    [el.nativeGoalResume, "resume", goal.status === "paused"], [el.nativeGoalRemove, "remove", true]]) {
+    button.textContent = tKey("goalComposer." + key); button.hidden = !shown; button.disabled = connection.codexGoalChanging === true;
+  }
 }
 
-// Codex's own goal is a chip like Stepsemble's Goal: its objective opens below
-// it and closes again.
+// Codex records the change as the person's own; reads begun before it do not
+// put the earlier goal back.
+async function changeCodexGoal(action) {
+  const connection = rpc, threadId = connection?.nativeThreadId;
+  if (!connection?.nativeCodexMutation || !threadId || connection.codexGoalChanging) return;
+  connection.codexGoalChanging = true;
+  connection.nativeGoalRevision = (connection.nativeGoalRevision || 0) + 1;
+  renderCodexNativeRunState(connection);
+  try {
+    const result = await post("/api/codex/mutation/goal", { threadId, action });
+    if (rpc !== connection) return;
+    const state = connection.nativeTranscriptState;
+    if (state && result?.kind === "thread_goal_cleared") {
+      if (state.goal) state.clearedGoal = { objective: state.goal.objective, createdAt: state.goal.createdAt };
+      state.goal = null;
+    } else if (state && result?.goal) state.goal = result.goal;
+  } catch {
+    if (rpc === connection) toast(tKey("goalComposer.changeFailed"), true);
+  } finally {
+    connection.codexGoalChanging = false;
+    connection.nativeGoalRevision += 1;
+    if (rpc === connection) renderCodexNativeRunState(connection);
+  }
+}
+el.nativeGoalPause?.addEventListener("click", () => void changeCodexGoal("pause"));
+el.nativeGoalResume?.addEventListener("click", () => void changeCodexGoal("resume"));
+el.nativeGoalRemove?.addEventListener("click", () => void changeCodexGoal("clear"));
+
+// Codex's own goal is a chip like Stepsemble's Goal: its objective and actions
+// open below the row of chips and close again.
 function setNativeGoalOpen(open) {
   if (!el.nativeRunToggle) return;
   el.nativeRunToggle.setAttribute("aria-expanded", String(open));
@@ -6031,9 +6069,10 @@ function reconcileCodexNativeEchoes(connection) {
 function renderCodexNativeSnapshot(connection, { preserveScroll = false } = {}) {
   if (rpc !== connection || !connection?.nativeCodex) return;
   const state = connection.nativeTranscriptState;
-  // The newest turn's collab items name its subagents and their states.
+  // The newest turn's collab items name its subagents and their states; the
+  // turn's id tells the tracker when a new one began.
   const chronological = [...(state?.entries || [])].reverse(), latestTurn = chronological.at(-1)?.turnId;
-  subagentTracker?.codex(chronological.filter(entry => entry.turnId === latestTurn).map(entry => entry.item));
+  subagentTracker?.codex(chronological.filter(entry => entry.turnId === latestTurn).map(entry => entry.item), latestTurn ?? null);
   const rendered = connection.nativeRenderedItems ||= new Map();
   const oldTop = el.messages.scrollTop;
   const oldHeight = el.messages.scrollHeight;
@@ -6213,7 +6252,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
   if (!connection || rpc !== connection || !connection.nativeCodex) return;
   if (connection.nativeTranscriptState.loading || connection.nativeRefreshInFlight) return;
   const generation = viewGeneration;
-  const sendRevision = connection.nativeSendRevision || 0;
+  const sendRevision = connection.nativeSendRevision || 0, goalRevision = connection.nativeGoalRevision || 0;
   const controller = new AbortController();
   const isCurrent = () => rpc === connection && generation === viewGeneration;
   connection.nativeHistoryRequest = controller;
@@ -6233,7 +6272,9 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     // Leave an older-page error visible until that page is successfully retried.
     applyCodexNativeTranscriptPage(connection.nativeTranscriptState, page);
     connection.nativeTranscriptState.goalAvailable = page.goalAvailable;
-    connection.nativeTranscriptState.goal = page.goal || null;
+    const cleared = connection.nativeTranscriptState.clearedGoal;
+    if (goalRevision === (connection.nativeGoalRevision || 0)) connection.nativeTranscriptState.goal = page.goal
+      && !(cleared && page.goal.objective === cleared.objective && page.goal.createdAt === cleared.createdAt) ? page.goal : null;
     connection.nativeTranscriptState.observation = page.observation || null;
     if (!initial) connection.nativeTranscriptState.error ||= connection.nativeTranscriptState.olderError;
     const thread = page.thread;
@@ -19449,6 +19490,15 @@ subagentPanel = subagentTracker && subagentBar && window.StepsembleSubagentPanel
     return api(`/api/subagent/detail?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}&id=${encodeURIComponent(id)}`);
   } }) || null;
 subagentTracker?.onChange(() => { subagentPanel?.render(subagentTracker.list()); syncSubagentCards(); });
+// The Goal, Codex goal and subagent chips sit side by side; one of their
+// panels opens at a time, below them.
+subagentBar?.addEventListener("click", event => {
+  const chip = event.target.closest?.(".subagent-bubble, .goal-chip, #native-run-toggle");
+  if (!chip) return;
+  if (!chip.matches(".subagent-bubble")) subagentPanel?.collapse?.();
+  if (!chip.matches(".goal-chip")) conversationGoal?.collapse?.();
+  if (!chip.matches("#native-run-toggle")) setNativeGoalOpen(false);
+}, true);
 // Elapsed times move while a subagent works; nothing redraws when none does.
 setInterval(() => { if (subagentTracker?.summary().running) subagentPanel?.render(subagentTracker.list()); }, 1000);
 

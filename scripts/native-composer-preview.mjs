@@ -86,7 +86,14 @@ const state = {
   goals: [],
   schedules: [],
   goalRequests: [],
+  // Codex's own goal on the Codex thread; null once cleared.
+  codexGoal: null,
+  codexGoalChanges: [],
 };
+const codexGoal = () => ({
+  threadId: CODEX_THREAD, objective: "Keep the synthetic Codex task moving until browser parity is verified",
+  status: "active", tokenBudget: null, tokensUsed: 12_345, timeUsedSeconds: 90, createdAt: Math.floor(startedAt / 1000), updatedAt: Math.floor(startedAt / 1000),
+});
 
 const codexContext = () => ({
   model: state.codexModel,
@@ -387,6 +394,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   const imageLookups = new Map();
   state.codexControlUnavailable = false;
   state.codexTurns.length = 0; state.codexModel = codexModels[0].id;
+  state.codexGoal = codexGoal(); state.codexGoalChanges = [];
   if (workflows) {
     state.goals = workflows.runs || [];
     state.schedules = workflows.schedules || [];
@@ -435,7 +443,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/workflows") {
         const snapshot = run => ({ ...run, elapsedMs: run.elapsedMs + (run.status === "running" ? Date.now() - run.updatedAt : 0) });
-        if (req.method === "GET") return json(res, 200, { available: true, keepsAwake: true, serverNow: Date.now(), schedules: requestUrl.searchParams.has("entry") ? [] : state.schedules, runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry")).map(snapshot) });
+        if (req.method === "GET") return json(res, 200, { available: true, keepsAwake: true, serverNow: Date.now(), schedules: requestUrl.searchParams.has("entry") ? [] : state.schedules, runs: state.goals.filter(run => !requestUrl.searchParams.has("entry") || run.entry === requestUrl.searchParams.get("entry") && !run.dismissedAt).map(snapshot) });
         const body = await parseJsonBody(req);
         state.goalRequests.push(body);
         const makeRun = (input, entry) => {
@@ -462,7 +470,8 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         if (body.action) {
           const run = state.goals.find(row => row.id === body.id);
           if (!run) return json(res, 404, { error: "preview_goal_not_found" });
-          Object.assign(run, snapshot(run), { status: { pause: "paused", resume: "running", stop: "stopped" }[body.action], updatedAt: Date.now() });
+          if (body.action === "dismiss") Object.assign(run, snapshot(run), { status: run.status === "paused" ? "stopped" : run.status, dismissedAt: Date.now(), updatedAt: Date.now() });
+          else Object.assign(run, snapshot(run), { status: { pause: "paused", resume: "running", stop: "stopped" }[body.action], updatedAt: Date.now() });
           return json(res, 200, snapshot(run));
         }
         const prior = [...state.goals, ...state.schedules].find(row => body.requestId && row.requestId === body.requestId);
@@ -504,11 +513,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       if (pathname === "/api/provider-catalog" && req.method === "GET") return json(res, 200, { providers: [] });
       if (pathname === "/api/access-tokens" && req.method === "GET") return json(res, 200, { tokens: [] });
       if (pathname === "/api/codex/thread" && req.method === "GET") return json(res, 200, {
-        thread: codexThreadPayload(), goalAvailable: true, goal: {
-          threadId: CODEX_THREAD, objective: "Keep the synthetic Codex task moving until browser parity is verified",
-          status: "active", tokenBudget: null, tokensUsed: 12_345, timeUsedSeconds: 90,
-          createdAt: startedAt, updatedAt: Date.now(),
-        },
+        thread: codexThreadPayload(), goalAvailable: true, goal: state.codexGoal ? { ...state.codexGoal } : null,
       });
       if (pathname === "/api/codex/turns" && req.method === "GET") return json(res, 200, { data: codexTurns(), nextCursor: null });
       if (pathname === "/api/codex/items" && req.method === "GET") return json(res, 200, { data: codexItems(), nextCursor: null });
@@ -549,6 +554,14 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         if (state.codexFailure) return json(res, 200, { kind: "completed", threadId: CODEX_THREAD,
           turnId: null, completedTurnId: turnId, status: "completed" });
         return json(res, 200, { kind: "started", threadId: CODEX_THREAD, turnId, status: "inProgress" });
+      }
+      if (pathname === "/api/codex/mutation/goal" && req.method === "POST") {
+        const body = await parseJsonBody(req);
+        state.codexGoalChanges.push(body);
+        if (!state.codexGoal || body.threadId !== CODEX_THREAD) return json(res, 409, { kind: "reject", code: "native_thread_not_loaded" });
+        if (body.action === "clear") { state.codexGoal = null; return json(res, 200, { kind: "thread_goal_cleared", threadId: CODEX_THREAD, cleared: true }); }
+        state.codexGoal = { ...state.codexGoal, status: body.action === "pause" ? "paused" : "active", updatedAt: Math.floor(Date.now() / 1000) };
+        return json(res, 200, { kind: "thread_goal", goal: { ...state.codexGoal } });
       }
       if (pathname === "/api/codex/mutation/interrupt" && req.method === "POST") { state.codexInterrupts += 1; return json(res, 200, { kind: "requested", threadId: CODEX_THREAD }); }
       if (pathname === "/api/claude/structured/events" && req.method === "GET") return json(res, 200, { events: [

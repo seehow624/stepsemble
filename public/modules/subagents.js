@@ -1,4 +1,5 @@
-/* The subagents of a conversation's current turn, from each agent's own data.
+/* The subagents of a conversation's current turn, from each agent's own data,
+   and those an earlier turn started that are still working.
    Nothing is inferred for an agent that does not report its subagents. */
 (function(root,factory){const api=factory();if(typeof module==="object"&&module.exports)module.exports=api;else root.StepsembleSubagents=api;})(typeof window!=="undefined"?window:globalThis,function(){
   "use strict";
@@ -36,6 +37,14 @@
     const archive=new Map();
     function retire(map){for(const row of map.values()){archive.delete(row.id);archive.set(row.id,row);}while(archive.size>MAX_ARCHIVE)archive.delete(archive.keys().next().value);}
     const listeners=new Set(), piCalls=new Map(), claudeTasks=new Map();
+    // A subagent that works on its own, a background one or a Codex thread,
+    // outlives the turn that started it until it ends.
+    const lasting=row=>!TERMINAL.has(row.status)&&(row.background===true||row.source==="codex");
+    // Codex turns a sent message ended, whose snapshot may still arrive; and
+    // whether a Claude turn ended, so the next one begins a turn even when the
+    // Host started it (Claude echoes no prompt it is sent).
+    let codexTurn=null, claudeEnded=false;
+    const endedTurns=new Set();
     function emit(){const next=JSON.stringify([...rows.values()]);if(next===signature)return;signature=next;for(const fn of listeners){try{fn();}catch{}}}
     function upsert(id,fields){
       if(!id)return null;
@@ -51,7 +60,16 @@
       return row;
     }
     function log(row,entry){if(!row)return;row.log.push(entry);if(row.log.length>MAX_LOG)row.log.splice(0,row.log.length-MAX_LOG);}
-    function newTurn(){if(rows.size||piCalls.size){retire(rows);rows=new Map();piCalls.clear();claudeTasks.clear();emit();}}
+    function newTurn(){
+      claudeEnded=false;
+      if(codexTurn!==null){endedTurns.add(codexTurn);while(endedTurns.size>MAX_ROWS)endedTurns.delete(endedTurns.values().next().value);}
+      const kept=new Map(),gone=new Map();
+      for(const [id,row] of rows)(lasting(row)?kept:gone).set(id,row);
+      retire(gone);rows=kept;
+      for(const call of [...piCalls.keys()])if(![...kept.values()].some(row=>row.toolId===call))piCalls.delete(call);
+      for(const [task,id] of [...claudeTasks])if(!kept.has(id))claudeTasks.delete(task);
+      emit();
+    }
     // Claude Code: a Task/Agent tool call is a subagent; events carrying its
     // tool id as parent_tool_use_id are the subagent's own work.
     // A backgrounded Agent answers its call at once ("Async agent launched");
@@ -78,6 +96,8 @@
       if(!plain(event))return;
       if(event.type==="system"&&["task_started","task_updated","task_notification"].includes(event.subtype)){claudeTask(event);emit();return;}
       const parent=event.parent_tool_use_id||event.parentToolUseId||null;
+      if(event.type==="result"&&!parent){claudeEnded=true;return;}
+      if(claudeEnded&&!parent&&(event.type==="assistant"||event.type==="stream_event"&&event.event?.type==="message_start"))newTurn();
       const message=plain(event.message)?event.message:null;
       const blocks=Array.isArray(message?.content)?[...message.content]:[];
       if(event.type==="stream_event"&&event.event?.type==="content_block_start"&&plain(event.event.content_block))blocks.push(event.event.content_block);
@@ -143,10 +163,12 @@
       emit();
     }
     // Codex: spawnAgent names the threads it starts; later collab calls carry
-    // each thread's last state. Items are a snapshot of the current turn.
+    // each thread's last state. Items are a snapshot of one turn, the newest.
     const CODEX_STATUS={pendingInit:"running",running:"running",completed:"completed",shutdown:"completed",errored:"failed",interrupted:"failed",notFound:"failed"};
-    function codex(items){
+    function codex(items,turnId=null){
+      const turn=turnId??null,ended=turn!==null&&endedTurns.has(turn);
       const previous=rows;rows=new Map();let count=0;
+      for(const [id,row] of previous)if((row.turnId??null)!==turn&&lasting(row))rows.set(id,row);
       for(const item of Array.isArray(items)?items:[]){
         if(!plain(item))continue;
         if(item.type==="collabAgentToolCall"){
@@ -154,8 +176,11 @@
           for(const id of Array.isArray(item.receiverThreadIds)?item.receiverThreadIds:[]){
             if(typeof id!=="string"||!id)continue;
             if(item.tool==="spawnAgent"&&!rows.has(id)){
+              // The turn a sent message ended brings back none of its finished subagents.
+              if(ended&&!previous.has(id))continue;
               const earlier=previous.get(id);
               const row=upsert(id,{source:"codex",toolId:clip(item.id,256),name:earlier?.name&&!/^Subagent \d+$/.test(earlier.name)?earlier.name:`Subagent ${++count}`,task:firstLine(item.prompt),prompt:clip(item.prompt)});
+              if(row)row.turnId=turn;
               if(row&&earlier)row.startedAt=earlier.startedAt;
             }
             const state=plain(states[id])?states[id]:null;
@@ -167,6 +192,7 @@
         }
       }
       for(const [id,row] of previous)if(!rows.has(id))retire(new Map([[id,row]]));
+      if(turn!==null)codexTurn=turn;
       emit();
     }
     // OpenCode: task tool calls and subtask parts after the latest user message.
@@ -221,7 +247,7 @@
     }
     function list(){return JSON.parse(JSON.stringify([...rows.values()]));}
     function summary(){const values=[...rows.values()];return {total:values.length,running:values.filter(row=>!TERMINAL.has(row.status)).length,completed:values.filter(row=>row.status==="completed").length,failed:values.filter(row=>row.status==="failed").length};}
-    function reset(){newTurn();}
+    function reset(){retire(rows);rows=new Map();piCalls.clear();claudeTasks.clear();endedTurns.clear();codexTurn=null;claudeEnded=false;emit();}
     function onChange(fn){listeners.add(fn);return()=>listeners.delete(fn);}
     const copy=row=>row?JSON.parse(JSON.stringify(row)):null;
     function get(id){return copy(rows.get(id)||archive.get(id));}

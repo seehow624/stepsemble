@@ -1195,6 +1195,18 @@ function createCodexNativeHistoryAdapter({
     return result;
   }
 
+  // Pauses, resumes or clears the thread's goal through the process holding it.
+  async function changeThreadGoal(threadId, change) {
+    requireMutation();
+    if (!validThreadId(threadId)) throw new CodexNativeHistoryError("invalid_thread_id", "Codex thread id is invalid", 400);
+    const method = change === "clear" ? "clearThreadGoal" : "setThreadGoal";
+    if (typeof transport?.[method] !== "function") {
+      throw new CodexNativeHistoryError("native_goal_unavailable", "Codex goal changes are unavailable", 503);
+    }
+    try { return await (change === "clear" ? transport.clearThreadGoal({ threadId }) : transport.setThreadGoal({ threadId, status: change })); }
+    catch (error) { retireBrokenTransport(error); throw error; }
+  }
+
   // Branches the thread into a new one through the turn given (all of it
   // without one), with a Codex app-server of its own.
   async function forkThread({ threadId, lastTurnId = null } = {}) {
@@ -1312,6 +1324,7 @@ function createCodexNativeHistoryAdapter({
     startThread,
     resumeThread,
     setThreadName,
+    changeThreadGoal,
     forkThread,
     startTurn,
     compactThread,

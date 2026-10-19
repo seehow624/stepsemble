@@ -497,6 +497,86 @@ export async function runConversationColumnBrowserCases(browser, { screenshots }
   }
 }
 
+// The Goal, Codex goal and subagent chips sit side by side above the message
+// box; one of their panels opens at a time, below them. Codex's goal pauses,
+// goes on and is removed from its panel, and a waiting Stepsemble Goal is
+// removed from the conversation.
+export async function runConversationDockBrowserCases(browser, { screenshots } = {}) {
+  for (const viewport of [{ width: 1440, height: 900, mobile: false }, { width: 393, height: 852, mobile: true }]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      let goal = { id: "dock-goal", objective: "Tidy what sits above the message box", status: "paused", elapsedMs: 754_000, activity: "paused", turns: 3, outputTokens: 1200, clockRunning: false };
+      const dismissals = [];
+      await context.route("**/api/workflows**", async route => {
+        const request = route.request();
+        if (request.method() === "POST") {
+          const body = request.postDataJSON();
+          dismissals.push(body);
+          goal = { ...goal, status: "stopped", dismissedAt: Date.now() };
+          return route.fulfill({ json: { ...goal, entry: "x" } });
+        }
+        const entry = new URL(request.url()).searchParams.get("entry");
+        return route.fulfill({ json: { runs: goal.dismissedAt ? [] : [{ ...goal, entry }] } });
+      });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const tops = (ui, selectors) => ui.evaluate(selectors => selectors.map(selector => Math.round(document.querySelector(selector).getBoundingClientRect().top)), selectors);
+
+      const codex = await openFromSidebar(page, "Codex composer fixture");
+      const toggle = codex.locator("#native-run-toggle"), detail = codex.locator("#native-run-detail");
+      await toggle.waitFor();
+      await codex.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel);
+      // A subagent an earlier turn started that still works.
+      await codex.evaluate(() => subagentTracker.codex([{ type: "collabAgentToolCall", id: "dock-spawn", tool: "spawnAgent", receiverThreadIds: ["dock-child"],
+        prompt: "Check the links", agentsStates: { "dock-child": { status: "running" } } }], "dock-earlier-turn"));
+      const bubble = codex.locator(".subagent-bubble"), list = codex.locator(".subagent-list");
+      await bubble.waitFor();
+      const [chipTop, bubbleTop] = await tops(codex, ["#native-run-toggle", ".subagent-bubble"]);
+      assert.ok(Math.abs(chipTop - bubbleTop) <= 2, `${viewport.width}: the goal chip (${chipTop}) and the subagents (${bubbleTop}) share a row`);
+      await toggle.click(); await detail.waitFor();
+      const [chipAfter, bubbleAfter, detailTop] = await tops(codex, ["#native-run-toggle", ".subagent-bubble", "#native-run-detail"]);
+      assert.ok(Math.abs(chipAfter - bubbleAfter) <= 2 && detailTop > chipAfter, `${viewport.width}: the objective opens below the chips, which stay side by side`);
+      assert.equal(await codex.locator("#native-goal-pause").isVisible(), true);
+      assert.equal(await codex.locator("#native-goal-resume").isVisible(), false);
+      assert.equal(await codex.locator("#native-goal-remove").isVisible(), true);
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `dock-codex-goal-${viewport.width}.png`) }); }
+      await bubble.click(); await list.waitFor();
+      assert.equal(await detail.isVisible(), false, "opening the subagents closes the goal");
+      if (screenshots) await page.screenshot({ path: path.join(screenshots, `dock-codex-subagents-${viewport.width}.png`) });
+      await toggle.click(); await detail.waitFor();
+      assert.equal(await list.isVisible(), false, "opening the goal closes the subagents");
+      await codex.locator("#native-goal-pause").click();
+      await codex.locator("#native-goal-resume").waitFor();
+      assert.equal(await codex.locator("#native-run-title").textContent(), "Goal paused");
+      assert.equal(preview.state.codexGoal.status, "paused");
+      await codex.locator("#native-goal-remove").click();
+      await codex.locator("#native-run-state").waitFor({ state: "hidden" });
+      assert.deepEqual(preview.state.codexGoalChanges.map(change => change.action), ["pause", "clear"]);
+      assert.equal(preview.state.codexGoal, null);
+      await codex.waitForTimeout(3000);
+      assert.equal(await toggle.isVisible(), false, "a removed goal does not come back");
+      assert.equal(await bubble.isVisible(), true, "the subagent still working stays");
+
+      const claude = await openFromSidebar(page, "Claude composer fixture");
+      const chip = claude.locator(".goal-chip");
+      await chip.waitFor(); await chip.click(); await claude.locator(".goal-panel").waitFor();
+      const remove = claude.locator(".goal-panel .goal-remove");
+      assert.equal(await remove.isVisible(), true);
+      assert.equal(await claude.locator(".goal-panel").getByRole("button", { name: "Stop", exact: true }).isVisible(), false, "a paused Goal is removed, not stopped");
+      if (screenshots) await page.screenshot({ path: path.join(screenshots, `dock-goal-paused-${viewport.width}.png`) });
+      await remove.click();
+      await chip.waitFor({ state: "hidden" });
+      assert.deepEqual(dismissals.map(body => body.action), ["dismiss"]);
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Conversation dock", width: viewport.width, result: "passed" }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
 // The pane's header controls (Changes, More) float over its top-right corner
 // on a desktop; the first message, usually the person's at the right, starts
 // below them. A phone keeps its title row in the flow.
@@ -818,6 +898,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runNarrowSettingsBrowserCases(browser, options);
   await runHistoryEmptyBrowserCases(browser, options);
   await runConversationColumnBrowserCases(browser, options);
+  await runConversationDockBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {

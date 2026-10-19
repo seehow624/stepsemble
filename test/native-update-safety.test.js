@@ -22,7 +22,7 @@ test("native mutation routes are allow-listed and reserved before the first body
   const literal = declaration.slice(declaration.indexOf("=") + 1, declaration.lastIndexOf(";")).trim();
   const route = vm.runInNewContext(literal);
   for (const pathname of [
-    "/api/open", "/api/send", "/api/agent/open", "/api/codex/mutation/resume",
+    "/api/open", "/api/send", "/api/agent/open", "/api/codex/mutation/resume", "/api/codex/mutation/goal",
     "/api/opencode/message", "/api/grok/acp/prompt", "/api/claude/structured/prompt",
     "/api/antigravity/structured/permission",
   ]) assert.equal(route.test(pathname), true, pathname);

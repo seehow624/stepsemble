@@ -47,9 +47,10 @@ conversations unable to send after every Codex update, so a release is
 compared with the latest reviewed contract instead (`server/codex-schema-compat.js`).
 It is accepted when nothing Stepsemble sends or reads is removed or changed:
 
-- The documents compared are the 26 fingerprinted contract files and the
+- The documents compared are the fingerprinted contract files and the
   responses of the other methods Stepsemble calls (model list, fork, set
-  name, goal, rate limits, turn start and interrupt), 33 in all.
+  name, read, set and clear a goal, rate limits, turn start and interrupt),
+  36 in all (`CONTRACT_FILES`).
 - What Stepsemble sends (request parameters of the methods it uses,
   initialize, approval responses) may gain optional fields and accepted
   values, and a sent shape may become one member of a union. A new required
@@ -273,9 +274,16 @@ What changed, file by file:
   `oneOf` does; the other way round stays a change for what Stepsemble sends
   (`COMPARISON_VERSION` 3; `test/codex-schema-compat.test.js`). Stepsemble
   does not read `codexErrorInfo`.
-- `thread/goal/set` and `thread/goal/clear` take an optional `origin`;
-  Stepsemble does not call them. `ModelListResponse.json` differs only in
-  descriptions.
+- `thread/goal/set` and `thread/goal/clear` take an optional `origin`.
+  `ModelListResponse.json` differs only in descriptions.
+
+Stepsemble pauses, resumes and clears a Codex goal with `thread/goal/set`
+(`status` `paused` or `active`) and `thread/goal/clear`, both with
+`origin: "user"`. Codex lets only the process holding a thread change its goal
+("already has an active writer" otherwise), so the request goes to the pool
+child that owns the thread, resuming it first when none does
+(`/api/codex/mutation/goal`). Their responses joined the compared documents
+in `COMPARISON_VERSION` 4, with the 0.161.0 baseline rebuilt to include them.
 
 ## Automatic Codex upgrades
 

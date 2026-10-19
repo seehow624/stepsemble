@@ -261,3 +261,24 @@ test("two schedules targeting one conversation serialize while unrelated project
   f.pending.shift().resolve({text:"First done"});await wait(10);await f.host.tick();await until(()=>f.sends.length===3);
   assert.equal(f.sends.length,3);assert.equal(f.host.list().runs[1].status,"running");assert.equal(f.host.list().runs[1].entry,targetEntry);
 });
+
+test("a Goal that ended or waits can be removed from its conversation; one under way must be paused or stopped first",async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"stepsemble-goals-dismiss-")),file=path.join(dir,"goals.json"),pending=[],finished=[];
+  const bridge={async open(run){return {entry:"entry-1",record:{agentId:run.agentId}};},async turn(run,prompt,signal){return new Promise(resolve=>pending.push({resolve,signal,run}));},async stop(){pending.shift()?.resolve({text:"Stopped"});}};
+  const host=createWorkflows({file,bridge,autoStart:false,onFinished:run=>finished.push(run.status)});
+  t.after(()=>{host.close();for(const p of pending)p.resolve({error:"test ended"});fs.rmSync(dir,{recursive:true,force:true});});
+  host.create(def);await wait(10);const id=host.list().runs[0].id;
+  await assert.rejects(host.action({id,action:"dismiss"}),error=>error.statusCode===409);
+  await host.action({id,action:"pause"});await wait(10);const before=[...finished];
+  const removed=await host.action({id,action:"dismiss"});
+  assert.equal(removed.status,"stopped");assert.ok(removed.dismissedAt);
+  assert.deepEqual(finished,before,"removing it is the person's own act, so nothing is announced");
+  assert.deepEqual(host.list("entry-1").runs,[],"the conversation no longer shows it");
+  assert.equal(host.list().runs.length,1,"the task history keeps it");
+  const reopened=createWorkflows({file,bridge,autoStart:false});t.after(()=>reopened.close());
+  assert.deepEqual(reopened.list("entry-1").runs,[]);
+  host.create({...def,entry:"entry-1"});await wait(10);
+  const turn=pending.at(-1);turn.resolve({text:`Done.\n[[STEPSEMBLE_GOAL:${turn.run.nonce}:complete]]`,outputTokens:5});await wait(10);
+  const next=host.list("entry-1").runs[0];assert.equal(next.status,"completed");
+  await host.action({id:next.id,action:"dismiss"});assert.deepEqual(host.list("entry-1").runs,[]);
+});

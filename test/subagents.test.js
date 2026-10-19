@@ -249,3 +249,71 @@ test("saved tool cards keep their known harness but never treat launch arguments
   const child = tracker.byTool("old-child")[0];
   assert.deepEqual([child.harness, child.model, child.reasoningEffort], ["claude-code", "", ""]);
 });
+
+test("Codex: a subagent still working from an earlier turn stays until it ends; finished ones go when the next turn starts", () => {
+  // A Codex goal runs as several turns; the next one usually spawns nothing.
+  const tracker = create(), long = "thread-long", short = "thread-short";
+  const spawnLong = { type: "collabAgentToolCall", id: "s1", tool: "spawnAgent", receiverThreadIds: [long], prompt: "Long job", agentsStates: { [long]: { status: "running" } } };
+  const spawnShort = { type: "collabAgentToolCall", id: "s2", tool: "spawnAgent", receiverThreadIds: [short], prompt: "Short job", agentsStates: { [short]: { status: "completed", message: "done" } } };
+  tracker.codex([spawnLong, spawnShort], "turn-1");
+  assert.deepEqual(tracker.list().map(row => row.id), [long, short]);
+  tracker.codex([{ type: "agentMessage", id: "m2", text: "Still going" }], "turn-2");
+  assert.deepEqual(tracker.list().map(row => row.id), [long], "the running one stays, the finished one goes");
+  tracker.codex([{ type: "collabAgentToolCall", id: "w2", tool: "wait", receiverThreadIds: [long], agentsStates: { [long]: { status: "completed", message: "Long job done" } } }], "turn-2");
+  assert.equal(pick(tracker, long).status, "completed"); assert.equal(pick(tracker, long).result, "Long job done");
+  tracker.codex([], "turn-3");
+  assert.deepEqual(tracker.list(), [], "a turn that spawns nothing shows nothing once the earlier ones ended");
+  assert.equal(tracker.byTool("s1")[0]?.id, long, "an earlier turn's subagent is still reachable from its card");
+});
+
+test("Codex: after a message is sent, the previous turn's snapshot does not bring finished subagents back", () => {
+  const tracker = create(), long = "thread-long", short = "thread-short";
+  const items = [
+    { type: "collabAgentToolCall", id: "s1", tool: "spawnAgent", receiverThreadIds: [long], prompt: "Long job", agentsStates: { [long]: { status: "running" } } },
+    { type: "collabAgentToolCall", id: "s2", tool: "spawnAgent", receiverThreadIds: [short], prompt: "Short job", agentsStates: { [short]: { status: "completed" } } },
+  ];
+  tracker.codex(items, "turn-1");
+  const started = pick(tracker, long).startedAt;
+  tracker.newTurn();
+  assert.deepEqual(tracker.list().map(row => row.id), [long]);
+  tracker.codex(items, "turn-1");
+  assert.deepEqual(tracker.list().map(row => row.id), [long], "the old turn is still the newest one for a moment");
+  assert.equal(pick(tracker, long).startedAt, started);
+  tracker.codex([], "turn-2");
+  assert.deepEqual(tracker.list().map(row => row.id), [long]);
+});
+
+test("Claude: a turn the Host starts itself, as a Goal does, starts without the previous turn's finished subagents", () => {
+  const tracker = create();
+  tracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "fg", name: "Agent", input: { description: "Check links", subagent_type: "researcher" } }] } });
+  tracker.claude({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "fg", content: "All links work" }] } });
+  tracker.claude({ type: "result", subtype: "success", result: "Done" });
+  assert.equal(tracker.list().length, 1, "the ended turn still shows its subagents");
+  // No user event: Claude does not echo a prompt it was sent.
+  tracker.claude({ type: "stream_event", event: { type: "message_start", message: { id: "m2", model: "claude" } } });
+  assert.deepEqual(tracker.list(), []);
+});
+
+test("Claude: a background agent stays across turns while it works, and leaves with the turn after it ends", () => {
+  const tracker = create(), tool = "bg", task = "task-bg";
+  tracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: tool, name: "Agent", input: { description: "Long research", run_in_background: true, subagent_type: "researcher" } }] } });
+  tracker.claude({ type: "system", subtype: "task_started", task_id: task, tool_use_id: tool, description: "Long research", is_backgrounded: true, task_type: "local_agent" });
+  tracker.claude({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: tool, content: "Async agent launched successfully." }] } });
+  tracker.claude({ type: "result", subtype: "success" });
+  tracker.claude({ type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Next goal turn" }] } });
+  assert.equal(pick(tracker, tool)?.status, "running", "still working, so still shown");
+  tracker.newTurn();
+  assert.equal(pick(tracker, tool)?.status, "running", "a message sent does not hide it either");
+  tracker.claude({ type: "system", subtype: "task_updated", task_id: task, patch: { status: "completed" } });
+  assert.equal(pick(tracker, tool).status, "completed", "its task events still reach it");
+  tracker.claude({ type: "result", subtype: "success" });
+  tracker.claude({ type: "assistant", message: { id: "m3", content: [{ type: "text", text: "Third turn" }] } });
+  assert.deepEqual(tracker.list(), []);
+});
+
+test("closing the conversation clears every subagent, running ones too", () => {
+  const tracker = create();
+  tracker.codex([{ type: "collabAgentToolCall", id: "s1", tool: "spawnAgent", receiverThreadIds: ["t1"], prompt: "Job", agentsStates: { t1: { status: "running" } } }], "turn-1");
+  tracker.reset();
+  assert.deepEqual(tracker.list(), []);
+});

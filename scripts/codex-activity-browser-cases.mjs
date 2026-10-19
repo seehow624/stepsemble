@@ -40,7 +40,7 @@ export async function runCodexActivityBrowserCases(browser) {
 
       stage = "active goal";
       // Codex's own goal is a small chip in the row of the Goal chip and the
-      // subagent bubble; its objective opens below it and closes again.
+      // subagent bubble; its objective opens below the row and closes again.
       const state = pane.locator("#native-run-state");
       await state.waitFor();
       await assert.doesNotReject(() => state.getByText("Pursuing goal", { exact: true }).waitFor());
@@ -48,7 +48,7 @@ export async function runCodexActivityBrowserCases(browser) {
       assert.equal(await state.getAttribute("aria-label"), "Pursuing goal");
       assert.equal((await state.locator("#native-run-meta").textContent()).includes("Working"), true);
       assert.equal(await state.evaluate(node => node.parentElement.id), "subagent-bar");
-      const toggle = state.locator("#native-run-toggle"), objective = state.getByText("Keep the synthetic Codex task moving", { exact: false });
+      const toggle = state.locator("#native-run-toggle"), objective = pane.locator("#native-run-detail").getByText("Keep the synthetic Codex task moving", { exact: false });
       const chip = await toggle.boundingBox();
       assert.ok(chip.height <= 40 && chip.width <= viewport.width - 24, `one short line: ${JSON.stringify(chip)}`);
       assert.equal(await objective.isVisible(), false);

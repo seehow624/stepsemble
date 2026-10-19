@@ -5403,6 +5403,8 @@
     "goalComposer.pause": ["Pause","暂停","暫停","一時停止","일시 정지","Duraklat","Pause","Pausieren","Pausar","Pausar","Pausa"],
     "goalComposer.resume": ["Resume","继续","繼續","再開","재개","Sürdür","Reprendre","Fortsetzen","Reanudar","Retomar","Riprendi"],
     "goalComposer.stop": ["Stop","停止","停止","停止","중지","Durdur","Arrêter","Stoppen","Detener","Parar","Interrompi"],
+    "goalComposer.remove": ["Remove","移除","移除","削除","제거","Kaldır","Retirer","Entfernen","Quitar","Remover","Rimuovi"],
+    "goalComposer.changeFailed": ["Could not change the goal. Try again.","无法更改 Goal，请再试一次。","無法變更 Goal，請再試一次。","Goal を変更できませんでした。もう一度お試しください。","Goal을 변경하지 못했습니다. 다시 시도하세요.","Hedef değiştirilemedi. Yeniden deneyin.","Impossible de modifier l’objectif. Réessayez.","Das Ziel konnte nicht geändert werden. Versuche es erneut.","No se pudo cambiar el objetivo. Inténtalo de nuevo.","Não foi possível alterar o objetivo. Tente novamente.","Impossibile modificare l’obiettivo. Riprova."],
     "goalComposer.details": ["Details","详情","詳細資料","詳細","상세 정보","Ayrıntılar","Détails","Details","Detalles","Detalhes","Dettagli"],
     "goalComposer.ready": ["Ready to start","准备开始","準備開始","開始準備完了","시작 준비 완료","Başlamaya hazır","Prêt à démarrer","Bereit zum Start","Listo para empezar","Pronto para começar","Pronto per iniziare"],
     "goalComposer.starting": ["Starting…","正在开始…","正在開始…","開始中…","시작 중…","Başlatılıyor…","Démarrage…","Wird gestartet…","Iniciando…","Iniciando…","Avvio…"],
