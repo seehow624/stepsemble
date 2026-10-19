@@ -13,7 +13,12 @@
     page: "M5 5.5h14v10H9.5L5 19.5z", group: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3.5 19a5.5 5.5 0 0 1 11 0M16 11a2.5 2.5 0 1 0 0-5M17.5 14.5a4.5 4.5 0 0 1 3 4.5",
   };
 
-  function create({ locale, wt, machines, selected, open, dragStart, dragEnd, menu, newWindow, onInstalled }) {
+  // In the Workspace's list the Bots block is one of its sections:
+  // sectionActions() adds the list's own actions (move up, down) to the Bots
+  // heading's menu, and decorate() lets the list make that heading draggable.
+  // onLoaded() follows the first ready read and each read a tab's change
+  // report asked for, so the Workspace can read the routines again.
+  function create({ locale, wt, machines, selected, open, dragStart, dragEnd, menu, newWindow, onInstalled, sectionActions = () => [], decorate = () => {}, onLoaded = () => {} }) {
     const t = (key, vars) => AI.t(key, vars, locale());
     const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
     function icon(path, className = "") {
@@ -27,16 +32,20 @@
       const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b;
     }
     let root = null, active = false, inline = false, choices = [], current = null, state = "loading", failure = null, query = "";
-    let data = { bots: [], allBots: [], groups: { supported: false, rooms: [] }, asks: [] }, epoch = 0, timer = 0, soon = 0;
+    let data = { bots: [], allBots: [], groups: { supported: false, rooms: [] }, asks: [] }, epoch = 0, timer = 0, soon = 0, reported = false;
     const pictures = new Map();
     let collapsed = new Set();
     try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY)) || []); } catch {}
     const apiFor = machine => Api.create({ base: machine.base });
 
     // Which computers run Hermes; the switch appears once one does.
+    // A computer that does not answer in a few seconds (asleep, away) does not
+    // hold up the Bots of the others; it counts as having none for now.
+    const DISCOVER_MS = 4000;
+    const answered = promise => Promise.race([promise.catch(() => null), new Promise(resolve => setTimeout(resolve, DISCOVER_MS, null))]);
     async function discover() {
       const rows = machines();
-      const checked = await Promise.all(rows.map(async row => ({ ...row, status: await apiFor(row).status().catch(() => null) })));
+      const checked = await Promise.all(rows.map(async row => ({ ...row, status: await answered(apiFor(row).status()) })));
       let saved = null; try { saved = localStorage.getItem(MACHINE_KEY); } catch {}
       const choice = M.chooseHermesMachine(checked, current?.id || saved);
       choices = choice.choices; current = choice.selected;
@@ -54,7 +63,7 @@
     async function refresh() {
       clearTimeout(timer);
       if (!active || !current) return;
-      const mine = ++epoch, target = current, api = apiFor(target);
+      const mine = ++epoch, target = current, api = apiFor(target), before = state;
       try {
         const status = await api.status();
         if (mine !== epoch) return;
@@ -74,6 +83,7 @@
         failure = null;
       } catch (error) { if (mine !== epoch) return; state = "error"; failure = error; }
       update();
+      if (state === "ready" && (before !== "ready" || reported)) { reported = false; onLoaded(); }
       if (active && !document.hidden) timer = setTimeout(refresh, POLL);
     }
     // A tab reported a change (a reply, a new Bot or group): read again soon,
@@ -81,7 +91,7 @@
     function changed(profile = null) {
       // A Bot's settings changed: its picture may be new.
       if (profile) for (const key of [...pictures.keys()]) if (key.endsWith(`/${profile}`)) pictures.delete(key);
-      clearTimeout(soon); soon = setTimeout(() => void refresh(), 400);
+      reported = true; clearTimeout(soon); soon = setTimeout(() => void refresh(), 400);
     }
 
     const context = host => host === current?.id ? { bots: data.allBots, groups: data.groups.rooms, t } : { bots: [], groups: [], t };
@@ -162,7 +172,7 @@
       header.append(toggle);
       if (extra) header.append(extra);
       box.append(header, contents);
-      return { box, contents };
+      return { box, contents, toggle };
     }
     function botRow(bot) {
       const route = { page: "bot", profile: bot.name }, row = node("div", "", "workspace-session-row");
@@ -202,12 +212,14 @@
       if (action) box.append(action);
       return box;
     }
-    // In the Workspace's list, Manage and New Bot sit on the Bots heading.
+    // In the Workspace's list, New Bot and a menu (Manage Bots and the list's
+    // own actions) sit on the Bots heading, as a project's + and ⋯ do.
     function inlineActions() {
       const box = node("span", "", "workspace-assistant-actions"), ready = state === "ready";
-      const manage = button("", () => go({ page: "bots" }), t("manageBots"), "btn workspace-project-add"); manage.id = "workspace-assistant-manage"; manage.append(icon(ICONS.manage));
       const add = button("", () => go({ page: "newbot" }), t("newBot"), "btn workspace-project-add"); add.id = "workspace-assistant-add"; add.append(icon(ICONS.plus));
-      manage.disabled = add.disabled = !ready; box.append(manage, add); return box;
+      const more = button("⋯", () => menu(more, [...(ready ? [[t("manageBots"), () => go({ page: "bots" })]] : []), ...sectionActions()]), t("moreOptions"), "btn workspace-project-menu");
+      more.id = "workspace-assistant-more"; more.setAttribute("aria-haspopup", "menu");
+      add.disabled = !ready; box.append(add, more); return box;
     }
     function renderList() {
       const list = root?.querySelector("#workspace-assistant-list");
@@ -221,7 +233,7 @@
       else if (state === "oauth") notice = note(t("signInTitle"), t("oauthOnly"));
       else if (state === "signin") notice = note(t("signInTitle"), t("signInBody", { computer: name }), button(t("signIn"), () => go({ page: "home" }), t("signIn"), "btn primary"));
       else if (state === "error") notice = note(t("failed", { message: failure?.message || "" }), "", button(t("retry"), () => void refresh(), t("retry"), "btn ghost"));
-      if (notice && inline) { const bots = section("bots", t("bots"), inlineActions()); bots.contents.append(notice); list.append(bots.box); }
+      if (notice && inline) { const bots = section("bots", t("bots"), inlineActions()); bots.contents.append(notice); list.append(bots.box); decorate(bots.toggle); }
       else if (notice) list.append(notice);
       else {
         if (data.asks.length) {
@@ -229,6 +241,7 @@
           list.append(pending);
         }
         const bots = section("bots", t("bots"), inline ? inlineActions() : null);
+        if (inline) decorate(bots.toggle);
         const botRows = W.botRows(data.bots, query, locale());
         for (const bot of botRows) bots.contents.append(botRow(bot));
         if (!botRows.length) bots.contents.append(node("small", t(query ? "noMatches" : "noBots")));
@@ -287,9 +300,17 @@
     function deactivate() { active = false; clearTimeout(timer); clearTimeout(soon); epoch++; }
     document.addEventListener("visibilitychange", () => { if (active && !document.hidden) void refresh(); });
 
+    // Every Bot's routines on the computer that runs Hermes, for the
+    // Workspace's Automations.
+    async function routines() {
+      const target = current;
+      if (!target || state !== "ready") return null;
+      const result = await apiFor(target).routines(null);
+      return { target: target.id, items: Array.isArray(result?.routines) ? result.routines : [], bots: data.allBots };
+    }
     // The Assistant's own words, for the Workspace controls that open it.
-    return Object.freeze({ discover, activate, deactivate, refresh, changed, render, mark, ref, tabIcon, setQuery, text: t, get active() { return active; },
-      get machine() { return current; }, get installed() { return !!current; } });
+    return Object.freeze({ discover, activate, deactivate, refresh, changed, render, mark, ref, tabIcon, setQuery, routines, avatar: bot => avatarNode(bot), text: t, get active() { return active; },
+      get machine() { return current; }, get installed() { return !!current; }, get ready() { return state === "ready"; } });
   }
 
   root.StepsembleWorkspaceAssistant = Object.freeze({ create });

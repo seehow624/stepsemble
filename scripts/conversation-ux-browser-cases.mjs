@@ -285,18 +285,16 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      // The ⋯ and + of every section (Automations' too), project and conversation.
+      await page.locator('#workspace-projects [data-section="automations"] .workspace-project-menu').waitFor();
       const sizes = await page.evaluate(() => {
         const box = node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; };
         const shown = selector => [...document.querySelectorAll(selector)].filter(node => node.offsetParent);
-        return { menus: shown("#workspace-projects .workspace-session-menu, #workspace-projects .workspace-project-add, #workspace-projects .workspace-project-menu").map(box), schedules: box(document.getElementById("workspace-workflows")) };
+        return { menus: shown("#workspace-projects .workspace-session-menu, #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-projects .workspace-machine-menu").map(box) };
       });
       assert.ok(sizes.menus.length >= 3, JSON.stringify(sizes));
-      if (viewport.touch) {
-        assert.deepEqual(sizes.menus.filter(size => size.width < 40 || size.height < 40), [], `${viewport.width}: ⋯ and + are too small to tap ${JSON.stringify(sizes)}`);
-        assert.ok(sizes.schedules.height >= 40, `${viewport.width}: Schedules is ${sizes.schedules.height}px tall`);
-      } else {
-        assert.ok(sizes.menus.every(size => size.width <= 32) && sizes.schedules.height <= 32, `a mouse keeps the compact sidebar ${JSON.stringify(sizes)}`);
-      }
+      if (viewport.touch) assert.deepEqual(sizes.menus.filter(size => size.width < 40 || size.height < 40), [], `${viewport.width}: ⋯ and + are too small to tap ${JSON.stringify(sizes)}`);
+      else assert.ok(sizes.menus.every(size => size.width <= 32), `a mouse keeps the compact sidebar ${JSON.stringify(sizes)}`);
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `touch-sidebar-${viewport.width}.png`) }); }
       if (viewport.touch) {
         // The work row under each reply, which opens what the agent did.
@@ -305,8 +303,10 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
         const rows = await ui.evaluate(() => [...document.querySelectorAll("#messages .wl-row")].filter(node => node.offsetParent).map(node => Math.round(node.getBoundingClientRect().height)));
         assert.ok(rows.length && rows.every(height => height >= 36), `${viewport.width}: work rows ${rows}`);
         await backToList(page, ui);
-        // The filters of the Schedules panel, even a short one such as "All".
-        await page.locator("#workspace-workflows").click();
+        // The filters of the Schedules panel, even a short one such as "All";
+        // it opens from the menu of the list's Automations.
+        await page.locator('[data-section="automations"] .workspace-project-menu').click();
+        await page.getByRole("menuitem", { name: "Schedules", exact: true }).click();
         await page.locator(".wf-filters .btn").first().waitFor();
         const filters = await page.evaluate(() => [...document.querySelectorAll(".wf-filters .btn")].filter(node => node.offsetParent).map(node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; }));
         assert.deepEqual(filters.filter(size => size.width < 44 || size.height < 40), [], `${viewport.width}: Schedules filters ${JSON.stringify(filters)}`);

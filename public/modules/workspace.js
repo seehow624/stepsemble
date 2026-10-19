@@ -30,13 +30,10 @@
     root.style.setProperty("--workspace-sidebar-width", `${prefs.sidebarWidth}px`);
     document.body.classList.toggle("compact", prefs.compact);
     document.title = `Stepsemble · ${t("workspace")}`;
-    if (window.StepsembleWorkflows) {
-      labelWorkflows();
-    }
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
     renderHostState();
-    if (assistantUI) { renderMode(); assistantUI.render(); }
+    if (assistantUI) { assistantUI.render(); renderSidebar(); }
     // The Mac app matches its window, buttons and dialogs to the chosen
     // theme; "auto" follows macOS.
     window.webkit?.messageHandlers?.stepsemble?.postMessage({ type: "appearance", theme: prefs.theme });
@@ -81,6 +78,11 @@
     try { localStorage.setItem(`stepsemble.workspace.collapsed.v1.${target}`, JSON.stringify([...collapsedFor(target)])); } catch {}
   }
   const frames = new Map(), slots = new Map(), pendingTransfers = new Map();
+  // A pane's page takes only its parent's messages. WebKit (the Mac app) names
+  // the pane itself as the sender when the pane's own postMessage is called
+  // from an event handler here, so the page would drop it; this window's
+  // postMessage names this window.
+  function toFrame(frame, data) { const target = frame?.contentWindow; if (target) window.postMessage.call(target, data, location.origin); }
   const hostSnapshots = new Map(), readsPending = new Set(), readCompletions = new Set();
   const snapshotRequests = new Map();
   let channel;
@@ -102,17 +104,16 @@
     dragStart: (event, target, route) => dragStart(event, assistantTab(target, route), false), dragEnd,
     menu: (anchor, actions) => openPaneMenu(anchor, actions),
     newWindow: (target, route) => newWindow(assistantTab(target, route)),
+    sectionActions: () => sectionActions("bots"),
+    decorate: toggle => reorderSection(toggle, botsBlock, "bots"),
+    onLoaded: () => void refreshAutomations(),
     onInstalled(installed) {
-      $("workspace-routines").hidden = !installed; botsBlock.hidden = !installed;
+      botsBlock.hidden = !installed;
       if (installed && !assistantUI.active) { assistantUI.setQuery($("workspace-search").value.trim()); assistantUI.activate(botsBlock, { inline: true }); }
       if (!installed && assistantUI.active) assistantUI.deactivate();
-      renderSidebar();
+      renderSidebar(); void refreshAutomations();
     },
   });
-  function renderMode() {
-    const routines = $("workspace-routines"), label = assistantUI.text("allRoutines");
-    routines.title = label; routines.setAttribute("aria-label", label);
-  }
   function icon(path, className = "") {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
@@ -183,10 +184,10 @@
     localStorage.setItem(storageKey, JSON.stringify({ tree: checked, focused }));
     tree = next;
   }
-  async function api(path, body, target = host) {
+  async function api(path, body, target = host, signal) {
     if (!machines.some(m => m.id === target)) throw new Error(t("hostUnavailable"));
     const prefix = target === self ? "" : `/r/${encodeURIComponent(target)}`;
-    const res = await fetch(prefix + path, { credentials: "same-origin", cache: "no-store", ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+    const res = await fetch(prefix + path, { credentials: "same-origin", cache: "no-store", signal, ...(body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
     if (res.status === 401) throw new Error(t("expired"));
     const data = await res.json(); if (!res.ok) throw Object.assign(new Error(data.error || t("loadFailed")), { status: res.status, ...(typeof data.code === "string" ? { code: data.code } : {}), detail: data }); return data;
   }
@@ -241,7 +242,7 @@
     if (frame) {
       frame.ref.title = title; frame.frame.title = `${title} · ${hostName(ref.host)}`;
       // The conversation's own title row shows the same name.
-      frame.frame.contentWindow?.postMessage({ type: "workspace-renamed", title }, location.origin);
+      toFrame(frame.frame, { type: "workspace-renamed", title });
     }
     try { save(); } catch (error) { toast(error.message); }
     updateTabMetadata(ref);
@@ -377,7 +378,7 @@
     const fresh = assistantUI.ref(target, route);
     if (JSON.stringify(existing.assistant) !== JSON.stringify(fresh.assistant)) {
       updateAssistantTab(existing, { route: fresh.assistant, title: fresh.title, avatar: fresh.avatar });
-      frames.get(L.identity(existing))?.frame.contentWindow?.postMessage({ type: "assistant-navigate", route: fresh.assistant }, location.origin);
+      toFrame(frames.get(L.identity(existing))?.frame, { type: "assistant-navigate", route: fresh.assistant });
     }
     return open(existing);
   }
@@ -412,8 +413,8 @@
     if (ref.key === item.ref.key) { toast(t("referenceSelf")); return; }
     const entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
     // A session on another computer is summarized there; the chip names it.
-    item.frame.contentWindow?.postMessage({ type: "workspace-reference-session", session: { key: ref.key, host: ref.host, hostName: hostName(ref.host),
-      title: plainTitle(ref.title) || ref.title || "", agentId: entry?.record.agentId || ref.agentId || "" } }, location.origin);
+    toFrame(item.frame, { type: "workspace-reference-session", session: { key: ref.key, host: ref.host, hostName: hostName(ref.host),
+      title: plainTitle(ref.title) || ref.title || "", agentId: entry?.record.agentId || ref.agentId || "" } });
   }
   function dragEnd() { renderSidebar(); document.body.classList.remove("workspace-dragging"); channel?.postMessage({ type: "drag", active: false }); reportDragRegions(); }
   addEventListener("keydown", event => { if (event.key === "Escape") dragEnd(); });
@@ -476,7 +477,7 @@
       const visible = !!(slot && slot.getClientRects().length && slot.getBoundingClientRect().width > 0);
       // A Bot tab that is not shown stops counting as watching its chat, so
       // the phone still hears about a reply there.
-      if (item.ref.assistant && item.frame.hidden === visible) item.frame.contentWindow?.postMessage({ type: "workspace-visibility", visible }, location.origin);
+      if (item.ref.assistant && item.frame.hidden === visible) toFrame(item.frame, { type: "workspace-visibility", visible });
       item.frame.hidden = !visible;
       if (!visible) continue;
       const r = slot.getBoundingClientRect();
@@ -541,7 +542,7 @@
     slots.clear(); $("workspace-tree").replaceChildren();
     if (!L.leaves(tree).some(p => p.id === focused)) focused = L.leaves(tree)[0].id;
     const wanted = new Set(allRefs().map(L.identity));
-    for (const [key, item] of frames) if (!wanted.has(key)) { item.frame.contentWindow?.postMessage({ type: "workspace-detach" }, location.origin); item.frame.remove(); frames.delete(key); }
+    for (const [key, item] of frames) if (!wanted.has(key)) { toFrame(item.frame, { type: "workspace-detach" }); item.frame.remove(); frames.delete(key); }
     // Frames live in a stable layer and are never reparented on a split/move.
     // Reparenting an iframe reloads its browsing context on older browsers.
     const visibleRefs = L.leaves(tree).filter(p => (!mobile() || p.id === focused) && (!maximized || p.id === maximized)).map(active).filter(Boolean);
@@ -600,7 +601,7 @@
         catch (error) { toast(error.message); } finally { dragEnd(); }
       };
       tabs.append(tablist);
-      const frameCommand = command => frames.get(n.active)?.frame.contentWindow?.postMessage({ type: "workspace-command", command }, location.origin);
+      const frameCommand = command => toFrame(frames.get(n.active)?.frame, { type: "workspace-command", command });
       if (shownRef && !shownRef.assistant) {
         const summary = button("", () => frameCommand("summary"), t("summary"), "btn workspace-strip-button workspace-summary-button");
         summary.append(icon("M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01")); tabs.append(summary);
@@ -700,6 +701,157 @@
     }
     return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_SHOWN);
   }
+  // The list's sections, Recent, the Bots, Automations and each computer,
+  // keep the order and the folds a person gives them, on this device. A
+  // section that appears later takes its usual place among the others.
+  const SECTION_ORDER_KEY = "stepsemble.workspace.sections.v1", SECTION_FOLDED_KEY = "stepsemble.workspace.sections.folded.v1";
+  const savedIds = key => { try { const value = JSON.parse(localStorage.getItem(key)); return Array.isArray(value) ? value.filter(id => typeof id === "string") : []; } catch { return []; } };
+  let sectionOrder = savedIds(SECTION_ORDER_KEY);
+  const foldedSections = new Set(savedIds(SECTION_FOLDED_KEY));
+  const machineSectionId = target => "machine:" + target;
+  function sectionsInOrder() {
+    const present = [...(machines.length > 1 ? ["recent"] : []), ...(assistantUI.installed ? ["bots"] : []), "automations", ...orderedMachines().map(m => machineSectionId(m.id))];
+    const order = sectionOrder.filter(id => present.includes(id));
+    present.forEach((id, index) => {
+      if (order.includes(id)) return;
+      const after = present.slice(0, index).reverse().find(other => order.includes(other));
+      order.splice(after ? order.indexOf(after) + 1 : 0, 0, id);
+    });
+    return order;
+  }
+  // place: -1 or 1 for a step, "top", or { before } (null for the end).
+  function moveSection(id, place) {
+    const order = sectionsInOrder(), from = order.indexOf(id);
+    if (from < 0) return;
+    order.splice(from, 1);
+    let to = place === "top" ? 0 : typeof place === "number" ? Math.max(0, Math.min(order.length, from + place)) : place.before == null ? order.length : order.indexOf(place.before);
+    if (to < 0) to = order.length;
+    order.splice(to, 0, id); sectionOrder = order;
+    try { localStorage.setItem(SECTION_ORDER_KEY, JSON.stringify(order)); } catch {}
+    renderSidebar();
+    if (!sidebarDragging) $("workspace-projects").querySelector(`[data-reorder-kind="section"][data-reorder-id="${CSS.escape(id)}"] [data-reorder-surface]`)?.focus({ preventScroll: true });
+  }
+  function sectionActions(id) {
+    const order = sectionsInOrder(), at = order.indexOf(id);
+    if (at < 0) return [];
+    return [...(at > 0 ? [[t("moveToTop"), () => moveSection(id, "top")], [t("moveUp"), () => moveSection(id, -1)]] : []),
+      ...(at < order.length - 1 ? [[t("moveDown"), () => moveSection(id, 1)]] : [])];
+  }
+  // A section's heading drags the whole section among the others; Alt+Up and
+  // Alt+Down move it too.
+  function reorderSection(surface, source, id) {
+    window.StepsembleWorkspaceReorder.attach(surface, source, { kind: "section", id, group: "", pinned: false, enabled: () => !sidebarBusy,
+      move: before => moveSection(id, { before }), keyboard: direction => moveSection(id, direction),
+      started: () => { sidebarDragging = true; closePaneMenu(); }, ended: () => { sidebarDragging = false; renderSidebar(); },
+    });
+  }
+  // A section of the list: its heading folds it and holds its actions.
+  function listSection(id, title, { className = "", extra = [], menu = () => [], search = "" } = {}) {
+    // Its own class: code that looks for projects (.workspace-project) does not find it.
+    const section = node("section", "", `workspace-list-section ${className}`.trim()); section.dataset.section = id;
+    const header = node("header"), contents = node("div", "", "workspace-project-sessions");
+    const hidden = !search && foldedSections.has(id);
+    const toggle = button("", () => {
+      if (foldedSections.has(id)) foldedSections.delete(id); else foldedSections.add(id);
+      try { localStorage.setItem(SECTION_FOLDED_KEY, JSON.stringify([...foldedSections])); } catch {}
+      const fold = foldedSections.has(id) && !search;
+      section.dataset.collapsed = String(fold); contents.hidden = fold; toggle.setAttribute("aria-expanded", String(!fold));
+    }, title, "btn workspace-project-toggle");
+    const copy = node("span", "", "workspace-section-copy"); copy.append(node("strong", title));
+    toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), copy);
+    toggle.setAttribute("aria-expanded", String(!hidden)); section.dataset.collapsed = String(hidden); contents.hidden = hidden;
+    const more = button("⋯", () => openPaneMenu(more, [...menu(), ...sectionActions(id)]), t("sectionActions", { section: title }), "btn workspace-project-menu");
+    more.setAttribute("aria-haspopup", "menu");
+    header.append(toggle, ...extra, more); section.append(header, contents);
+    reorderSection(toggle, section, id);
+    return { section, contents };
+  }
+  function recentSection(search, openKeys) {
+    const recent = recentEntries(search);
+    if (!recent.length) return null;
+    const { section, contents } = listSection("recent", t("recentSessions"), { className: "workspace-recent", search });
+    for (const row of recent) contents.append(sessionRow(row.target, row.entry, { openKeys, recent: true }));
+    return section;
+  }
+  // Automations: every computer's Schedules and the Bots' routines in one
+  // section, those needing attention first, then by their next run. A row
+  // opens its own schedule or its Bot's routines; + makes a new one.
+  const AUTOMATIONS_SHOWN = 3, automationData = { schedules: new Map(), routines: null, read: false };
+  let automationsReading = null, automationsAgain = false, automationsExpanded = false;
+  function automationList() {
+    const A = window.StepsembleWorkspaceAutomations, M = window.StepsembleAssistantModel;
+    return A.collect({
+      schedules: orderedMachines().filter(m => automationData.schedules.has(m.id)).map(m => ({ target: m.id, owner: machines.length > 1 ? m.name || m.id : "", items: automationData.schedules.get(m.id) })),
+      routines: automationData.routines, scheduleLabel: spec => window.StepsembleWorkflows.scheduleLabel(spec),
+      routineLabel: schedule => A.routineCadence(schedule, { M, t: assistantUI.text, locale: prefs.locale }),
+    });
+  }
+  // A read asked for during another (the Bots just loaded) follows it.
+  function refreshAutomations() {
+    if (!booted) return null;
+    if (automationsReading) { automationsAgain = true; return automationsReading; }
+    automationsReading = (async () => {
+      await Promise.all(machines.map(async machine => {
+        if (machine.id !== self && machineStatus.get(machine.id)?.online === false) return;
+        const controller = new AbortController(), timer = setTimeout(() => controller.abort(), REMOTE_READ_MS);
+        try { automationData.schedules.set(machine.id, (await api("/api/workflows", undefined, machine.id, controller.signal)).schedules || []); }
+        catch {} finally { clearTimeout(timer); }
+      }));
+      try { automationData.routines = assistantUI.installed ? await assistantUI.routines() : null; } catch {}
+      const before = JSON.stringify(automationData.drawn || null), now = JSON.stringify(automationList());
+      automationData.read = true; automationData.drawn = JSON.parse(now);
+      if (before !== now) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
+    })().finally(() => { automationsReading = null; if (automationsAgain) { automationsAgain = false; void refreshAutomations(); } });
+    return automationsReading;
+  }
+  function openAutomation(row) {
+    if (row.kind === "schedule") void workflowUI.open(row.target, { select: row.id }).catch(error => toast(error.message));
+    else openAssistant(row.target, { page: "routines", profile: row.profile });
+  }
+  function newAutomationActions() {
+    const label = window.StepsembleWorkflows.label("newSchedule");
+    const schedules = machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => void workflowUI.open(m.id, { create: true }).catch(error => toast(error.message))])
+      : [[label, () => void workflowUI.open(host, { create: true }).catch(error => toast(error.message))]];
+    const bots = assistantUI.ready ? (automationData.routines?.bots || []).filter(bot => !bot.hidden)
+      .map(bot => [t("onComputer", { item: assistantUI.text("newRoutine"), computer: bot.displayName || bot.name }), () => openAssistant(assistantUI.machine.id, { page: "routines", profile: bot.name })]) : [];
+    return [...schedules, ...bots];
+  }
+  function allAutomationActions() {
+    const label = window.StepsembleWorkflows.label("schedules");
+    return [...(machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => void workflowUI.open(m.id).catch(error => toast(error.message))])
+      : [[label, () => void workflowUI.open(host).catch(error => toast(error.message))]]),
+      ...(assistantUI.installed ? [[assistantUI.text("allRoutines"), () => openAssistant(assistantUI.machine.id, { page: "routines" })]] : [])];
+  }
+  function automationRow(row) {
+    const A = window.StepsembleWorkspaceAutomations;
+    const item = node("div", "", "workspace-automation-row"); item.dataset.automation = row.key; item.dataset.state = row.state;
+    const state = { attention: t("automationAttention"), paused: t("automationPaused"), finished: t("automationFinished") }[row.state] || "";
+    const next = row.nextAt ? t("automationNext", { time: A.nextLabel(row.nextAt, Date.now(), prefs.locale) }) : "";
+    const meta = [row.cadence, next, row.owner].filter(Boolean).join(" · ");
+    const entry = button("", () => openAutomation(row), [row.title, state, meta].filter(Boolean).join(" · "), "btn workspace-automation");
+    const lead = row.kind === "routine" && row.bot ? assistantUI.avatar(row.bot) : node("span", "", "workspace-automation-icon");
+    if (!(row.kind === "routine" && row.bot)) lead.append(icon(row.kind === "routine" ? "M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" : "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"));
+    const copy = node("span", "", "workspace-automation-copy"); copy.append(node("strong", row.title), node("small", meta));
+    entry.append(lead, copy);
+    if (state) entry.append(node("span", state, "workspace-automation-state"));
+    item.append(entry);
+    return item;
+  }
+  function automationsSection(search) {
+    const all = automationList(), rows = search ? all.filter(row => `${row.title} ${row.owner} ${row.cadence}`.toLowerCase().includes(search)) : all;
+    if (search && !rows.length) return null;
+    // Its own class: a project's + (New session) is .workspace-project-add.
+    const add = button("", () => openPaneMenu(add, newAutomationActions()), t("newAutomation"), "btn workspace-section-add");
+    add.append(icon("M12 5v14M5 12h14")); add.setAttribute("aria-haspopup", "menu");
+    const { section, contents } = listSection("automations", t("automations"), { className: "workspace-automations", extra: [add], menu: allAutomationActions, search });
+    rows.forEach((row, index) => { const item = automationRow(row); if (!search && index >= AUTOMATIONS_SHOWN) item.dataset.overflow = "true"; contents.append(item); });
+    if (!search && rows.length > AUTOMATIONS_SHOWN) {
+      const more = button("", () => { automationsExpanded = !automationsExpanded; more.setAttribute("aria-expanded", String(automationsExpanded)); syncSessionMore(section); }, "", "btn workspace-session-more");
+      more.setAttribute("aria-expanded", String(automationsExpanded)); contents.append(more); syncSessionMore(section);
+    }
+    if (!rows.length) contents.append(node("small", automationData.read ? t("noAutomations") : t("loadingSession")));
+    return section;
+  }
   // With more than one computer, every computer's sessions share one list:
   // the most recent across them first, then each computer's projects, each
   // with its own order and pins. There is no computer to switch to; whatever
@@ -708,30 +860,27 @@
     if (sidebarDragging) return;
     sidebarOrderPending = false;
     // A redraw (a new order, a new session) keeps keyboard focus on the same control.
-    const focusedRow = document.activeElement?.closest?.(".workspace-session-row, .workspace-project");
-    const focusTarget = focusedRow && { entry: focusedRow.dataset.entry || null, host: focusedRow.dataset.host || null, cwd: focusedRow.dataset.cwd ?? null,
-      part: ["workspace-session", "workspace-session-menu", "workspace-session-more", "workspace-project-toggle", "workspace-project-add", "workspace-project-menu"].find(name => document.activeElement.classList.contains(name)) };
+    const focusedRow = document.activeElement?.closest?.(".workspace-session-row, .workspace-project, .workspace-list-section, .workspace-machine");
+    const focusTarget = focusedRow && { entry: focusedRow.dataset.entry || null, host: focusedRow.dataset.host || null, cwd: focusedRow.dataset.cwd ?? null, section: focusedRow.dataset.section || null,
+      part: ["workspace-session", "workspace-session-menu", "workspace-session-more", "workspace-project-toggle", "workspace-project-add", "workspace-project-menu", "workspace-machine-toggle", "workspace-machine-menu"].find(name => document.activeElement.classList.contains(name)) };
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
     const selectedRefs = mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean);
     const openKeys = new Set(selectedRefs.map(L.identity));
-    const bots = botsBlock;
-    if (machines.length <= 1) {
-      if (assistantUI.installed) box.append(bots);
-      renderProjects(box, host, snapshot, search, openKeys);
-      if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
-    } else {
-      const recent = recentEntries(search);
-      if (recent.length) {
-        const section = node("section", "", "workspace-recent");
-        section.append(node("h2", t("recentSessions"), "workspace-section-title"));
-        for (const row of recent) section.append(sessionRow(row.target, row.entry, { openKeys, recent: true }));
-        box.append(section);
+    const merged = machines.length > 1;
+    for (const id of sectionsInOrder()) {
+      if (id === "recent") { const section = recentSection(search, openKeys); if (section) box.append(section); }
+      else if (id === "bots") { Object.assign(botsBlock.dataset, { section: "bots" }); box.append(botsBlock); }
+      else if (id === "automations") { const section = automationsSection(search); if (section) box.append(section); }
+      else if (merged) box.append(machineSection(machines.find(m => machineSectionId(m.id) === id), search, openKeys));
+      else {
+        // One computer: its projects are the list itself, without a heading.
+        renderProjects(box, host, snapshot, search, openKeys);
+        if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
       }
-      if (assistantUI.installed) box.append(bots);
-      for (const machine of orderedMachines()) box.append(machineSection(machine, search, openKeys));
     }
     if (focusTarget?.part) {
       const row = focusTarget.entry ? [...box.querySelectorAll(".workspace-session-row")].find(item => item.dataset.entry === focusTarget.entry && (!focusTarget.host || item.dataset.host === focusTarget.host))
+        : focusTarget.section ? [...box.querySelectorAll("[data-section]")].find(item => item.dataset.section === focusTarget.section)
         : [...box.querySelectorAll(".workspace-project")].find(item => item.dataset.cwd === focusTarget.cwd);
       const control = row?.querySelector(`.${focusTarget.part}`);
       if (control && control.offsetParent !== null) control.focus({ preventScroll: true });
@@ -740,7 +889,7 @@
   }
   function machineSection(machine, search, openKeys) {
     const target = machine.id, snap = snapshotOf(target), status = target === host ? null : machineStatus.get(target);
-    const section = node("section", "", "workspace-machine"); section.dataset.host = target;
+    const section = node("section", "", "workspace-machine"); section.dataset.host = target; section.dataset.section = machineSectionId(target);
     const offline = status?.online === false;
     section.dataset.state = offline ? "offline" : snap ? "online" : "waiting";
     const header = node("header", "", "workspace-machine-header");
@@ -755,7 +904,11 @@
     toggle.setAttribute("aria-expanded", String(!folded));
     const state = offline ? (status.at ? t("machineOfflineSince", { time: new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "2-digit", minute: "2-digit" }).format(status.at) }) : t("machineOffline")) : "";
     toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), node("strong", machine.name), ...(state ? [node("small", state, "workspace-machine-state")] : []));
-    header.append(toggle);
+    const more = button("⋯", () => openPaneMenu(more, [[t("addProject"), () => addProject(target)], [window.StepsembleWorkflows.label("schedules"), () => void workflowUI.open(target).catch(error => toast(error.message))],
+      ...sectionActions(machineSectionId(target))]), t("sectionActions", { section: machine.name }), "btn workspace-machine-menu");
+    more.setAttribute("aria-haspopup", "menu");
+    header.append(toggle, more);
+    reorderSection(toggle, section, machineSectionId(target));
     section.append(header, contents);
     if (snap) renderProjects(contents, target, snap, search, openKeys);
     else contents.append(node("small", offline ? t("machineUnreachable") : t("loadingSession"), "workspace-machine-note"));
@@ -881,7 +1034,7 @@
     if (!more) return;
     const expanded = more.getAttribute("aria-expanded") === "true";
     let hidden = 0, attention = "";
-    for (const row of section.querySelectorAll(".workspace-session-row[data-overflow]")) {
+    for (const row of section.querySelectorAll(":is(.workspace-session-row, .workspace-automation-row)[data-overflow]")) {
       row.hidden = !expanded && row.querySelector(".workspace-session")?.dataset.open !== "true";
       if (!row.hidden) continue;
       hidden += 1;
@@ -902,7 +1055,7 @@
     for (const ref of visibleSessions()) {
       const entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
       if (!entry?.completion || entry.completion.read || entry.working) continue;
-      frames.get(L.identity(ref))?.frame.contentWindow?.postMessage({ type: "workspace-read-probe", completionId: entry.completion.id }, location.origin);
+      toFrame(frames.get(L.identity(ref))?.frame, { type: "workspace-read-probe", completionId: entry.completion.id });
     }
   }
   async function markViewed(item, completionId) {
@@ -997,11 +1150,17 @@
     if (!online && message !== connectionNotice) toast(message);
     connectionNotice = online ? "" : message;
   }
+  // Another computer's list that has not come in 15 seconds counts as
+  // unreachable, and the next read starts afresh.
+  const REMOTE_READ_MS = 15_000;
   function requestSnapshot(target) {
     // A slow remote Host must be allowed to finish. Starting a new poll every
     // three seconds would otherwise invalidate every older response forever.
+    // One that never answers would hold every later read, so it has a limit.
     if (snapshotRequests.has(target)) return snapshotRequests.get(target);
-    const request = api("/api/workspace", undefined, target).finally(() => { if (snapshotRequests.get(target) === request) snapshotRequests.delete(target); });
+    const controller = target === self ? null : new AbortController();
+    const timer = controller && setTimeout(() => controller.abort(), REMOTE_READ_MS);
+    const request = api("/api/workspace", undefined, target, controller?.signal).finally(() => { clearTimeout(timer); if (snapshotRequests.get(target) === request) snapshotRequests.delete(target); });
     snapshotRequests.set(target, request);
     return request;
   }
@@ -1578,8 +1737,9 @@
     if (event.data?.type === "workspace-ready") { void refresh(); }
     if (event.data?.type === "workspace-focus") { const p = L.leaves(tree).find(p => p.tabs.some(r => L.identity(r) === L.identity(item.ref))); if (p) { focused = p.id; for (const pane of document.querySelectorAll(".workspace-pane")) pane.dataset.focused = String(pane.dataset.pane === focused); } }
     if (event.data?.type === "workspace-workflows-changed") {
+      void refreshAutomations();
       void refresh();
-      for (const peer of frames.values()) peer.frame.contentWindow?.postMessage({ type: "workspace-workflows-changed" }, location.origin);
+      for (const peer of frames.values()) toFrame(peer.frame, { type: "workspace-workflows-changed" });
     }
     if (event.data?.type === "workspace-title") setRefTitle(item.ref, event.data.title);
     if (event.data?.type === "workspace-show-list" && mobile()) {
@@ -1599,7 +1759,7 @@
   const workflowUI = window.StepsembleWorkflows.create({ api,
     async context(target = host) { target ||= host; const data = await api("/api/workspace", undefined, target); return {target, hostName:hostName(target), projects:data.projects, entries:data.entries}; },
     openConversation(key, title, target) { open({host:target,key,title}); void refresh(); },
-    onChanged() { void refresh(); for (const item of frames.values()) item.frame.contentWindow?.postMessage({type:"workspace-workflows-changed"},location.origin); },
+    onChanged() { void refresh(); void refreshAutomations(); for (const item of frames.values()) toFrame(item.frame, { type: "workspace-workflows-changed" }); },
   });
   const usageUI = window.StepsembleUsageUI.create({ api,
     context: () => ({ selected: host, hosts: machines.map(machine => ({ id: machine.id, name: machine.name || machine.id })) }),
@@ -1612,21 +1772,11 @@
     restoreFocus() { document.querySelector(".workspace-limits-strip")?.focus({ preventScroll: true }); },
     onVisibility() { closeUsageTip(); document.querySelector(".workspace-limits-strip")?.setAttribute("aria-expanded", String(usageUI.isOpen())); reportDragRegions(); notificationPresence(); },
   });
-  // A Goal runs inside its conversation; this button opens Schedules.
-  function labelWorkflows() {
-    const label = window.StepsembleWorkflows.label("schedules");
-    $("workspace-workflows-label").textContent = label;
-    $("workspace-workflows").title = label;
-    $("workspace-workflows").setAttribute("aria-label", label);
-  }
-  labelWorkflows();
   // With more than one computer, a button that works on one asks which.
   function forMachine(anchor, run) {
     if (machines.length <= 1) { run(host); return; }
     openPaneMenu(anchor, orderedMachines().map(machine => [machine.name || machine.id, () => run(machine.id)]));
   }
-  $("workspace-workflows").onclick = event => forMachine(event.currentTarget, target => workflowUI.open(target).catch(error => toast(error.message)));
-  $("workspace-routines").onclick = () => { if (assistantUI.machine) openAssistant(assistantUI.machine.id, { page: "routines" }); };
   function showMobileList() {
     if (!mobile()) return;
     document.body.classList.remove("sidebar-hidden");
@@ -1720,6 +1870,7 @@
   window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
   setInterval(() => { if (!document.hidden && host) void refresh(); }, 3000);
   setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 120000);
+  setInterval(() => { if (!document.hidden && host) void refreshAutomations(); }, 60000);
   // A Workspace opened while its host cannot be reached keeps trying, so it
   // connects by itself once the host answers instead of needing a reload.
   let booted = false, booting = false, bootTimer = 0, bootAttempt = 0, pendingUsage = null;
@@ -1752,8 +1903,7 @@
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }
       $("workspace-host").value = host;
       booted = true;
-      renderMode();
-      await refresh(); render(); void refreshUsage(); void checkAssistant();
+      await refresh(); render(); void refreshUsage(); void checkAssistant(); void refreshAutomations();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);
       if (pendingUsage) { openUsageIntent(pendingUsage); pendingUsage = null; }

@@ -86,7 +86,11 @@ export async function runWorkspaceReorderBrowserCases(browser) {
         for (let i = 1; i < 3; i++) await projects.nth(i).locator(".workspace-project-toggle").tap();
         const list = page.locator("#workspace-projects");
         await list.evaluate(node => { node.scrollTop = 0; });
-        const before = await list.evaluate(node => node.scrollTop), start = await center(sessions.nth(2));
+        // The finger starts on a session well inside the list, above its bottom edge.
+        const bounds = await list.boundingBox(), rows = [];
+        for (let i = 0; i < await sessions.count(); i++) { const r = await sessions.nth(i).boundingBox(); if (r) rows.push({ x: r.x + r.width * .6, y: r.y + r.height / 2 }); }
+        const before = await list.evaluate(node => node.scrollTop), start = rows.find(point => point.y > bounds.y + 30 && point.y < bounds.y + bounds.height - 30);
+        assert.ok(start, JSON.stringify({ bounds, rows }));
         await finger("touchStart", start);
         for (let i = 1; i <= 8; i++) await finger("touchMove", { x: start.x, y: start.y - i * 14 });
         await finger("touchEnd", start);

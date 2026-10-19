@@ -161,7 +161,7 @@ test("a long project shows three sessions and one small control for the rest, wh
     return { hidden: false, querySelector: selector => parts[selector] || null }; };
   const more = { attrs: { "aria-expanded": "false" }, dataset: {}, hidden: false, textContent: "", title: "", getAttribute(key) { return this.attrs[key] ?? null; }, setAttribute(key, value) { this.attrs[key] = String(value); } };
   let rows = [row(), row()];
-  const section = { querySelector: selector => selector === ".workspace-session-more" ? more : null, querySelectorAll: selector => selector === ".workspace-session-row[data-overflow]" ? rows : [] };
+  const section = { querySelector: selector => selector === ".workspace-session-more" ? more : null, querySelectorAll: selector => selector === ":is(.workspace-session-row, .workspace-automation-row)[data-overflow]" ? rows : [] };
   context.syncSessionMore(section);
   assert.deepEqual(rows.map(item => item.hidden), [true, true]); assert.equal(more.textContent, "Show 2 more"); assert.equal(more.attrs["aria-label"], "Show 2 more"); assert.equal(more.dataset.attention, "");
   rows = [row("idle", true), row("working")];
@@ -175,7 +175,7 @@ test("a long project shows three sessions and one small control for the rest, wh
 });
 test("a hidden session row is really hidden: the row's own display rule must not override [hidden]", () => {
   const css = fs.readFileSync(require.resolve("../public/modules/workspace.css"), "utf8");
-  assert.match(css, /\.workspace-session-row\[hidden\] \{ display: none; \}/);
+  assert.match(css, /:is\(\.workspace-session-row, \.workspace-automation-row\)\[hidden\] \{ display: none; \}/, "an automation's row too");
   assert.match(css, /\.workspace-session-more\[hidden\] \{ display: none; \}/);
 });
 
@@ -213,21 +213,46 @@ test("scrolling back near the top loads earlier messages only for the person's o
   assert.match(app, /if \(state\.error\) codexNativeHistoryButton\.dataset\.autoLoadPaused = "1";/, "so does a failed Codex page");
 });
 
-test("Schedules and the Assistant's routines share the calendar icon; other apps' history is a chat bubble, not a clock", () => {
+test("Schedules and routines are rows of the list's Automations, not buttons above it; other apps' history is a chat bubble, not a clock", () => {
   const html = fs.readFileSync(require.resolve("../public/workspace.html"), "utf8");
   const icon = id => (html.match(new RegExp(`id="${id}"[^>]*>(<svg[\\s\\S]*?</svg>)`)) || [])[1];
-  assert.ok(icon("workspace-workflows")); assert.equal(icon("workspace-workflows"), icon("workspace-routines"), "the same slot means the same thing in both sidebars");
+  assert.doesNotMatch(html, /id="workspace-(workflows|routines|mode)"/, "no Schedules, Routines or page switch above the search");
+  assert.match(html, /\/modules\/workspace-automations\.js\?v=/);
   assert.doesNotMatch(icon("workspace-history"), /<circle|A8\.5 8\.5/, "no clock face or circular arrow, which the Refresh button already uses");
-  assert.notEqual(icon("workspace-history"), icon("workspace-workflows"));
 });
-test("the sidebar button opens Schedules only, and Goal state changes do not rebuild the list", () => {
-  const start = source.indexOf("  function labelWorkflows()"), click = source.indexOf('$("workspace-workflows").onclick', start);
-  assert.ok(start > 0 && click > start);
-  assert.doesNotMatch(source.slice(start, source.indexOf("\n", click)), /goals/, "the panel opens on its own Schedules view");
+test("a schedule row opens Schedules on its own computer and schedule, and Goal state changes do not rebuild the list", () => {
+  assert.match(source, /if \(row\.kind === "schedule"\) void workflowUI\.open\(row\.target, \{ select: row\.id \}\)/);
+  assert.match(source, /else openAssistant\(row\.target, \{ page: "routines", profile: row\.profile \}\)/, "a routine opens its Bot's routines");
   assert.match(source, /entries: value\.entries\.map\(\(\{ working, completion, goal, activityAt, \.\.\.row \}\)/, "a Goal mark and a new activity time update in place like the activity mark");
   assert.match(source, /if \(statusOnly && \(!reordered \|\| sidebarHeld\(\)\)\)/, "a new order waits while the pointer is on the list or a menu is open");
   assert.doesNotMatch(source, /reorderRow\(b, row, "session"/, "sessions follow their activity and are not reordered by hand");
   assert.doesNotMatch(source, /workspace-goals?"/, "no message opens a Goals panel any more");
+});
+test("the Workspace posts into its panes with its own postMessage, which WebKit (the Mac app) credits to the Workspace", () => {
+  assert.doesNotMatch(source, /contentWindow\??\.postMessage\(/, "a pane's own postMessage, called here, names the pane as the sender in WebKit");
+  assert.match(source, /function toFrame\(frame, data\) \{ const target = frame\?\.contentWindow; if \(target\) window\.postMessage\.call\(target, data, location\.origin\); \}/);
+  const swift = fs.readFileSync(require.resolve("../macos/Stepsemble/main.swift"), "utf8");
+  assert.doesNotMatch(swift, /f\.contentWindow\.postMessage\(/);
+  assert.match(swift, /forEach\(f=>window\.postMessage\.call\(f\.contentWindow,/);
+});
+test("the list's sections keep a person's order on this device; a section that appears later takes its usual place", () => {
+  const start = source.indexOf("  function sectionsInOrder()"), end = source.indexOf("  // place: -1 or 1", start);
+  const make = new Function("machines", "assistantUI", "orderedMachines", "sectionOrder", 'const machineSectionId = target => "machine:" + target;' + source.slice(start, end) + "; return sectionsInOrder();");
+  const two = [{ id: "mini" }, { id: "mbp" }], ordered = () => two;
+  assert.deepEqual(make(two, { installed: true }, ordered, []), ["recent", "bots", "automations", "machine:mini", "machine:mbp"], "Recent, the Bots, Automations, then each computer");
+  assert.deepEqual(make(two, { installed: true }, ordered, ["bots", "machine:mbp", "recent"]), ["bots", "automations", "machine:mini", "machine:mbp", "recent"], "a new section follows the one it usually follows");
+  assert.deepEqual(make(two, { installed: false }, ordered, ["machine:mbp", "automations"]), ["recent", "machine:mbp", "automations", "machine:mini"], "Recent comes back at its place before what followed it");
+  assert.deepEqual(make([{ id: "mini" }], { installed: true }, () => [{ id: "mini" }], []), ["bots", "automations", "machine:mini"], "one computer has no Recent");
+  assert.match(source, /reorderSection\(toggle, section, id\);/, "a section's heading drags it");
+  assert.match(source, /decorate: toggle => reorderSection\(toggle, botsBlock, "bots"\)/, "so does the Bots heading");
+  const reorder = fs.readFileSync(require.resolve("../public/modules/workspace-reorder.js"), "utf8");
+  assert.match(reorder, /const within = kind === "section" \? scroller : source\.closest\("\.workspace-machine"\) \|\| scroller;/, "sections move among themselves in the whole list");
+});
+test("another computer's list that does not come in time counts as unreachable, and the Bots do not wait for an asleep computer", () => {
+  assert.match(source, /const REMOTE_READ_MS = 15_000;/);
+  assert.match(source, /const controller = target === self \? null : new AbortController\(\);\s+const timer = controller && setTimeout\(\(\) => controller\.abort\(\), REMOTE_READ_MS\);/);
+  const assistant = fs.readFileSync(require.resolve("../public/modules/workspace-assistant.js"), "utf8");
+  assert.match(assistant, /status: await answered\(apiFor\(row\)\.status\(\)\)/);
 });
 test("the Workspace's toast clears the iPhone home indicator, as the Bot's toast does", () => {
   const css = fs.readFileSync(require.resolve("../public/modules/workspace.css"), "utf8");
