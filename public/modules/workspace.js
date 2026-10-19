@@ -864,8 +864,7 @@
     const focusTarget = focusedRow && { entry: focusedRow.dataset.entry || null, host: focusedRow.dataset.host || null, cwd: focusedRow.dataset.cwd ?? null, section: focusedRow.dataset.section || null,
       part: ["workspace-session", "workspace-session-menu", "workspace-session-more", "workspace-project-toggle", "workspace-project-add", "workspace-project-menu", "workspace-machine-toggle", "workspace-machine-menu"].find(name => document.activeElement.classList.contains(name)) };
     const box = $("workspace-projects"); box.replaceChildren(); const search = $("workspace-search").value.trim().toLowerCase();
-    const selectedRefs = mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean);
-    const openKeys = new Set(selectedRefs.map(L.identity));
+    const openKeys = openSessionKeys();
     const merged = machines.length > 1;
     for (const id of sectionsInOrder()) {
       if (id === "recent") { const section = recentSection(search, openKeys); if (section) box.append(section); }
@@ -886,6 +885,21 @@
       if (control && control.offsetParent !== null) control.focus({ preventScroll: true });
     }
     assistantUI.mark();
+  }
+  // The sessions shown in panes, marked open in the list.
+  function openSessionKeys() {
+    const selectedRefs = mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean);
+    return new Set(selectedRefs.map(L.identity));
+  }
+  // A computer's own state (its first list, offline, back) shows at once, in
+  // its section only, even with the pointer resting on the list: only a new
+  // order waits for the pointer to leave, and Recent follows then. A section
+  // holding the open menu's anchor waits too.
+  function redrawMachine(target) {
+    sidebarOrderPending = true;
+    const old = [...$("workspace-projects").querySelectorAll(".workspace-machine")].find(node => node.dataset.host === target), machine = machines.find(m => m.id === target);
+    if (!old || !machine || sidebarDragging || paneMenu && old.contains(paneMenu.anchor)) return;
+    old.replaceWith(machineSection(machine, $("workspace-search").value.trim().toLowerCase(), openSessionKeys()));
   }
   function machineSection(machine, search, openKeys) {
     const target = machine.id, snap = snapshotOf(target), status = target === host ? null : machineStatus.get(target);
@@ -1215,7 +1229,8 @@
           rememberSnapshot(id, data); machineStatus.set(id, { online: true, at: Date.now() });
           if (!before) for (const ref of allRefs()) if (ref.host === id) updateTabMetadata(ref);
           if (merged && !document.body.classList.contains("workspace-dragging")) {
-            if (was?.online !== true || !before || listStructure(before) !== listStructure(data)) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
+            if (was?.online !== true || !before) { if (sidebarHeld()) redrawMachine(id); else renderSidebar(); }
+            else if (listStructure(before) !== listStructure(data)) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
             else updateRows(id, data);
           }
           probeVisibleResults();
@@ -1223,7 +1238,7 @@
           const was = machineStatus.get(id);
           machineStatus.set(id, { online: false, at: was?.at || 0 });
           if (!merged) hostSnapshots.delete(id);
-          else if (was?.online !== false) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
+          else if (was?.online !== false) { if (sidebarHeld()) redrawMachine(id); else renderSidebar(); }
         });
       }
       probeVisibleResults(); }

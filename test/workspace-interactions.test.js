@@ -248,6 +248,15 @@ test("the list's sections keep a person's order on this device; a section that a
   const reorder = fs.readFileSync(require.resolve("../public/modules/workspace-reorder.js"), "utf8");
   assert.match(reorder, /const within = kind === "section" \? scroller : source\.closest\("\.workspace-machine"\) \|\| scroller;/, "sections move among themselves in the whole list");
 });
+test("another computer's own state (its first list, offline, back) shows at once with the pointer on the list; only a new order waits", () => {
+  assert.match(source, /if \(was\?\.online !== true \|\| !before\) \{ if \(sidebarHeld\(\)\) redrawMachine\(id\); else renderSidebar\(\); \}/);
+  assert.match(source, /else if \(listStructure\(before\) !== listStructure\(data\)\) \{ if \(sidebarHeld\(\)\) sidebarOrderPending = true; else renderSidebar\(\); \}/, "a new order of an online computer still waits");
+  assert.match(source, /else if \(was\?\.online !== false\) \{ if \(sidebarHeld\(\)\) redrawMachine\(id\); else renderSidebar\(\); \}/, "and so does going offline");
+  const start = source.indexOf("  function redrawMachine(target) {"), body = source.slice(start, source.indexOf("\n  }\n", start));
+  assert.match(body, /sidebarOrderPending = true;/, "Recent and the rest follow when the pointer leaves");
+  assert.match(body, /paneMenu && old\.contains\(paneMenu\.anchor\)\) return;/, "a section holding the open menu waits");
+  assert.match(body, /old\.replaceWith\(machineSection\(machine,/, "only that computer's section is redrawn");
+});
 test("another computer's list that does not come in time counts as unreachable, and the Bots do not wait for an asleep computer", () => {
   assert.match(source, /const REMOTE_READ_MS = 15_000;/);
   assert.match(source, /const controller = target === self \? null : new AbortController\(\);\s+const timer = controller && setTimeout\(\(\) => controller\.abort\(\), REMOTE_READ_MS\);/);
