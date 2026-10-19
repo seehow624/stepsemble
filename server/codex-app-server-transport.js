@@ -1058,6 +1058,22 @@ function createCodexAppServerTransport({
     return { kind: "named", threadId: params.threadId, name: params.name };
   }
 
+  // The last 32 turns, newest first and without their items: their ids and
+  // states are all a resume needs, and their size does not grow with the
+  // conversation. An older Codex without the list answers null.
+  async function lastTurns(threadId) {
+    let response;
+    try {
+      response = await request("thread/turns/list", { threadId, limit: 32, sortDirection: "desc", itemsView: "notLoaded" }, { check: value =>
+        plain(value) && Array.isArray(value.data) && value.data.length <= 32
+          && value.data.every(turn => plain(turn) && nativeId(turn.id) && typeof turn.status === "string") });
+    } catch (error) {
+      if (error?.code === "native_request_rejected") return null;
+      throw error;
+    }
+    return response.data.map(turn => ({ id: turn.id, status: turn.status })).reverse();
+  }
+
   async function resumeThread(resumeParams, authorization = null) {
     if (!initialized || !plain(resumeParams) || !nativeId(resumeParams.threadId) || !["ready", "thread_started"].includes(state) || turnId || resumeInFlight || compactionStarting || compactionPending) return reject("native_lifecycle_conflict");
     const requested = resumeParams.threadId;
@@ -1065,26 +1081,35 @@ function createCodexAppServerTransport({
     const detached = bounded(resumeParams, 128 * 1024); if (detached === null) return reject("invalid_native_params");
     resumeInFlight = true;
     try {
+      // Codex answers a resume with the conversation's whole history unless
+      // asked not to: a long one's (11 MB for a 68 MB rollout) is past any
+      // frame limit, so it could never be resumed. The thread is resumed alone
+      // and its last turns are listed before (to tell its reports from others)
+      // and after (for their state now). A caller's own excludeTurns keeps the
+      // reconciliation it asks for.
+      const listed = detached.excludeTurns === true ? null : await lastTurns(requested);
       const auth = await authorize("thread.resume", { threadId: requested, params: detached }); if (auth.kind === "reject") return auth;
       if (closed || failure || !initialized || !["ready", "thread_started"].includes(state) || turnId || threadId && threadId !== requested) return reject("native_lifecycle_conflict");
       resumingThreadId = requested;
-      const result = await request("thread/resume", detached, { check: value => {
+      if (listed) resumingTurns = new Set(listed.map(turn => turn.id));
+      const result = await request("thread/resume", listed ? { ...detached, excludeTurns: true } : detached, { check: value => {
         const valid = nativeId(value?.thread?.id) && value.thread.id === requested
           && plain(value.thread.status) && typeof value.thread.status.type === "string"
-          && Array.isArray(value.thread.turns) && value.thread.turns.every(turn => plain(turn) && nativeId(turn.id) && typeof turn.status === "string");
-        if (valid) resumingTurns = new Set(value.thread.turns.slice(-32).map(turn => turn.id));
+          && (listed && value.thread.turns === undefined || Array.isArray(value.thread.turns) && value.thread.turns.every(turn => plain(turn) && nativeId(turn.id) && typeof turn.status === "string"));
+        if (valid && !listed) resumingTurns = new Set(value.thread.turns.slice(-32).map(turn => turn.id));
         return valid;
       } });
+      const turns = listed ? (await lastTurns(requested)) || listed : result.thread.turns;
       const status = nativeThreadStatus(result.thread.status);
-      const active = result.thread.turns.filter(turn => turn.status === "inProgress");
+      const active = turns.filter(turn => turn.status === "inProgress");
       threadId = requested; completedTurns.clear(); turnId = null; turnState = null; firstTurnPending = false;
       // Codex reports the thread's usage right after the resume; the turns it
       // lists as finished are this thread's own.
-      for (const turn of result.thread.turns.filter(row => TURN_TERMINAL_STATUSES.has(row.status)).slice(-32)) completedTurns.add(turn.id);
-      // `excludeTurns` deliberately returns no reconstructed turn list.  A
-      // thread status alone cannot prove that a live turn is absent, so do not
+      for (const turn of turns.filter(row => TURN_TERMINAL_STATUSES.has(row.status)).slice(-32)) completedTurns.add(turn.id);
+      // A caller's `excludeTurns` returns no turn list at all.  A thread
+      // status alone cannot prove that a live turn is absent, so do not
       // permit a new turn until the owner reconciles it via turns/list/read.
-      if (detached.excludeTurns === true || !status || result.thread.turns.some(turn => !TURN_STATUSES.has(turn.status))
+      if (detached.excludeTurns === true || !status || turns.some(turn => !TURN_STATUSES.has(turn.status))
         || active.length === 0 && status.type !== "idle" || active.length === 1 && status.type !== "active") {
         state = "reconciliation_required";
         return reject("native_resume_reconciliation_required");
@@ -1093,7 +1118,7 @@ function createCodexAppServerTransport({
       if (active.length === 1) { turnId = active[0].id; turnState = "running"; state = "turn_running"; }
       else { turnId = null; turnState = null; state = "thread_started"; }
       report({ type: "thread.resumed", threadId, activeTurnId: turnId, authorization: auth, authority: { sourceAuthenticated: trustedNative === true, approvalAcknowledged: false, resumeAllowed: false } });
-      return { kind: "resumed", threadId, turnId, response: clone(result), dispatch: auth };
+      return { kind: "resumed", threadId, turnId, response: clone(listed ? { ...result, thread: { ...result.thread, turns } } : result), dispatch: auth };
     } finally { resumeInFlight = false; resumingThreadId = null; resumingTurns = new Set(); }
   }
 

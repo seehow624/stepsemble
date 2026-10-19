@@ -98,6 +98,17 @@ function proof(receiptId = "receipt-1") {
   return { kind: "committed", receiptId, attemptId: "attempt-1", incarnationId: "native-inc-1" };
 }
 
+// The last turns Codex lists around a resume, newest first and without their
+// items: before the resume, to tell this thread's reports from others, and
+// after it, for their state now. `turns` is given oldest first.
+async function answerTurns(writes, child, threadId, turns) {
+  const request = await writes.next();
+  assert.equal(request.method, "thread/turns/list");
+  assert.deepEqual(request.params, { threadId, limit: 32, sortDirection: "desc", itemsView: "notLoaded" });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { data: [...turns].reverse().map(turn => ({ items: [], itemsView: "notLoaded", ...turn })), nextCursor: null } });
+  return request;
+}
+
 function command() {
   return structuredClone(wire.find(row => row.contract === "command" && row.value.type === "approval.resolve").value);
 }
@@ -542,30 +553,37 @@ test("Codex history responses use their bounded 8 MiB budget instead of the ordi
   assert.equal(transport.state().failure, null);
 });
 
-test("Codex resume restores a long conversation within the history frame budget", async t => {
+test("Codex resumes a long conversation without its history: the thread alone, then its last turns", async t => {
+  // A conversation of many long turns: Codex answers a full resume with its
+  // whole history (11 MB for a 68 MB rollout), past any frame limit.
   const child = new FakeNativeProcess();
   const writes = readFrames(child);
   const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("long-resume") });
   t.after(() => transport.close());
   const initializing = transport.initialize();
   let request = await writes.next();
-  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.162.1" } });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
   await initializing; await writes.next();
 
   const resumed = transport.resumeThread({ threadId: "thread-long-resume" });
+  const turns = [{ id: "turn-first", status: "completed" }, { id: "turn-last", status: "interrupted" }];
+  await answerTurns(writes, child, "thread-long-resume", turns);
   request = await writes.next();
   assert.equal(request.method, "thread/resume");
-  const historyText = "A".repeat(3_000_000);
-  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: {
-    id: "thread-long-resume", status: { type: "idle", activeFlags: [] },
-    turns: [{ id: "turn-history", status: "completed", items: [{ id: "item-history", type: "commandExecution", aggregatedOutput: historyText }] }],
-  } } });
+  assert.deepEqual(request.params, { threadId: "thread-long-resume", excludeTurns: true });
+  const breakdown = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20 };
+  child.stdout.write([
+    { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-long-resume", status: { type: "idle", activeFlags: [] }, turns: [] } } },
+    { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-long-resume", turnId: "turn-last", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: 1000 } } },
+  ].map(value => JSON.stringify(value)).join("\n") + "\n");
+  await answerTurns(writes, child, "thread-long-resume", turns);
   const result = await resumed;
   assert.equal(result.kind, "resumed");
-  assert.equal(result.response.thread.turns[0].items[0].aggregatedOutput, historyText);
+  assert.deepEqual(result.response.thread.turns.map(turn => [turn.id, turn.status]), [["turn-first", "completed"], ["turn-last", "interrupted"]]);
   assert.equal(transport.state().state, "thread_started");
   assert.equal(transport.state().threadId, "thread-long-resume");
   assert.equal(transport.state().failure, null);
+  assert.equal(transport.tokenUsage("thread-long-resume").turnId, "turn-last");
 
   const starting = transport.startTurn([{ type: "text", text: "continue" }]);
   request = await writes.next();
@@ -573,6 +591,29 @@ test("Codex resume restores a long conversation within the history frame budget"
   assert.equal(request.params.threadId, "thread-long-resume");
   frame(child, { jsonrpc: "2.0", id: request.id, result: { turn: { id: "turn-next", status: "inProgress", items: [] } } });
   assert.equal((await starting).kind, "started");
+});
+
+test("An older Codex without the turn list resumes with its full answer", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("full-resume") });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing; await writes.next();
+  const resumed = transport.resumeThread({ threadId: "thread-older" });
+  request = await writes.next();
+  assert.equal(request.method, "thread/turns/list");
+  frame(child, { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } });
+  request = await writes.next();
+  assert.equal(request.method, "thread/resume");
+  assert.deepEqual(request.params, { threadId: "thread-older" });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-older", status: { type: "idle" }, turns: [{ id: "turn-done", status: "completed", items: [] }] } } });
+  const result = await resumed;
+  assert.equal(result.kind, "resumed");
+  assert.equal(transport.state().state, "thread_started");
+  assert.equal(transport.state().failure, null);
 });
 
 test("Codex resume keeps the 8 MiB history cap and ordinary responses keep the 1 MiB cap", async t => {
@@ -589,6 +630,7 @@ test("Codex resume keeps the 8 MiB history cap and ordinary responses keep the 1
     const resumed = method === "thread/resume";
     const pending = resumed ? transport.resumeThread({ threadId: "thread-capped-resume" }) : transport.rateLimits();
     const rejected = assert.rejects(pending, error => error.code === "native_frame_invalid");
+    if (resumed) await answerTurns(writes, child, "thread-capped-resume", []);
     request = await writes.next();
     assert.equal(request.method, method);
     const padding = "A".repeat(resumed ? 8 * 1024 * 1024 : 1_100_000);
@@ -912,9 +954,11 @@ test("Codex thread resume restores an active turn and refuses a second turn", as
   frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
   await initializing; await writes.next();
   const resumed = transport.resumeThread({ threadId: "thread-resume" });
+  await answerTurns(writes, child, "thread-resume", [{ id: "turn-active", status: "inProgress" }]);
   request = await writes.next();
   assert.equal(request.method, "thread/resume");
-  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-resume", status: { type: "active", activeFlags: [] }, turns: [{ id: "turn-active", status: "inProgress" }] } } });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-resume", status: { type: "active", activeFlags: [] }, turns: [] } } });
+  await answerTurns(writes, child, "thread-resume", [{ id: "turn-active", status: "inProgress" }]);
   const result = await resumed;
   assert.equal(result.kind, "resumed");
   assert.equal(result.turnId, "turn-active");
@@ -935,13 +979,16 @@ test("Codex thread resume accepts the thread's status and last usage that Codex 
   frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.156.1" } });
   await initializing; await writes.next();
   const resumed = transport.resumeThread({ threadId: "thread-reports" });
+  const listed = [{ id: "turn-first", status: "completed" }, { id: "turn-last", status: "completed" }];
+  await answerTurns(writes, child, "thread-reports", listed);
   request = await writes.next();
   frame(child, { jsonrpc: "2.0", method: "thread/status/changed", params: { threadId: "thread-reports", status: { type: "idle" } } });
   const breakdown = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20 };
   child.stdout.write([
-    { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-reports", status: { type: "idle" }, turns: [{ id: "turn-first", status: "completed" }, { id: "turn-last", status: "completed" }] } } },
+    { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-reports", status: { type: "idle" }, turns: [] } } },
     { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-reports", turnId: "turn-last", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: 1000 } } },
   ].map(value => JSON.stringify(value)).join("\n") + "\n");
+  await answerTurns(writes, child, "thread-reports", listed);
   const result = await resumed;
   assert.equal(result.kind, "resumed");
   await new Promise(resolve => setImmediate(resolve));
@@ -972,6 +1019,7 @@ test("Codex thread resume refuses another thread's report while it resumes", asy
   frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.156.1" } });
   await initializing; await writes.next();
   const resumed = transport.resumeThread({ threadId: "thread-wanted" });
+  await answerTurns(writes, child, "thread-wanted", []);
   await writes.next();
   frame(child, { jsonrpc: "2.0", method: "thread/status/changed", params: { threadId: "thread-unrelated", status: { type: "idle" } } });
   await assert.rejects(resumed, error => error.code === "native_thread_mismatch");
@@ -990,12 +1038,15 @@ test("Codex thread usage reported under a turn older than the turns kept is the 
   frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
   await initializing; await writes.next();
   const resumed = transport.resumeThread({ threadId: "thread-long" });
+  // Codex lists the last 32 of its 37 turns.
+  const turns = Array.from({ length: 37 }, (_, index) => ({ id: `turn-${index + 1}`, status: "completed" })).slice(-32);
+  await answerTurns(writes, child, "thread-long", turns);
   request = await writes.next();
-  const turns = Array.from({ length: 37 }, (_, index) => ({ id: `turn-${index + 1}`, status: "completed" }));
   const breakdown = { cachedInputTokens: 4, inputTokens: 10, outputTokens: 6, reasoningOutputTokens: 2, totalTokens: 20 };
   const usage = turnId => ({ jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-long", turnId, tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: 1000 } } });
-  child.stdout.write([{ jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-long", status: { type: "idle" }, turns } } }, usage("turn-1")]
+  child.stdout.write([{ jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-long", status: { type: "idle" }, turns: [] } } }, usage("turn-1")]
     .map(value => JSON.stringify(value)).join("\n") + "\n");
+  await answerTurns(writes, child, "thread-long", turns);
   assert.equal((await resumed).kind, "resumed");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(transport.state().failure, null);
@@ -1018,6 +1069,7 @@ test("Codex thread resume refuses another thread's usage while it resumes", asyn
   frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
   await initializing; await writes.next();
   const resumed = transport.resumeThread({ threadId: "thread-wanted" });
+  await answerTurns(writes, child, "thread-wanted", []);
   await writes.next();
   const breakdown = { cachedInputTokens: 0, inputTokens: 1, outputTokens: 1, reasoningOutputTokens: 0, totalTokens: 2 };
   frame(child, { jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { threadId: "thread-unrelated", turnId: "turn-1", tokenUsage: { last: breakdown, total: breakdown, modelContextWindow: null } } });
@@ -1035,8 +1087,10 @@ test("Codex thread resume requires reconciliation when a returned turn status is
   frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
   await initializing; await writes.next();
   const resumed = transport.resumeThread({ threadId: "thread-unknown-status" });
+  await answerTurns(writes, child, "thread-unknown-status", [{ id: "turn-unknown", status: "paused" }]);
   request = await writes.next();
-  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-unknown-status", status: { type: "active", activeFlags: [] }, turns: [{ id: "turn-unknown", status: "paused" }] } } });
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-unknown-status", status: { type: "active", activeFlags: [] }, turns: [] } } });
+  await answerTurns(writes, child, "thread-unknown-status", [{ id: "turn-unknown", status: "paused" }]);
   const result = await resumed;
   assert.equal(result.code, "native_resume_reconciliation_required");
   assert.equal(transport.state().state, "reconciliation_required");
