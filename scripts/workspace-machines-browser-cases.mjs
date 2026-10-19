@@ -29,7 +29,9 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         // A session from the other computer opens on it.
         const row = machine("mbp").locator(".workspace-session").first();
         const key = await machine("mbp").locator(".workspace-session-row").first().getAttribute("data-entry");
-        await row.click();
+        // A finger taps: a mouse click would leave a pointer resting on the
+        // list, which reports entering it again once the list is back.
+        if (viewport.mobile) await row.tap(); else await row.click();
         const frame = page.locator(`iframe.workspace-frame[src*="entry=${key}"]`);
         await frame.waitFor({ state: "attached" });
         assert.match(await frame.getAttribute("src"), /host=mbp/);
@@ -37,10 +39,9 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         if (viewport.mobile) await page.evaluate(() => history.back());
         await page.locator(".workspace-machine").first().waitFor();
         // The other computer stops answering: its section says so and keeps its
-        // last list, once the pointer has left the list.
-        // (On a phone the list fills the screen; a lifted finger leaves it.)
-        if (viewport.mobile) await page.locator("#workspace-sidebar").dispatchEvent("pointerleave");
-        else await page.mouse.move(viewport.width - 5, viewport.height - 5);
+        // last list, once the pointer has left the list. (On a phone the list
+        // fills the screen; the lifted finger has left it.)
+        if (!viewport.mobile) await page.mouse.move(viewport.width - 5, viewport.height - 5);
         mbpOnline = false;
         await page.waitForFunction(() => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === "offline", null, { timeout: 30_000 });
         assert.match(await machine("mbp").locator(".workspace-machine-state").textContent(), /^Offline/);
