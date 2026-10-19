@@ -285,6 +285,15 @@ child that owns the thread, resuming it first when none does
 (`/api/codex/mutation/goal`). Their responses joined the compared documents
 in `COMPARISON_VERSION` 4, with the 0.161.0 baseline rebuilt to include them.
 
+The same one-writer rule applies to a whole conversation: while the Codex app
+(ChatGPT.app's own app-server) holds a thread open, it keeps
+`~/.codex/thread-writer-locks/<thread>.lock` and Codex refuses Stepsemble's
+`thread/resume` with "already has an active writer". The transport reports that
+refusal as `codex_thread_open_elsewhere`, and the conversation says it is open
+in the Codex app and should be closed there (or the app quit) before trying
+again; history stays readable meanwhile. Reproduced on Codex 0.163 with a
+thread the Codex app had open since it started.
+
 ## Automatic Codex upgrades
 
 Each Host has an "Upgrade automatically" switch on the Codex row of the

@@ -640,6 +640,7 @@
       "Session": "Session",
       "⚡ Model & reasoning…": "⚡ Model & reasoning…",
       "✏️ Rename": "✏️ Rename",
+      "🔀 View changes": "🔀 View changes",
       "🗑 Delete (move to Trash)": "🗑 Delete (move to Trash)",
     },
     "zh-Hant": {
@@ -678,6 +679,7 @@
       "Session": "工作階段",
       "⚡ Model & reasoning…": "⚡ 模型與推理…",
       "✏️ Rename": "✏️ 重新命名",
+      "🔀 View changes": "🔀 查看變更",
       "🗑 Delete (move to Trash)": "🗑 刪除（移到垃圾桶）",
     },
     "zh-Hans": {
@@ -716,6 +718,7 @@
       "Session": "会话",
       "⚡ Model & reasoning…": "⚡ 模型与推理…",
       "✏️ Rename": "✏️ 重命名",
+      "🔀 View changes": "🔀 查看更改",
       "🗑 Delete (move to Trash)": "🗑 删除（移到废纸篓）",
     },
     ja: {
@@ -754,6 +757,7 @@
       "Session": "セッション",
       "⚡ Model & reasoning…": "⚡ モデルと推論…",
       "✏️ Rename": "✏️ 名前を変更",
+      "🔀 View changes": "🔀 変更を表示",
       "🗑 Delete (move to Trash)": "🗑 削除（ゴミ箱へ）",
     },
     ko: {
@@ -792,6 +796,7 @@
       "Session": "세션",
       "⚡ Model & reasoning…": "⚡ 모델 및 추론…",
       "✏️ Rename": "✏️ 이름 변경",
+      "🔀 View changes": "🔀 변경 사항 보기",
       "🗑 Delete (move to Trash)": "🗑 삭제(휴지통으로 이동)",
     },
   };
@@ -4960,7 +4965,7 @@
       "agentHub.workspace": "A workspace for local coding agents",
       "agentHub.activeSummary": "{active} active · {ready} ready", "agentHub.readySummary": "{ready} agents ready",
       "agentHub.noTasks": "No active tasks — choose an Agent when you start a project.", "agentHub.notInstalled": "not installed",
-      "agentHub.claudeSignInRequired": "Claude Code is not signed in on this host. Open Settings → Claude Code sign-in, then try again.", "agentHub.projectFolderUnavailable": "This project folder is not available on the selected device. Choose the folder again on that device.",
+      "agentHub.claudeSignInRequired": "Claude Code is not signed in on this host. Open Settings → Claude Code sign-in, then try again.", "agentHub.codexThreadOpenElsewhere": "This conversation is open in the Codex app on that computer. Close it there, or quit the Codex app, then try again.", "agentHub.projectFolderUnavailable": "This project folder is not available on the selected device. Choose the folder again on that device.",
       "agentHub.isolated": "Isolated worktree", "agentHub.worktreeDescription": "Give this task its own Git branch and folder", "agentHub.piNote": "Pi Agent keeps native session history. CLI agents keep bounded canonical run history and terminal output; full native transcript depends on the harness.",
       "agentHub.cliNote": "This CLI streams terminal output and keeps a bounded canonical run; the task keeps running when you leave the chat.", "agentHub.nativeHistoryNote": "Native history is read-only from the prepared source; approvals still require the structured adapter contract.", "agentHub.journalNote": "This run uses the host-local durable canonical journal, available through the dedicated peer relay.", "agentHub.boundedNote": "This run uses a bounded in-memory snapshot because the durable journal is unavailable.", "agentHub.ackNote": "Native ACK is required for approval resume; full native transcript and subagents depend on the harness.", "agentHub.cliTextOnly": "CLI agents currently accept text input only.", "agentHub.agentTask": "Agent task", "agentHub.signal": "signal {value}", "agentHub.exitCode": "code {value}",
       "agentHub.starting": "Starting", "agentHub.running": "Working", "agentHub.reconnecting": "Reconnecting", "agentHub.waiting": "Waiting", "agentHub.completed": "Done",
@@ -4972,7 +4977,7 @@
       "agentHub.workspace": "本機 Coding Agent 的共用工作區",
       "agentHub.activeSummary": "{active} 個執行中 · {ready} 個可用", "agentHub.readySummary": "{ready} 個 Agent 可用",
       "agentHub.noTasks": "目前沒有工作；建立專案時選擇要使用的 Agent。", "agentHub.notInstalled": "尚未安裝",
-      "agentHub.claudeSignInRequired": "這台主機尚未登入 Claude Code。請開啟「設定 → Claude Code 登入」後再試。", "agentHub.projectFolderUnavailable": "這個專案資料夾不在目前選取的裝置上，請在該裝置重新選擇資料夾。",
+      "agentHub.claudeSignInRequired": "這台主機尚未登入 Claude Code。請開啟「設定 → Claude Code 登入」後再試。", "agentHub.codexThreadOpenElsewhere": "這個對話正在那台電腦的 Codex App 裡開著。請在 Codex App 關掉這個對話（或結束 Codex App）後再試一次。", "agentHub.projectFolderUnavailable": "這個專案資料夾不在目前選取的裝置上，請在該裝置重新選擇資料夾。",
       "agentHub.isolated": "隔離 Worktree", "agentHub.worktreeDescription": "為這個工作建立獨立的 Git 分支與資料夾", "agentHub.piNote": "Pi Agent 會保留原生工作階段記錄；CLI Agent 會保留有界 canonical 工作記錄與終端輸出，完整原生 transcript 取決於 harness。",
       "agentHub.cliNote": "CLI 輸出會串流到這裡；離開對話後工作仍會繼續。", "agentHub.nativeHistoryNote": "原生歷史來自已準備的唯讀來源；approval 仍需要結構化 adapter 契約。", "agentHub.journalNote": "這個工作使用 Host-local 的 durable canonical journal，可透過 dedicated peer relay 讀取。", "agentHub.boundedNote": "durable journal 無法使用，因此這個工作只保留有界的記憶體快照。", "agentHub.ackNote": "approval 要續跑必須先收到原生 ACK；完整原生 transcript 與 subagent 取決於 harness。", "agentHub.cliTextOnly": "CLI Agent 目前只接受文字輸入。", "agentHub.agentTask": "Agent 工作", "agentHub.signal": "訊號 {value}", "agentHub.exitCode": "代碼 {value}", "agentHub.starting": "啟動中",
       "agentHub.running": "工作中", "agentHub.reconnecting": "重新連線中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失敗",
@@ -4984,7 +4989,7 @@
       "agentHub.workspace": "本地 Coding Agent 的共享工作区",
       "agentHub.activeSummary": "{active} 个运行中 · {ready} 个可用", "agentHub.readySummary": "{ready} 个 Agent 可用",
       "agentHub.noTasks": "目前没有任务；创建项目时选择要使用的 Agent。", "agentHub.notInstalled": "尚未安装",
-      "agentHub.claudeSignInRequired": "这台主机尚未登录 Claude Code。请打开「设置 → Claude Code 登录」后再试。", "agentHub.projectFolderUnavailable": "这个项目文件夹不在当前选择的设备上，请在该设备重新选择文件夹。",
+      "agentHub.claudeSignInRequired": "这台主机尚未登录 Claude Code。请打开「设置 → Claude Code 登录」后再试。", "agentHub.codexThreadOpenElsewhere": "这个对话正在那台电脑的 Codex App 里打开。请在 Codex App 关闭这个对话（或退出 Codex App）后再试一次。", "agentHub.projectFolderUnavailable": "这个项目文件夹不在当前选择的设备上，请在该设备重新选择文件夹。",
       "agentHub.isolated": "隔离 Worktree", "agentHub.worktreeDescription": "为此任务建立独立的 Git 分支和文件夹", "agentHub.piNote": "Pi Agent 会保留原生会话记录；CLI Agent 会保留有界 canonical 任务记录和终端输出，完整原生 transcript 取决于 harness。",
       "agentHub.cliNote": "CLI 输出会串流到这里；离开对话后任务仍会继续。", "agentHub.nativeHistoryNote": "原生历史来自已准备的只读来源；approval 仍需要结构化 adapter 契约。", "agentHub.journalNote": "这个任务使用 Host-local 的 durable canonical journal，可通过 dedicated peer relay 读取。", "agentHub.boundedNote": "durable journal 无法使用，因此这个任务只保留有界内存快照。", "agentHub.ackNote": "approval 要继续运行必须先收到原生 ACK；完整原生 transcript 和 subagent 取决于 harness。", "agentHub.cliTextOnly": "CLI Agent 目前只接受文字输入。", "agentHub.agentTask": "Agent 任务", "agentHub.signal": "信号 {value}", "agentHub.exitCode": "代码 {value}", "agentHub.starting": "启动中",
       "agentHub.running": "工作中", "agentHub.reconnecting": "重新连接中", "agentHub.waiting": "等待中", "agentHub.completed": "完成", "agentHub.failed": "失败",
@@ -5357,6 +5362,32 @@
       "es": "Historial",
       "pt-BR": "Histórico",
       "it": "Cronologia"
+    },
+    "settings.groupGeneral": {
+      "en": "General",
+      "zh-Hant": "一般",
+      "zh-Hans": "通用",
+      "ja": "一般",
+      "ko": "일반",
+      "tr": "Genel",
+      "fr": "Général",
+      "de": "Allgemein",
+      "es": "General",
+      "pt-BR": "Geral",
+      "it": "Generali"
+    },
+    "settings.groupComputer": {
+      "en": "Computer settings",
+      "zh-Hant": "電腦設定",
+      "zh-Hans": "电脑设置",
+      "ja": "コンピュータの設定",
+      "ko": "컴퓨터 설정",
+      "tr": "Bilgisayar ayarları",
+      "fr": "Réglages de l’ordinateur",
+      "de": "Computer-Einstellungen",
+      "es": "Ajustes del ordenador",
+      "pt-BR": "Configurações do computador",
+      "it": "Impostazioni del computer"
     },
     "settings.notificationsTitle": {
       "en": "Notifications",

@@ -66,7 +66,7 @@
         if(!row.url)return el("span","session-summary-query",row.query);
         const link=el("a","session-summary-link",row.label);link.href=row.url;link.target="_blank";link.rel="noopener noreferrer";link.title=row.url;return link;});
       const outputsBox=section(t("outputs"),files,t("noOutputs"));
-      const changes=el("button","btn ghost session-summary-changes",t("viewChanges"));changes.type="button";
+      const changes=el("button","btn ghost session-summary-changes",t("viewChanges")+(data.changes?` · ${data.changes}`:""));changes.type="button";
       changes.addEventListener("click",()=>{hide();onChanges();});outputsBox.append(changes);
       panel.replaceChildren(header,section(t("goals"),goals,t("noGoals")),section(t("subagents"),subagents,t("noSubagents")),outputsBox,section(t("sources"),reads,t("noSources")));
       panel.setAttribute("aria-label",t("title"));

@@ -67,23 +67,29 @@ export async function runWorkspaceStatusBrowserCases(browser) {
       await second.waitForFunction(() => document.querySelector(".workspace-machine .workspace-session-status")?.dataset.state === "idle");
       await second.close(); await page.bringToFront(); await state(0, "idle");
       stage = "Host isolation";
-      await page.locator("#workspace-host").selectOption("mbp");
-      await state(0, "idle");
+      // The other computer's section, read every ten seconds, shows its own states.
+      const otherRows = page.locator('.workspace-machine[data-host="mbp"] .workspace-session-row');
+      const other = index => otherRows.nth(index).locator(".workspace-session-status");
+      const otherState = async (index, value) => other(index).and(page.locator(`[data-state="${value}"]`)).waitFor({ timeout: 30_000 });
+      await page.mouse.move(5, 5);
+      if (mobile) await page.locator("#workspace-sidebar").dispatchEvent("pointerleave");
+      await otherState(0, "idle");
       await fixture.setActivity("mbp", 0, { working: false, completion: completion(5) });
-      await state(0, "unread");
+      await otherState(0, "unread");
+      await state(0, "idle");
       assert.equal((await fixture.snapshot("mini")).entries[0].completion.read, true);
       stage = "reduced motion";
       await fixture.setActivity("mbp", 0, { working: true });
-      await state(0, "working");
+      await otherState(0, "working");
       await page.emulateMedia({ reducedMotion: "reduce" });
-      assert.equal(await status(0).evaluate(el => getComputedStyle(el, "::after").animationName), "none");
+      assert.equal(await other(0).evaluate(el => getComputedStyle(el, "::after").animationName), "none");
       stage = "slow Host does not starve status refresh";
       await page.route("**/api/workspace", async route => {
         await new Promise(resolve => setTimeout(resolve, 4000));
         await route.continue();
       });
       await fixture.setActivity("mbp", 0, { working: false, completion: completion(6) });
-      await state(0, "unread");
+      await otherState(0, "unread");
       await page.unrouteAll({ behavior: "wait" });
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "Session status " + (mobile ? "mobile" : "desktop"), result: "passed", modelCalls: 0 }));

@@ -1,8 +1,8 @@
 // Synthetic two-computer Workspace; no agent launch or external service.
 // With more than one computer every computer's sessions share one list:
-// Recent across them, then each computer with its projects. A session from
-// another computer opens on that computer; an offline one says so; Use this
-// computer makes it the current one.
+// Recent across them, then each computer with its projects, each with its own
+// order and pins. There is no computer to switch to: a session opens on its
+// own computer, what needs one asks which, and an offline one says so.
 import assert from "node:assert/strict";
 import { createWorkspaceInteractionsPreview } from "./workspace-interactions-preview.mjs";
 export async function runWorkspaceMachinesBrowserCases(browser) {
@@ -21,8 +21,9 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await page.goto(fixture.origin + "/workspace.html");
         const machine = id => page.locator(`.workspace-machine[data-host="${id}"]`);
         await machine("mbp").locator(".workspace-session").first().waitFor();
-        assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "the current computer comes first");
-        assert.equal(await machine("mini").locator(".workspace-machine-state").textContent(), "Current");
+        assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
+        assert.equal(await page.locator(".workspace-host-block").isVisible(), false, "nothing to switch");
+        assert.equal(await machine("mini").locator(".workspace-machine-state").count(), 0);
         const recentHosts = await page.locator(".workspace-recent .workspace-session-host").allTextContents();
         assert.equal(recentHosts.length, 5); assert.deepEqual([...new Set(recentHosts)].sort(), ["Mac Mini", "MacBook Pro"], "Recent spans both computers");
         // A session from the other computer opens on it.
@@ -32,7 +33,7 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         const frame = page.locator(`iframe.workspace-frame[src*="entry=${key}"]`);
         await frame.waitFor({ state: "attached" });
         assert.match(await frame.getAttribute("src"), /host=mbp/);
-        if (!viewport.mobile) assert.equal(await page.locator(".workspace-pane .workspace-tab-host").textContent(), "MacBook Pro");
+        if (!viewport.mobile) assert.match(await page.locator(".workspace-pane .workspace-tab-sub").textContent(), /^MacBook Pro · /);
         if (viewport.mobile) await page.evaluate(() => history.back());
         await page.locator(".workspace-machine").first().waitFor();
         // The other computer stops answering: its section says so and keeps its
@@ -46,14 +47,21 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         assert.ok(await machine("mbp").locator(".workspace-session").count() > 0, "its last list stays, dimmed");
         mbpOnline = true;
         await page.waitForFunction(() => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === "online", null, { timeout: 30_000 });
-        // Use this computer makes it the current one.
-        await machine("mbp").locator(".workspace-project-menu").first().click();
-        await page.getByRole("menuitem", { name: "Use this computer" }).click();
-        await page.waitForFunction(() => document.querySelector(".workspace-machine")?.dataset.host === "mbp");
-        assert.equal(await machine("mbp").locator(".workspace-machine-state").textContent(), "Current");
-        assert.equal(await page.locator("#workspace-host").inputValue(), "mbp");
+        // The other computer orders and pins its own projects.
+        const project = machine("mbp").locator(".workspace-project").last(), cwd = await project.getAttribute("data-cwd");
+        await project.locator(".workspace-project-menu").click();
+        await page.getByRole("menuitem", { name: "Pin to top" }).click();
+        await page.waitForFunction(cwd => document.querySelector('.workspace-machine[data-host="mbp"] .workspace-project')?.dataset.cwd === cwd, cwd);
+        assert.ok(fixture.presentations.get("mbp")?.pinnedProjects.includes(cwd), "pinned on that computer");
+        assert.equal(fixture.presentations.get("mini")?.pinnedProjects?.length || 0, 0, "this computer's order stays");
+        // Adding a project asks which computer.
+        await page.locator("#workspace-add").click();
+        assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["Mac Mini", "MacBook Pro"]);
+        await page.getByRole("menuitem", { name: "MacBook Pro" }).click();
+        await page.locator("#workspace-dialog-title").filter({ hasText: "MacBook Pro" }).waitFor();
+        await page.locator("#workspace-dialog-close").click();
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ case: "Workspace machines", width: viewport.width, result: "passed", recent: true, openOnOwner: true, offline: true, useMachine: true, modelCalls: 0 }));
+        console.log(JSON.stringify({ case: "Workspace machines", width: viewport.width, result: "passed", recent: true, openOnOwner: true, offline: true, ownOrder: true, asksComputer: true, modelCalls: 0 }));
       } finally { await context.unrouteAll({ behavior: "ignoreErrors" }); await context.close(); }
     }
   } finally { await fixture.close(); }

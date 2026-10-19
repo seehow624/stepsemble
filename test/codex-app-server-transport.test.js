@@ -652,6 +652,26 @@ test("An older Codex without the turn list resumes with its full answer", async 
   assert.equal(transport.state().failure, null);
 });
 
+test("A conversation the Codex app holds open is refused as such, and this process stays usable", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("held-resume") });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.163.0" } });
+  await initializing; await writes.next();
+  const resumed = transport.resumeThread({ threadId: "thread-held" });
+  await answerTurns(writes, child, "thread-held", [{ id: "turn-done", status: "completed" }]);
+  request = await writes.next();
+  assert.equal(request.method, "thread/resume");
+  // Codex 0.163's words when another process writes the thread.
+  frame(child, { jsonrpc: "2.0", id: request.id, error: { code: -32603, message: "failed to resume thread: thread thread-held already has an active writer" } });
+  await assert.rejects(resumed, error => error.code === "codex_thread_open_elsewhere" && error.message === "codex_thread_open_elsewhere");
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.state().state, "ready");
+});
+
 test("Codex resume keeps the 8 MiB history cap and ordinary responses keep the 1 MiB cap", async t => {
   for (const method of ["thread/resume", "account/rateLimits/read"]) {
     const child = new FakeNativeProcess();

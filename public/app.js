@@ -202,7 +202,7 @@ const el = {
   newCancel: $("new-cancel"), newStart: $("new-start"), newFolderUp: $("new-folder-up"),
   newFolderHome: $("new-folder-home"), newFolderPath: $("new-folder-path"), newFolderList: $("new-folder-list"),
   saSheet: $("session-action-sheet"), saTitle: $("sa-title"),
-  saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saExport: $("sa-export"), saCancel: $("sa-cancel"),
+  saModel: $("sa-model"), saRename: $("sa-rename"), saDelete: $("sa-delete"), saExport: $("sa-export"), saCancel: $("sa-cancel"), saChanges: $("sa-changes"),
   projectActionSheet: $("project-action-sheet"), projectActionTitle: $("pa-title"),
   projectActionPin: $("pa-pin"), projectActionEdit: $("pa-edit"), projectActionReveal: $("pa-reveal"),
   projectActionWorktree: $("pa-worktree"), projectActionArchive: $("pa-archive"), projectActionRemove: $("pa-remove"),
@@ -3833,9 +3833,13 @@ el.btnLayout?.addEventListener("click", () => {
 
 // ---- 長按動作 sheet ----
 let actionTarget = null;
+// A Pi conversation's file can be exported or archived; every conversation
+// can be renamed and its project's changes reviewed from here.
 function openSessionActions(s) {
   actionTarget = s;
   el.saTitle.textContent = sessionDisplayTitle(s).slice(0, 60);
+  for (const row of [el.saModel, el.saExport, el.saDelete]) if (row) row.hidden = !s?.file;
+  if (el.saChanges) el.saChanges.hidden = !!el.btnChanges?.hidden || el.btnChanges?.classList.contains("hidden");
   el.saSheet.classList.remove("hidden");
 }
 function closeSessionActions() {
@@ -7542,6 +7546,8 @@ function agentOpenFailureText(error, options = {}) {
     return tKey("agentHub.projectFolderUnavailable");
   }
   if (code === "claude_folder_pending") return tKey("agentHub.claudeFolderPending");
+  // Codex lets one process write a conversation; the Codex app may hold it.
+  if (code === "codex_thread_open_elsewhere" || message === "codex_thread_open_elsewhere") return tKey("agentHub.codexThreadOpenElsewhere");
   if (code === "desktop_workspace_denied" || message === "desktop_workspace_denied") return tKey("agentHub.claudeFolderDenied");
   return message || tKey("runtime.openChatFailed", { detail: "unknown error" });
 }
@@ -11886,9 +11892,10 @@ el.btnAbort.addEventListener("click", async () => {
 // sessions also keep their other actions.
 el.btnChatMenu.addEventListener("click", () => {
   if (currentSessionFile) { openSessionActions({ ...actionStubFrom(currentSessionFile) }); }
-  else if (WORKSPACE_ENTRY_KEY && rpc) openRenameDialog({ name: el.chatTitle.textContent });
+  else if (WORKSPACE_ENTRY_KEY && rpc) openSessionActions({ name: el.chatTitle.textContent });
   else toast(tKey("runtime.newChatNeedsMessage"));
 });
+el.saChanges?.addEventListener("click", () => { closeSessionActions(); el.btnChanges?.click(); });
 let currentSessionFile = null;
 function actionStubFrom(file) {
   const s = sessionsCache.find(x => x.file === file);
@@ -19524,7 +19531,9 @@ function sessionSummaryData() {
   const subagents = (subagentTracker?.all() || []).map(row => ({ id: row.id, name: row.name, task: row.task, status: row.status, statusLabel: subagentCopy("status_" + (row.status || "running")) }));
   const tools = [...el.messages.querySelectorAll(".tool-card")].map(card => card.__tool).filter(Boolean);
   const links = [...el.messages.querySelectorAll(".msg.assistant a[href]")].map(link => link.getAttribute("href"));
-  return { goals, subagents, outputs: window.StepsembleSessionSummary.outputs(tools), sources: window.StepsembleSessionSummary.sources(tools, links) };
+  // How many files the project has changed, as the title row's badge said.
+  const changes = el.changesBadge && !el.changesBadge.classList.contains("hidden") ? el.changesBadge.textContent.trim() : "";
+  return { goals, subagents, changes, outputs: window.StepsembleSessionSummary.outputs(tools), sources: window.StepsembleSessionSummary.sources(tools, links) };
 }
 async function toggleSessionSummary() {
   if (!sessionSummary) return;

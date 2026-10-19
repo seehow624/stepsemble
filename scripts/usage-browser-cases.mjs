@@ -192,8 +192,12 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await entry.evaluate(el => el === document.activeElement), true);
       const requestsAtClose = analyticsRequests.length; await page.clock.fastForward(120001);
       assert.equal(analyticsRequests.length, requestsAtClose, "closing stops the analytics refresh timer");
-      await page.locator("#workspace-host").selectOption("mbp"); await entry.click(); await readyLimits();
-      assert.equal(await page.locator(".usage-controls select").inputValue(), "mbp", "opens on the current Workspace Host");
+      // With one list for every computer there is no Workspace switch: the
+      // panel's own choice is the default it opens on next time.
+      await entry.click(); await readyLimits(); await host.selectOption("mbp"); await readyLimits();
+      await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" });
+      await entry.click(); await readyLimits();
+      assert.equal(await page.locator(".usage-controls select").inputValue(), "mbp", "opens on the computer chosen last");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab")));
       await panel.waitFor({ state: "detached" }); assert.equal(await page.locator("#workspace-host").inputValue(), "mbp");
       stage = "quota sources follow the Host";

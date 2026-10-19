@@ -206,15 +206,24 @@
   }
   // A session's tab starts with its agent's logo; a Bot tab with the Bot.
   const tabIcon = ref => ref.assistant ? assistantUI.tabIcon(ref) : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
-  // A title bar names the computer too once there is more than one.
-  const tabLabel = ref => [tabIcon(ref), node("span", ref.title, "workspace-tab-title"), ...(machines.length > 1 ? [node("span", hostName(ref.host), "workspace-tab-host")] : [])];
+  // A title bar names the session and, below it as on a phone, its computer
+  // and project.
+  function tabSubtitle(ref) {
+    const cwd = ref.assistant ? "" : snapshotOf(ref.host)?.entries.find(row => row.key === ref.key)?.record.cwd || "";
+    return [hostName(ref.host), cwd.split(/[\\/]/).filter(Boolean).pop() || ""].filter(Boolean).join(" · ");
+  }
+  function tabLabel(ref) {
+    const copy = node("span", "", "workspace-tab-copy");
+    copy.append(node("span", ref.title, "workspace-tab-title"), node("span", tabSubtitle(ref), "workspace-tab-sub"));
+    return [tabIcon(ref), copy];
+  }
   function updateTabMetadata(ref) {
     const current = allRefs().find(tab => L.identity(tab) === L.identity(ref));
     if (!current) return;
     for (const tab of document.querySelectorAll(".workspace-tab")) {
       if (tab.dataset.identity !== L.identity(ref)) continue;
       const label = tab.querySelector(".workspace-tab-label");
-      label.title = `${current.title} · ${hostName(current.host)}`; label.setAttribute("aria-label", label.title);
+      label.title = `${current.title} · ${tabSubtitle(current)}`; label.setAttribute("aria-label", label.title);
       label.replaceChildren(...tabLabel(current));
       const close = tab.lastElementChild; close.title = t("closeTab", { title: current.title }); close.setAttribute("aria-label", close.title);
     }
@@ -576,7 +585,7 @@
         // the platform's autoscroll.
         tab.onmousedown = e => { if (e.button === 1) e.preventDefault(); };
         tab.onauxclick = e => { if (e.button !== 1) return; e.preventDefault(); closeSession(n); };
-        const label = button("", () => selectTab(n.id, key), `${shownRef.title} · ${hostName(shownRef.host)}`, "btn workspace-tab-label");
+        const label = button("", () => selectTab(n.id, key), `${shownRef.title} · ${tabSubtitle(shownRef)}`, "btn workspace-tab-label");
         label.append(...tabLabel(shownRef));
         tab.append(label, button("×", () => closeSession(n), t("closeTab", { title: shownRef.title }))); tablist.append(tab);
       }
@@ -631,6 +640,8 @@
         actions.unshift([assistantUI.text("settings"), () => openAssistant(shownRef.host, { page: "settings", profile })],
           [assistantUI.text("routines"), () => openAssistant(shownRef.host, { page: "routines", profile })]);
       }
+      // The conversation's own sheet (model, export, archive where they apply)
+      // and a Bot's menu.
       if (shownRef && (!shownRef.assistant || botChat)) actions.push([t("moreActions"), () => frameCommand("menu")]);
       if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
       if (shownRef || L.leaves(tree).length > 1) actions.push([t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
@@ -677,8 +688,8 @@
   const refFor = (target, entry) => ({ host: target, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId || "Session",
     ...(entry.record.agentId ? { agentId: entry.record.agentId } : {}) });
   const snapshotOf = target => target === host ? snapshot : hostSnapshots.get(target) || null;
-  // The current computer first, then the others as listed.
-  const orderedMachines = () => [...machines.filter(m => m.id === host), ...machines.filter(m => m.id !== host)];
+  // This computer first, then the others as listed.
+  const orderedMachines = () => [...machines.filter(m => m.id === self), ...machines.filter(m => m.id !== self)];
   const RECENT_SHOWN = 5;
   // The sessions most recently used on any computer, those at work first.
   function recentEntries(search) {
@@ -690,10 +701,9 @@
     return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_SHOWN);
   }
   // With more than one computer, every computer's sessions share one list:
-  // the most recent across them first, then each computer's projects. The
-  // current computer, which Settings, Schedules and the allowances follow,
-  // keeps ordering and pins; another one's sessions open, rename and start
-  // there as well.
+  // the most recent across them first, then each computer's projects, each
+  // with its own order and pins. There is no computer to switch to; whatever
+  // needs one (a new project, history, Schedules) asks which.
   function renderSidebar() {
     if (sidebarDragging) return;
     sidebarOrderPending = false;
@@ -732,7 +742,7 @@
     const target = machine.id, snap = snapshotOf(target), status = target === host ? null : machineStatus.get(target);
     const section = node("section", "", "workspace-machine"); section.dataset.host = target;
     const offline = status?.online === false;
-    section.dataset.state = target === host ? "current" : offline ? "offline" : snap ? "online" : "waiting";
+    section.dataset.state = offline ? "offline" : snap ? "online" : "waiting";
     const header = node("header", "", "workspace-machine-header");
     const folded = !search && foldedMachines.has(target);
     const contents = node("div", "", "workspace-machine-projects"); contents.hidden = folded;
@@ -743,20 +753,16 @@
       contents.hidden = hidden; toggle.setAttribute("aria-expanded", String(!hidden));
     }, machine.name, "btn workspace-machine-toggle");
     toggle.setAttribute("aria-expanded", String(!folded));
-    const state = target === host ? t("currentMachine") : offline ? (status.at ? t("machineOfflineSince", { time: new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "2-digit", minute: "2-digit" }).format(status.at) }) : t("machineOffline")) : "";
+    const state = offline ? (status.at ? t("machineOfflineSince", { time: new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "2-digit", minute: "2-digit" }).format(status.at) }) : t("machineOffline")) : "";
     toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), node("strong", machine.name), ...(state ? [node("small", state, "workspace-machine-state")] : []));
     header.append(toggle);
-    if (target !== host) {
-      const actions = button("⋯", () => openPaneMenu(actions, [[t("useMachine"), () => selectHost(target)]]), t("machineActions"), "btn workspace-project-menu");
-      actions.setAttribute("aria-haspopup", "menu"); header.append(actions);
-    }
     section.append(header, contents);
     if (snap) renderProjects(contents, target, snap, search, openKeys);
     else contents.append(node("small", offline ? t("machineUnreachable") : t("loadingSession"), "workspace-machine-note"));
     return section;
   }
   function renderProjects(box, target, snap, search, openKeys) {
-    const current = target === host, presentation = O.normalize(snap.presentation, snap);
+    const presentation = O.normalize(snap.presentation, snap);
     for (const cwd of O.projects(snap)) {
       const matchesProject = !!search && cwd.toLowerCase().includes(search);
       const rows = O.entries(snap, cwd).filter(e => !search || matchesProject || `${e.record.name} ${e.record.agentId}`.toLowerCase().includes(search));
@@ -770,7 +776,7 @@
         const hidden = collapsed.has(cwd) && !search;
         section.dataset.collapsed = String(hidden); toggle.setAttribute("aria-expanded", String(!hidden)); contents.hidden = hidden;
       }, cwd || title, "btn workspace-project-toggle");
-      const pinned = current && presentation.pinnedProjects.includes(cwd);
+      const pinned = presentation.pinnedProjects.includes(cwd);
       const copy = node("span", "", "workspace-project-copy");
       copy.append(node("strong", title)); if (cwd) copy.append(node("small", cwd));
       if (pinned) toggle.append(pinMark());
@@ -781,8 +787,8 @@
       const add = button("", () => newSession(cwd, target), t("newSession"), "btn workspace-project-add");
       add.append(icon("M12 5v14M5 12h14")); header.append(toggle, add);
       if (cwd) {
-        if (current) reorderRow(toggle, section, "project", cwd, "", pinned);
-        const actions = button("⋯", () => openPaneMenu(actions, [...(current ? orderActions("project", cwd, "", pinned) : []), [t("removeProject"), async () => {
+        reorderRow(toggle, section, "project", cwd, "", pinned, undefined, target);
+        const actions = button("⋯", () => openPaneMenu(actions, [...orderActions("project", cwd, "", pinned, target), [t("removeProject"), async () => {
           actions.disabled = true;
           try {
             const result = await api("/api/workspace/project/remove", { cwd }, target);
@@ -815,7 +821,7 @@
   // One session's row; a row in Recent also names its computer.
   function sessionRow(target, entry, { openKeys, presentation = null, recent = false }) {
     const ref = refFor(target, entry), identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
-    const displayTitle = plainTitle(ref.title) || ref.title, current = target === host && !!presentation;
+    const displayTitle = plainTitle(ref.title) || ref.title, current = !!presentation;
     const row = node("div", "", "workspace-session-row");
     row.dataset.entry = entry.key; row.dataset.host = target;
     const pinned = current && presentation.pinnedSessions.includes(entry.key);
@@ -830,7 +836,7 @@
     // Sessions follow their activity; dragging one only places it in a pane.
     b.draggable = true; b.ondragstart = e => dragStart(e, ref, false); b.ondragend = dragEnd;
     const actions = button("⋯", () => openPaneMenu(actions, [
-      ...(current ? [[t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind: "session", id: entry.key, pinned: !pinned })]] : []),
+      ...(current ? [[t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind: "session", id: entry.key, pinned: !pinned }, target)]] : []),
       [t("rename"), () => renameSession(ref)],
       [t("moveWindow"), () => newWindow(ref)],
       [t("remove"), async () => {
@@ -924,49 +930,53 @@
     const mark = icon("M9 3h6l-1 6 4 4v2h-5v6h-2v-6H6v-2l4-4-1-6", "workspace-pin");
     mark.setAttribute("aria-label", t("pinned")); return mark;
   }
-  function orderPeers(kind, id, cwd, pinned) {
-    const p = O.normalize(snapshot.presentation, snapshot);
-    const ids = kind === "project" ? O.projects(snapshot) : O.entries(snapshot, cwd).map(row => row.key);
+  function orderPeers(kind, id, cwd, pinned, target = host) {
+    const snap = snapshotOf(target) || { projects: [], entries: [] }, p = O.normalize(snap.presentation, snap);
+    const ids = kind === "project" ? O.projects(snap) : O.entries(snap, cwd).map(row => row.key);
     const pins = kind === "project" ? p.pinnedProjects : p.pinnedSessions;
     return ids.filter(key => pins.includes(key) === pinned);
   }
-  function orderStep(kind, id, cwd, pinned, direction) {
-    const peers = orderPeers(kind, id, cwd, pinned), at = peers.indexOf(id);
+  function orderStep(kind, id, cwd, pinned, direction, target = host) {
+    const peers = orderPeers(kind, id, cwd, pinned, target), at = peers.indexOf(id);
     if (at < 0 || at + direction < 0 || at + direction >= peers.length) return;
-    void arrangeSidebar({ kind, id, before: direction < 0 ? peers[at - 1] : peers[at + 2] || null });
+    void arrangeSidebar({ kind, id, before: direction < 0 ? peers[at - 1] : peers[at + 2] || null }, target);
   }
-  function orderActions(kind, id, cwd, pinned) {
-    const peers = orderPeers(kind, id, cwd, pinned), at = peers.indexOf(id);
-    return [[t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind, id, pinned: !pinned })],
-      ...(at > 0 ? [[t("moveUp"), () => orderStep(kind, id, cwd, pinned, -1)]] : []),
-      ...(at < peers.length - 1 ? [[t("moveDown"), () => orderStep(kind, id, cwd, pinned, 1)]] : [])];
+  function orderActions(kind, id, cwd, pinned, target = host) {
+    const peers = orderPeers(kind, id, cwd, pinned, target), at = peers.indexOf(id);
+    return [[t(pinned ? "unpin" : "pin"), () => void arrangeSidebar({ kind, id, pinned: !pinned }, target)],
+      ...(at > 0 ? [[t("moveUp"), () => orderStep(kind, id, cwd, pinned, -1, target)]] : []),
+      ...(at < peers.length - 1 ? [[t("moveDown"), () => orderStep(kind, id, cwd, pinned, 1, target)]] : [])];
   }
-  function reorderRow(surface, source, kind, id, group, pinned, nativeStart) {
+  function reorderRow(surface, source, kind, id, group, pinned, nativeStart, target = host) {
     window.StepsembleWorkspaceReorder.attach(surface, source, { kind, id, group, pinned, nativeStart, enabled: () => !sidebarBusy,
-      move: before => void arrangeSidebar({ kind, id, before }), keyboard: direction => orderStep(kind, id, group, pinned, direction),
+      move: before => void arrangeSidebar({ kind, id, before }, target), keyboard: direction => orderStep(kind, id, group, pinned, direction, target),
       started: () => { sidebarDragging = true; closePaneMenu(); }, ended: native => { sidebarDragging = false; if (native) dragEnd(); },
     });
   }
-  async function arrangeSidebar(input) {
+  // Each computer keeps its own order and pins.
+  async function arrangeSidebar(input, target = host) {
     if (sidebarBusy) return;
-    const target = host, epoch = ++sidebarEditEpoch, prior = snapshot.presentation;
+    const snap = snapshotOf(target);
+    if (!snap) return;
+    const epoch = ++sidebarEditEpoch, prior = snap.presentation;
     let next;
-    try { next = O.arrange(snapshot, input); } catch (error) { toast(error.message); return; }
+    try { next = O.arrange(snap, input); } catch (error) { toast(error.message); return; }
     sidebarBusy = true; refreshEpoch++;
-    snapshot.presentation = next; renderSidebar();
+    snap.presentation = next; renderSidebar();
     try {
       const data = await api("/api/workspace/arrange", input, target);
-      if (target !== host || epoch !== sidebarEditEpoch) return;
-      snapshot.presentation = data.presentation;
+      if (epoch !== sidebarEditEpoch) return;
+      snap.presentation = data.presentation;
       $("workspace-connection").textContent = t("orderingSaved");
       channel?.postMessage({ type: "refresh" });
     } catch (error) {
-      if (target !== host || epoch !== sidebarEditEpoch) return;
-      snapshot.presentation = prior; toast(error.status === 404 && error.message !== "workspace_order_missing" ? t("sidebarOldHost") : error.message);
+      if (epoch !== sidebarEditEpoch) return;
+      snap.presentation = prior; toast(error.status === 404 && error.message !== "workspace_order_missing" ? t("sidebarOldHost") : error.message);
     } finally {
-      if (target === host && epoch === sidebarEditEpoch) {
+      if (epoch === sidebarEditEpoch) {
         sidebarBusy = false; renderSidebar();
-        const row = [...$("workspace-projects").querySelectorAll("[data-reorder-kind]")].find(node => node.dataset.reorderKind === input.kind && node.dataset.reorderId === input.id);
+        const scope = $("workspace-projects").querySelector(`.workspace-machine[data-host="${CSS.escape(target)}"]`) || $("workspace-projects");
+        const row = [...scope.querySelectorAll("[data-reorder-kind]")].find(node => node.dataset.reorderKind === input.kind && node.dataset.reorderId === input.id);
         row?.querySelector("[data-reorder-surface]")?.focus({ preventScroll: true });
         void refresh();
       }
@@ -1044,6 +1054,7 @@
           if (id === host) return;
           const before = hostSnapshots.get(id), was = machineStatus.get(id);
           rememberSnapshot(id, data); machineStatus.set(id, { online: true, at: Date.now() });
+          if (!before) for (const ref of allRefs()) if (ref.host === id) updateTabMetadata(ref);
           if (merged && !document.body.classList.contains("workspace-dragging")) {
             if (was?.online !== true || !before || listStructure(before) !== listStructure(data)) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
             else updateRows(id, data);
@@ -1206,8 +1217,8 @@
   }
   function closeDialog() { dialogEpoch++; if ($("workspace-dialog").open) $("workspace-dialog").close(); $("workspace-dialog").classList.remove("workspace-project-dialog", "workspace-signing-in"); $("workspace-dialog-body").replaceChildren(); }
   function dialog(title) { dialogEpoch++; const modal = $("workspace-dialog"); modal.classList.remove("workspace-project-dialog", "workspace-new-session-dialog", "workspace-signing-in"); $("workspace-dialog-title").textContent = title; const body = $("workspace-dialog-body"); body.replaceChildren(); if (!modal.open) modal.showModal(); return body; }
-  function addProject() {
-    const body = dialog(t("addProject")), epoch = dialogEpoch, target = host;
+  function addProject(target = host) {
+    const body = dialog(machines.length > 1 ? `${t("addProject")} · ${hostName(target)}` : t("addProject")), epoch = dialogEpoch;
     $("workspace-dialog").classList.add("workspace-project-dialog");
     const pathLabel = node("label", t("folderPath"), "workspace-folder-label");
     pathLabel.htmlFor = "workspace-folder-path";
@@ -1463,8 +1474,8 @@
     try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (window.StepsembleAgentIdentity?.startsConversations ? window.StepsembleAgentIdentity.startsConversations(agent) : agent.installed && agent.category !== "personal") { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); capabilities.set(agent.id, agent.capabilities); } syncWorktree(); start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
     catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }
   }
-  async function history() {
-    const body = dialog(t("history")), epoch = dialogEpoch, target = host;
+  async function history(target = host) {
+    const body = dialog(machines.length > 1 ? `${t("history")} · ${hostName(target)}` : t("history")), epoch = dialogEpoch;
     body.append(node("p", t("historyInfo")));
     // Each agent's own history, read only, in a tab of its own.
     const reader = node("a", t("historyReader"), "workspace-history-reader");
@@ -1510,7 +1521,7 @@
   }
   async function previewHistory(row, target) {
     const body = dialog(row.record.name || t("sessionHistory")), epoch = dialogEpoch;
-    body.append(button(t("backHistory"), history)); const content = node("pre", t("loading")); content.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;font:inherit"; body.append(content);
+    body.append(button(t("backHistory"), () => void history(target))); const content = node("pre", t("loading")); content.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;font:inherit"; body.append(content);
     try {
       let data;
       if (row.kind === "pi_history") data = await api(`/api/session?file=${encodeURIComponent(row.reference)}`, undefined, target);
@@ -1537,7 +1548,7 @@
     if (event.origin !== location.origin) return;
     if (settingsLayer && event.source === settingsLayer.querySelector("iframe")?.contentWindow) {
       if (event.data?.type === "workspace-settings-close") closeSettings();
-      if (event.data?.type === "workspace-settings-host" && machines.some(machine => machine.id === event.data.host)) selectHost(event.data.host);
+      if (event.data?.type === "workspace-settings-host" && machines.length <= 1 && machines.some(machine => machine.id === event.data.host)) selectHost(event.data.host);
       return;
     }
     const item = [...frames.values()].find(item => item.frame.contentWindow === event.source);
@@ -1609,7 +1620,12 @@
     $("workspace-workflows").setAttribute("aria-label", label);
   }
   labelWorkflows();
-  $("workspace-workflows").onclick = () => workflowUI.open().catch(error => toast(error.message));
+  // With more than one computer, a button that works on one asks which.
+  function forMachine(anchor, run) {
+    if (machines.length <= 1) { run(host); return; }
+    openPaneMenu(anchor, orderedMachines().map(machine => [machine.name || machine.id, () => run(machine.id)]));
+  }
+  $("workspace-workflows").onclick = event => forMachine(event.currentTarget, target => workflowUI.open(target).catch(error => toast(error.message)));
   $("workspace-routines").onclick = () => { if (assistantUI.machine) openAssistant(assistantUI.machine.id, { page: "routines" }); };
   function showMobileList() {
     if (!mobile()) return;
@@ -1652,7 +1668,8 @@
     const modal = $("workspace-dialog"), rect = modal.getBoundingClientRect();
     if (event.target === modal && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) closeDialog();
   });
-  $("workspace-add").onclick = () => addProject(); $("workspace-history").onclick = history;
+  $("workspace-add").onclick = event => forMachine(event.currentTarget, target => addProject(target));
+  $("workspace-history").onclick = event => forMachine(event.currentTarget, target => void history(target));
   // Refresh reloads the list and the allowances together. The allowances are
   // read from the providers again; the Host answers repeated clicks within
   // 15 seconds with the reading it just took.
@@ -1726,7 +1743,10 @@
       const data = await res.json(); machines = data.machines; self = data.current || data.selfId || machines.find(m => m.self)?.id;
       let savedHost = null; try { savedHost = localStorage.getItem("stepsemble.selected.v1"); } catch {}
       const preferred = params.get("host") || savedHost;
-      host = machines.some(machine => machine.id === preferred) ? preferred : self || machines[0]?.id;
+      // One list for every computer leaves nothing to switch: this computer is
+      // the default for the allowances and Settings.
+      host = machines.length > 1 ? self || machines[0]?.id : machines.some(machine => machine.id === preferred) ? preferred : self || machines[0]?.id;
+      document.body.classList.toggle("workspace-merged", machines.length > 1);
       if (!host) throw new Error(t("noHosts"));
       $("workspace-host").replaceChildren();
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }

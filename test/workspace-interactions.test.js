@@ -49,7 +49,7 @@ function reorderFixture({ pinned = false, kind = "session" } = {}) {
   const target = { dataset: { reorderKind: kind, reorderId: "B", reorderGroup: "/project", pinned: "false" },
     querySelector: () => ({ getBoundingClientRect: () => rect(50) }), getBoundingClientRect: () => rect(50), closest() { return this; } };
   const scroller = { scrollTop: 0, getBoundingClientRect: () => ({ top: 0, bottom: 500, left: 0, right: 200 }), querySelectorAll: () => [source, target] };
-  source.closest = selector => selector === "#workspace-projects" ? scroller : source;
+  source.closest = selector => selector === "#workspace-projects" ? scroller : selector === ".workspace-machine" ? null : source;
   const surface = { dataset: {}, disabled: false, setAttribute() {}, closest() { return this; },
     setPointerCapture: id => captured.add(id), hasPointerCapture: id => captured.has(id), releasePointerCapture: id => captured.delete(id),
     addEventListener: (name, fn) => local.set(name, fn), removeEventListener: name => local.delete(name) };

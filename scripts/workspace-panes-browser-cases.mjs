@@ -34,7 +34,7 @@ export async function runWorkspacePanesBrowserCases(browser) {
     await titles.first().waitFor();
     assert.deepEqual(await shown(), ["Session C"]);
     assert.equal(await titles.count(), 1); assert.equal(await page.locator(".workspace-frame").count(), 1, "one session, one viewer");
-    assert.equal(await page.locator(".workspace-tab-host").count(), 0, "with one computer, the title bar names none");
+    assert.equal(await page.locator(".workspace-tab-sub").textContent(), "Mac Mini · Panes", "below the name, as on a phone: its computer and project");
     const frame = page.frames()[1]; await frame.locator("#draft").fill("unsent draft");
     await frame.evaluate(() => { window.scrollTo(0, 120); });
     await page.evaluate(() => { window.originalViewer = document.querySelector("iframe"); window.originalWindow = window.originalViewer.contentWindow; });

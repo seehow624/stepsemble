@@ -947,10 +947,12 @@ function createCodexAppServerTransport({
       if (!row) { fail("native_response_unmatched"); return; }
       pending.delete(key(value.id)); clearTimeout(row.timer);
       if (value.error) {
-        const error = new Error("native_request_rejected"); error.code = "native_request_rejected";
         // Codex refuses history reads for a thread whose first message has
-        // not been sent. Keep only that fact; the upstream text stays here.
+        // not been sent, and any write to a thread another process (the Codex
+        // app) holds open. Keep only those facts; the upstream text stays here.
         const message = typeof value.error.message === "string" ? value.error.message.slice(0, 1024) : "";
+        const code = /\balready has an active writer\b/i.test(message) ? "codex_thread_open_elsewhere" : "native_request_rejected";
+        const error = new Error(code); error.code = code;
         if (/\bnot materialized\b/i.test(message)) error.threadUnmaterialized = true;
         row.reject(error); return;
       }

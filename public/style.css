@@ -5376,6 +5376,10 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 #view-settings .settings-about-group { padding-top: 6px; padding-bottom: 6px; }
 
 .settings-nav { display: flex; flex-direction: column; gap: 12px; }
+/* What applies everywhere, then what each computer keeps, under the computer
+   it applies to. */
+.settings-nav-group { margin: 6px 4px -4px; color: var(--pine-soft); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.settings-nav-group:first-child { margin-top: 0; }
 .settings-host-card,
 .settings-nav-item {
   width: 100%;
@@ -6442,3 +6446,9 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
 .session-summary-query::before { content: "⌕ "; }
 .session-summary-changes { margin-top: 6px; min-height: 32px; padding: 4px 10px; border-radius: 8px; font-size: .78rem; }
 @media (pointer: coarse) { .session-summary-item, .session-summary-path, .session-summary-link { min-height: 44px; align-content: center; } .session-summary-close { width: 44px; height: 44px; } }
+
+/* The title row's buttons are bare icons with a soft background under the
+   pointer; Changes is in the summary and the More sheet. */
+#view-chat .chat-topbar > .icon-btn { border: 0; border-radius: 12px; background: none; color: var(--ink); }
+#view-chat .chat-topbar > .icon-btn:hover, #view-chat .chat-topbar > .icon-btn:focus-visible { background: var(--bubble-user); }
+#view-chat .chat-topbar > #btn-changes { display: none; }
