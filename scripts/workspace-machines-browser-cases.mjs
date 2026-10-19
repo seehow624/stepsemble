@@ -2,7 +2,9 @@
 // With more than one computer every computer's sessions share one list:
 // Recent across them, then each computer with its projects, each with its own
 // order and pins. There is no computer to switch to: a session opens on its
-// own computer, what needs one asks which, and an offline one says so. The
+// own computer, what needs one asks which, and an offline one says so, at
+// once even with the pointer resting on the list (only a new order waits for
+// it to leave). The
 // sections (Recent, Automations, each computer) move and fold, and stay so;
 // Automations list every computer's schedules, each opening its own.
 import assert from "node:assert/strict";
@@ -18,29 +20,29 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
         await context.addInitScript(() => localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" })));
         await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
-        // What a timeout reports: the list's pointer events and the other
-        // computer's reads, to tell a held redraw from a read that never ends.
-        await context.addInitScript(() => {
-          window.__sidebarEvents = [];
-          addEventListener("DOMContentLoaded", () => { for (const type of ["pointerenter", "pointerleave"]) document.getElementById("workspace-sidebar")?.addEventListener(type, event => window.__sidebarEvents.push([Math.round(performance.now()), type, event.pointerType, event.isTrusted])); });
+        // On a desktop the other computer's first list comes late, while the
+        // pointer rests on the list.
+        let mbpOnline = true, offlineReads = 0, firstDelay = viewport.mobile ? 0 : 1500;
+        await context.route("**/r/mbp/api/workspace", async route => {
+          if (firstDelay) { const wait = firstDelay; firstDelay = 0; await new Promise(resolve => setTimeout(resolve, wait)); }
+          return mbpOnline ? route.fallback() : (offlineReads++, route.fulfill({ status: 503, json: { error: "unreachable" } }));
         });
-        const startedAt = Date.now(), reads = [];
-        const note = (request, what) => { if (new URL(request.url()).pathname.startsWith("/r/mbp/")) reads.push([Date.now() - startedAt, what, new URL(request.url()).pathname]); };
-        page.on("request", request => note(request, "sent"));
-        page.on("requestfinished", async request => note(request, "status " + (await request.response().catch(() => null))?.status()));
-        page.on("requestfailed", request => note(request, "failed " + request.failure()?.errorText));
-        let mbpOnline = true, offlineReads = 0;
-        await context.route("**/r/mbp/api/workspace", route => mbpOnline ? route.fallback() : (offlineReads++, route.fulfill({ status: 503, json: { error: "unreachable" } })));
         await page.goto(fixture.origin + "/workspace.html");
         const machine = id => page.locator(`.workspace-machine[data-host="${id}"]`);
+        const onList = () => page.evaluate(() => document.getElementById("workspace-sidebar").matches(":hover"));
+        if (!viewport.mobile) { await page.mouse.move(150, 560); await page.mouse.move(160, 580); assert.equal(await onList(), true); }
         // The other computer is read every ten seconds; one missed read must fit.
         await machine("mbp").locator(".workspace-session").first().waitFor({ timeout: 30_000 }).catch(async error => {
           const sections = await page.evaluate(() => ({ host: document.getElementById("workspace-host-state")?.dataset.state, title: document.getElementById("workspace-host")?.title,
             machines: [...document.querySelectorAll(".workspace-machine")].map(node => ({ host: node.dataset.host, state: node.dataset.state, sessions: node.querySelectorAll(".workspace-session").length, collapsed: node.querySelector(".workspace-machine-toggle")?.getAttribute("aria-expanded") })) }));
-          const events = await page.evaluate(() => window.__sidebarEvents || []);
-          throw new Error(`${error.message}\n${JSON.stringify(sections)}\n${JSON.stringify({ events, reads: reads.slice(0, 40) })}`);
+          throw new Error(`${error.message}\n${JSON.stringify(sections)}`);
         });
-        console.log(JSON.stringify({ diag: "machines first list", width: viewport.width, ms: Date.now() - startedAt, events: await page.evaluate(() => window.__sidebarEvents || []), reads: reads.slice(0, 8) }));
+        if (!viewport.mobile) {
+          assert.equal(await onList(), true, "the other computer's list came while the pointer rested on the list");
+          // Recent, which mixes the computers, follows once the pointer leaves.
+          await page.mouse.move(viewport.width - 5, viewport.height - 5);
+        }
+        await page.locator(".workspace-recent .workspace-session-host", { hasText: "MacBook Pro" }).first().waitFor();
         assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
         assert.equal(await page.locator(".workspace-host-block").isVisible(), false, "nothing to switch");
         assert.equal(await machine("mini").locator(".workspace-machine-state").count(), 0);
@@ -58,16 +60,12 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         if (!viewport.mobile) assert.match(await page.locator(".workspace-pane .workspace-tab-sub").textContent(), /^MacBook Pro · /);
         if (viewport.mobile) await page.evaluate(() => history.back());
         await page.locator(".workspace-machine").first().waitFor();
-        // The other computer stops answering: its section says so and keeps its
-        // last list, once the pointer has left the list. On a phone the list
-        // fills the screen and the lifted finger has left it, yet an emulated
-        // phone can still report a resting pointer over the list, which holds
-        // its redraw; the wait says again that the pointer has left.
-        if (!viewport.mobile) await page.mouse.move(viewport.width - 5, viewport.height - 5);
-        const machineState = state => page.waitForFunction(({ state, mobile }) => {
-          if (mobile) document.getElementById("workspace-sidebar").dispatchEvent(new PointerEvent("pointerleave"));
-          return document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === state;
-        }, { state, mobile: viewport.mobile }, { timeout: 30_000, polling: 500 }).catch(async error => {
+        // The other computer stops answering: its section says so at once and
+        // keeps its last list, with the pointer resting on the list (on a
+        // desktop it rests there; a phone's lifted finger has left it).
+        if (!viewport.mobile) { await page.mouse.move(150, 560); assert.equal(await onList(), true); }
+        const machineState = state => page.waitForFunction(state => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === state,
+          state, { timeout: 30_000 }).catch(async error => {
           const seen = await page.evaluate(() => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state);
           throw new Error(`${error.message}\n${JSON.stringify({ wanted: state, seen, offlineReads })}`);
         });
