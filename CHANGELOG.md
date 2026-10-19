@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.29
+
+- Show another computer's list as soon as it comes, and its going offline or coming back, even with the pointer resting on the list. Only a new order of the list waits for the pointer to leave, so a row still never jumps under a click; before, such a computer could stay on "Loading…" for as long as the pointer rested on the list.
+
 ## 3.9.28
 
 - Open a conversation's Summary and a Bot's History in the Mac app again. WebKit, the app's engine, credited the Workspace's commands to the pane that received them, so the pane ignored them; renames, read marks, Schedules changes and session references sent into a pane were lost in the app as well.
