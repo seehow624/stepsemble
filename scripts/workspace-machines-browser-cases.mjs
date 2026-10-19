@@ -40,6 +40,7 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
           const events = await page.evaluate(() => window.__sidebarEvents || []);
           throw new Error(`${error.message}\n${JSON.stringify(sections)}\n${JSON.stringify({ events, reads: reads.slice(0, 40) })}`);
         });
+        console.log(JSON.stringify({ diag: "machines first list", width: viewport.width, ms: Date.now() - startedAt, events: await page.evaluate(() => window.__sidebarEvents || []), reads: reads.slice(0, 8) }));
         assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
         assert.equal(await page.locator(".workspace-host-block").isVisible(), false, "nothing to switch");
         assert.equal(await machine("mini").locator(".workspace-machine-state").count(), 0);

@@ -169,7 +169,9 @@ async function runCase(host, client, viewport) {
 }
 try {
   browser = await chromium.launch({ headless: true, env: cleanEnvironment(runtime), args: ["--disable-background-networking"] });
-  if (suite === "core") {
+  // Diagnosis only: the other groups are left out on this branch.
+  if (suite !== "workspace") console.log(JSON.stringify({ diag: "skipped", suite }));
+  else if (suite === "core") {
     const releases = [];
     for (const pin of pins) releases.push(await released(pin));
     const current = { name: "development", directory: root, commit: (await exec("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim() };
@@ -190,6 +192,14 @@ try {
   }
   else if (suite === "conversation-ux") await runConversationUxBrowserCases(browser);
   else if (suite === "workspace") {
+    // Diagnosis only (this branch is not merged): the machines case five times,
+    // each run reporting its timings, a failure reported without stopping.
+    for (let run = 1; run <= 5; run += 1) {
+      try { await runWorkspaceMachinesBrowserCases(browser); }
+      catch (error) { console.log(JSON.stringify({ diag: "machines failed", run, message: error.message.slice(0, 4000) })); }
+    }
+  }
+  else if (suite === "workspace-unused") {
     await runScrollbarBrowserCases(browser);
     await runProjectFilesBrowserCases(browser);
     await runWorkspaceReorderBrowserCases(browser);
