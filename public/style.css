@@ -534,7 +534,14 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 
 /* Codex's own goal: a chip in the row of the Goal chip and the subagent
    bubble, the same size and shape; its objective opens below the row. */
-#view-chat .native-run-state { order: 0; min-width: 0; max-width: 100%; margin: 4px 0; }
+#view-chat .native-run-state { order: 0; display: flex; align-items: stretch; min-width: 0; max-width: 100%; margin: 4px 0; }
+/* A goal not at work closes with its ×, joined to the end of its chip. */
+#view-chat .native-run-state[data-closable="true"] .native-run-toggle { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+#view-chat .native-run-dismiss { display: inline-grid; place-items: center; min-width: 28px; padding: 0 10px 0 6px; border: 1px solid var(--line); border-left: 0;
+  border-radius: 0 999px 999px 0; background: var(--paper); color: var(--pine-soft); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+#view-chat .native-run-dismiss:hover, #view-chat .native-run-dismiss:focus-visible { background: var(--bubble-user); color: var(--ink); }
+#view-chat .native-run-dismiss[hidden] { display: none; }
+@media (pointer: coarse) { #view-chat .native-run-dismiss { min-width: 36px; } }
 #view-chat .native-run-toggle { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--paper); color: var(--ink); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 #view-chat .native-run-toggle:hover, #view-chat .native-run-toggle:focus-visible, #view-chat .native-run-toggle[aria-expanded="true"] { background: var(--bubble-user); }
@@ -551,12 +558,18 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 }
 /* Two chips always fit side by side; a long one ends in "…" instead of
    taking a row of its own. */
-#view-chat .subagent-bar > :is(.native-run-state, .goal-chip, .subagent-bubble) { flex: 0 1 auto; min-width: 0; max-width: calc(50% - 4px); }
-#view-chat .subagent-bar:has(> .native-run-state:not(.hidden)):has(> .goal-chip:not([hidden])):has(> .subagent-bubble:not([hidden]))
-  > :is(.native-run-state, .goal-chip, .subagent-bubble) { max-width: calc((100% - 16px) / 3); }
+#view-chat .subagent-bar > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { flex: 0 1 auto; min-width: 0; max-width: calc(50% - 4px); }
+#view-chat .subagent-bar:has(> .native-run-state:not(.hidden)):has(> .goal-chip-group:not([hidden])):has(> .subagent-bubble:not([hidden]))
+  > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { max-width: calc((100% - 16px) / 3); }
+/* A chip on its own may take the row. */
+#view-chat .subagent-bar:not(:has(> .goal-chip-group:not([hidden]))):not(:has(> .subagent-bubble:not([hidden]))) > .native-run-state,
+#view-chat .subagent-bar:not(:has(> .native-run-state:not(.hidden))):not(:has(> .subagent-bubble:not([hidden]))) > .goal-chip-group,
+#view-chat .subagent-bar:not(:has(> .native-run-state:not(.hidden))):not(:has(> .goal-chip-group:not([hidden]))) > .subagent-bubble { max-width: 100%; }
 @media (max-width: 600px) {
-  /* Three chips on a phone: the Goal's dot colour says how it is doing. */
-  #view-chat .subagent-bar:has(> .native-run-state:not(.hidden)):has(> .subagent-bubble:not([hidden])) .goal-chip-state { display: none; }
+  /* Three chips, or a finished Goal with its × beside Codex's, on a phone:
+     the Goal's dot colour says how it is doing. */
+  #view-chat .subagent-bar:has(> .native-run-state:not(.hidden)):has(> .subagent-bubble:not([hidden])) .goal-chip-state,
+  #view-chat .subagent-bar:has(> .native-run-state:not(.hidden)) .goal-chip[data-closable="true"] .goal-chip-state { display: none; }
 }
 .subagent-bubble-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The goal's objective and its actions open below the chips, full width, so

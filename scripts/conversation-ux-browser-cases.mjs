@@ -37,6 +37,13 @@ const TABLE = [
   "| **B. OpenAI only** | 1 | One key covers transcription and clean-up, with steady quality | No free tier and a card is required; transcription costs more than Groq |",
 ].join("\n");
 
+// On a phone a conversation's own back button shows the list again; wait for
+// it, or the next openFromSidebar would go back a second time.
+async function backToList(page, ui) {
+  await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+  await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden"));
+}
+
 async function pendingTurn(page, ui, context, route, question, replyText, out, key) {
   await context.route(route, async request => { if (request.request().method() === "POST") await new Promise(resolve => setTimeout(resolve, 2500)); await request.continue(); });
   try {
@@ -217,14 +224,14 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
       await ui.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !!rpc?.nativeClaudeStructured && !rpc.nativeLoading);
       await ui.evaluate(() => subagentTracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "ui-goal-child", name: "Agent",
         input: { description: "Check the links", prompt: "Check the links", subagent_type: "researcher" } }] } }));
-      const chip = ui.locator(".goal-chip"), bubble = ui.locator(".subagent-bubble"), panel = ui.locator(".goal-panel");
+      const chip = ui.locator(".goal-chip"), group = ui.locator(".goal-chip-group"), bubble = ui.locator(".subagent-bubble"), panel = ui.locator(".goal-panel");
       await chip.waitFor();
       assert.match(await chip.textContent(), new RegExp(`Goal.*${words.running}.*12:3\\d`));
       if (width < 900) for (const [name, box] of [["Goal", await chip.boundingBox()], ["subagent", await bubble.boundingBox()]])
         assert.ok(box.height >= 36, `the ${name} chip at ${width} is ${box.height}px tall, too small to tap`);
       // Side by side where both fit; a screen too narrow for both stacks them.
       const sideBySide = async () => {
-        const [chipBox, bubbleBox, composerBox] = [await chip.boundingBox(), await bubble.boundingBox(), await ui.locator(".composer-inner").boundingBox()];
+        const [chipBox, bubbleBox, composerBox] = [await group.boundingBox(), await bubble.boundingBox(), await ui.locator(".composer-inner").boundingBox()];
         const room = await ui.locator("#subagent-bar").evaluate(node => { const style = getComputedStyle(node); return node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight); });
         if (chipBox.width + 8 + bubbleBox.width <= room) assert.ok(Math.abs(chipBox.y - bubbleBox.y) < 4 && chipBox.x < bubbleBox.x, JSON.stringify({ chipBox, bubbleBox, room }));
         else assert.ok(chipBox.y + chipBox.height <= bubbleBox.y, JSON.stringify({ chipBox, bubbleBox, room }));
@@ -254,6 +261,9 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
       goal = { ...goal, status: "completed", elapsedMs: 3_723_000, clockRunning: false, activity: null, result: "Released." };
       await ui.waitForFunction(text => document.querySelector(".goal-chip")?.textContent.includes(text), words.completed);
       assert.match(await chip.textContent(), new RegExp(`${words.completed}.*1:02:03`));
+      // A finished Goal's × stays joined to the end of its chip.
+      const [doneBox, closeBox] = [await chip.boundingBox(), await ui.locator(".goal-chip-close").boundingBox()];
+      assert.ok(Math.abs(doneBox.y - closeBox.y) < 2 && Math.abs(doneBox.x + doneBox.width - closeBox.x) < 2, JSON.stringify({ doneBox, closeBox }));
       await sideBySide();
       await shot("done");
       assert.deepEqual(errors, []);
@@ -294,7 +304,7 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
         await ui.waitForFunction(() => document.querySelector("#messages .wl-row"), null, { timeout: 20_000 });
         const rows = await ui.evaluate(() => [...document.querySelectorAll("#messages .wl-row")].filter(node => node.offsetParent).map(node => Math.round(node.getBoundingClientRect().height)));
         assert.ok(rows.length && rows.every(height => height >= 36), `${viewport.width}: work rows ${rows}`);
-        await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+        await backToList(page, ui);
         // The filters of the Schedules panel, even a short one such as "All".
         await page.locator("#workspace-workflows").click();
         await page.locator(".wf-filters .btn").first().waitFor();
@@ -485,7 +495,7 @@ export async function runConversationColumnBrowserCases(browser, { screenshots }
       await claude.locator("#task-progress-panel:not(.hidden)").waitFor();
       aligned(await edges(claude, ["#task-progress-panel"]), ["#task-progress-panel"]);
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `column-claude-${viewport.width}.png`) }); }
-      if (viewport.mobile) await claude.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+      if (viewport.mobile) await backToList(page, claude);
       const codex = await openFromSidebar(page, "Codex composer fixture");
       await codex.locator("#native-run-toggle").waitFor();
       await codex.locator("#native-run-toggle").click(); await codex.locator("#native-run-detail").waitFor();
@@ -573,6 +583,57 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
       assert.deepEqual(dismissals.map(body => body.action), ["dismiss"]);
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "Conversation dock", width: viewport.width, result: "passed" }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
+// A goal that is no longer at work closes from its chip: a finished Goal is
+// removed from the conversation, Codex's own is hidden here; both stay in the
+// summary, and Codex's shows again once it works again.
+export async function runGoalCloseBrowserCases(browser) {
+  for (const viewport of [{ width: 1280, height: 860, mobile: false }, { width: 393, height: 852, mobile: true }]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      let goal = { id: "close-goal", objective: "Ship the release notes", status: "completed", elapsedMs: 65_000, activity: "completed", turns: 2, outputTokens: 10, result: "Done" };
+      const posts = [];
+      await context.route("**/api/workflows**", async route => {
+        const request = route.request(), entry = new URL(request.url()).searchParams.get("entry");
+        if (request.method() === "POST") { posts.push(request.postDataJSON()); goal = { ...goal, dismissedAt: Date.now() }; return route.fulfill({ json: { ...goal, entry } }); }
+        const history = new URL(request.url()).searchParams.get("history") === "1";
+        return route.fulfill({ json: { runs: history || !goal.dismissedAt ? [{ ...goal, entry }] : [] } });
+      });
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const openSummary = async ui => { if (viewport.mobile) await ui.locator("#btn-summary").click(); else await page.locator(".workspace-summary-button").click(); await ui.locator(".session-summary").waitFor(); };
+      const codex = await openFromSidebar(page, "Codex composer fixture");
+      const toggle = codex.locator("#native-run-toggle"), close = codex.locator("#native-run-dismiss");
+      await toggle.waitFor();
+      assert.equal(await close.isVisible(), false, "a goal at work has no ×");
+      preview.state.codexGoal.status = "paused";
+      await close.waitFor({ timeout: 30_000 });
+      await close.click();
+      await toggle.waitFor({ state: "hidden" });
+      await openSummary(codex);
+      await codex.locator(".session-summary").getByText("Keep the synthetic Codex task moving until browser parity is verified", { exact: true }).waitFor();
+      await codex.locator(".session-summary-close").click();
+      preview.state.codexGoal.status = "active";
+      await toggle.waitFor({ timeout: 30_000 });
+      assert.equal(await close.isVisible(), false);
+      if (viewport.mobile) await backToList(page, codex);
+      const claude = await openFromSidebar(page, "Claude composer fixture");
+      const chip = claude.locator(".goal-chip"), chipClose = claude.locator(".goal-chip-close");
+      await chipClose.waitFor();
+      await chipClose.click();
+      await chip.waitFor({ state: "hidden" });
+      assert.deepEqual(posts.map(body => body.action), ["dismiss"]);
+      await openSummary(claude);
+      await claude.locator(".session-summary").getByText("Ship the release notes", { exact: true }).waitFor();
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Goal close", width: viewport.width, result: "passed" }));
     } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
   }
 }
@@ -667,7 +728,7 @@ export async function runPaneHeaderBrowserCases(browser, { screenshots } = {}) {
         if (you !== null) assert.equal(you, viewport.mobile ? "你" : "You", "the person's label follows the page's language");
         assert.deepEqual(overlap, [], `${title} at ${viewport.width}: the header controls cover the first message ${JSON.stringify(boxes)}`);
         if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `pane-header-${title.split(" ")[0].toLowerCase()}-${viewport.width}.png`) }); }
-        if (viewport.mobile) await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+        if (viewport.mobile) await backToList(page, ui);
       }
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "Pane header controls", width: viewport.width, result: "passed" }));
@@ -949,6 +1010,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runConversationColumnBrowserCases(browser, options);
   await runConversationDockBrowserCases(browser, options);
   await runSessionSummaryBrowserCases(browser, options);
+  await runGoalCloseBrowserCases(browser);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
@@ -1226,10 +1288,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
 
       stage = "Settings open in the same window";
       // On a phone the list, with the Settings button, is behind the open conversation.
-      if (viewport.mobile) {
-        await ui.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
-        await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden"));
-      }
+      if (viewport.mobile) await backToList(page, ui);
       await ui.evaluate(() => { window.__paneKept = true; });
       const pagesBefore = context.pages().length;
       const settingsLayer = async () => {

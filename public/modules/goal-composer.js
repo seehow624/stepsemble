@@ -84,7 +84,11 @@
     chip.append(node("span", "goal-chip-label", "Goal"), chipState, chipClock);
     const panel = node("div", "goal-panel"); panel.hidden = true; panel.dataset.i18nIgnore = ""; panel.setAttribute("aria-label", "Goal");
     chip.addEventListener("click", () => { expanded = !expanded; render(); });
-    if (bar) { panel.append(live); bar.append(chip, panel); }
+    // A finished Goal's chip closes with its ×, which stays beside it when the
+    // row wraps; the summary still lists it, and the next Goal shows again.
+    const chipClose = button("×", () => action("dismiss"), "goal-chip-close"); chipClose.hidden = true;
+    const chipGroup = node("span", "goal-chip-group"); chipGroup.hidden = true; chipGroup.append(chip, chipClose);
+    if (bar) { panel.append(live); bar.append(chipGroup, panel); }
     section.append(draft, ...(bar ? [] : [live]), error); inner.before(section);
     let latest = null, received = 0, loading = false, disconnected = false, creating = false, acting = false, closed = false, attempt = null, revision = 0;
     let expanded = false, shownRun = null;
@@ -126,7 +130,9 @@
       if ((latest?.id || null) !== shownRun) { shownRun = latest?.id || null; expanded = false; }
       section.hidden = !draftVisible && error.hidden && !(progress && !bar); draft.hidden = !draftVisible;
       live.hidden = !progress || !!bar && !expanded;
-      chip.hidden = !bar || !progress; panel.hidden = !bar || !progress || !expanded;
+      chipGroup.hidden = chip.hidden = !bar || !progress; panel.hidden = !bar || !progress || !expanded;
+      chipClose.hidden = chip.hidden || !FINISHED.has(latest?.status); chip.dataset.closable = String(!chipClose.hidden);
+      chipClose.setAttribute("aria-label", t("close")); chipClose.title = t("close");
       chip.setAttribute("aria-expanded", String(progress && expanded)); chip.title = t("details");
       if (draftVisible) {
         section.dataset.state = creating ? "starting" : "draft";
@@ -145,7 +151,7 @@
       resume.hidden = !RESUMABLE.has(latest.status);
       stop.hidden = !ACTIVE.has(latest.status) || latest.status === "stopping" && !latest.error;
       remove.hidden = !(RESUMABLE.has(latest.status) || FINISHED.has(latest.status));
-      for (const b of [pause, resume, stop, remove]) b.disabled = acting;
+      for (const b of [pause, resume, stop, remove, chipClose]) b.disabled = acting;
       metrics.textContent = t("metrics", { turns: latest.turns, tokens: (latest.outputTokens || 0).toLocaleString(root.document.documentElement.lang) });
       result.textContent = latest.result || latest.objective;
     }

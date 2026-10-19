@@ -16,8 +16,14 @@ sidebar. The desktop app and browser use the same controls.
 While a conversation's Goal is running, paused or needs attention, the sidebar
 shows a small target beside the conversation's name. The mark disappears when
 the Goal completes, stops or fails. A finished Goal's chip stays until you
-remove it. There is no separate list of past Goals; each conversation keeps its
-own record, and a removed Goal remains in the task history.
+remove it, from its panel or with the × at the end of the chip; the next Goal
+shows a chip again. There is no separate list of past Goals; each conversation
+keeps its own record: its summary still lists a removed Goal, and the task
+history keeps it.
+
+Codex's own goal has the same ×, once it is paused, limited or blocked. It only
+hides the goal on this device (the summary still lists it), and the chip comes
+back when the goal works again or Codex starts another.
 
 The Schedules panel uses a searchable list with an adjacent inspector on
 desktop. On a phone, select a schedule to open its details and use Back to

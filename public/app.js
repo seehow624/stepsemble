@@ -133,6 +133,7 @@ const el = {
   nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
   nativeRunObjective: $("native-run-objective"), nativeRunActions: $("native-run-actions"),
   nativeGoalPause: $("native-goal-pause"), nativeGoalResume: $("native-goal-resume"), nativeGoalRemove: $("native-goal-remove"),
+  nativeRunDismiss: $("native-run-dismiss"),
   taskProgress: $("task-progress"), taskProgressPanel: $("task-progress-panel"), taskProgressHeading: $("task-progress-heading"),
   taskProgressState: $("task-progress-state"), taskProgressList: $("task-progress-list"), taskProgressDetail: $("task-progress-detail"),
   taskProgressNotes: $("task-progress-notes"), taskProgressToggle: $("task-progress-toggle"), taskProgressIndicator: $("task-progress-indicator"),
@@ -5789,13 +5790,43 @@ function codexGoalTitle(status) {
   return window.stepsembleI18n?.t("Pursuing goal") || "Pursuing goal";
 }
 
+// A Codex goal that is not at work can be closed from the row of chips. It
+// is only hidden here, so the summary still lists it; it shows again once it
+// works again or another goal starts.
+const CODEX_GOALS_CLOSED_KEY = "stepsemble.codexGoals.closed.v1";
+function closedCodexGoals() {
+  try { const value = JSON.parse(localStorage.getItem(CODEX_GOALS_CLOSED_KEY)); return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
+  catch { return {}; }
+}
+function codexGoalClosed(threadId, goal) {
+  if (!threadId || !goal) return false;
+  const closed = closedCodexGoals();
+  if (goal.status === "active" && closed[threadId]) {
+    delete closed[threadId];
+    try { localStorage.setItem(CODEX_GOALS_CLOSED_KEY, JSON.stringify(closed)); } catch {}
+    return false;
+  }
+  return closed[threadId] === `${goal.createdAt}:${goal.objective.length}`;
+}
+function closeCodexGoal() {
+  const connection = rpc, goal = connection?.nativeTranscriptState?.goal, threadId = connection?.nativeThreadId;
+  if (!goal || !threadId || goal.status === "active") return;
+  const closed = closedCodexGoals();
+  closed[threadId] = `${goal.createdAt}:${goal.objective.length}`;
+  // Only the newest few are kept.
+  const ids = Object.keys(closed); for (const id of ids.slice(0, Math.max(0, ids.length - 200))) delete closed[id];
+  try { localStorage.setItem(CODEX_GOALS_CLOSED_KEY, JSON.stringify(closed)); } catch {}
+  renderCodexNativeRunState(connection);
+}
+el.nativeRunDismiss?.addEventListener("click", closeCodexGoal);
+
 function renderCodexNativeRunState(connection) {
   const root = el.nativeRunState;
   if (!root) return;
   const state = connection?.nativeCodex ? connection.nativeTranscriptState : null;
   const running = connection?.taskStatus === "running" || state?.thread?.status?.type === "active"
     || state?.observation?.working === true;
-  const goal = state?.goal && state.goal.status !== "complete" ? state.goal : null;
+  const goal = state?.goal && state.goal.status !== "complete" && !codexGoalClosed(connection?.nativeThreadId, state.goal) ? state.goal : null;
   // Plain work is shown in the conversation's own "Working for …" header;
   // this banner remains only for a Codex goal, which spans several turns.
   if (!connection || !goal) {
@@ -5820,6 +5851,9 @@ function renderCodexNativeRunState(connection) {
   const part = (cls, text) => { const span = document.createElement("span"); span.className = cls; span.textContent = text; return span; };
   el.nativeRunMeta.replaceChildren(...[running && part("native-run-working", window.stepsembleI18n?.t("Working…") || "Working…"),
     elapsed && part("native-run-elapsed", elapsed)].filter(Boolean));
+  el.nativeRunDismiss.hidden = goal.status === "active";
+  const close = tKey("goalComposer.close"); el.nativeRunDismiss.title = close; el.nativeRunDismiss.setAttribute("aria-label", close);
+  root.dataset.closable = String(!el.nativeRunDismiss.hidden);
   // A conversation Stepsemble can write to pauses, resumes or removes its goal.
   el.nativeRunActions.hidden = !connection.nativeCodexMutation || !connection.nativeThreadId;
   for (const [button, key, shown] of [[el.nativeGoalPause, "pause", goal.status === "active"],
