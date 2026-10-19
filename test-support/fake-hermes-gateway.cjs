@@ -115,7 +115,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     open: new Map(), sockets: new Set(), next: 0, turn: null, cron: [],
     rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
     bots: new Map(), avatars: new Map(), hubCatalog: defaultHub(), actions: new Map(), botCalls: [],
-    files: new Map(), downloads: [], sources: [], messageReads: [],
+    files: new Map(), downloads: [], sources: [], messageReads: [], resumes: [], resumeLimit: Infinity,
     consoleCalls: [], gatewayRunning: true, config: defaultConfig(), env: { OPENAI_API_KEY: "sk-live-abcdef123456", TELEGRAM_BOT_TOKEN: "123:abc" },
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
@@ -275,11 +275,16 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
       }
       case "session.resume": {
         state.sources.push(p.source ?? null);
+        state.resumes.push({ sessionId: p.session_id, omitMessages: p.omit_messages === true });
         const row = state.stored.get(p.session_id);
         if (!row) return fail(4001, "session not found");
         const liveId = liveFor(row.id, peer);
-        return reply({ session_id: liveId, session_key: row.id, messages: row.messages.map(item => ({ ...item })), running: row.running,
-          inflight: row.inflight ? { ...row.inflight } : {}, pending_approvals: [], open_requests: openRequests(liveId) });
+        const result = { session_id: liveId, session_key: row.id, messages: p.omit_messages === true ? [] : row.messages.map(item => ({ ...item })), running: row.running,
+          inflight: row.inflight ? { ...row.inflight } : {}, pending_approvals: [], open_requests: openRequests(liveId) };
+        // Node's WebSocket drops a message that unpacks past its limit, and the
+        // connection with it: resumeLimit stands for that limit.
+        if (JSON.stringify(result).length > state.resumeLimit) { peer.socket.destroy(); return; }
+        return reply(result);
       }
       case "session.events.since": {
         const last = Number(p.last_seen) || 0;
@@ -544,9 +549,19 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         const profile = url.searchParams.get("profile") || "default";
         if (!row || row.profile !== profile) return send(404, { detail: "Session not found" }, rotated);
         state.messageReads.push(row.id);
-        const limit = Math.min(Number(url.searchParams.get("limit") || 500), 500), first = Math.max(0, row.messages.length - limit);
-        const messages = row.messages.slice(first).map((item, index) => ({ id: first + index + 1, role: item.role, content: item.text, timestamp: item.at ?? row.startedAt }));
-        return send(200, { session_id: row.id, profile, messages, pagination: { limit, offset: 0, order: "latest", returned: messages.length } }, rotated);
+        // Stored rows as Hermes keeps them: a tool step is the assistant's call
+        // (labelled) and the tool's own row; display-only rows are marked hidden.
+        const rows = row.messages.flatMap((item, index) => {
+          const at = item.at ?? row.startedAt, call = `call-${index + 1}`;
+          if (item.role !== "tool") return [{ role: item.role, content: item.text, timestamp: at, ...(item.hidden ? { display_kind: "hidden" } : {}) }];
+          return [{ role: "assistant", content: "", timestamp: at, tool_calls: [{ id: call, function: { name: item.name, arguments: "{}" } }],
+            ...(item.context ? { tool_call_labels: { [call]: [{ kind: "tool", text: item.context, name: item.name }] } } : {}) },
+          { role: "tool", tool_name: item.name, tool_call_id: call, content: "", timestamp: at }];
+        }).map((item, index) => ({ id: index + 1, ...item }));
+        const limit = Math.min(Number(url.searchParams.get("limit") || 500), 500), offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+        const latest = (url.searchParams.get("order") || "latest") === "latest";
+        const messages = latest ? rows.slice(Math.max(0, rows.length - offset - limit), Math.max(0, rows.length - offset)) : rows.slice(offset, offset + limit);
+        return send(200, { session_id: row.id, profile, messages, pagination: { limit, offset, order: latest ? "latest" : "oldest", returned: messages.length } }, rotated);
       }
       if (url.pathname === "/api/cron/delivery-targets" && req.method === "GET") {
         return send(200, { targets: [{ id: "local", name: "Local (save only)", home_target_set: true, home_env_var: null },
@@ -811,6 +826,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
       await new Promise(resolve => server.close(resolve));
     },
     setTurn(script) { state.turn = script; },
+    limitResume(bytes) { state.resumeLimit = bytes; },
     dropSockets() { for (const peer of [...state.sockets]) peer.socket.destroy(); },
     expireSessions() { state.accessTokens.clear(); },
     rotateAccessToken() { state.rotateNext = true; },

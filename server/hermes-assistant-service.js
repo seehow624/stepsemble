@@ -35,6 +35,10 @@ const APPROVAL_CHOICES = new Set(["once", "session", "always", "deny"]);
 // `[Cronjob "<name>" output — …]`; the Host never sends one itself.
 const ROUTINE_MARK = /^\[Cronjob "([^"\n]{1,200})"/;
 const ROUTINE_CHECK_MS = 60_000, ROUTINE_PAGE = 50, MAX_ROUTINE_SENT = 512, LIVE_SKEW_MS = 5_000;
+// A conversation's transcript is read over HTTP, newest page first; Hermes
+// gives at most 500 rows a page. Messages before a compaction are kept, as the
+// resume showed them.
+const HISTORY_PAGE = 500, HISTORY_ROWS = 1000;
 const FIELDS = Object.freeze({
   "message.start": [], "message.delta": ["text"], "thinking.delta": ["text"], "message.complete": ["text", "interrupted"],
   "tool.start": ["tool_id", "name", "args_text", "context"], "tool.complete": ["tool_id", "name", "summary", "result_text"],
@@ -64,11 +68,42 @@ function trimPayload(type, payload) {
   }
   return out;
 }
-function messages(rows) {
-  return (Array.isArray(rows) ? rows : []).slice(-1000).map(row => {
-    const role = ["user", "assistant", "system", "tool"].includes(row?.role) ? row.role : "assistant";
-    return role === "tool" ? { role, name: clip(row.name, 200) || "tool", context: clip(row.context, 4000) } : { role, text: clip(row?.text, MAX_TEXT) };
-  }).filter(row => row.role === "tool" || row.text);
+// The transcript Hermes keeps (/api/sessions/{id}/messages), in the shape
+// session.resume gives it: user, assistant and system text, and each tool step
+// named by its tool and labelled the way the call that started it was. Rows
+// Hermes marks as display-only scaffolding stay hidden.
+function storedMessages(rows) {
+  const labels = new Map(), out = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row !== "object" || row.display_kind === "hidden") continue;
+    if (row.role === "assistant") {
+      for (const call of Array.isArray(row.tool_calls) ? row.tool_calls : []) {
+        const id = typeof call?.id === "string" ? call.id : "";
+        if (id) labels.set(id, toolLabel(row.tool_call_labels?.[id], call.function?.arguments));
+      }
+    }
+    if (row.role === "tool") {
+      out.push({ role: "tool", name: clip(row.tool_name, 200) || "tool", context: clip(labels.get(String(row.tool_call_id || "")) || "", 4000) });
+      continue;
+    }
+    if (!["user", "assistant", "system"].includes(row.role)) continue;
+    const text = typeof row.display_content === "string" ? row.display_content : typeof row.content === "string" ? row.content : "";
+    if (text.trim()) out.push({ role: row.role, text: clip(text, MAX_TEXT) });
+  }
+  return out.slice(-1000);
+}
+// What a tool call did, in a line: Hermes's own labels for the tools it labels,
+// otherwise the command or arguments it was given.
+function toolLabel(stored, args) {
+  if (Array.isArray(stored) && stored.length) return stored.map(label => label?.text).filter(text => typeof text === "string" && text).join(" · ");
+  let parsed = args;
+  if (typeof args === "string") { try { parsed = JSON.parse(args); } catch { return args; } }
+  if (!parsed || typeof parsed !== "object") return "";
+  for (const key of ["command", "cmd", "query", "path", "file_path", "url", "name"]) if (typeof parsed[key] === "string") return parsed[key];
+  if (Array.isArray(parsed.urls) && parsed.urls.every(url => typeof url === "string")) return parsed.urls.join(", ");
+  const values = Object.values(parsed);
+  if (values.length === 1 && typeof values[0] === "string") return values[0];
+  return values.length ? JSON.stringify(parsed) : "";
 }
 function sessionRow(row) {
   if (!row || typeof row.id !== "string" || !SESSION.test(row.id)) return null;
@@ -399,10 +434,27 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     return sent;
   }
 
+  // The transcript comes over HTTP, not with the resume: Node's WebSocket drops
+  // any message that unpacks to more than 4 MB and the connection with it, and a
+  // resume carrying a long conversation grows past that (a Bot Chat of 710
+  // messages was 4.06 MB), so such a Bot could no longer be opened.
+  async function transcript(storedId, profile) {
+    const rows = [];
+    for (let offset = 0; offset < HISTORY_ROWS; offset += HISTORY_PAGE) {
+      const page = await client.rest("GET", `/api/sessions/${encodeURIComponent(storedId)}/messages`,
+        { query: { profile, order: "latest", limit: HISTORY_PAGE, offset, include_compacted: true, inline_images: false } });
+      const got = Array.isArray(page?.messages) ? page.messages : [];
+      rows.unshift(...got);
+      if (got.length < HISTORY_PAGE) break;
+    }
+    return storedMessages(rows);
+  }
+
   async function openSession({ sessionId, profile } = {}) {
     const storedId = sessionKey(sessionId);
     const name = profile ? profileName(profile) : sessions.get(storedId)?.profile || null;
-    const resumed = await client.request("session.resume", { session_id: storedId, source: SOURCE, ...(name ? { profile: name } : {}) }, { timeoutMs: 60_000 });
+    const resumed = await client.request("session.resume", { session_id: storedId, source: SOURCE, omit_messages: true, ...(name ? { profile: name } : {}) },
+      { timeoutMs: 60_000 });
     if (typeof resumed?.session_id !== "string" || !resumed.session_id) throw new HermesError("hermes_session_failed", "Hermes could not open that conversation", 502);
     const key = typeof resumed.session_key === "string" && SESSION.test(resumed.session_key) ? resumed.session_key : storedId;
     const entry = track(key, resumed.session_id, name);
@@ -410,8 +462,10 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     restoreAsks(entry, resumed.open_requests);
     updateTurnHold();
     // session.title 省略 title 時是唯讀，讓重載的歷史對話仍保有正確標題。
-    const named = await client.request("session.title", { session_id: resumed.session_id }, { timeoutMs: 10_000 }).catch(() => ({ title: resumed.title }));
-    return view(entry, { botChat: false, title: clip(named?.title, 300), messages: offerMessages(messages(resumed.messages)),
+    const [named, history] = await Promise.all([
+      client.request("session.title", { session_id: resumed.session_id }, { timeoutMs: 10_000 }).catch(() => ({ title: resumed.title })),
+      transcript(key, name)]);
+    return view(entry, { botChat: false, title: clip(named?.title, 300), messages: offerMessages(history),
       inflight: entry.running ? { user: clip(resumed.inflight?.user, MAX_TEXT), assistant: clip(resumed.inflight?.assistant, MAX_TEXT) } : null });
   }
 
