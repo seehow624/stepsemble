@@ -19,6 +19,9 @@ async function seed(preview) {
   const chat = preview.fake.addSession("default", "Bot Chat", { source: "tui" });
   chat.lastActive = now - 60;
   preview.fake.addFile("/fake/media/plan.md", Buffer.from("# Plan\n- one thing\n"));
+  // A routine of Luna's, listed in the Workspace's Automations.
+  preview.fake.state.cron.push({ id: "job-brief", profile: "default", is_default_profile: true, name: "Morning brief", prompt: "Brief me.", schedule: { kind: "cron", expr: "15 7 * * *", display: "15 7 * * *" },
+    schedule_display: "15 7 * * *", deliver: "local", enabled: true, state: "scheduled", next_run_at: new Date(Date.now() + 3_600_000).toISOString(), last_status: "ok", skills: [], repeat: {} });
   chat.messages.push({ role: "user", text: "Plan my day." }, { role: "assistant", text: "Start with the one thing you can finish today. MEDIA:/fake/media/plan.md" });
   const login = await fetch(preview.origin + "/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: preview.token }) });
   const cookie = login.headers.getSetCookie().map(value => value.split(";", 1)[0]).join("; ");
@@ -65,7 +68,13 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
       await luna.waitFor();
       await page.locator("#workspace-projects .workspace-project .workspace-session").first().waitFor();
       assert.equal(await page.locator("#workspace-mode").isVisible(), false, "沒有 Workspace／助理切換");
-      assert.equal(await page.locator("#workspace-routines").isVisible(), true);
+      // 例行工作在「自動化」區塊，Bot 一載入就列出；Bots 標題的 ⋯ 有管理 Bots 和移動區塊。
+      const routine = page.locator('[data-section="automations"] .workspace-automation-row[data-automation="routine:default:job-brief"]');
+      await routine.waitFor({ timeout: 10_000 });
+      assert.match(await routine.innerText(), /Morning brief[\s\S]*Luna/);
+      await page.locator("#workspace-assistant-more").click();
+      assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["Manage Bots", "Move down"], "一台電腦時 Bots 在最上面");
+      await page.keyboard.press("Escape");
       assert.equal(await page.locator("#workspace-usage").isVisible(), true, "訂閱額度仍在");
       assert.match(await luna.textContent(), /Luna.*one thing you can finish/s, "列出 Bot 名稱與最近一則");
       assert.equal((await luna.textContent()).includes("MEDIA:"), false, "側欄預覽不顯示附件路徑");
@@ -121,7 +130,14 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
       await page.locator('#workspace-assistant .workspace-assistant-row[data-room]').click();
       await page.locator(".workspace-tab-title", { hasText: "Creators" }).waitFor();
       await watched(row => row.clientId === lunaWatch.clientId && row.sessionId === null, "換掉的 Bot 面板仍宣告正在看，手機會收不到推播", watching);
-      await page.locator("#workspace-routines").click();
+      await page.locator('[data-section="automations"] .workspace-project-menu').click();
+      await page.getByRole("menuitem", { name: "All routines" }).click();
+      await page.locator(".workspace-tab-title", { hasText: "All routines" }).waitFor();
+      // A routine's row opens its Bot's routines.
+      await routine.locator(".workspace-automation").click();
+      await page.locator(".workspace-tab-title", { hasText: /Luna/ }).waitFor();
+      await page.locator('[data-section="automations"] .workspace-project-menu').click();
+      await page.getByRole("menuitem", { name: "All routines" }).click();
       await page.locator(".workspace-tab-title", { hasText: "All routines" }).waitFor();
       assert.deepEqual(await tabTitles(page), ["All routines"]);
 

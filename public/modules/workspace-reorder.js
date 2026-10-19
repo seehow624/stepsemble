@@ -19,8 +19,10 @@
     function begin(event, native) {
       cancel();
       const origin = [event.clientX, event.clientY], grab = source.querySelector("header") || source;
-      // Each computer's section orders its own projects; the list scrolls.
-      const bounds = grab.getBoundingClientRect(), scroller = source.closest("#workspace-projects"), within = source.closest(".workspace-machine") || scroller;
+      // Each computer's section orders its own projects; the sections
+      // themselves move within the whole list, which scrolls.
+      const bounds = grab.getBoundingClientRect(), scroller = source.closest("#workspace-projects");
+      const within = kind === "section" ? scroller : source.closest(".workspace-machine") || scroller;
       let ghost = null, marker = null, active = false, closed = false, before = id, frame = 0, timer = 0, point = origin;
       const peers = () => [...within.querySelectorAll("[data-reorder-kind]")].filter(node => node.dataset.reorderKind === kind && node.dataset.reorderGroup === group && node.dataset.pinned === String(pinned));
       const update = () => {
@@ -31,7 +33,8 @@
         before = id; marker.hidden = true;
         if (!hit || hit === source) return !!hit;
         const rect = hit.getBoundingClientRect();
-        const height = kind === "project" ? hit.querySelector("header").getBoundingClientRect().height : rect.height;
+        // A project or a section is placed by its heading, not its whole height.
+        const height = kind === "project" || kind === "section" ? (hit.querySelector("header") || hit).getBoundingClientRect().height : rect.height;
         const after = point[1] >= rect.top + height / 2;
         before = after ? rows[rows.indexOf(hit) + 1]?.dataset.reorderId || null : hit.dataset.reorderId;
         if (before !== id) {

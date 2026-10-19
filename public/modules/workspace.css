@@ -164,8 +164,7 @@ small { color: var(--pine-soft); }
 #workspace-assistant-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 4px 2px 12px; scrollbar-width: none; }
 #workspace-assistant-list::-webkit-scrollbar { display: none; }
 /* With more than one computer: Recent across them, then each computer. */
-.workspace-recent { margin: 0 0 12px; }
-.workspace-section-title { margin: 6px 7px 4px; color: var(--pine-soft); font-size: .71rem; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.workspace-recent { margin-bottom: 12px; }
 .workspace-session-host { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-machine { margin: 0 0 10px; border-top: .5px solid var(--line); padding-top: 6px; }
 .workspace-machine-header { display: flex; align-items: center; gap: 2px; min-height: 40px; margin: 0 2px 2px; }
@@ -179,8 +178,23 @@ small { color: var(--pine-soft); }
 .workspace-machine-projects[hidden] { display: none; }
 .workspace-machine-note { display: block; padding: 4px 9px 8px 25px; color: var(--pine-soft); font-size: .72rem; }
 .workspace-machine-header .btn:hover { background: var(--bubble-user); color: var(--ink); }
+#workspace-projects .workspace-machine-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .96rem; }
+/* Recent and Automations fold like the Bots; their headings, the Bots' and
+   each computer's drag the whole section to another place in the list. */
+.workspace-list-section { margin: 0 0 10px; }
+/* Automations: a schedule's clock or a routine's Bot, its name, and when it runs next. */
+.workspace-automation { gap: 10px; }
+.workspace-automation-icon { flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--bubble-user); color: var(--pine-soft); }
+.workspace-automation-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-automation .workspace-assistant-avatar { flex: 0 0 auto; width: 26px; height: 26px; }
+.workspace-automation-copy { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.workspace-automation-copy strong { overflow: hidden; font-size: .8rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-automation-copy small { overflow: hidden; color: var(--pine-soft); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-automation-state { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; background: var(--bubble-user); color: var(--pine-soft); font-size: .66rem; font-weight: 620; }
+.workspace-automation-row[data-state=attention] .workspace-automation-state { color: var(--danger, #c4553d); }
+.workspace-automation-row:is([data-state=paused], [data-state=finished]) .workspace-automation-copy { opacity: .72; }
 .workspace-project { margin: 0 0 10px; }
-.workspace-project > header {
+:is(.workspace-project, .workspace-list-section) > header {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -199,9 +213,9 @@ small { color: var(--pine-soft); }
 }
 .workspace-project-toggle:hover, .workspace-project-toggle:focus-visible { background: var(--bubble-user); outline: 0; }
 .workspace-project-chevron { width: 12px; height: 12px; flex: 0 0 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--pine-soft); transform: rotate(0); transition: transform .15s ease; }
-.workspace-project[data-collapsed=true] .workspace-project-chevron { transform: rotate(-90deg); }
-.workspace-project-copy { min-width: 0; display: block; }
-.workspace-project-copy strong {
+:is(.workspace-project, .workspace-list-section)[data-collapsed=true] .workspace-project-chevron { transform: rotate(-90deg); }
+:is(.workspace-project-copy, .workspace-section-copy) { min-width: 0; display: block; }
+:is(.workspace-project-copy, .workspace-section-copy) strong {
   display: block;
   overflow: hidden;
   color: var(--pine-soft);
@@ -213,14 +227,16 @@ small { color: var(--pine-soft); }
   white-space: nowrap;
 }
 .workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: .65rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-#workspace-projects .workspace-project-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .96rem; }
-#workspace-projects .workspace-project-add, #workspace-assistant-list .workspace-project-add { display: grid; place-items: center; }
-.workspace-project-add svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.workspace-project > header .btn:hover { background: var(--bubble-user); color: var(--ink); }
+#workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .96rem; }
+#workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-assistant-list .workspace-project-add { display: grid; place-items: center; }
+:is(.workspace-project-add, .workspace-section-add) svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+:is(.workspace-project, .workspace-list-section) > header .btn:hover { background: var(--bubble-user); color: var(--ink); }
 .workspace-project-sessions > small, #workspace-projects > p { display: block; padding: 7px 9px 7px 23px; color: var(--pine-soft); font-size: .72rem; }
-.workspace-session-row { min-width: 0; display: flex; align-items: center; gap: 2px; }
-.workspace-session-row[hidden] { display: none; }
-.workspace-session {
+/* An automation's row looks like a session's but is not one: code that looks
+   for sessions does not find it. */
+:is(.workspace-session-row, .workspace-automation-row) { min-width: 0; display: flex; align-items: center; gap: 2px; }
+:is(.workspace-session-row, .workspace-automation-row)[hidden] { display: none; }
+:is(.workspace-session, .workspace-automation) {
   min-width: 0;
   flex: 1 1 auto;
   min-height: 48px;
@@ -233,8 +249,8 @@ small { color: var(--pine-soft); }
   text-align: left;
   transition: background .15s ease, transform .12s ease;
 }
-.workspace-session:hover { background: var(--bubble-user); }
-.workspace-session:active { transform: scale(.985); }
+:is(.workspace-session, .workspace-automation):hover { background: var(--bubble-user); }
+:is(.workspace-session, .workspace-automation):active { transform: scale(.985); }
 .workspace-session .agent-logo { flex: 0 0 28px; }
 .workspace-session strong { display: block; flex: 1; min-width: 0; overflow: hidden; font-size: .81rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-session-status { flex: 0 0 16px; width: 16px; height: 16px; display: grid; place-items: center; }
@@ -614,7 +630,7 @@ html[data-mac-window=chromeless] body.sidebar-hidden .workspace-branch .workspac
 /* Settings start just below the buttons. */
 html[data-mac-window=chromeless] .workspace-settings-layer { padding-top: calc(var(--mac-controls-bottom) + 8px); }
 
-body.compact .workspace-session { min-height: 44px; padding-top: 5px; padding-bottom: 5px; }
+body.compact :is(.workspace-session, .workspace-automation) { min-height: 44px; padding-top: 5px; padding-bottom: 5px; }
 body.compact .workspace-session strong { font-size: .78rem; }
 
 @media (max-width: 760px) {
@@ -647,37 +663,16 @@ body.compact .workspace-session strong { font-size: .78rem; }
 }
 
 /* Workspace | Assistant: shown only when a computer here runs Hermes. */
-/* One quiet row under the brand: which page (when Hermes is installed) and
-   the goals-and-schedules panel. The panel's button shows only its icon next
-   to the switch and its name when it has the row to itself. */
-.workspace-nav-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.workspace-mode { display: inline-flex; flex: 1 1 auto; min-width: 0; padding: 2px; border: .5px solid var(--line); border-radius: 9px; background: var(--milk); }
-.workspace-mode[hidden] { display: none; }
-.workspace-mode > * { flex: 1; min-width: 0; padding: 4px 8px; overflow: hidden; border-radius: 7px; color: var(--pine-soft); font-size: .76rem; font-weight: 620; line-height: 1.35;
-  text-align: center; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; transition: color .15s ease, background .15s ease; }
-.workspace-mode a:hover { color: var(--ink); }
-.workspace-mode [aria-current="page"] { background: var(--bubble-user); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
-.btn.workspace-workflows { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; height: 30px; min-height: 30px; min-width: 34px; padding: 0 8px;
-  border: .5px solid var(--line); border-radius: 9px; background: var(--milk); color: var(--ink); font: inherit; font-size: .78rem; font-weight: 620; cursor: pointer;
-  transition: background .15s ease; }
-.btn.workspace-workflows:hover { background: var(--bubble-user); }
-.workspace-workflows:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.workspace-workflows svg { width: 17px; height: 17px; flex: 0 0 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.workspace-mode:not([hidden]) + .btn.workspace-workflows { width: 34px; padding: 0; }
-.workspace-mode:not([hidden]) + .workspace-workflows span { display: none; }
-#workspace-mode[hidden] + .btn.workspace-workflows { flex: 1 1 auto; justify-content: flex-start; padding: 0 10px; }
-
 /* Assistant in the sidebar: the Bots and groups of the computer that runs
    Hermes take the place of the Host, the search and the session list. A Bot
    opens as a tab beside the sessions. */
 /* The Bots share the session list; Manage and New Bot sit on their heading. */
-#workspace-assistant[hidden], #workspace-routines[hidden] { display: none; }
+#workspace-assistant[hidden] { display: none; }
 #workspace-projects #workspace-assistant { flex: none; gap: 6px; margin: 0 0 6px; }
 #workspace-projects #workspace-assistant-list { flex: none; overflow: visible; padding: 0; }
 #workspace-projects .workspace-assistant-host { margin: 0 2px 6px; }
 .workspace-assistant-actions { display: flex; flex: none; gap: 2px; }
 #workspace-projects .workspace-assistant-actions .workspace-project-add { display: grid; place-items: center; }
-.btn.workspace-workflows#workspace-routines { width: 34px; padding: 0; }
 .workspace-assistant { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; }
 .workspace-assistant-row { min-height: 52px; }
 /* Built-in avatars are transparent plush figures, shown whole; only an
@@ -715,14 +710,11 @@ body.compact .workspace-session strong { font-size: .78rem; }
 
 
 /* A finger needs more room than a pointer: on a touch screen the ⋯ and + of
-   each project and conversation, and the row with Schedules, grow to a size
-   that is easy to hit. A mouse keeps the compact desktop sidebar. */
+   each section, project and conversation grow to a size that is easy to hit.
+   A mouse keeps the compact desktop sidebar. */
 @media (pointer: coarse) {
-  #workspace-projects .workspace-project-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 40px; min-width: 40px; min-height: 40px; }
+  #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-projects .workspace-machine-menu, #workspace-assistant-list .workspace-project-add { width: 40px; min-width: 40px; min-height: 40px; }
   #workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 40px; min-width: 40px; min-height: 44px; }
-  .btn.workspace-workflows { height: 40px; min-height: 40px; min-width: 40px; }
-  .workspace-mode:not([hidden]) + .btn.workspace-workflows, .btn.workspace-workflows#workspace-routines { width: 40px; }
-  .workspace-mode > * { padding-top: 9px; padding-bottom: 9px; }
 }
 /* One list for every computer leaves nothing to switch. */
 body.workspace-merged .workspace-host-block { display: none; }

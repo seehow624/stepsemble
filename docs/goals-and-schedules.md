@@ -10,8 +10,10 @@ starts closed. The chip, Codex's own goal and the subagent bubble always sit
 side by side, a long one ending in "…", and one of their panels opens at a time.
 To start a Goal in a new conversation,
 open the conversation with the agent, project and model you want, then type
-`/goal`. Schedules have their own panel, opened from the Schedules button in the
-sidebar. The desktop app and browser use the same controls.
+`/goal`. Schedules have their own panel: the sidebar's **Automations** list every
+computer's schedules (with the Bots' routines), and a schedule opens the panel on
+its computer at that schedule; **+** there makes a new one, and **⋯** opens each
+computer's Schedules. The desktop app and browser use the same controls.
 
 While a conversation's Goal is running, paused or needs attention, the sidebar
 shows a small target beside the conversation's name. The mark disappears when

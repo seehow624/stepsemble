@@ -1653,7 +1653,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                 notifications.request(action, host: host, locale: body["locale"] as? String ?? "en") { result in
                     let reply: [String: Any] = ["type": "stepsemble-native-notifications", "requestId": request, "result": result]
                     guard let data = try? JSONSerialization.data(withJSONObject: reply), let json = String(data: data, encoding: .utf8) else { return }
-                    workspace.webView.evaluateJavaScript("window.postMessage(\(json),location.origin);document.querySelectorAll('iframe').forEach(f=>f.contentWindow.postMessage(\(json),location.origin))", completionHandler: nil)
+                    workspace.webView.evaluateJavaScript("window.postMessage(\(json),location.origin);document.querySelectorAll('iframe').forEach(f=>window.postMessage.call(f.contentWindow,\(json),location.origin))", completionHandler: nil)
                 }
             }
         }

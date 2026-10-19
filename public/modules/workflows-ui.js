@@ -572,12 +572,16 @@
       };
       syncTarget();await loadCatalogs();
     }
-    async function open(target=null) {
+    // The Workspace's Automations open the panel on one schedule, or on a new one.
+    async function open(target=null,{select=null,create=false}={}) {
       close();const token=++epoch;const resolved=await context(target);if(token!==epoch)return;
       contextValue=resolved;filter="all";query="";selected=null;historyId=null;loaded=false;connected=false;errorText="";received.clear();
       data={runs:[],schedules:[]};modal=el("dialog","","wf-panel");modal.setAttribute("data-i18n-ignore","");doc.body.append(modal);modal.showModal();buildShell();
       root.dispatchEvent(new root.Event("stepsemble-workflow-panel"));modal.addEventListener("cancel",event=>{event.preventDefault();close();});
       clock=root.setInterval(updateClock,1000);await refresh();if(token!==epoch||!modal)return;
+      if(create){form();return;}
+      if(select&&rows().some(row=>row.id===select)){selected=select;historyId=null;modal.dataset.screen="detail";render();
+        shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();poll();return;}
       shell.add.focus();poll();
     }
     return {open,close};
