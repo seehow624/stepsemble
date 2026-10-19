@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.28
+
+- Open a conversation's Summary and a Bot's History in the Mac app again. WebKit, the app's engine, credited the Workspace's commands to the pane that received them, so the pane ignored them; renames, read marks, Schedules changes and session references sent into a pane were lost in the app as well.
+- Put the list's sections in your own order: drag the heading of Recent, the Bots, Automations or a computer, press Alt+Up or Alt+Down on it, or choose Move to top, Move up or Move down in its ⋯. Recent and Automations fold like the others. The order and the folds stay on this device.
+- See every computer's Schedules and the Bots' routines together under Automations, in place of the Schedules and Routines buttons above the search: those needing attention first, then by their next run, each with how often it runs, when next, and its computer or Bot. A schedule opens Schedules on its computer at that schedule, a routine its Bot's routines; + makes a new one, and ⋯ opens each computer's Schedules and all routines.
+- Show another computer as unreachable after 15 seconds instead of loading forever when it never answers, and show the Bots within four seconds while another computer is asleep, instead of after its ten-second timeout.
+
 ## 3.9.27
 
 - Show one session per pane. The top-left pane is the main one: a session picked from the list opens there and the other panes keep theirs; an empty pane in focus takes it instead, and a session already open takes the focus. A session moved to another pane leaves no empty pane behind, a layout saved with tabs keeps each pane's shown session, and Cmd+Option+arrows move between panes.
