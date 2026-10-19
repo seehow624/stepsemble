@@ -5,7 +5,7 @@
   // Hermes keeps and runs them; this view only reads and changes them
   // through /api/assistant/routines on the computer that runs Hermes.
 
-  function create({ api, t, el, button, toast, M, locale, botName, openSession }) {
+  function create({ api, t, el, button, icon, iconButton, toast, M, locale, actions, botName, botAvatar, openSession }) {
     const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0];
     // 2026-01-04 is a Sunday, so day 0 is Sunday like cron's.
     const dayName = day => new Date(Date.UTC(2026, 0, 4 + day)).toLocaleDateString(locale, { weekday: "long", timeZone: "UTC" });
@@ -47,13 +47,21 @@
       }
     }
 
+    // Quiet rows, as in the list beside: a routine's name and when it runs.
+    // Run now stays on the row; the rest is in its ⋯ menu.
     function render(container, jobs, profile) {
       const wrap = el("div", "assistant-routines");
-      if (profile) wrap.append(button(t("newRoutine"), "btn primary assistant-new-routine", () => editor(container, profile, null, profile)));
+      if (profile) {
+        const add = button("", "assistant-routine-add", () => editor(container, profile, null, profile)), tile = el("span", "assistant-add-tile");
+        tile.append(icon("plus")); add.append(tile, el("strong", "", t("newRoutine"))); wrap.append(add);
+      }
       if (!jobs.length) wrap.append(el("p", "assistant-empty", t("noRoutines")));
       let group = null;
       for (const job of profile ? jobs : [...jobs].sort((a, b) => a.profile.localeCompare(b.profile))) {
-        if (!profile && job.profile !== group) { group = job.profile; wrap.append(el("h2", "assistant-routine-group", botName(group))); }
+        if (!profile && job.profile !== group) {
+          group = job.profile;
+          const heading = el("h2", "assistant-routine-group"); heading.append(botAvatar(group), el("span", "", botName(group))); wrap.append(heading);
+        }
         wrap.append(row(container, job, profile));
       }
       container.replaceChildren(wrap);
@@ -62,34 +70,28 @@
     function row(container, job, profile) {
       const item = el("section", `assistant-routine${job.enabled ? "" : " paused"}`);
       item.dataset.routine = job.id;
-      const head = el("div", "assistant-routine-head");
-      head.append(el("strong", "", M.routineName(job.name) || job.prompt.slice(0, 60) || t("untitled")));
+      const name = M.routineName(job.name) || job.prompt.slice(0, 60) || t("untitled");
+      const open = button("", "assistant-routine-open", () => editor(container, job.profile, job, profile)), head = el("span", "assistant-routine-head");
+      head.append(el("strong", "", name));
       if (!job.enabled) head.append(el("span", "assistant-routine-tag", t("paused")));
       const facts = [describe(job.schedule), job.enabled && job.nextRunAt ? t("nextRun", { time: when(job.nextRunAt) }) : "", statusText(job),
-        job.noAgent ? t("scriptOnly") : ""].filter(Boolean);
-      const toggle = el("label", "assistant-check");
-      const box = el("input");
-      box.type = "checkbox";
-      box.checked = M.deliverTokens(job.deliver).includes("bot-chat");
-      toggle.append(box, el("span", "", t("alsoBotChat")));
-      box.addEventListener("change", async () => {
-        box.disabled = true;
-        try { Object.assign(job, (await api.updateRoutine(job.id, job.profile, { deliver: M.withDeliver(job.deliver, "bot-chat", box.checked) })).routine); }
-        catch (error) { box.checked = !box.checked; toast(t("failed", { message: error.message })); } finally { box.disabled = false; }
-      });
+        job.noAgent ? t("scriptOnly") : ""].filter(Boolean).join(" · ");
+      open.append(head, el("small", "assistant-routine-facts", facts));
       const refresh = updated => { Object.assign(job, updated.routine); item.replaceWith(row(container, job, profile)); };
-      const actions = el("div", "assistant-routine-actions");
-      actions.append(
-        button(job.enabled ? t("pause") : t("resume"), "btn ghost", async () => {
-          try { refresh(await (job.enabled ? api.pauseRoutine(job.id, job.profile) : api.resumeRoutine(job.id, job.profile))); }
-          catch (error) { toast(t("failed", { message: error.message })); }
-        }),
-        twoTap(t("runNow"), t("confirmRun"), "btn ghost", async () => refresh(await api.runRoutine(job.id, job.profile))),
-        button(t("history"), "btn ghost", () => void showRuns(item, job)),
-        button(t("editRoutine"), "btn ghost", () => editor(container, job.profile, job, profile)),
-        twoTap(t("delete"), t("confirmDelete"), "btn ghost assistant-danger", async () => { await api.deleteRoutine(job.id, job.profile); item.remove(); }),
-      );
-      item.append(head, el("small", "assistant-routine-facts", facts.join(" · ")), toggle, actions);
+      const run = twoTap(t("runNow"), t("confirmRun"), "btn assistant-routine-run", async () => refresh(await api.runRoutine(job.id, job.profile)));
+      const fail = error => toast(t("failed", { message: error.message }));
+      const more = iconButton("more", `${t("moreOptions")} · ${name}`, "assistant-routine-more", () => actions(more, name, facts, [
+        { label: job.enabled ? t("pause") : t("resume"), icon: job.enabled ? "pause" : "play", action: async () => {
+          try { refresh(await (job.enabled ? api.pauseRoutine(job.id, job.profile) : api.resumeRoutine(job.id, job.profile))); } catch (error) { fail(error); }
+        } },
+        { label: t("history"), icon: "clock", action: () => showRuns(item, job) },
+        { label: t("editRoutine"), icon: "edit", action: () => editor(container, job.profile, job, profile) },
+        { label: t("delete"), confirm: t("confirmDelete"), icon: "trash", danger: true, action: async () => {
+          try { await api.deleteRoutine(job.id, job.profile); item.remove(); } catch (error) { fail(error); }
+        } },
+      ]));
+      more.setAttribute("aria-haspopup", "dialog");
+      item.append(open, run, more);
       return item;
     }
 

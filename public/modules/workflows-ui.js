@@ -219,11 +219,13 @@
       const logo = el("span", "", "workspace-logo"); logo.setAttribute("aria-hidden", "true");
       identity.append(logo, el("strong", "Stepsemble"));
       const host = el("span", contextValue.hostName, "wf-host");
+      // On a phone the + alone stays beside ×; the word shows where there is room.
       const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";
+      const addLabel = el("span", "", "wf-add-label"); add.append(el("span", "+", "wf-add-mark"), addLabel);
       const dismiss = button("×", close, "ghost wf-close", "close"); dismiss.setAttribute("aria-label", t("close"));
       header.append(identity, host, add, dismiss);
       const heading = el("div", "", "wf-heading"), headingCopy = el("div"), title = el("h1"), subtitle = el("p"); headingCopy.append(title, subtitle);
-      const stats = el("div", "", "wf-stats"); heading.append(headingCopy, stats);
+      heading.append(headingCopy);
       const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
       const body = el("div", "", "wf-body"), rail = el("section", "", "wf-rail"), search = el("input", "", "wf-search");
       search.type = "search"; search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
@@ -233,7 +235,7 @@
       body.append(rail, detail);
       const note = el("footer", t(data?.keepsAwake ? "hostNoteAwake" : "hostNote"), "wf-note wf-footer");
       modal.replaceChildren(header, heading, errorBox, body, note);
-      shell = { header, add, title, subtitle, stats, error: errorBox, search, filters, list, detail };
+      shell = { header, add, addLabel, title, subtitle, error: errorBox, search, filters, list, detail };
       listSignature = ""; detailSignature = ""; error(errorText); render(true);
     }
     function matches(row) {
@@ -245,12 +247,8 @@
     function sortedRows() {
       return [...rows()].filter(matches).sort((a,b) => Number(b.enabled) - Number(a.enabled) || (a.nextAt || Infinity) - (b.nextAt || Infinity) || (b.createdAt || 0) - (a.createdAt || 0));
     }
-    function summary() {
-      const values = [["enabled",rows().filter(row => row.enabled).length],["paused",rows().filter(row => scheduleState(row) === "paused").length],["finished",rows().filter(row => scheduleState(row) === "finished").length]];
-      // Stable nodes keep clocks and keyboard focus independent of polling.
-      if (!shell.stats.children.length) for (let i=0; i<3; i++) { const node=el("div", "", "wf-stat"); node.append(el("strong"),el("span")); shell.stats.append(node); }
-      values.forEach(([key,value],i) => { const node=shell.stats.children[i]; node.children[0].textContent=String(value); node.children[1].textContent=t(key); });
-    }
+    // With no schedules the empty state holds the only New button.
+    function focusNew() { (shell.add.hidden ? shell.list.querySelector(".primary") : shell.add)?.focus(); }
     function empty(title, hint, mark = "◎", createAction = false) {
       const node = el("div", "", "wf-empty"); node.append(icon(mark), el("h2", title));
       if (hint) node.append(el("p", hint));
@@ -260,19 +258,25 @@
     function render(force = false) {
       if (!modal || editing || !shell?.list) return;
       shell.title.textContent = t(view); shell.subtitle.textContent = t("scheduleHint");
-      shell.add.textContent = "+ " + t("new");
+      shell.addLabel.textContent = t("new");
       shell.add.setAttribute("aria-label", t("newSchedule"));
+      // Nothing to inspect yet: one column, and the empty state's own New.
+      const none = !rows().length; shell.add.hidden = none; modal.dataset.empty = String(none);
       shell.search.placeholder = t("filter"); shell.search.setAttribute("aria-label", t("filter"));
       modal.querySelector(".wf-footer").textContent = t(data?.keepsAwake ? "hostNoteAwake" : "hostNote");
       modal.setAttribute("aria-label", t(view));
-      summary();
       const filterKeys = ["all","enabled","paused","finished"];
       if (force) {
         const restore = rememberFocus(shell.filters); shell.filters.replaceChildren();
-        for (const key of filterKeys) shell.filters.append(button(t(key), () => { filter = key; selected = null; render(); }, "ghost", "filter:" + key));
+        for (const key of filterKeys) { const node = button("", () => { filter = key; selected = null; render(); }, "ghost", "filter:" + key); node.append(el("span"), el("span", "", "wf-count")); shell.filters.append(node); }
         restore();
       }
-      for (const node of shell.filters.children) { node.textContent = t(node.dataset.focus.slice(7)); node.setAttribute("aria-pressed", String(node.dataset.focus === "filter:" + filter)); }
+      // Each filter carries its count; stable nodes keep keyboard focus through polling.
+      const counts = { all: rows().length, enabled: rows().filter(row => row.enabled).length, paused: rows().filter(row => scheduleState(row) === "paused").length, finished: rows().filter(row => scheduleState(row) === "finished").length };
+      for (const node of shell.filters.children) {
+        const key = node.dataset.focus.slice(7), [name, count] = node.children;
+        name.textContent = t(key); count.textContent = String(counts[key]); node.setAttribute("aria-pressed", String(node.dataset.focus === "filter:" + filter));
+      }
       const visible = sortedRows();
       if (!visible.some(row => row.id === selected)) { selected = visible[0]?.id || null; historyId = null; }
       const signature = JSON.stringify([locale(), view, query, filter, selected, loaded, visible.map(row => [row.id,row.title,row.status,row.agentId,row.cwd,row.enabled,row.schedule,row.nextAt,row.capacityBlocked])]);
@@ -309,7 +313,8 @@
         const expanded = new Set([...shell.detail.querySelectorAll("details[open]")].map(node => node.dataset.key));
         shell.detail.replaceChildren();
         if (row) {
-          const back = button("‹ " + t("back"), () => { modal.dataset.screen = "list"; [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + selected)?.focus(); }, "ghost wf-mobile-back", "detail-back");
+          const back = button("", () => { modal.dataset.screen = "list"; [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + selected)?.focus(); }, "wf-back wf-mobile-back", "detail-back");
+          back.setAttribute("aria-label", t("back"));
           shell.detail.append(back, scheduleDetail(row, related));
         } else shell.detail.append(empty(t(loaded ? "selectTask" : "loading"), "", "◷"));
         for (const node of shell.detail.querySelectorAll("details")) node.open = expanded.has(node.dataset.key);
@@ -415,7 +420,7 @@
       modal.dataset.screen="editor";
       modal.setAttribute("aria-label",t(row?"edit":"newSchedule"));
       const header=el("header","","wf-header wf-editor-header"),copy=el("div");copy.append(el("small",contextValue.hostName,"wf-caption"),el("h1",t(row?"edit":"newSchedule")));
-      const back=button("‹ "+t("back"),()=>{if(token!==epoch)return;epoch++;editing=false;pending=false;buildShell();void refresh();poll();shell.add.focus();},"ghost","editor-back");
+      const back=button("",()=>{if(token!==epoch)return;epoch++;editing=false;pending=false;buildShell();void refresh();poll();focusNew();},"wf-back","editor-back");back.setAttribute("aria-label",t("back"));
       const dismiss=button("×",close,"ghost wf-close");dismiss.setAttribute("aria-label",t("close"));header.append(back,copy,dismiss);
       const f=el("form","","wf-form"),layout=el("div","","wf-editor-layout"),main=el("section","","wf-editor-main"),settings=el("aside","","wf-editor-settings");layout.append(main,settings);f.append(layout);
       // Open invalid advanced fields before native validation tries to focus them.
@@ -429,7 +434,7 @@
       const pair=el("div","","wf-grid");main.append(pair);
       const projects=[...new Set([...(contextValue.projects||[]),row?.cwd].filter(Boolean))];
       const cwd=field(pair,"project","text",row?.cwd||projects[0],projects.map(path=>[path,baseName(path)]));
-      const projectPath=el("small",cwd.value,"wf-path");main.append(projectPath);cwd.onchange=()=>{projectPath.textContent=cwd.value;};
+      const projectPath=el("small",cwd.value,"wf-path");cwd.parentElement.append(projectPath);cwd.onchange=()=>{projectPath.textContent=cwd.value;};
       const agent=field(pair,"agent","text",row?.agentId,[["",t("loading")]]);
       // Each run opens a new conversation, which can pin a model and permission mode.
       let catalog=[],optionsTicket=0;
@@ -582,7 +587,7 @@
       if(create){form();return;}
       if(select&&rows().some(row=>row.id===select)){selected=select;historyId=null;modal.dataset.screen="detail";render();
         shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();poll();return;}
-      shell.add.focus();poll();
+      focusNew();poll();
     }
     return {open,close};
   }

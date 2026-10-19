@@ -2,9 +2,9 @@
 // with synthetic agents only (test-support fixtures; no account or model):
 //   - a message sent shows "Working for …" and "Thinking" below it at once,
 //     timed from the send; the header keeps no second clock beside it;
-//   - the jump-to-latest control is a round button centred above the message
-//     box, "•••" while the agent works and an arrow after, and a tap reaches
-//     the latest message;
+//   - the jump-to-latest control is a round arrow above the message box, at
+//     its right edge clear of the chips, while the agent works and after, and
+//     a tap reaches the latest message;
 //   - Send pressed before the conversation has connected keeps the message and
 //     sends it once connected;
 //   - pictures sent with a message sit above it as thumbnails;
@@ -1116,11 +1116,14 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       stage = "Pi: jump to latest while working";
       const scrollUp = async () => { for (let index = 0; index < 8; index += 1) { await ui.evaluate(() => { const list = document.querySelector("#messages"); list.scrollTop = 0; list.dispatchEvent(new Event("scroll")); }); await ui.waitForTimeout(60); } };
       const jump = () => ui.evaluate(() => {
-        const button = document.querySelector("#scroll-bottom-btn"), composer = document.querySelector(".composer-inner") || document.querySelector(".composer");
+        const button = document.querySelector("#scroll-bottom-btn"), composer = document.querySelector("#view-chat .composer");
         const box = button.getBoundingClientRect(), under = composer.getBoundingClientRect(), list = document.querySelector("#messages");
-        return { visible: !button.classList.contains("hidden") && box.width > 0, working: button.classList.contains("is-working"),
-          dots: getComputedStyle(button.querySelector(".scroll-bottom-dots")).display !== "none", arrow: getComputedStyle(button.querySelector(".scroll-bottom-arrow")).display !== "none",
-          size: Math.round(box.width) + "x" + Math.round(box.height), centre: Math.round(box.left + box.width / 2 - (under.left + under.width / 2)), above: Math.round(under.top - box.bottom),
+        // The chips above the message box: none may sit under the arrow.
+        const chips = [...document.querySelectorAll("#subagent-bar > *")].filter(node => node.offsetParent).map(node => node.getBoundingClientRect())
+          .filter(chip => chip.right > box.left && chip.left < box.right && chip.bottom > box.top && chip.top < box.bottom);
+        return { visible: !button.classList.contains("hidden") && box.width > 0, working: !document.querySelector("#btn-abort")?.classList.contains("hidden"),
+          dots: !!button.querySelector(".scroll-bottom-dots"), arrow: getComputedStyle(button.querySelector(".scroll-bottom-arrow")).display !== "none",
+          size: Math.round(box.width) + "x" + Math.round(box.height), right: Math.round(under.right - box.right), above: Math.round(under.top - box.bottom), overChips: chips.length,
           // For a failure message: where the list is and whether a reply is running.
           scroll: [list.scrollTop, list.clientHeight, list.scrollHeight].map(Math.round), running: !document.querySelector("#btn-abort")?.classList.contains("hidden") };
       });
@@ -1129,8 +1132,9 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       const working = await jump();
       const seen = JSON.stringify(working);
       assert.equal(working.visible, true, "visible " + seen); assert.equal(working.working, true, "working " + seen);
-      assert.equal(working.dots, true, "dots " + seen); assert.equal(working.arrow, false, "arrow " + seen);
-      assert.equal(working.size, "40x40"); assert(Math.abs(working.centre) <= 2, "centred: " + working.centre); assert(working.above >= 4);
+      assert.equal(working.dots, false, "no dots " + seen); assert.equal(working.arrow, true, "an arrow while working " + seen);
+      assert.equal(working.size, "40x40"); assert(Math.abs(working.right) <= 2, "at the right edge: " + seen); assert(working.above >= 4);
+      assert.equal(working.overChips, 0, "clear of the chips " + seen);
       await ui.locator("#scroll-bottom-btn").click();
       await atBottom();
       await ui.locator("#btn-abort").click();
@@ -1138,9 +1142,10 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       await scrollUp();
       const idle = await jump();
       assert.equal(idle.visible, true); assert.equal(idle.working, false); assert.equal(idle.arrow, true); assert.equal(idle.dots, false);
+      assert(Math.abs(idle.right) <= 2, "at the right edge: " + JSON.stringify(idle));
       await ui.locator("#scroll-bottom-btn").click();
       await atBottom();
-      out.jump = { working: working.size, centre: working.centre };
+      out.jump = { working: working.size, right: working.right };
 
       stage = "Pi: working at once";
       await pendingTurn(page, ui, context, "**/api/send", "held back for Pi", "Synthetic rolling chunk 3", out, "pi");

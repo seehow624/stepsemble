@@ -666,8 +666,8 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
   max-height: calc(100dvh - 24px);
   overflow: hidden;
 }
-.model-heading { align-items: center; flex-shrink: 0; }
-.model-heading .sa-title { flex: 1; min-width: 0; margin-bottom: 0; }
+.model-heading { align-items: center; flex-shrink: 0; margin-bottom: 12px; }
+.model-heading .sa-title { flex: 1; min-width: 0; margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 .model-dialog .sheet-close {
   width: 40px; height: 40px; flex: 0 0 40px;
   margin: -8px -8px 0 0;
@@ -758,7 +758,7 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 .toggle input { position: absolute; opacity: 0; width: 51px; height: 31px; margin: 0; cursor: pointer; }
 .toggle-track {
   display: block; width: 51px; height: 31px;
-  background: var(--bubble-user);
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
   border: 0.5px solid var(--line);
   border-radius: 999px;
   position: relative;
@@ -769,7 +769,7 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
   position: absolute; top: 2px; left: 2px;
   width: 27px; height: 27px;
   border-radius: 50%;
-  background: var(--milk);
+  background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.25);
   transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
@@ -1007,10 +1007,10 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
 }
 #view-settings .settings-account-action .settings-button-row {
   min-height: 56px;
-  padding: 10px 12px;
-  border: .5px solid color-mix(in srgb, var(--err) 30%, var(--line));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--err) 3%, transparent);
+  padding: 10px 14px;
+  border: .5px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--milk) 76%, var(--paper));
 }
 .update-center-heading {
   display: flex;
@@ -1537,7 +1537,7 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   font-size: 12px; color: var(--ok-ink);
   flex-shrink: 0;
 }
-.model-row.active .model-check { background: var(--ok); border-color: var(--ok); color: #fff; }
+.model-row.active .model-check { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .model-info { flex: 1; min-width: 0; }
 .model-info strong { display: block; font-weight: 600; font-size: 15px; }
 .model-info small { display: block; color: var(--pine-soft); font-size: 11.5px; font-family: var(--mono); }
@@ -2159,13 +2159,15 @@ body.image-lightbox-open { overflow: hidden; }
 /* 工具卡緊湊化（對齊 OpenCode：一行命令 + 狀態） */
 .tool-card summary { min-height: 38px; padding: 7px 11px; font-size: .72rem; }
 .tool-card .tool-body { max-height: min(48vh, 340px); font-size: .72rem; }
-/* 設定頁分組標題 eyebrow 化 */
+/* 設定頁分組標題 eyebrow 化，與左側分區標題同大 */
 .settings-group .group-title {
-  font-size: .64rem;
-  font-weight: 760;
-  letter-spacing: .12em;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
   text-transform: uppercase;
 }
+/* A group whose title repeats the page's own keeps it for app.js only. */
+#view-settings .settings-group .group-title.repeats-page-title { display: none; }
 
 /* ===========================================================================
    v1.6 — OpenCode 式 composer / Project folders / SVG controls
@@ -2398,11 +2400,11 @@ html.reduced-motion .agent-task-row.running.reconnecting .agent-task-dot { anima
 .agent-approval-card { display: grid; gap: 7px; min-width: min(100%, 420px); padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--accent) 44%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 7%, var(--paper)); }
 .agent-approval-from { display: block; margin: 2px 0 4px; color: var(--pine-soft); font-size: .76rem; }
 .agent-approval-from[hidden] { display: none; }
-.agent-approval-card strong { font-size: 12px; }
-.agent-approval-card p { margin: 0; color: var(--ink-soft); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.agent-approval-card small { color: var(--pine-soft); font-size: 10.5px; }
+.agent-approval-card strong { font-size: 14px; line-height: 1.35; }
+.agent-approval-card p { margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-approval-card small { color: var(--pine-soft); font-size: 12px; }
 .agent-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-.agent-approval-details { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.agent-approval-details { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .agent-approval-actions .btn { min-height: 44px; min-width: 64px; padding: 8px 14px; font-size: 13px; }
 html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot { animation: none; }
 
@@ -2783,7 +2785,7 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 0 max(10px, calc((100% - 900px) / 2)) calc(8px + env(safe-area-inset-bottom));
+  margin: 0 max(10px, calc((100% - var(--oc-content) - 30px) / 2)) calc(8px + env(safe-area-inset-bottom));
   padding: 8px 10px 7px;
   border: 1px solid var(--line);
   border-radius: 22px;
@@ -3267,7 +3269,7 @@ html[data-design-theme="etoile"][data-theme="light"] {
 [data-theme-swatch="etoile"] .theme-swatch.dark { background: #082052; }
 .range-control { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .range-control input { width: 112px; accent-color: var(--accent); }
-.range-control output { min-width: 42px; color: var(--pine-soft); font: .72rem var(--mono); text-align: right; }
+.range-control output { min-width: 42px; color: var(--pine-soft); font-size: .8rem; font-variant-numeric: tabular-nums; text-align: right; }
 
 /* Codex-style tool row: collapsed = quiet one-line row; expanded = output surface. */
 #view-chat .tool-card { margin: 3px 0 0; border: 0; border-radius: 0; background: transparent; overflow: visible; }
@@ -3508,11 +3510,11 @@ html[data-design-theme="etoile"][data-theme="light"] {
 
 /* The jump-to-latest control belongs to the composer, so it stays above the
    typing surface when the viewport/keyboard changes instead of floating in
-   the message column. As in Codex it is a circle centred above the composer:
-   an arrow, or "•••" while the agent is working. */
+   the message column. It is always an arrow, at the composer's right edge:
+   the chips above the composer start at its left. */
 #view-chat #scroll-bottom-btn {
   position: absolute;
-  left: 0;
+  left: auto;
   right: 0;
   bottom: calc(100% + 10px);
   z-index: 15;
@@ -3520,7 +3522,7 @@ html[data-design-theme="etoile"][data-theme="light"] {
   min-width: 40px;
   height: 40px;
   min-height: 40px;
-  margin: 0 auto;
+  margin: 0;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -3538,23 +3540,13 @@ html[data-design-theme="etoile"][data-theme="light"] {
 #view-chat #scroll-bottom-btn::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; }
 #view-chat #scroll-bottom-btn .icon { width: 18px; height: 18px; }
 #view-chat #scroll-bottom-btn:active { transform: scale(.94); }
-#view-chat #scroll-bottom-btn .scroll-bottom-dots { display: none; align-items: center; gap: 3px; }
-#view-chat #scroll-bottom-btn .scroll-bottom-dots i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: scroll-bottom-dot 1.2s ease-in-out infinite;
-}
-#view-chat #scroll-bottom-btn .scroll-bottom-dots i:nth-child(2) { animation-delay: .15s; }
-#view-chat #scroll-bottom-btn .scroll-bottom-dots i:nth-child(3) { animation-delay: .3s; }
-#view-chat #scroll-bottom-btn.is-working .scroll-bottom-arrow { display: none; }
-#view-chat #scroll-bottom-btn.is-working .scroll-bottom-dots { display: inline-flex; }
-@keyframes scroll-bottom-dot { 0%, 60%, 100% { opacity: .35; } 30% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) {
-  #view-chat #scroll-bottom-btn .scroll-bottom-dots i { animation: none; opacity: .8; }
-}
-html.reduced-motion #view-chat #scroll-bottom-btn .scroll-bottom-dots i { animation: none; opacity: .8; }
+/* While the arrow shows, the chips keep clear of its corner. */
+#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)) > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { max-width: calc(50% - 30px); }
+#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):has(> .native-run-state:not(.hidden)):has(> .goal-chip-group:not([hidden])):has(> .subagent-bubble:not([hidden]))
+  > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { max-width: calc((100% - 66px) / 3); }
+#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):not(:has(> .goal-chip-group:not([hidden]))):not(:has(> .subagent-bubble:not([hidden]))) > .native-run-state,
+#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):not(:has(> .native-run-state:not(.hidden))):not(:has(> .subagent-bubble:not([hidden]))) > .goal-chip-group,
+#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):not(:has(> .native-run-state:not(.hidden))):not(:has(> .goal-chip-group:not([hidden]))) > .subagent-bubble { max-width: calc(100% - 52px); }
 
 @media (max-width: 600px) {
   #view-chat .activity-body > .tool-card { margin-left: 8px; }
@@ -4083,8 +4075,11 @@ html.reduced-motion .machine-row.machine-status-checking .m-dot { animation: non
 .project-action-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .project-action-row .icon { width: 20px; height: 20px; flex: 0 0 20px; color: var(--pine-soft); }
 .project-action-row.danger-text .icon { color: currentColor; }
+.project-action-row[hidden] { display: none; }
 .project-action-divider { height: 1px; margin: 4px 8px; background: var(--line); }
-.project-action-sheet > .cancel { margin-top: 8px; }
+.project-action-sheet > .cancel,
+.session-action-sheet > .cancel { margin-top: 8px; }
+.session-action-sheet > .cancel { border-top: 0.5px solid var(--line); border-radius: 0; padding-left: 8px; padding-right: 8px; }
 .project-rename-dialog { max-width: 520px; }
 
 @media (max-width: 979px) {
@@ -4441,7 +4436,7 @@ html.reduced-motion .session-item-actions { transition: none; }
    instead of collapsing into one dense text wall. */
 #view-chat .messages { gap: 15px; }
 #view-chat .msg.assistant .md-body {
-  max-width: 70ch;
+  max-width: none;
   line-height: 1.60;
   text-wrap: pretty;
 }
@@ -4596,6 +4591,8 @@ html[lang="ko"] .settings-subheading {
 }
 @media (max-width: 979px) {
   #setting-sidebar-width-row { display: none; }
+  /* The row above it is then the group's last and ends without a rule. */
+  #view-settings .settings-row:has(+ #setting-sidebar-width-row) { border-bottom: none; }
 }
 html.reduced-motion .machine-status-dot.machine-status-checking { animation: none; }
 body.compact #view-list .session-item,
@@ -5105,8 +5102,8 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 /* What sits above the message box (notes, subagents, a Goal, Codex's goal and
    task progress) takes the box's own width, so their edges line up with it. */
 #view-chat :is(.queue-note, .subagent-bar, .compaction-status, .task-replay-note, .task-progress) {
-  margin-left: max(10px, calc((100% - 900px) / 2));
-  margin-right: max(10px, calc((100% - 900px) / 2));
+  margin-left: max(10px, calc((100% - var(--oc-content) - 30px) / 2));
+  margin-right: max(10px, calc((100% - var(--oc-content) - 30px) / 2));
 }
 @media (max-width: 979px) {
   #view-chat :is(.queue-note, .subagent-bar, .compaction-status, .task-replay-note, .task-progress) { margin-left: 7px; margin-right: 7px; }
@@ -5189,7 +5186,11 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   border-radius: 999px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  font: 640 .62rem/1.5 var(--mono);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
   text-align: center;
 }
 .model-row:not(.active) .model-thinking-badge { color: var(--pine-soft); border-color: var(--line); background: transparent; }
@@ -5521,6 +5522,11 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
 .theme-current[aria-expanded="true"] .theme-current-chevron { transform: rotate(180deg); }
 .settings-theme-row .theme-choices { flex: 1 1 100%; margin: 4px 0 2px; }
 .theme-choices[hidden] { display: none; }
+#view-settings .settings-select-row:not(.settings-select-row-stack) > select,
+#view-settings .theme-current { flex: 0 0 auto; width: 180px; min-width: 0; max-width: 52%; }
+#view-settings .theme-current .theme-current-name { flex: 1 1 auto; text-align: left; }
+/* Restore defaults is an action, said in the accent colour; no glyph. */
+#view-settings #btn-reset-settings strong { color: var(--accent); }
 
 /* Two device pickers side by side truncate long device names on phones. */
 @media (max-width: 620px) {
@@ -6338,7 +6344,27 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
+/* A ring with nothing to show looks like an empty radio button; it waits
+   until the agent reports how full the context is. */
+#view-chat .context-dashboard[data-context-state="unknown"] .context-info-wrap { display: none; }
+/* With a mouse and room to spare, the percentage stands beside the ring. */
+@media (min-width: 600px) and (pointer: fine) {
+  #view-chat .context-ring-btn { width: auto; padding: 0 7px 0 6px; gap: 5px; border-radius: 10px; }
+  #view-chat .context-inline-percent {
+    position: static;
+    width: auto; height: auto;
+    overflow: visible;
+    clip: auto;
+    color: var(--pine-soft);
+    font-family: inherit;
+    font-size: .74rem;
+    font-weight: 520;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+}
 #view-chat .composer-model-control {
+  position: relative;
   width: auto;
   max-width: min(44vw, 320px);
   min-width: 0;
@@ -6366,7 +6392,14 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   border-radius: 50%;
 }
 #view-chat .composer-send .icon { width: 17px; height: 17px; }
-#view-chat .composer-send.composer-stop .icon { width: 13px; height: 13px; }
+/* Stop is the quieter of the two round buttons, so the pair never reads as
+   twins; Send dims while there is nothing to send. */
+#view-chat .composer-send.composer-stop { background: var(--bubble-user); color: var(--ink); }
+#view-chat .composer-send.composer-stop:hover { background: color-mix(in srgb, var(--ink) 14%, var(--bubble-user)); }
+#view-chat .composer-send.composer-stop .icon { width: 15px; height: 15px; }
+#view-chat #btn-send.is-empty { opacity: .35; }
+#view-chat .composer-send { transition: opacity .15s ease; }
+html.reduced-motion #view-chat .composer-send { transition: none; }
 
 @media (max-width: 979px) {
   #view-chat .composer-toolbar { gap: 2px; }
@@ -6380,9 +6413,10 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   #view-chat .composer-approval-label { max-width: 22vw; }
 }
 @media (max-width: 480px) {
-  /* A narrow phone keeps the words and drops the chevrons. */
+  /* A narrow phone keeps the words and drops the approval chevron; the model
+     chip keeps its chevron and drops the reasoning level instead. */
   #view-chat .composer-approval .composer-approval-chevron,
-  #view-chat .composer-model-control .icon { display: none; }
+  #view-chat .composer-model-level { display: none; }
   #view-chat .composer-approval { gap: 5px; padding: 0 5px; font-size: .78rem; }
   #view-chat .composer-model-control { max-width: 44vw; padding: 0 4px; font-size: .78rem; }
 }
@@ -6433,7 +6467,7 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 
 /* A conversation's summary opens over its top-right corner, below the pane's
    title bar on a desktop and below the title row on a phone. */
-#view-chat .session-summary { position: absolute; z-index: 40; top: 8px; right: 12px; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;
+#view-chat .session-summary { position: absolute; z-index: 40; top: 8px; right: 12px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box;
   width: min(360px, calc(100% - 24px)); max-height: min(72%, 560px); overflow: auto; padding: 12px 14px 14px; border: 1px solid var(--line); border-radius: 16px;
   background: var(--milk); color: var(--ink); box-shadow: 0 18px 44px rgba(0, 0, 0, .28); font-size: .85rem; }
 #view-chat .session-summary[hidden] { display: none; }
@@ -6442,22 +6476,23 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
 .session-summary-header h2 { margin: 0; font-size: .95rem; font-weight: 650; }
 .session-summary-close { width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--pine-soft); font: inherit; font-size: 1.1rem; cursor: pointer; }
 .session-summary-close:hover, .session-summary-close:focus-visible { background: var(--bubble-user); color: var(--ink); }
-.session-summary-section { border-top: 1px solid var(--line); padding-top: 8px; }
-.session-summary-section h3 { margin: 0 0 6px; color: var(--pine-soft); font-size: .75rem; font-weight: 600; letter-spacing: .02em; }
+.session-summary-section { min-width: 0; }
+.session-summary-section h3 { margin: 0 0 6px; padding-left: 8px; color: var(--pine-soft); font-size: .75rem; font-weight: 600; letter-spacing: .02em; }
 .session-summary-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.session-summary-empty { color: var(--pine-soft); font-size: .8rem; }
+.session-summary-empty { padding: 4px 8px; color: var(--pine-soft); font-size: .8rem; }
 .session-summary-goal, .session-summary-item { display: grid; gap: 1px; min-width: 0; }
 .session-summary-item { width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .session-summary-item:hover, .session-summary-item:focus-visible { background: var(--bubble-user); }
 .session-summary-goal { padding: 4px 8px; }
-.session-summary-goal-objective, .session-summary-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-summary-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-summary-goal-objective { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow-wrap: anywhere; }
 .session-summary-meta { overflow: hidden; color: var(--pine-soft); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .session-summary-path, .session-summary-link, .session-summary-query { display: block; overflow: hidden; padding: 4px 8px; border-radius: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .session-summary-path[data-host-path], .session-summary-link { color: var(--accent); text-decoration: none; cursor: pointer; }
 .session-summary-path[data-host-path]:hover, .session-summary-link:hover, .session-summary-path[data-host-path]:focus-visible, .session-summary-link:focus-visible { background: var(--bubble-user); }
 .session-summary-path:not([data-host-path]), .session-summary-query { color: var(--pine-soft); }
 .session-summary-query::before { content: "⌕ "; }
-.session-summary-changes { margin-top: 6px; min-height: 32px; padding: 4px 10px; border-radius: 8px; font-size: .78rem; }
+.session-summary-changes { margin: 6px 0 0 8px; min-height: 32px; padding: 4px 10px; border-radius: 8px; font-size: .78rem; }
 @media (pointer: coarse) { .session-summary-item, .session-summary-path, .session-summary-link { min-height: 44px; align-content: center; } .session-summary-close { width: 44px; height: 44px; } }
 
 /* The title row's buttons are bare icons with a soft background under the
@@ -6465,3 +6500,36 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
 #view-chat .chat-topbar > .icon-btn { border: 0; border-radius: 12px; background: none; color: var(--ink); }
 #view-chat .chat-topbar > .icon-btn:hover, #view-chat .chat-topbar > .icon-btn:focus-visible { background: var(--bubble-user); }
 #view-chat .chat-topbar > #btn-changes { display: none; }
+
+/* Prose in a reply keeps a readable measure; tables, code and pictures may
+   use the whole message column. */
+#view-chat .msg.assistant .md-body > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) { max-width: 72ch; }
+
+/* The list fades out over its last 28px rather than ending in a hard line
+   above the chips. Its bottom padding is as tall, so the last message is
+   clear of the fade once the list is scrolled to the end. */
+#view-chat .messages {
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+
+/* On a phone the conversation's "Working for…" line already says the agent
+   is at work; while it is on screen the title row drops its spinner and
+   gives the title the room. */
+#view-chat.work-head-shown .chat-topbar .thinking-status { display: none; }
+
+/* A finger reaches the chips above the composer and the model chip: each
+   keeps its 36px look and gains a 44px hit area above and below (the chips'
+   1px border sits outside the box the area is measured from). The model
+   chip's name clips itself, so the chip can let its area out. */
+@media (pointer: coarse) {
+  #view-chat :is(.goal-chip, .goal-chip-close, .subagent-bubble, .native-run-toggle, .native-run-dismiss, .composer-model-control) { position: relative; }
+  #view-chat :is(.goal-chip, .goal-chip-close, .subagent-bubble, .native-run-toggle, .native-run-dismiss)::after {
+    content: "";
+    position: absolute;
+    inset: -5px 0;
+  }
+  #view-chat .composer-model-control { overflow: visible; }
+  #view-chat .composer-model-control::after { content: ""; position: absolute; inset: -4px 0; }
+}

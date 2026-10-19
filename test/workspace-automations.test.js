@@ -35,6 +35,8 @@ test("Automations list every computer's schedules and every Bot's routines, thos
   assert.deepEqual([soon.kind, soon.target, soon.owner, soon.cadence], ["schedule", "mbp", "MacBook Pro", "S:interval"]);
   assert.equal(rows.find(row => row.id === "off").nextAt, null, "a paused schedule has no next run");
   assert.deepEqual(A.collect(), []);
+  const named = A.collect({ routines: { target: "mini", items: [{ id: "a", profile: "default", name: "[bot:default] Brief", enabled: true }] }, routineTitle: item => item.name.replace(/^\[bot:[^\]]+\]\s*/, "") });
+  assert.equal(named[0].title, "Brief", "a routine is named as its Bot's page names it");
 });
 
 test("the next run reads today, tomorrow, a weekday this week, or a date", () => {

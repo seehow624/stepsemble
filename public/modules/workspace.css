@@ -15,6 +15,10 @@ button { font: inherit; color: inherit; background: transparent; border: 0; curs
 small { color: var(--pine-soft); }
 
 #workspace-sidebar {
+  /* The space below the list's glass footer: the window edge or, on a
+     phone, the home indicator. */
+  --sidebar-bottom: 12px;
+  position: relative;
   width: var(--workspace-sidebar-width);
   flex: 0 0 var(--workspace-sidebar-width);
   display: flex;
@@ -48,6 +52,9 @@ small { color: var(--pine-soft); }
 .workspace-icon-btn { width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: 11px; font-size: 1rem; }
 .workspace-icon-btn svg { display: block; width: 19px; height: 19px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .workspace-icon-btn:hover { background: var(--bubble-user); }
+/* The brand row's Refresh and Settings are bare icons, as the pane title bar's are. */
+.workspace-brand-row .workspace-icon-btn { border-color: transparent; color: var(--pine-soft); }
+.workspace-brand-row .workspace-icon-btn:hover, .workspace-brand-row .workspace-icon-btn:focus-visible { color: var(--ink); }
 @keyframes workspace-turn { to { transform: rotate(360deg); } }
 #workspace-refresh[data-busy=true] svg { animation: workspace-turn .7s linear infinite; }
 @media (prefers-reduced-motion: reduce) { #workspace-refresh[data-busy=true] svg { animation: none; opacity: .45; } }
@@ -126,7 +133,7 @@ small { color: var(--pine-soft); }
   height: 43px;
   padding: 0;
   border: .5px solid var(--line);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--milk);
   color: var(--ink);
 }
@@ -140,12 +147,12 @@ small { color: var(--pine-soft); }
   gap: 7px;
   padding: 0 12px;
   border: .5px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--milk);
   color: var(--pine-soft);
 }
 .workspace-search-wrap:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
-.workspace-search-wrap > span { font-size: 1.15rem; line-height: 1; transform: translateY(-1px); }
+.workspace-search-wrap > svg { flex: 0 0 16px; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 #workspace-search, #workspace-assistant-search {
   width: 100%;
   min-width: 0;
@@ -159,7 +166,9 @@ small { color: var(--pine-soft); }
 }
 #workspace-search:focus, #workspace-assistant-search:focus { outline: 0; }
 
-#workspace-projects { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 4px 2px 12px; scrollbar-width: none; }
+/* The list runs to the sidebar's bottom edge, under the glass footer; its
+   last row scrolls clear above the glass. */
+#workspace-projects { flex: 1; min-height: 0; overflow: auto; margin: 0 0 calc(-1 * var(--sidebar-bottom)); padding: 4px 2px calc(52px + 2 * var(--sidebar-bottom) + 12px); scrollbar-width: none; }
 #workspace-projects::-webkit-scrollbar { display: none; }
 #workspace-assistant-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 4px 2px 12px; scrollbar-width: none; }
 #workspace-assistant-list::-webkit-scrollbar { display: none; }
@@ -167,7 +176,7 @@ small { color: var(--pine-soft); }
 .workspace-recent { margin-bottom: 12px; }
 .workspace-session-host { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-machine { margin: 0 0 10px; border-top: .5px solid var(--line); padding-top: 6px; }
-.workspace-machine-header { display: flex; align-items: center; gap: 2px; min-height: 40px; margin: 0 2px 2px; }
+.workspace-machine-header { display: flex; align-items: center; gap: 2px; min-height: 40px; margin: 0 0 2px 2px; }
 #workspace-projects .workspace-machine-toggle { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 9px; text-align: left; }
 .workspace-machine-toggle:hover, .workspace-machine-toggle:focus-visible { background: var(--bubble-user); outline: 0; }
 .workspace-machine-toggle strong { min-width: 0; overflow: hidden; font-size: .82rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -183,10 +192,9 @@ small { color: var(--pine-soft); }
    each computer's drag the whole section to another place in the list. */
 .workspace-list-section { margin: 0 0 10px; }
 /* Automations: a schedule's clock or a routine's Bot, its name, and when it runs next. */
-.workspace-automation { gap: 10px; }
-.workspace-automation-icon { flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--bubble-user); color: var(--pine-soft); }
+.workspace-automation-icon { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--bubble-user); color: var(--pine-soft); }
 .workspace-automation-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.workspace-automation .workspace-assistant-avatar { flex: 0 0 auto; width: 26px; height: 26px; }
+.workspace-automation .workspace-assistant-avatar { flex: 0 0 auto; width: 28px; height: 28px; }
 .workspace-automation-copy { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; text-align: left; }
 .workspace-automation-copy strong { overflow: hidden; font-size: .8rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-automation-copy small { overflow: hidden; color: var(--pine-soft); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -199,7 +207,7 @@ small { color: var(--pine-soft); }
   align-items: center;
   gap: 2px;
   min-height: 46px;
-  margin: 0 2px 3px;
+  margin: 0 0 3px 2px;
 }
 #workspace-projects .workspace-project-toggle, #workspace-assistant-list .workspace-project-toggle {
   min-width: 0;
@@ -226,12 +234,18 @@ small { color: var(--pine-soft); }
   text-transform: uppercase;
   white-space: nowrap;
 }
-.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: .65rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: .66rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+/* A project's name reads as its name, in its own case; only the list's
+   sections (Recent, Automations, the Bots, Groups) keep the small capitals,
+   so a folder never looks like a section. */
+.workspace-project:not(.workspace-assistant-section) > header .workspace-project-copy strong { color: var(--ink); font-size: .8rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
+/* Letter-spacing made for capitals only spreads Chinese, Japanese and Korean apart. */
+:is(:lang(zh), :lang(ja), :lang(ko)) :is(.workspace-project-copy, .workspace-section-copy) strong { letter-spacing: .02em; }
 #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .96rem; }
 #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-assistant-list .workspace-project-add { display: grid; place-items: center; }
 :is(.workspace-project-add, .workspace-section-add) svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 :is(.workspace-project, .workspace-list-section) > header .btn:hover { background: var(--bubble-user); color: var(--ink); }
-.workspace-project-sessions > small, #workspace-projects > p { display: block; padding: 7px 9px 7px 23px; color: var(--pine-soft); font-size: .72rem; }
+.workspace-project-sessions > small, #workspace-projects > p { display: block; padding: 7px 9px 7px 27px; color: var(--pine-soft); font-size: .72rem; }
 /* An automation's row looks like a session's but is not one: code that looks
    for sessions does not find it. */
 :is(.workspace-session-row, .workspace-automation-row) { min-width: 0; display: flex; align-items: center; gap: 2px; }
@@ -270,11 +284,84 @@ small { color: var(--pine-soft); }
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:hover, .workspace-session-menu:focus-visible { background: var(--bubble-user); color: var(--ink); }
 
 /* The footer holds only the allowances: the providers' logos, and what is
-   left for any provider close to its limit. */
-#workspace-sidebar footer { display: grid; padding: 0 2px; }
+   left for any provider close to its limit. It floats over the bottom of the
+   list as a pane of liquid glass: the sessions scroll on behind it, blurred
+   and tinted by it, light catches its top edge, and a soft fade below it
+   keeps what passes behind quiet. */
+:root {
+  --glass-tint: color-mix(in srgb, var(--milk) 42%, transparent);
+  --glass-edge: rgba(255, 255, 255, .8);
+  --glass-rim: rgba(255, 255, 255, .55);
+  --glass-shine: rgba(255, 255, 255, .5);
+  --glass-shadow: 0 12px 32px -10px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .06);
+  --glass-fade: color-mix(in srgb, var(--paper) 68%, transparent);
+}
+[data-theme="dark"] {
+  --glass-tint: color-mix(in srgb, var(--milk) 46%, transparent);
+  --glass-edge: rgba(255, 255, 255, .16);
+  --glass-rim: rgba(255, 255, 255, .12);
+  --glass-shine: rgba(255, 255, 255, .1);
+  --glass-shadow: 0 14px 34px -10px rgba(0, 0, 0, .62), 0 2px 6px rgba(0, 0, 0, .3);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --glass-tint: color-mix(in srgb, var(--milk) 46%, transparent);
+    --glass-edge: rgba(255, 255, 255, .16);
+    --glass-rim: rgba(255, 255, 255, .12);
+    --glass-shine: rgba(255, 255, 255, .1);
+    --glass-shadow: 0 14px 34px -10px rgba(0, 0, 0, .62), 0 2px 6px rgba(0, 0, 0, .3);
+  }
+}
+#workspace-sidebar footer { position: absolute; z-index: 2; left: 12px; right: 12px; bottom: var(--sidebar-bottom); display: grid; padding: 0 2px; pointer-events: none; }
+#workspace-sidebar footer::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -12px;
+  right: -12px;
+  bottom: calc(-1 * var(--sidebar-bottom));
+  height: calc(var(--sidebar-bottom) + 44px);
+  background: linear-gradient(to bottom, transparent, var(--glass-fade));
+  pointer-events: none;
+}
 /* A single entry opens the fixed-size Limits/Usage panel. */
-#workspace-usage.workspace-limits { min-width: 0; height: 50px; }
-.workspace-limits-box { height: 50px; overflow: hidden; border: .5px solid var(--line); border-radius: 12px; background: var(--milk); }
+#workspace-usage.workspace-limits {
+  position: relative;
+  min-width: 0;
+  height: 52px;
+  border: .5px solid var(--glass-rim);
+  border-radius: 26px;
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: blur(20px) saturate(190%) brightness(1.04);
+  backdrop-filter: blur(20px) saturate(190%) brightness(1.04);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 -1px 0 var(--glass-rim), var(--glass-shadow);
+  pointer-events: auto;
+}
+/* Light caught on the glass: brightest at the top, falling off down its curve. */
+#workspace-usage.workspace-limits::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to bottom, var(--glass-shine), transparent 52%), radial-gradient(90% 120% at 12% 0%, var(--glass-shine), transparent 60%);
+  opacity: .55;
+  pointer-events: none;
+}
+.workspace-limits-box { position: relative; z-index: 1; height: 100%; overflow: hidden; border-radius: inherit; background: transparent; }
+#workspace-usage > .workspace-limits-note { position: relative; z-index: 1; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 16px; }
+/* Text on glass stays legible over whatever passes behind it. */
+#workspace-usage .workspace-limits-summary { color: var(--ink); opacity: .78; font-weight: 520; letter-spacing: .01em; }
+/* A browser that cannot blur what is behind gets a thicker tint, so the
+   allowances stay legible over the rows. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #workspace-usage.workspace-limits { background: color-mix(in srgb, var(--milk) 88%, transparent); }
+}
+/* Without transparency, or with more contrast, the footer is solid. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  #workspace-usage.workspace-limits { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line); }
+  #workspace-usage.workspace-limits::after { display: none; }
+  #workspace-sidebar footer::before { background: linear-gradient(to bottom, transparent, var(--paper) 55%); }
+}
 /* One quiet line while every allowance is comfortable; a chip for each
    provider close to its limit. The whole strip opens the details. */
 .workspace-limits-strip {
@@ -293,7 +380,8 @@ small { color: var(--pine-soft); }
   text-align: left;
   cursor: pointer;
 }
-.workspace-limits-strip:hover, .workspace-limits-strip:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-limits-strip { padding: 0 16px; }
+.workspace-limits-strip:hover, .workspace-limits-strip:focus-visible { background: color-mix(in srgb, var(--bubble-user) 60%, transparent); outline: 0; }
 .workspace-limits-lead { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .workspace-limits-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 /* Allowances not known yet, or not reported by this Host. */
@@ -458,6 +546,7 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   white-space: normal;
 }
 .workspace-menu-item:hover, .workspace-menu-item:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-menu-separator { height: .5px; margin: 4px 8px; background: var(--line); }
 .workspace-slot { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: auto auto; place-content: center; padding: 16px; color: var(--pine-soft); text-align: center; font-size: .78rem; }
 /* The pane's empty state carries the same approved artwork as the conversation
    view's, rather than a silhouette of the glyph: the glyph fills the
@@ -483,10 +572,15 @@ dialog { width: min(720px, 94vw); max-height: 88dvh; margin: auto; padding: 20px
 dialog::backdrop { background: var(--sheet-bg); }
 dialog header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding-bottom: 6px; background: var(--milk); }
 dialog h2 { flex: 1; font-size: 1rem; font-weight: 650; }
-dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; color: var(--pine-soft); font-size: 1.1rem; }
+dialog header .btn, dialog header .btn.ghost { min-width: 34px; min-height: 34px; padding: 0; border: 0; border-color: transparent; background: transparent; color: var(--pine-soft); font-size: 1.1rem; }
+dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--bubble-user); color: var(--ink); }
 #workspace-dialog-body { display: grid; gap: 10px; }
 #workspace-dialog-body p { color: var(--pine-soft); font-size: .82rem; }
-.workspace-history-reader { justify-self: start; color: var(--accent); font-size: .82rem; }
+.workspace-history-reader { justify-self: start; color: var(--ink); font-size: .82rem; font-weight: 600; text-decoration: none; }
+.workspace-history-reader:hover, .workspace-history-reader:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+#workspace-dialog-body input[hidden] { display: none; }
+/* No history at all: the note stands alone, centred. */
+#workspace-dialog-body [data-empty=true] { padding: 28px 0; color: var(--pine-soft); text-align: center; }
 #workspace-dialog-body .btn { min-height: 40px; justify-content: flex-start; overflow-wrap: anywhere; text-align: left; }
 #workspace-dialog-body .btn.primary { justify-content: center; }
 /* New session: the agent and the name share one row and one height; the
@@ -494,7 +588,7 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 #workspace-dialog.workspace-new-session-dialog { width: min(560px, 94vw); }
 /* A long folder path wraps anywhere instead of widening the dialog. */
 .workspace-new-session-dialog #workspace-dialog-body { grid-template-columns: minmax(0, 1fr); }
-.workspace-new-session-dialog #workspace-dialog-body > small { overflow-wrap: anywhere; color: var(--pine-soft); }
+.workspace-new-session-dialog #workspace-dialog-body > small { overflow: hidden; color: var(--pine-soft); font-family: var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-new-session-fields { display: flex; gap: 8px; min-width: 0; }
 .workspace-new-session-fields select { flex: 0 0 40%; max-width: 40%; min-width: 0; text-overflow: ellipsis; padding-right: 30px; }
 .workspace-new-session-fields input { flex: 1 1 auto; min-width: 0; }
@@ -502,7 +596,7 @@ dialog header .btn { min-width: 34px; min-height: 34px; padding: 0; border: 0; c
 .workspace-rename-fields { display: flex; gap: 8px; min-width: 0; }
 .workspace-rename-fields input { flex: 1 1 auto; min-width: 0; }
 .workspace-rename-fields .btn { flex: none; }
-#workspace-dialog-body .workspace-new-session-create { min-height: 38px; margin-left: auto; padding: 0 18px; justify-content: center; }
+#workspace-dialog-body .workspace-new-session-create { min-height: 44px; margin-left: auto; padding: 0 18px; justify-content: center; }
 .workspace-new-session-worktree { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--pine-soft); font-size: .8rem; cursor: pointer; }
 .workspace-new-session-worktree[hidden] { display: none; }
 .workspace-new-session-worktree input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
@@ -634,14 +728,20 @@ body.compact :is(.workspace-session, .workspace-automation) { min-height: 44px; 
 body.compact .workspace-session strong { font-size: .78rem; }
 
 @media (max-width: 760px) {
+  /* A phone's dialogs rise from the bottom like its other sheets. */
+  #workspace-dialog, #workspace-dialog[open] { width: 100%; max-width: 100%; margin: auto 0 0; border-width: .5px 0 0; border-radius: 18px 18px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  #workspace-dialog.workspace-project-dialog[open], #workspace-dialog.workspace-new-session-dialog { width: 100%; }
+  /* The folder sheet may rise almost to the top, as a tall sheet does, so a
+     short screen still shows the path, the list and the action. */
+  #workspace-dialog.workspace-project-dialog[open] { max-height: calc(100dvh - max(8px, env(safe-area-inset-top))); }
   .workspace-project-dialog > header { padding: 16px 16px 8px; }
-  #workspace-dialog.workspace-project-dialog #workspace-dialog-body { padding: 0 16px 16px; }
+  #workspace-dialog.workspace-project-dialog #workspace-dialog-body { padding: 0 16px max(16px, env(safe-area-inset-bottom)); }
   .workspace-folder-browse-head { align-items: stretch; flex-direction: column; gap: 7px; margin-top: 15px; }
   .workspace-folder-browse-head input { width: 100%; }
   #workspace-dialog-body .workspace-folder-new { align-self: flex-start; }
   .workspace-folder-footer { align-items: stretch; flex-direction: column; gap: 10px; }
   #workspace-dialog-body .workspace-folder-add { width: 100%; }
-  #workspace-sidebar { width: 100%; flex: 1 1 100%; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); border-right: 0; }
+  #workspace-sidebar { --sidebar-bottom: max(12px, env(safe-area-inset-bottom)); width: 100%; flex: 1 1 100%; padding: max(12px, env(safe-area-inset-top)) 12px var(--sidebar-bottom); border-right: 0; }
   body:not(.sidebar-hidden) #workspace-main { display: none; }
   .workspace-mobile-nav { display: none; }
   /* A pane starts below the status bar; the Workspace's own background fills
@@ -715,6 +815,10 @@ body.compact .workspace-session strong { font-size: .78rem; }
 @media (pointer: coarse) {
   #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-projects .workspace-machine-menu, #workspace-assistant-list .workspace-project-add { width: 40px; min-width: 40px; min-height: 40px; }
   #workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 40px; min-width: 40px; min-height: 44px; }
+  .workspace-brand-row .workspace-icon-btn { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  dialog header .btn { min-width: 44px; min-height: 44px; font-size: 1.35rem; }
+  /* Below 16px iOS zooms the page into a focused field. */
+  #workspace-search, #workspace-assistant-search { font-size: 16px; }
 }
 /* One list for every computer leaves nothing to switch. */
 body.workspace-merged .workspace-host-block { display: none; }

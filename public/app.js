@@ -334,7 +334,16 @@ function saveActiveDraft() {
   if (activeDraftKey) saveDraftForKey(activeDraftKey, el.input.value);
 }
 
+// Send looks unavailable while there is no draft, picture or referenced
+// session; it still takes a click or Enter, as sendCurrent ignores those.
+// It reads the attachments only once they exist (armed at the end of setup).
+let sendReadyArmed = false;
+function syncSendReady() {
+  if (!sendReadyArmed || !el.btnSend) return;
+  el.btnSend.classList.toggle("is-empty", !el.input.value.trim() && !pendingImages.length && !sessionReferences?.count());
+}
 function resizeComposerInput() {
+  syncSendReady();
   // Measuring collapses the box for an instant. A conversation scrolled to its
   // end is pulled down by that and would not come back, so it jumped with each
   // new line. It is put back where it was: typing never moves the conversation.
@@ -1906,6 +1915,12 @@ function applySettingsCategory() {
   const label = settingsCategoryLabel(category);
   if (el.settingsTitle) el.settingsTitle.textContent = category && !split ? label : updateText("Settings");
   if (el.settingsContentTitle) el.settingsContentTitle.textContent = label;
+  const pageTitle = label.trim().toLocaleLowerCase();
+  for (const title of el.viewSettings.querySelectorAll(".settings-group[data-settings-category] .group-title")) {
+    const group = title.closest(".settings-group");
+    title.classList.toggle("repeats-page-title", !!pageTitle && group?.dataset.settingsCategory === category
+      && title.textContent.trim().toLocaleLowerCase() === pageTitle);
+  }
   for (const item of el.settingsNav?.querySelectorAll(".settings-nav-item") || []) {
     const active = item.dataset.settingsOpen === category;
     item.classList.toggle("is-active", active);
@@ -7862,11 +7877,21 @@ function updateScrollBottomButton() {
   if (!el.scrollBottomBtn) return;
   const distance = messageDistanceFromBottom();
   el.scrollBottomBtn.classList.toggle("hidden", distance < 180 || el.messages.scrollHeight <= el.messages.clientHeight + 40);
-  syncScrollBottomWorking();
+  syncWorkHeadShown();
 }
-// While the agent is working the arrow gives way to "•••", as in Codex.
-function syncScrollBottomWorking() {
-  el.scrollBottomBtn?.classList.toggle("is-working", !!rpc && workLogRunState().running);
+// The running turn's "Working for…" line already says the agent is at work;
+// while it is on screen the title row's spinner steps aside (style.css). A
+// desktop Workspace pane has no title row, so nothing is measured there.
+function syncWorkHeadShown() {
+  const root = document.documentElement.classList;
+  const titleRow = !root.contains("workspace-embedded") || root.contains("workspace-mobile-pane");
+  const head = titleRow && !el.thinkingStatus?.classList.contains("hidden") ? el.messages?.querySelector(".wl-head.wl-running") : null;
+  let shown = false;
+  if (head) {
+    const box = head.getBoundingClientRect(), list = el.messages.getBoundingClientRect();
+    shown = box.height > 0 && box.bottom > list.top && box.top < list.bottom;
+  }
+  el.viewChat?.classList.toggle("work-head-shown", shown);
 }
 function scrollBottom(force = false) {
   if (!force && !autoScrollPinned) {
@@ -10346,7 +10371,7 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
   });
   syncWorkPlaceholder(lastTurn, run);
   syncWorkLogClock();
-  el.scrollBottomBtn?.classList.toggle("is-working", run.running);
+  syncWorkHeadShown();
   workLogState.observer?.takeRecords();
   if (!keepScroll && autoScrollPinned) el.messages.scrollTop = el.messages.scrollHeight;
 }
@@ -11582,6 +11607,7 @@ async function handleImagePaste(event) {
 document.addEventListener("paste", (event) => { void handleImagePaste(event); });
 
 function renderImgPreview() {
+  syncSendReady();
   el.imgPreview.innerHTML = "";
   el.imgPreview.classList.toggle("hidden", pendingImages.length === 0);
   pendingImages.forEach((im, i) => {
@@ -11648,6 +11674,7 @@ async function sendCurrent() {
   if (terminalCommand && terminalAgent) {
     el.input.value = "";
     el.input.style.height = "auto";
+    syncSendReady();
     el.slashMenu.classList.add("hidden");
     slashState = null;
     removeDraftForKey(activeDraftKey);
@@ -11668,7 +11695,7 @@ async function sendCurrent() {
   if (compactCommand && !generic && !WORKSPACE_ENTRY_KEY) {
     if (pendingImages.length) { toast(compactionReason("compaction_attachments"), true); return; }
     const compactDraft = beginDraftSend(activeDraftKey);
-    el.input.value = ""; el.input.style.height = "auto";
+    el.input.value = ""; el.input.style.height = "auto"; syncSendReady();
     el.slashMenu.classList.add("hidden"); slashState = null;
     await BUILTIN_SLASH.compact(compactCommand.instructions);
     clearSentDraft(compactDraft);
@@ -11712,6 +11739,7 @@ async function sendCurrent() {
   const codexSendConnection = rpc.nativeCodexMutation ? rpc : null;
   el.input.value = "";
   el.input.style.height = "auto";
+  syncSendReady();
   el.slashMenu.classList.add("hidden");
   slashState = null;
 
@@ -12143,7 +12171,7 @@ function syncNativeThinkingSelect(connection = rpc) {
     connection.claudeEffort = [connection.claudeEffort, model.defaultEffort]
       .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || null;
     setSelectOptions(select, [...(connection.claudeEffort ? [] : [{ value: "", label: "—", disabled: true }]),
-      ...levels.map(level => ({ value: level, label: level }))]);
+      ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
     select.value = connection.claudeEffort || "";
     updateComposerSummary(undefined, connection.claudeEffort || "");
     return;
@@ -12181,7 +12209,7 @@ function syncNativeThinkingSelect(connection = rpc) {
   const next = choices.has(current) ? current : choices.has(threadLevel) ? threadLevel
     : choices.has(modelDefault) ? modelDefault : null;
   connection.codexEffort = next;
-  setSelectOptions(select, [...(next ? [] : [{ value: "", label: "—", disabled: true }]), ...levels.map(level => ({ value: level, label: level }))]);
+  setSelectOptions(select, [...(next ? [] : [{ value: "", label: "—", disabled: true }]), ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
   select.value = next || "";
   select.disabled = false;
   updateComposerSummary(undefined, next || "");
@@ -12871,7 +12899,7 @@ function renderModelList(currentId, currentProvider = null) {
     row.querySelector("small").dataset.i18nIgnore = "true";
     const badge = row.querySelector(".model-thinking-badge");
     const badgeText = modelThinkingBadge(m);
-    badge.textContent = badgeText;
+    badge.textContent = badgeText ? badgeText.split("-").map(reasoningLevelText).join("–") : "";
     badge.classList.toggle("hidden", !badgeText);
     if (m.description) row.title = m.description;
     row.addEventListener("click", async () => {
@@ -19486,7 +19514,9 @@ sessionReferences = sessionReferenceBox && window.StepsembleSessionReference?.cr
       } catch (error) { if (host === here) throw error; return []; }
     }));
     return lists.flat();
-  } : null }) || null;
+  } : null, onChange: () => syncSendReady() }) || null;
+sendReadyArmed = true;
+syncSendReady();
 syncComposerAdd();
 // The Workspace learns where the message box is, so a session dropped on it
 // becomes a reference instead of a new pane.

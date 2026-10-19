@@ -69,6 +69,9 @@
     open: "M14 3h7v7M10 14L21 3M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5",
     download: "M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5",
     share: "M12 16V3m-4 4 4-4 4 4M8 10H5v11h14V10h-3",
+    // A routine's actions.
+    pause: "M9 6v12M15 6v12", play: "M8 5.5v13l10-6.5z", edit: "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
+    trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   };
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -177,8 +180,9 @@
     machine = next; machineSelect.value = next.id; screen = "auth"; chat = null; chatKey = ""; asks.clear(); avatars.clear(); showList(false);
     api = Api.create({ base: next.base, onSignedOut: signInToStepsemble });
     guideView = Guide.create({ t, el, button });
-    routinesView = window.StepsembleAssistantRoutines.create({ api, t, el, button, toast, M, locale: prefs.locale,
+    routinesView = window.StepsembleAssistantRoutines.create({ api, t, el, button, icon, iconButton, toast, M, locale: prefs.locale, actions: showActions,
       botName: profile => allBots.find(bot => bot.name === profile)?.displayName || profile,
+      botAvatar: profile => avatar(allBots.find(bot => bot.name === profile) || { name: profile, displayName: profile }),
       openSession: (profile, session, title) => openBot(profile, session, { title }) });
     const afterBots = action => {
       if (epoch !== startRevision) return;
@@ -234,7 +238,9 @@
     for (const [node, value] of previous.covered) node.inert = value;
     if (restore && previous.opener?.isConnected) previous.opener.focus();
   }
-  function showPanel(title, subtitle = "", { lead = null, kind = "" } = {}) {
+  // A panel is usually a step of the route, so closing it goes back; a menu of
+  // actions on a page is not, and passes its own dismiss.
+  function showPanel(title, subtitle = "", { lead = null, kind = "", dismiss = () => navigation.back() } = {}) {
     closePanel(false);
     const opener = document.activeElement, covered = new Map();
     for (const node of [...main.children, listPane, top]) { covered.set(node, node.inert); node.inert = true; }
@@ -244,15 +250,15 @@
     const heading = el("h2", "", title); heading.id = "assistant-panel-title"; heading.tabIndex = -1; sheet.setAttribute("aria-labelledby", heading.id);
     const head = el("header", "assistant-sheet-head"), copy = el("div", "assistant-sheet-title"); copy.append(heading);
     if (subtitle) copy.append(el("p", "", subtitle));
-    const close = iconButton("close", t("closePanel"), "assistant-sheet-close", () => navigation.back());
+    const close = iconButton("close", t("closePanel"), "assistant-sheet-close", dismiss);
     if (lead) head.append(lead);
     head.append(copy, close);
     const body = el("div", "assistant-sheet-body"); sheet.append(el("div", "assistant-sheet-grab"), head, body); layer.append(sheet); main.append(layer);
     panel = { layer, covered, opener };
-    layer.addEventListener("click", event => { if (event.target === layer) navigation.back(); });
+    layer.addEventListener("click", event => { if (event.target === layer) dismiss(); });
     const keys = event => {
       if (panel?.layer !== layer) return;
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); navigation.back(); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismiss(); }
       if (event.key === "Tab") {
         const focusable = [...sheet.querySelectorAll("button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex='0']")].filter(node => node.getClientRects().length);
         const first = focusable[0], last = focusable.at(-1);
@@ -267,8 +273,9 @@
   }
   function pageHead(title, back = () => navigation.back(), bot = null) {
     const head = el("header", "assistant-page-head");
-    // 分頁第一層的上一頁是分頁外的 Assistant 首頁，所以不放返回。
+    // 分頁第一層的上一頁在分頁外：電腦版不放返回，手機版和 Bot 對話一樣回到 Workspace 列表。
     if (!embedded || N.ancestors(navigation.current).length > 2) head.append(iconButton("back", t("back"), "assistant-back", back));
+    else head.append(iconButton("back", t("back"), "assistant-back to-list", showRoster));
     if (bot) head.append(avatar(bot));
     head.append(el("h1", "", title)); return head;
   }
@@ -390,8 +397,10 @@
   }
   function renderManager() {
     const body = pageBody(t("manageBots"));
-    body.append(button(t("newBot"), "btn primary", () => go({ page: "newbot" })));
-    const list = el("ul", "assistant-bot-list");
+    // New Bot is the list's quiet first row, not the page's loudest button.
+    const list = el("ul", "assistant-bot-list"), add = button("", "assistant-bot-row assistant-add-row", () => go({ page: "newbot" }));
+    const tile = el("span", "assistant-add-tile"), first = el("li"); tile.append(icon("plus"));
+    add.append(tile, el("strong", "", t("newBot"))); first.append(add); list.append(first);
     for (const bot of allBots) {
       const row = button("", `assistant-bot-row${bot.hidden ? " is-hidden" : ""}`, () => openBot(bot.name, null, { tab: "settings" })); row.dataset.profile = bot.name;
       const copy = el("span", "assistant-bot-copy"); copy.append(el("strong", "", bot.displayName), el("small", "", bot.hidden ? t("hideBot") : bot.description));
@@ -438,11 +447,36 @@
       tile.append(icon(name)); copy.append(el("strong", "", t(page)), hint); chevron.append(icon("chevron"));
       row.append(tile, copy, chevron); group.append(row);
     }
-    body.append(group);
-    if (opener && matchMedia("(min-width: 900px)").matches) {
-      const frame = main.getBoundingClientRect(), box = opener.getBoundingClientRect();
-      sheet.style.top = `${Math.round(box.bottom - frame.top + 6)}px`; sheet.style.right = `${Math.max(12, Math.round(frame.right - box.right))}px`;
+    body.append(group); anchorMenu(sheet, opener);
+  }
+  // On a wide screen a menu opens under its button, or above it when the
+  // button is near the bottom of the page.
+  function anchorMenu(sheet, opener) {
+    if (!opener || !matchMedia("(min-width: 900px)").matches) return;
+    const frame = main.getBoundingClientRect(), box = opener.getBoundingClientRect(), height = sheet.offsetHeight;
+    sheet.style.right = `${Math.max(12, Math.round(frame.right - box.right))}px`;
+    const below = box.bottom - frame.top + 6, above = box.top - frame.top - 6 - height;
+    sheet.style.top = `${Math.round(below + height > frame.height - 12 && above >= 12 ? above : below)}px`;
+  }
+  // The actions of one thing on a page, such as a routine, in the same menu as
+  // More options. An action that cannot be undone asks for a second tap.
+  function showActions(opener, title, subtitle, items) {
+    const { body, sheet } = showPanel(title, subtitle, { kind: "menu", dismiss: () => closePanel() });
+    const group = el("div", "assistant-menu-group");
+    for (const item of items) {
+      const tile = el("span", "assistant-menu-icon"), copy = el("span", "assistant-menu-copy"), label = el("strong", "", item.label);
+      let armed = false;
+      const row = button("", `assistant-menu-row${item.danger ? " assistant-danger" : ""}`, () => {
+        if (item.confirm && !armed) {
+          armed = true; label.textContent = item.confirm;
+          setTimeout(() => { armed = false; label.textContent = item.label; }, 4000);
+          return;
+        }
+        closePanel(); void item.action();
+      });
+      tile.append(icon(item.icon)); copy.append(label); row.append(tile, copy); group.append(row);
     }
+    body.append(group); anchorMenu(sheet, opener);
   }
   function refreshBotHead(profile) {
     const bot = allBots.find(bot => bot.name === profile);

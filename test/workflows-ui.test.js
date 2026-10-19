@@ -83,7 +83,7 @@ async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[sch
 }
 test("the panel shows Schedules only, with one New schedule button and no Goals view", async () => {
   const h = await harness({ runs: [run("in-conversation"), { ...run("scheduled-goal"), scheduleId: "schedule-1" }] }); const add = h.byKey("new");
-  assert.equal(add.textContent, "+ New"); assert.equal(add.getAttribute("aria-label"), "New schedule");
+  assert.equal(add.querySelector(".wf-add-label").textContent, "New"); assert.equal(add.getAttribute("aria-label"), "New schedule");
   assert.equal(h.byKey("tab:goals"), undefined); assert.equal(h.byKey("tab:schedules"), undefined);
   assert.equal(h.find("h1").textContent, "Schedules");
   assert.equal(h.find(".wf-list").querySelectorAll("button").length, 1, "a Goal started in a conversation is not listed");
@@ -125,6 +125,21 @@ test("workflow chrome is complete in all 11 locales without rewriting arbitrary 
   assert.equal(i18n.t("User objective from host",{},"zh-Hant"),"User objective from host");
   assert.equal(i18n.t("everyMinutes",{minutes:30},"zh-Hant"),"每 30 分鐘");
   for(const name of ["index.html","workspace.html","sw.js"])assert.match(fs.readFileSync(path.join(__dirname,"../public",name),"utf8"),/modules\/workflows-i18n\.js/);
+});
+
+test("each filter carries its count instead of a separate row of totals",async()=>{
+  const h=await harness({runs:[],schedules:[schedule(),schedule("schedule-2"),{...schedule("schedule-3"),enabled:false}]});
+  const counts=Object.fromEntries(["all","enabled","paused","finished"].map(key=>[key,h.byKey("filter:"+key).querySelector(".wf-count").textContent]));
+  assert.deepEqual(counts,{all:"3",enabled:"2",paused:"1",finished:"0"});
+  assert.equal(h.byKey("filter:enabled").textContent,"Scheduled2");assert.equal(h.find(".wf-stats"),null);h.close();
+});
+
+test("with no schedules the panel is one column whose empty state holds the only New",async()=>{
+  const h=await harness({runs:[],schedules:[]});
+  assert.equal(h.find("dialog").dataset.empty,"true");assert.equal(h.byKey("new").hidden,true);
+  const create=h.find(".wf-list").querySelector(".primary");assert.equal(create.textContent,"New schedule");assert.equal(h.doc.activeElement,create);
+  await create.click();await h.byKey("editor-back").click();assert.equal(h.doc.activeElement,h.find(".wf-list").querySelector(".primary"));
+  h.schedules=[schedule()];await h.tick(4000);assert.equal(h.find("dialog").dataset.empty,"false");assert.equal(h.byKey("new").hidden,false);h.close();
 });
 
 test("schedule filters narrow the list and search keeps the user's focus",async()=>{

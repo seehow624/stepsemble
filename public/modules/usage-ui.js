@@ -34,6 +34,12 @@
   function label(key, vars = {}) { const locale = localeOf(); return (strings[locale]?.[key] || strings.en[key] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? ""); }
   const node = (tag, value = "", className = "") => { const el = document.createElement(tag); el.textContent = value; el.className = className; return el; };
   function button(value, action, className = "") { const el = node("button", value, className); el.type = "button"; el.onclick = action; return el; }
+  // The Workspace's own refresh arrows, so the two refresh buttons look alike.
+  function refreshIcon() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"), path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+    path.setAttribute("d", "M20 7v4h-4M4 17v-4h4M5.6 10a7 7 0 0 1 12.3-2L20 11M4 13l2.1 3a7 7 0 0 0 12.3-2"); svg.append(path); return svg;
+  }
   const fmt = (n, compact = false) => new Intl.NumberFormat(localeOf(), compact ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 0 }).format(n || 0);
   function money(total, compact = false) {
     if (!(total?.pricedCalls || total?.unknownPricedRecords)) return "—";
@@ -272,13 +278,20 @@
     function renderLimits() {
       const body = view.body, scroll = body.scrollTop, focused = body.contains(document.activeElement) ? document.activeElement?.dataset : null;
       body.replaceChildren();
-      const toolbar = node("div", "", "usage-quota-toolbar"), toggle = node("div", "", "usage-quota-toggle");
-      toggle.setAttribute("role", "group"); toggle.setAttribute("aria-label", label("quotaDisplay"));
-      for (const mode of ["remaining", "used"]) {
-        const control = button(label(mode + "Mode"), () => selectQuotaMode(mode)); control.dataset.quotaMode = mode;
-        control.setAttribute("aria-pressed", String(mode === quotaMode)); toggle.append(control);
+      const providers = root.StepsembleUsageData.combineQuotas(quotas).sort((a, b) => {
+        const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => quotaRemaining(w) ?? 101));
+        return tightest(a) - tightest(b);
+      });
+      // Remaining or used only means something once there is a reading to show.
+      if (providers.length) {
+        const toolbar = node("div", "", "usage-quota-toolbar"), toggle = node("div", "", "usage-quota-toggle");
+        toggle.setAttribute("role", "group"); toggle.setAttribute("aria-label", label("quotaDisplay"));
+        for (const mode of ["remaining", "used"]) {
+          const control = button(label(mode + "Mode"), () => selectQuotaMode(mode)); control.dataset.quotaMode = mode;
+          control.setAttribute("aria-pressed", String(mode === quotaMode)); toggle.append(control);
+        }
+        toolbar.append(node("span", label("quotaDisplay")), toggle); body.append(toolbar);
       }
-      toolbar.append(node("span", label("quotaDisplay")), toggle); body.append(toolbar);
       const section = node("section", "", "usage-quotas"); section.setAttribute("aria-label", label("limitsTab"));
       const grid = node("div", "", "usage-quota-grid");
       const duration = minutes => minutes % 1440 === 0 ? minutes / 1440 + "d" : minutes % 60 === 0 ? minutes / 60 + "h" : minutes + "m";
@@ -288,10 +301,6 @@
           const empty = node("div", "", "usage-quota-empty"); empty.append(node("strong", host.name), node("p", label("quotaUnknown"))); section.append(empty);
         }
       }
-      const providers = root.StepsembleUsageData.combineQuotas(quotas).sort((a, b) => {
-        const tightest = provider => Math.min(101, ...(provider.windows || []).map(w => quotaRemaining(w) ?? 101));
-        return tightest(a) - tightest(b);
-      });
       for (const provider of providers) {
         const cached = provider.cached;
         const card = node("article", "", "usage-quota-card"); card.dataset.cached = String(!!cached);
@@ -359,7 +368,7 @@
         b.dataset.period = key; b.setAttribute("aria-pressed", String(period === key)); periods.append(b);
       }
       const host = makeSelect("host", [["", label("allHosts")], ...hostChoices.map(item => [item.id, item.name])], selectedHost, value => selectHost(value));
-      const refresh = button("↻", () => void load(true), "usage-refresh"); refresh.setAttribute("aria-label", label("refresh"));
+      const refresh = button("", () => void load(true), "usage-refresh"); refresh.setAttribute("aria-label", label("refresh")); refresh.title = label("refresh"); refresh.append(refreshIcon());
       controls.append(host, refresh); top.append(controls);
       const statusNote = node("p", label("loadingLimits"), "usage-status"); statusNote.setAttribute("role", "status");
       const body = node("div", "", "usage-body"); body.id = "usage-view"; body.setAttribute("role", "tabpanel"); body.setAttribute("aria-labelledby", "usage-tab-" + tab); view = { body, status: statusNote, refresh, host, tabs, periods };

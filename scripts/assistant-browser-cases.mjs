@@ -176,11 +176,20 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       const routine = page.locator(".assistant-routine", { hasText: "Luna 每日情報簡報" });
       await routine.waitFor();
       assert.match(await routine.textContent(), /Every day 07:00/, "a cron schedule reads as words");
-      await routine.getByLabel("Also send to this Bot's chat").check();
-      for (let tries = 0; tries < 50 && preview.fake.state.cron.find(job => job.id === brief.id).deliver !== "telegram:586668748,bot-chat"; tries += 1) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      assert.equal(preview.fake.state.cron.find(job => job.id === brief.id).deliver, "telegram:586668748,bot-chat");
+      // A quiet row: Run now stays on it; the rest is in its ⋯ menu. Sending
+      // to the Bot's chat too is set in the routine's own form.
+      assert.equal(await routine.locator("button.btn").count(), 1, "only Run now is a button on the row");
+      await routine.getByRole("button", { name: /^More options/ }).click();
+      const actions = page.getByRole("dialog");
+      assert.deepEqual(await actions.locator(".assistant-menu-row").allInnerTexts(), ["Pause", "History", "Edit routine", "Delete"]);
+      await actions.getByRole("button", { name: "Edit routine", exact: true }).click();
+      await page.locator(".assistant-routine-deliver input[value='telegram:586668748']").waitFor();
+      await page.getByLabel("This Bot's chat").check();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await routine.waitFor();
+      const delivered = () => preview.fake.state.cron.find(job => job.id === brief.id).deliver.split(",").sort().join(",");
+      for (let tries = 0; tries < 50 && delivered() !== "bot-chat,telegram:586668748"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(delivered(), "bot-chat,telegram:586668748");
       await page.getByRole("button", { name: "New routine", exact: true }).click();
       await page.getByLabel("Name").fill("Weekly review");
       await page.getByLabel("What to do").fill("Summarise my week");
