@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.9.27
+
+- Show one session per pane. The top-left pane is the main one: a session picked from the list opens there and the other panes keep theirs; an empty pane in focus takes it instead, and a session already open takes the focus. A session moved to another pane leaves no empty pane behind, a layout saved with tabs keeps each pane's shown session, and Cmd+Option+arrows move between panes.
+- Give each pane a title bar: the session's agent and name, its computer and project below, a Summary button and a menu (Rename, Pin, View changes, splits, Move to new window, Maximize, More…, Close). A phone's title row has Summary too, with Changes moved into More and the summary. The buttons are bare icons, and ⋯ draws real dots instead of rings that read as full stops.
+- Open a conversation's summary: its goals (Codex's own and its Goal history, removed ones too), its subagents, the files it wrote and the pages and searches it read.
+- List every computer's sessions together: Recent across them, the Bots, then each computer with its projects. A session opens and runs on its own computer; an offline computer says when it was last seen and keeps its last list; each computer keeps its own order and pins; adding a project, History from other apps and Schedules ask which computer. There is no computer to switch to any more.
+- Find the Bots and groups in the same list and search, and open them in the main pane like a session, on a phone too.
+- Group Settings into General (Appearance, Devices & access, About), which applies everywhere, and Computer settings (Agents, Notifications, Updates), for the computer chosen at the top of that group.
+- Keep the Goal chip, Codex's own goal and the subagent bubble side by side, a long one ending in "…", with one of their panels open at a time. Pause, resume and remove Codex's own goal from its panel, and remove a paused, finished or stopped Goal. A finished Goal, and Codex's goal once it is not at work, also closes with the × at the end of its chip; the summary still lists it, and the next Goal shows again.
+- Keep showing a subagent an earlier turn started until it ends: a Codex thread, or a background Claude or Pi agent. Finished ones go when the next turn starts, also a turn a Goal starts.
+- Say when a Codex conversation is open in the Codex app on that computer. Codex lets only one program write to a conversation, so sending failed with a generic error; close the conversation in the Codex app, or quit the app, and try again.
+
 ## 3.9.26
 
 - Send messages to a long Codex conversation again after a restart. Codex answers a resume with the conversation's whole history, 11 MB for one that had run for ten days, past the 8 MiB Stepsemble accepts, so every message failed with `native_frame_invalid` once the conversation's process had been let go. The conversation is now resumed alone, as Codex recommends, with only its last 32 turns' ids and states listed around it, so the size no longer grows with the conversation.
