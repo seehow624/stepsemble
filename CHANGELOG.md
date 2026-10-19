@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.25
+
+- Line up everything above the message box with it: the Goal chip and its panel, the subagent bubble and its list, Codex's own goal, task progress and the queue and compaction notes take the box's width and side margins, on a wide desktop and on a phone. They spanned the whole pane, so an opened Goal ran far past the message box on a wide screen.
+
 ## 3.9.24
 
 - Open a Bot's pictures and videos over the conversation instead of at their own address. In an app added to the iPhone home screen that address opened in the app's own window, with no browser bar and no way back, so the only way out was to close the app. The viewer closes with Close, Escape, a tap beside the picture or a swipe down, and gives focus back to what opened it; pictures you sent open there too, and a browser keeps "Open in a new tab".
