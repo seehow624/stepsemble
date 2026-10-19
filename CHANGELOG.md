@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.26
+
+- Send messages to a long Codex conversation again after a restart. Codex answers a resume with the conversation's whole history, 11 MB for one that had run for ten days, past the 8 MiB Stepsemble accepts, so every message failed with `native_frame_invalid` once the conversation's process had been let go. The conversation is now resumed alone, as Codex recommends, with only its last 32 turns' ids and states listed around it, so the size no longer grows with the conversation.
+
 ## 3.9.25
 
 - Line up everything above the message box with it: the Goal chip and its panel, the subagent bubble and its list, Codex's own goal, task progress and the queue and compaction notes take the box's width and side margins, on a wide desktop and on a phone. They spanned the whole pane, so an opened Goal ran far past the message box on a wide screen.
