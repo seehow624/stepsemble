@@ -36,12 +36,12 @@ test("browser matrix splits finite workers without losing or repeating any suite
   const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
   const runtime = path.resolve("owned-runtime"), helper = path.resolve("owned-helper");
   const jobs = browserWorkerJobs(runtime, helper);
-  assert.deepEqual(jobs.map(job => job.suite), ["core", "conversation-ux", "workspace", "sources", "codex"]);
+  assert.deepEqual(jobs.map(job => job.suite), ["core", "conversation-ux", "workspace", "assistant", "sources", "codex"]);
   for (const job of jobs) {
     assert.equal(path.basename(job.args[0]), "rolling-browser-worker.mjs");
     assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(["sources", "codex"].includes(job.suite) ? [helper] : [])]);
   }
-  assert.deepEqual(browserWorkerJobs(runtime).map(job => job.suite), ["core", "conversation-ux", "workspace"]);
+  assert.deepEqual(browserWorkerJobs(runtime).map(job => job.suite), ["core", "conversation-ux", "workspace", "assistant"]);
 });
 test("browser runner distinguishes process-budget cancellation from a case failure and waits for close", async () => {
   const { run } = await import("../scripts/check-rolling-clients.mjs"), { EventEmitter } = require("node:events");

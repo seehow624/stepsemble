@@ -20,7 +20,12 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await context.route("**/r/mbp/api/workspace", route => mbpOnline ? route.fallback() : route.fulfill({ status: 503, json: { error: "unreachable" } }));
         await page.goto(fixture.origin + "/workspace.html");
         const machine = id => page.locator(`.workspace-machine[data-host="${id}"]`);
-        await machine("mbp").locator(".workspace-session").first().waitFor();
+        // The other computer is read every ten seconds; one missed read must fit.
+        await machine("mbp").locator(".workspace-session").first().waitFor({ timeout: 30_000 }).catch(async error => {
+          const sections = await page.evaluate(() => ({ host: document.getElementById("workspace-host-state")?.dataset.state, title: document.getElementById("workspace-host")?.title,
+            machines: [...document.querySelectorAll(".workspace-machine")].map(node => ({ host: node.dataset.host, state: node.dataset.state, sessions: node.querySelectorAll(".workspace-session").length, collapsed: node.querySelector(".workspace-machine-toggle")?.getAttribute("aria-expanded") })) }));
+          throw new Error(`${error.message}\n${JSON.stringify(sections)}`);
+        });
         assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
         assert.equal(await page.locator(".workspace-host-block").isVisible(), false, "nothing to switch");
         assert.equal(await machine("mini").locator(".workspace-machine-state").count(), 0);

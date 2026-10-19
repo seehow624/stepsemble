@@ -37,8 +37,8 @@ const pins = require("../protocol/rolling-releases.json").releases;
 const runtime = process.argv[2];
 const suite = process.argv[3], historyHelper = process.argv[4];
 if (!runtime || !path.isAbsolute(runtime)) throw new Error("Missing isolated browser runtime");
-if (!["core", "conversation-ux", "workspace", "sources", "codex"].includes(suite) || process.argv.length > 5
-  || (["core", "conversation-ux", "workspace"].includes(suite) ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
+if (!["core", "conversation-ux", "workspace", "assistant", "sources", "codex"].includes(suite) || process.argv.length > 5
+  || (["core", "conversation-ux", "workspace", "assistant"].includes(suite) ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
   throw new Error("Invalid browser suite or owned helper path");
 if (process.platform === "win32") throw new Error("Historical Hosts cannot launch this Unix synthetic peer; Windows rolling runtime is not claimed");
 const { chromium } = await import(pathToFileURL(path.join(runtime, "node_modules/playwright/index.mjs")));
@@ -197,6 +197,8 @@ try {
     await runWorkspaceMachinesBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
+  }
+  else if (suite === "assistant") {
     await runAssistantBrowserCases(browser);
     await runAssistantMobileBrowserCases(browser);
     await runAssistantAvatarBrowserCases(browser);
