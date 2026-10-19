@@ -442,6 +442,61 @@ export async function runHistoryEmptyBrowserCases(browser, { screenshots } = {})
   }
 }
 
+// What sits above the message box (the Goal chip and its panel, the subagent
+// bubble and its list, task progress and Codex's own goal) shares the box's
+// width: their edges line up with it on a wide desktop and on a phone.
+export async function runConversationColumnBrowserCases(browser, { screenshots } = {}) {
+  for (const viewport of [{ width: 1600, height: 900, mobile: false }, { width: 393, height: 852, mobile: true }]) {
+    const preview = await createNativeComposerPreview();
+    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+    try {
+      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+      const goal = { id: "column-goal", objective: "Keep everything above the message box in line with it", status: "running", elapsedMs: 754_000, activity: "thinking", turns: 3, outputTokens: 1200, clockRunning: true };
+      await context.route("**/api/workflows?entry=**", route => route.fulfill({ json: { runs: [{ ...goal, entry: new URL(route.request().url()).searchParams.get("entry") }] } }));
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+      const edges = (ui, selectors) => ui.evaluate(selectors => {
+        const box = node => { const r = node.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right) }; };
+        const composer = box(document.querySelector("#view-chat .composer"));
+        return { composer, rows: selectors.map(selector => { const node = [...document.querySelectorAll(selector)].find(row => row.offsetParent); return { selector, ...(node ? box(node) : { missing: true }) }; }) };
+      }, selectors);
+      const aligned = (result, full) => {
+        for (const row of result.rows) {
+          assert.ok(!row.missing, `${viewport.width}: ${row.selector} is not shown`);
+          assert.ok(Math.abs(row.left - result.composer.left) <= 1, `${viewport.width}: ${row.selector} starts at ${row.left}, the message box at ${result.composer.left}`);
+          if (full.includes(row.selector)) assert.ok(Math.abs(row.right - result.composer.right) <= 1, `${viewport.width}: ${row.selector} ends at ${row.right}, the message box at ${result.composer.right}`);
+        }
+      };
+      const claude = await openFromSidebar(page, "Claude composer fixture");
+      await claude.waitForFunction(() => typeof subagentTracker !== "undefined" && !!subagentPanel && !!rpc?.nativeClaudeStructured && !rpc.nativeLoading);
+      await claude.evaluate(() => subagentTracker.claude({ type: "assistant", message: { content: [{ type: "tool_use", id: "column-child", name: "Agent",
+        input: { description: "Check the links", prompt: "Check the links", subagent_type: "researcher" } }] } }));
+      await claude.locator(".goal-chip").waitFor();
+      await claude.locator(".goal-chip").click(); await claude.locator(".goal-panel").waitFor();
+      aligned(await edges(claude, [".goal-chip", ".goal-panel"]), [".goal-panel"]);
+      await claude.locator(".goal-chip").click();
+      await claude.locator(".subagent-bubble").click(); await claude.locator(".subagent-list").waitFor();
+      aligned(await edges(claude, [".subagent-list"]), [".subagent-list"]);
+      await claude.locator(".subagent-bubble").click();
+      // A Codex-style plan shown as task progress, opened.
+      await claude.evaluate(() => { setTaskProgressWidget("plan", ["[x] Read the logs", "[ ] Line up the chips"]); taskProgress.expanded = true; renderTaskProgress(); });
+      await claude.locator("#task-progress-panel:not(.hidden)").waitFor();
+      aligned(await edges(claude, ["#task-progress-panel"]), ["#task-progress-panel"]);
+      if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `column-claude-${viewport.width}.png`) }); }
+      if (viewport.mobile) await claude.evaluate(() => parent.postMessage({ type: "workspace-show-list" }, location.origin));
+      const codex = await openFromSidebar(page, "Codex composer fixture");
+      await codex.locator("#native-run-toggle").waitFor();
+      await codex.locator("#native-run-toggle").click(); await codex.locator("#native-run-detail").waitFor();
+      aligned(await edges(codex, ["#native-run-toggle", "#native-run-detail"]), ["#native-run-detail"]);
+      if (screenshots) await page.screenshot({ path: path.join(screenshots, `column-codex-${viewport.width}.png`) });
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ case: "Conversation column", width: viewport.width, result: "passed" }));
+    } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }
+  }
+}
+
 // The pane's header controls (Changes, More) float over its top-right corner
 // on a desktop; the first message, usually the person's at the right, starts
 // below them. A phone keeps its title row in the flow.
@@ -762,6 +817,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runKeyboardFocusBrowserCases(browser);
   await runNarrowSettingsBrowserCases(browser, options);
   await runHistoryEmptyBrowserCases(browser, options);
+  await runConversationColumnBrowserCases(browser, options);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
