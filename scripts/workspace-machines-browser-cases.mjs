@@ -18,6 +18,17 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
         await context.addInitScript(() => localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" })));
         await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
+        // What a timeout reports: the list's pointer events and the other
+        // computer's reads, to tell a held redraw from a read that never ends.
+        await context.addInitScript(() => {
+          window.__sidebarEvents = [];
+          addEventListener("DOMContentLoaded", () => { for (const type of ["pointerenter", "pointerleave"]) document.getElementById("workspace-sidebar")?.addEventListener(type, event => window.__sidebarEvents.push([Math.round(performance.now()), type, event.pointerType, event.isTrusted])); });
+        });
+        const startedAt = Date.now(), reads = [];
+        const note = (request, what) => { if (new URL(request.url()).pathname.startsWith("/r/mbp/")) reads.push([Date.now() - startedAt, what, new URL(request.url()).pathname]); };
+        page.on("request", request => note(request, "sent"));
+        page.on("requestfinished", async request => note(request, "status " + (await request.response().catch(() => null))?.status()));
+        page.on("requestfailed", request => note(request, "failed " + request.failure()?.errorText));
         let mbpOnline = true, offlineReads = 0;
         await context.route("**/r/mbp/api/workspace", route => mbpOnline ? route.fallback() : (offlineReads++, route.fulfill({ status: 503, json: { error: "unreachable" } })));
         await page.goto(fixture.origin + "/workspace.html");
@@ -26,7 +37,8 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await machine("mbp").locator(".workspace-session").first().waitFor({ timeout: 30_000 }).catch(async error => {
           const sections = await page.evaluate(() => ({ host: document.getElementById("workspace-host-state")?.dataset.state, title: document.getElementById("workspace-host")?.title,
             machines: [...document.querySelectorAll(".workspace-machine")].map(node => ({ host: node.dataset.host, state: node.dataset.state, sessions: node.querySelectorAll(".workspace-session").length, collapsed: node.querySelector(".workspace-machine-toggle")?.getAttribute("aria-expanded") })) }));
-          throw new Error(`${error.message}\n${JSON.stringify(sections)}`);
+          const events = await page.evaluate(() => window.__sidebarEvents || []);
+          throw new Error(`${error.message}\n${JSON.stringify(sections)}\n${JSON.stringify({ events, reads: reads.slice(0, 40) })}`);
         });
         assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
         assert.equal(await page.locator(".workspace-host-block").isVisible(), false, "nothing to switch");
