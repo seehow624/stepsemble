@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.9.31
+
+- Float the limits at the bottom of the sidebar on a liquid-glass capsule; the session list scrolls behind it. It turns solid when the system asks for less transparency or more contrast.
+- Tidy the sidebar: quieter icon buttons, project names in their own case, menus grouped with separators, and routines in Automations named as their Bot's page names them, without the "[bot:…]" tag.
+- Show a Bot's routines as quiet rows with Run now and a menu for the rest, add a back button on the phone for All routines and Manage Bots, and simplify Schedules and the limits panel.
+- In a conversation, make Stop look different from Send and dim Send while there is nothing to send, always show an arrow to return to the latest message, fade the bottom of the conversation, and give chips 44 px touch targets on touch screens.
+- Use a document icon for Summary and align its sections; on a phone, dialogs rise from the bottom as a sheet, and the folder picker still shows Add this folder on a short screen.
+- In Settings, align the rows on one edge, use a white toggle knob, and make Sign out a quiet red row.
+- Show only the actions that work in a Codex or Claude conversation's More menu.
+
 ## 3.9.30
 
 - Open a Bot whose conversation has grown long. Opening resumed the conversation with every message in one reply, and Node's WebSocket drops any message that unpacks to more than 4 MB together with the connection: a Bot Chat of 710 messages, each reply carrying its encrypted reasoning, was 4.06 MB, so every open ended in "The connection to Hermes closed" and Try again did the same. The transcript is now read from Hermes over HTTP, a page at a time, newest first, with the same thousand rows as before, including the messages from before a compaction.
