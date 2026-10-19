@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.30
+
+- Open a Bot whose conversation has grown long. Opening resumed the conversation with every message in one reply, and Node's WebSocket drops any message that unpacks to more than 4 MB together with the connection: a Bot Chat of 710 messages, each reply carrying its encrypted reasoning, was 4.06 MB, so every open ended in "The connection to Hermes closed" and Try again did the same. The transcript is now read from Hermes over HTTP, a page at a time, newest first, with the same thousand rows as before, including the messages from before a compaction.
+
 ## 3.9.29
 
 - Show another computer's list as soon as it comes, and its going offline or coming back, even with the pointer resting on the list. Only a new order of the list waits for the pointer to leave, so a row still never jumps under a click; before, such a computer could stay on "Loading…" for as long as the pointer rested on the list.
