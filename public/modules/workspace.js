@@ -1662,7 +1662,8 @@
     reader.href = target === self ? "/history.html" : `/history.html?machine=${encodeURIComponent(target)}`;
     reader.target = "_blank"; reader.rel = "noopener noreferrer";
     body.append(reader);
-    const search = node("input"); search.type = "search"; search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory"));
+    // The search field appears once there is history to search.
+    const search = node("input"); search.type = "search"; search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory")); search.hidden = true;
     // Sub Agent sessions run in temporary folders and stay hidden until asked for.
     // The choice is saved with the other settings.
     const subAgents = node("label", "", "workspace-history-filter"), subAgentsBox = node("input"), subAgentsText = node("span");

@@ -441,10 +441,12 @@ export async function runHistoryEmptyBrowserCases(browser, { screenshots } = {})
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
       await page.locator("#workspace-history").click();
       const dialog = page.locator("#workspace-dialog");
-      await dialog.locator("input[type=search]").waitFor();
+      await dialog.locator("#workspace-dialog-body").waitFor();
       await page.waitForFunction(text => document.getElementById("workspace-dialog-body")?.innerText.includes(text), expected, { timeout: 10_000 }).catch(() => {});
       const body = await dialog.locator("#workspace-dialog-body").innerText();
       assert.ok(body.includes(expected), `${locale}: ${body}`);
+      // With nothing to search, there is no search field.
+      assert.equal(await dialog.locator("input[type=search]").isVisible(), false, `${locale}: a search field over no history`);
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `history-empty-${width}.png`) }); }
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "History empty", locale, width, result: "passed" }));
