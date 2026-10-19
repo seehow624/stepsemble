@@ -16,8 +16,8 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
         await context.addInitScript(() => localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" })));
         await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
-        let mbpOnline = true;
-        await context.route("**/r/mbp/api/workspace", route => mbpOnline ? route.fallback() : route.fulfill({ status: 503, json: { error: "unreachable" } }));
+        let mbpOnline = true, offlineReads = 0;
+        await context.route("**/r/mbp/api/workspace", route => mbpOnline ? route.fallback() : (offlineReads++, route.fulfill({ status: 503, json: { error: "unreachable" } })));
         await page.goto(fixture.origin + "/workspace.html");
         const machine = id => page.locator(`.workspace-machine[data-host="${id}"]`);
         // The other computer is read every ten seconds; one missed read must fit.
@@ -44,15 +44,24 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         if (viewport.mobile) await page.evaluate(() => history.back());
         await page.locator(".workspace-machine").first().waitFor();
         // The other computer stops answering: its section says so and keeps its
-        // last list, once the pointer has left the list. (On a phone the list
-        // fills the screen; the lifted finger has left it.)
+        // last list, once the pointer has left the list. On a phone the list
+        // fills the screen and the lifted finger has left it, yet an emulated
+        // phone can still report a resting pointer over the list, which holds
+        // its redraw; the wait says again that the pointer has left.
         if (!viewport.mobile) await page.mouse.move(viewport.width - 5, viewport.height - 5);
+        const machineState = state => page.waitForFunction(({ state, mobile }) => {
+          if (mobile) document.getElementById("workspace-sidebar").dispatchEvent(new PointerEvent("pointerleave"));
+          return document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === state;
+        }, { state, mobile: viewport.mobile }, { timeout: 30_000, polling: 500 }).catch(async error => {
+          const seen = await page.evaluate(() => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state);
+          throw new Error(`${error.message}\n${JSON.stringify({ wanted: state, seen, offlineReads })}`);
+        });
         mbpOnline = false;
-        await page.waitForFunction(() => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === "offline", null, { timeout: 30_000 });
+        await machineState("offline");
         assert.match(await machine("mbp").locator(".workspace-machine-state").textContent(), /^Offline/);
         assert.ok(await machine("mbp").locator(".workspace-session").count() > 0, "its last list stays, dimmed");
         mbpOnline = true;
-        await page.waitForFunction(() => document.querySelector('.workspace-machine[data-host="mbp"]')?.dataset.state === "online", null, { timeout: 30_000 });
+        await machineState("online");
         // The other computer orders and pins its own projects.
         const project = machine("mbp").locator(".workspace-project").last(), cwd = await project.getAttribute("data-cwd");
         await project.locator(".workspace-project-menu").click();
