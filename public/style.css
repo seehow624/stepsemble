@@ -427,9 +427,9 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
   white-space: pre-wrap; max-height: 240px; overflow-y: auto; background: var(--milk); }
 .tool-card.err .tool-name { color: var(--err-ink); }
 .usage-tag { font-size: 11px; color: var(--pine-soft); text-align: right; margin-top: 4px; font-family: var(--mono); }
-.queue-note { font-size: 12.5px; color: var(--warn-ink); padding: 4px 16px; }
+.queue-note { font-size: 12.5px; color: var(--warn-ink); padding: 4px 12px; }
 .queue-note.stale { color: var(--err-ink); }
-.compaction-status { font-size: 12.5px; color: var(--pine-soft); padding: 4px 16px; }
+.compaction-status { font-size: 12.5px; color: var(--pine-soft); padding: 4px 12px; }
 .compaction-status::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--accent); vertical-align: 1px; animation: compaction-pulse 1.2s ease-in-out infinite; }
 @keyframes compaction-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 .reduced-motion .compaction-status::before { animation: none; }
@@ -437,7 +437,7 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
 .reference-wait-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Subagents of the current turn: a bubble above the composer, its list, and
    a read-only detail panel at the side (from below on a phone). */
-.subagent-bar { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; padding: 0 16px; }
+.subagent-bar { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; }
 .subagent-bubble { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; }
 .subagent-bubble[hidden] { display: none; }
 .subagent-bubble::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
@@ -522,7 +522,7 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
   .subagent-drawer { top: auto; left: 0; width: auto; max-height: 85vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -12px 32px rgba(0, 0, 0, .14); }
 }
 .task-replay-note {
-  margin: 0 16px 6px;
+  margin: 0 0 6px;
   padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line));
   border-radius: 10px;
@@ -4858,12 +4858,12 @@ html.reduced-motion #view-chat .context-ring-fill { transition: none; }
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px 7px;
+  padding: 6px 0 7px;
   color: var(--ink);
   background: var(--paper);
 }
 #view-chat .task-progress-panel {
-  width: min(100%, 720px);
+  width: 100%;
   max-height: min(42dvh, 320px);
   overflow-y: auto;
   padding: 9px 11px 8px;
@@ -5052,7 +5052,6 @@ html.reduced-motion #view-chat .task-progress-step.active .task-progress-step-co
 html.reduced-motion #view-chat .task-progress-step-marker.running,
 html.reduced-motion #view-chat .task-progress-indicator.running { animation: none; }
 @media (max-width: 600px) {
-  #view-chat .task-progress { padding-left: 8px; padding-right: 8px; }
   #view-chat .task-progress-panel { max-height: min(45dvh, 330px); border-radius: 16px; }
   #view-chat .task-progress-step { grid-template-columns: 22px 23px minmax(0, 1fr); gap: 6px; padding-left: 2px; padding-right: 2px; }
   #view-chat .task-progress-step-copy { font-size: .8rem; }
@@ -5067,6 +5066,16 @@ html.reduced-motion #view-chat .task-progress-indicator.running { animation: non
   }
   #view-chat .task-progress-step-marker.running,
   #view-chat .task-progress-indicator.running { animation: none; }
+}
+
+/* What sits above the message box (notes, subagents, a Goal, Codex's goal and
+   task progress) takes the box's own width, so their edges line up with it. */
+#view-chat :is(.queue-note, .subagent-bar, .compaction-status, .task-replay-note, .task-progress) {
+  margin-left: max(10px, calc((100% - 900px) / 2));
+  margin-right: max(10px, calc((100% - 900px) / 2));
+}
+@media (max-width: 979px) {
+  #view-chat :is(.queue-note, .subagent-bar, .compaction-status, .task-replay-note, .task-progress) { margin-left: 7px; margin-right: 7px; }
 }
 
 /* Stuck-run banner: a quiet amber strip between the sidebar filters and the
