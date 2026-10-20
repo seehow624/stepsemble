@@ -99,6 +99,18 @@ test("a Host restart never sends again what it was sending, and waits for the pe
   void waiting;
 });
 
+test("a pause holds the messages it held; once they are gone the next message queues afresh", async t => {
+  const { agent, queue } = service(t);
+  agent.working = true;
+  const held = queue.add("pi", "a", { text: "held" }).item;
+  queue.pause("pi", "a");
+  queue.remove("pi", "a", held.id, held.revision);
+  assert.equal(queue.snapshot("pi", "a").paused, false);
+  queue.add("pi", "a", { text: "new" });
+  agent.end(queue); await flush(); await flush();
+  assert.deepEqual(agent.sent.map(row => row.text), ["new"]);
+});
+
 test("the Host sends the next message when a turn ends, one per turn, with no page open", async t => {
   const { agent, queue } = service(t);
   agent.working = true;

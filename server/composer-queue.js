@@ -111,7 +111,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-      const rows = [...conversations.values()].filter(row => row.items.length || row.paused).map(row => ({
+      const rows = [...conversations.values()].filter(row => row.items.length).map(row => ({
         agent: row.agent, id: row.id, revision: row.revision, paused: row.paused, pauseReason: row.pauseReason, items: row.items.map(storedItem) }));
       fs.writeFileSync(temporary, JSON.stringify({ version: 1, conversations: rows }) + "\n", { encoding: "utf8", mode: 0o600 });
       fs.renameSync(temporary, file);
@@ -153,7 +153,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
       // the person to resume rather than going to an agent nobody watched start.
       let paused = row.paused === true, pauseReason = PAUSES.has(row.pauseReason) ? row.pauseReason : null;
       if (!paused && items.some(item => item.state === "queued")) { paused = true; pauseReason = "restart"; changed = true; }
-      if (!items.length && !paused) { changed = true; continue; }
+      if (!items.length) { changed = true; continue; }
       sequence = Math.max(sequence, Number.isSafeInteger(row.revision) ? row.revision : 0);
       conversations.set(keyOf(row.agent, row.id), { agent: row.agent, id: row.id, revision: nextRevision(),
         paused, pauseReason: paused ? pauseReason || "stopped" : null, items, recent: [] });
@@ -210,6 +210,8 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
     deletePayload(item.id);
     conversation.recent.push({ id: item.id, state: outcome, at: now(), text: item.preview, truncated: item.length > item.preview.length, imageCount: item.imageCount });
     trimRecent(conversation);
+    // A pause holds the messages it held; the next message queued starts afresh.
+    if (!conversation.items.length) { conversation.paused = false; conversation.pauseReason = null; }
   }
   function commit(conversation) {
     touch(conversation);

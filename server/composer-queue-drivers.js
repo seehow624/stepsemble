@@ -53,8 +53,10 @@ function createPiQueueDriver({ sessions, command, sessionFileOf = () => null }) 
       return /stream/i.test(String(response?.error || "")) ? { kind: "busy" } : reject("pi_prompt_rejected");
     },
     fromEvent(sid, event) {
+      // Most events are streamed text; only these concern the queue.
+      if (!["message_start", "agent_settled", "rpc_exit"].includes(event?.type) || event.type === "message_start" && event.message?.role !== "user") return null;
       const session = sessions.get(sid);
-      if (!session || !event) return null;
+      if (!session) return null;
       const id = keyOf(sid, session);
       if (event.type === "message_start" && event.message?.role === "user") return { id, deliveredText: textOf(event.message.content) };
       if (event.type === "agent_settled") {
@@ -150,7 +152,7 @@ function createClaudeQueueDriver({ resolveSession, send, saved = () => null, con
       return reject(result?.code || "claude_prompt_failed");
     },
     fromEvent(localId, event) {
-      if (!event || event.parentToolUseId || event.isReplay === true) return null;
+      if (!["command_lifecycle", "result", "rate.turn.ended"].includes(event?.type) || event.parentToolUseId || event.isReplay === true) return null;
       const id = nativeOf(resolveSession(localId)) || localId;
       if (event.type === "command_lifecycle" && typeof event.command_uuid === "string") {
         const state = String(event.state || "");

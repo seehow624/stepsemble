@@ -158,10 +158,13 @@
       if (!waiting && menuOpen === chip) closeMenu();
       node.setAttribute("aria-label", [shownText, imageLabel, status].filter(Boolean).join(" · "));
     }
+    // The next chip that can still be acted on, else the one before, else the box.
     function focusAfter(id, order) {
-      const index = order.indexOf(id);
-      const next = chips.get(order.slice(index + 1).find(other => chips.has(other))) || chips.get(order.slice(0, Math.max(0, index)).reverse().find(other => chips.has(other)));
-      if (next) (next.send.disabled ? next.remove : next.send).focus({ preventScroll: true });
+      const index = order.indexOf(id), usable = other => other !== id && chips.has(other) && !chips.get(other).remove.disabled;
+      const next = chips.get(order.slice(index + 1).find(usable)) || chips.get(order.slice(0, Math.max(0, index)).reverse().find(usable));
+      // The first of its buttons that is shown and enabled; a narrow stack shows More in place of Edit.
+      const target = next && [...next.node.querySelectorAll(".cq-actions > .cq-btn")].find(button => !button.disabled && button.getClientRects().length > 0);
+      if (target) target.focus({ preventScroll: true });
       else onEmpty();
     }
     async function leave(chip, how, order) {
@@ -232,6 +235,13 @@
       }
       const leaving = [...chips.values()].filter(chip => !present.has(chip.item.id));
       chips = next;
+      // A chip on its way has nothing left to press: the focus moves on at once.
+      for (const [id, chip] of chips) {
+        if (chip.send.disabled && chip.remove.disabled && (focusFrom === id || chip.node.contains(document.activeElement))) {
+          focusFrom = null;
+          focusAfter(id, [...chips.keys()]);
+        }
+      }
       for (const chip of leaving) {
         const recent = (snapshot.recent || []).find(row => row.id === chip.item.id);
         if (recent?.state === "delivered") say(t("queue.announceDelivered", { text: oneLine(chip.item.text).slice(0, 120) || t("queue.imagesOnly") }));
