@@ -4925,10 +4925,9 @@ body.compact #view-list .project-group-items .session-item {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#view-chat .composer-model-level {
+#view-chat .composer-effort {
   flex: 0 0 auto;
   color: var(--accent);
-  white-space: nowrap;
 }
 #view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 
@@ -6612,9 +6611,9 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
-/* A ring with nothing to show looks like an empty radio button; it waits
-   until the agent reports how full the context is. */
-#view-chat .context-dashboard[data-context-state="unknown"] .context-info-wrap { display: none; }
+/* An agent that never reports its context has no ring; one that has not
+   reported yet shows an empty dashed one (see "effort-and-context" below). */
+#view-chat .context-dashboard[data-context-state="unsupported"] .context-info-wrap { display: none; }
 /* With a mouse and room to spare, the percentage stands beside the ring. */
 @media (min-width: 600px) and (pointer: fine) {
   #view-chat .context-ring-btn { width: auto; padding: 0 7px 0 6px; gap: 5px; border-radius: var(--radius-sm); }
@@ -6649,7 +6648,6 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 #view-chat .composer-model-control:hover { background: var(--bubble-user); }
 #view-chat .composer-model-copy { gap: 5px; }
 #view-chat .composer-model-name { color: var(--ink); font-weight: 560; }
-#view-chat .composer-model-level { color: var(--pine-soft); font-weight: 480; }
 #view-chat .composer-model-control .icon { width: 12px; height: 12px; opacity: .7; }
 #view-chat .composer-send {
   position: relative;
@@ -6682,9 +6680,8 @@ html.reduced-motion #view-chat .composer-send { transition: none; }
 }
 @media (max-width: 480px) {
   /* A narrow phone keeps the words and drops the approval chevron; the model
-     chip keeps its chevron and drops the reasoning level instead. */
-  #view-chat .composer-approval .composer-approval-chevron,
-  #view-chat .composer-model-level { display: none; }
+     chip keeps its chevron and its small thinking bars. */
+  #view-chat .composer-approval .composer-approval-chevron { display: none; }
   #view-chat .composer-approval { gap: 5px; padding: 0 5px; font-size: var(--text-sm); }
   #view-chat .composer-model-control { max-width: 44vw; padding: 0 4px; font-size: var(--text-sm); }
 }
@@ -6854,4 +6851,76 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
 }
 @media (prefers-contrast: more) {
   #view-chat .composer { border-color: var(--ink); }
+}
+
+/* ==========================================================================
+   v3.10 effort-and-context — the thinking level as four rising bars beside
+   the model, and the context ring before the agent has reported. The bars
+   light in the accent colour up to the level's place in the model's own
+   list, and its top level adds a dot over the tallest bar, a shape rather
+   than a colour; its name is their tooltip and part of the button's name.
+   They stay on a phone and in a narrow pane. Pixel-aligned at 1× and 2×.
+   ========================================================================== */
+#view-chat .composer-model-copy { align-items: center; }
+#view-chat .composer-effort {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 3px;
+  line-height: 0;
+}
+#view-chat .composer-effort-glyph { display: block; width: 11px; height: 13px; overflow: visible; }
+/* The list's top level: a dot over the tallest bar, with a pixel between. */
+#view-chat .composer-effort-mark { fill: currentColor; opacity: 0; transition: opacity .2s ease; }
+#view-chat .composer-effort[data-top="true"] .composer-effort-mark { opacity: 1; }
+/* --s scales a bar from its own height (--h, in the markup) to the one its
+   state draws; whole pixels at 1× and 2×. */
+#view-chat .composer-effort-bar {
+  --s: 1;
+  fill: color-mix(in srgb, var(--ink) 18%, transparent);
+  transform: scaleY(var(--s));
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: fill .2s ease, opacity .2s ease, transform .25s var(--oc-spring, ease);
+}
+#view-chat .composer-effort-bar.on { fill: currentColor; }
+/* Auto: the agent picks its level, so no step is lit; four even bars. */
+#view-chat .composer-effort[data-state="auto"] .composer-effort-bar { --s: calc(6 / var(--h)); fill: currentColor; opacity: .55; }
+/* No level to show: the bars lie flat; the tooltip says why. */
+#view-chat .composer-effort[data-state="none"] .composer-effort-bar { --s: calc(2 / var(--h)); }
+/* While the agent works, the lit bars rise one after another. */
+@keyframes composer-effort-ripple {
+  0%, 64%, 100% { transform: scaleY(var(--s)); }
+  30% { transform: scaleY(calc(var(--s) * .5)); }
+}
+#view-chat .composer-model-control.is-working .composer-effort-bar.on,
+#view-chat .composer-model-control.is-working .composer-effort[data-state="auto"] .composer-effort-bar {
+  animation: composer-effort-ripple 1.8s cubic-bezier(.45, 0, .3, 1) infinite;
+  animation-delay: calc(var(--bar) * 150ms);
+}
+html.reduced-motion #view-chat :is(.composer-effort-bar, .composer-effort-mark) { transition: none; animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  #view-chat :is(.composer-effort-bar, .composer-effort-mark) { transition: none; animation: none; }
+}
+/* A read-only history names the model it ran with; there is nothing to open. */
+#view-chat .composer-model-control.is-static { cursor: default; }
+#view-chat .composer-model-control.is-static > .icon { display: none; }
+#view-chat .composer-model-control.is-static:hover { background: transparent; }
+@media (max-width: 480px) {
+  #view-chat .composer-effort { margin-left: 2px; }
+}
+@media (forced-colors: active) {
+  #view-chat .composer-effort { forced-color-adjust: none; color: ButtonText; }
+  #view-chat .composer-effort-bar { fill: GrayText; }
+  #view-chat .composer-effort-bar.on, #view-chat .composer-effort-mark { fill: ButtonText; }
+  #view-chat .composer-effort[data-state="auto"] .composer-effort-bar { fill: ButtonText; }
+}
+
+/* Context the agent has not reported yet: an empty dashed ring and a dash. */
+#view-chat .context-dashboard[data-context-state="unknown"] .context-ring-track {
+  stroke: color-mix(in srgb, var(--pine-soft) 55%, transparent);
+  stroke-dasharray: 4.06 4.06;
+}
+#view-chat .context-dashboard[data-context-state="unknown"] .context-ring-fill { opacity: 0; }
+@media (forced-colors: active) {
+  #view-chat .context-dashboard[data-context-state="unknown"] .context-ring-track { stroke: GrayText; }
 }

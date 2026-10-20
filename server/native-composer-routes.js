@@ -17,8 +17,18 @@ function effortValue(value) {
 }
 
 // Called only inside the main authenticated/origin-checked API block.
+// A live Claude that has reported no usage since it started (a conversation
+// opened again) shows the context its transcript last recorded, at the
+// capacity of the model it runs now when that is known.
+function withObservedContext(live, observed) {
+  if (!live || live.contextTokens !== null && live.contextTokens !== undefined || !observed || observed.contextTokens === null) return live;
+  const contextWindow = live.contextWindow ?? observed.contextWindow ?? null;
+  return { ...observed, model: live.model || observed.model, contextWindow,
+    contextPercent: contextWindow ? Number(Math.min(100, observed.contextTokens / contextWindow * 100).toFixed(6)) : null };
+}
+
 function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null,
-  codexPermissions = null, onChoice = null, savedClaude = null, onSessionChoice = null }) {
+  codexPermissions = null, onChoice = null, savedClaude = null, onSessionChoice = null, observeClaude = null }) {
   // A Claude conversation whose process was let go keeps the model and level
   // picked for it; Claude starts with them on the next message.
   function savedClaudeResponse(p, saved, body) {
@@ -57,10 +67,14 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
           return true;
         }
         const catalog = p.endsWith("/models") ? await gateway?.refreshClaudeGatewayCache() : null;
-        const result = p.endsWith("/models") ? await resolved.session.models()
+        let result = p.endsWith("/models") ? await resolved.session.models()
           : p.endsWith("/context") ? await resolved.session.contextUsage()
             : p.endsWith("/effort") ? await resolved.session.setEffort(effortValue(body?.effort))
               : await resolved.session.setModel(modelValue(body?.model));
+        if (p.endsWith("/context") && observeClaude && result && (result.contextTokens === null || result.contextTokens === undefined)) {
+          const nativeSessionId = resolved.session.status?.()?.nativeSessionId;
+          try { if (nativeSessionId) result = withObservedContext(result, observeClaude(nativeSessionId)); } catch {}
+        }
         if (p.endsWith("/models") && result?.kind !== "reject") { try { onModels?.("claude-code", result?.models); } catch {} }
         // A model or level the person picks becomes the one the next
         // conversation starts with, and this conversation keeps it.
@@ -143,4 +157,4 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
   };
 }
 
-module.exports = { createNativeComposerRoutes, PROMPT_BODY_BYTES };
+module.exports = { createNativeComposerRoutes, withObservedContext, PROMPT_BODY_BYTES };

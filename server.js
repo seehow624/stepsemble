@@ -30,7 +30,7 @@ const { piImageInputs } = require("./server/prompt-attachments");
 // ACP agents read a prompt as one stdin line, so theirs is kept smaller.
 const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
 const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
-const { createNativeComposerRoutes } = require("./server/native-composer-routes");
+const { createNativeComposerRoutes, withObservedContext } = require("./server/native-composer-routes");
 const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createPiChoice } = require("./server/pi-choice");
@@ -100,7 +100,9 @@ const { createTurnRateStore } = require("./server/turn-rate-store");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { createCodexAutoUpgrade, createHarnessAutoUpgrade } = require("./server/codex-auto-upgrade");
 const { createAgentReleaseGate } = require("./server/agent-release-gate");
-const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
+const { claudeForkPoint: claudeForkPointAt, claudeConfigDir, claudeTranscriptFile } = require("./server/claude-fork-point");
+const { createClaudeTranscriptUsage, lastObservedContext } = require("./server/claude-transcript-usage");
+const { matchModel, modelTags, contextCapacity } = require("./public/modules/model-presentation");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
@@ -2282,34 +2284,15 @@ function acpAdapterForAgent(agentId) {
   return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : agentId === "omp" ? ompAcp : null;
 }
 
-// The model a Claude conversation last answered with, read from the end of
-// Claude's own transcript. A conversation from before choices were kept is
-// reopened with it rather than with whatever was chosen last elsewhere.
-function claudeTranscriptModel(nativeSessionId, cwd) {
-  const id = String(nativeSessionId || "");
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(id) || typeof cwd !== "string" || !path.isAbsolute(cwd)) return null;
-  const configDir = process.env.CLAUDE_CONFIG_DIR && path.isAbsolute(process.env.CLAUDE_CONFIG_DIR)
-    ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.HOME || os.homedir(), ".claude");
-  // Claude names a project's folder after its path, every other character a dash.
-  const file = path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) return null;
-    const length = Math.min(stat.size, 512 * 1024);
-    const buffer = Buffer.alloc(length);
-    fs.readSync(fd, buffer, 0, length, stat.size - length);
-    const lines = buffer.toString("utf8").split("\n");
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      const line = lines[index];
-      if (!line.includes('"assistant"') || !line.includes('"model"')) continue;
-      let row; try { row = JSON.parse(line); } catch { continue; }
-      const model = row?.type === "assistant" ? row.message?.model : null;
-      if (typeof model === "string" && model !== "<synthetic>" && /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,255}$/.test(model)) return model;
-    }
-  } catch {} finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } }
-  return null;
+// The last turn a Claude conversation recorded, read from the end of Claude's
+// own transcript: the model it answered with, the level it thought at and the
+// context it had (server/claude-transcript-usage.js). A conversation from
+// before choices were kept is reopened with them rather than with whatever was
+// chosen last elsewhere, and one whose process is gone shows them.
+const claudeTranscripts = createClaudeTranscriptUsage();
+function claudeTranscriptTurn(nativeSessionId, cwd) {
+  const file = claudeTranscriptFile(nativeSessionId, cwd, { configDir: claudeConfigDir(process.env) });
+  return file ? claudeTranscripts.lastTurn(file) : null;
 }
 const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
 
@@ -5330,9 +5313,11 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       // opened again keeps its own.
       const claudeChoice = !resumeSessionId && body.choice ? body.choice : choiceForSession("claude-code", resumeSessionId);
       // A conversation from before choices were kept has none of its own;
-      // it keeps the model it last answered with.
-      const transcriptModel = resumeSessionId && !agentChoices.session("claude-code", resumeSessionId)?.model
-        ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
+      // it keeps the model and level it last answered with.
+      const ownClaudeChoice = resumeSessionId ? agentChoices.session("claude-code", resumeSessionId) || {} : {};
+      const transcriptTurn = resumeSessionId && (!ownClaudeChoice.model || !ownClaudeChoice.effort) ? claudeTranscriptTurn(resumeSessionId, sessionCwd) : null;
+      const transcriptModel = !ownClaudeChoice.model ? transcriptTurn?.model || null : null;
+      const transcriptEffort = !ownClaudeChoice.effort ? transcriptTurn?.effort || null : null;
       let launchedClaude = null;
       const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
         onCapacity: () => parkIdleClaudeStructuredSession({ sessions: claudeStructuredSessions, excludeSessionId: resumeSessionId,
@@ -5345,7 +5330,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         // The desktop helper asks its own Claude CLI the same question.
         allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
         initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
-        initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
+        initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: transcriptEffort || claudeChoice?.effort || null,
         name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
         fork: claudeFork ? { at: claudeFork.at, sessionId: claudeFork.sessionId } : null,
         onEvent: event => { claudeIdleRelease.note(localId); try { if (event?.sessionId) {
@@ -5704,22 +5689,57 @@ const handleSubagentDetailRoute = require("./server/subagent-detail").createSuba
   detail: require("./server/subagent-detail").createSubagentDetail({ resolve: key => workspaceRegistry.get(key), codex: codexNative, openCode: openCodeNative,
     approvalUnavailable: id => subagentApprovalUnavailable.has(id) }) });
 
-// A Claude conversation whose process was let go, by its local key or Claude's
-// own id: what its next process starts with, and the models Claude listed
-// last with their reasoning levels.
+// The last turn a conversation this Host knows recorded in its transcript.
+function knownClaudeTurn(nativeSessionId) {
+  const row = claudeStructuredKnownSessions.get(nativeSessionId);
+  return row?.cwd ? claudeTranscriptTurn(nativeSessionId, row.cwd) : null;
+}
+// What a conversation ran with last: the catalog's entry for the model its
+// transcript names, or that model with its 1M context.
+function claudeTurnChoice(turn, models, effort = null) {
+  if (!turn) return {};
+  const row = matchModel(models, turn.requestedModel || turn.model, { effort: effort || turn.effort })
+    || matchModel(models, turn.model, { effort: effort || turn.effort });
+  const wide = modelTags(turn.requestedModel).wide && !modelTags(turn.model).wide;
+  return { model: row?.id || turn.model + (wide ? "[1m]" : ""), ...(turn.effort ? { effort: turn.effort } : {}) };
+}
+// The context a live conversation that has not answered since it started was
+// at, from its transcript, as a last observation.
+function claudeObservedContext(nativeSessionId, effort = null) {
+  return lastObservedContext(knownClaudeTurn(nativeSessionId), { models: agentModelCache.get("claude-code").models, effort });
+}
+
+// A Claude conversation whose process was let go or has stopped, by its local
+// key or Claude's own id: what its next process starts with, the models Claude
+// listed last with their reasoning levels, and the context it was at. Its own
+// choice comes first, then what its transcript says it ran with; the agent's
+// last choice elsewhere only for one with neither. The transcript outlives a
+// Host restart, which forgets processes let go.
 function savedClaudeConversation(value) {
   const id = String(value || "").replace(/^claude-code:/, "");
   const released = claudeIdleRelease.released(id);
   const nativeSessionId = released?.nativeSessionId || id;
   if (!released && !claudeStructuredKnownSessions.has(nativeSessionId)) return null;
-  return { nativeSessionId, choice: choiceForSession("claude-code", nativeSessionId),
-    models: agentModelCache.get("claude-code").models,
-    context: released ? () => released.session.contextUsage() : null };
+  const models = agentModelCache.get("claude-code").models;
+  const own = agentChoices.session("claude-code", nativeSessionId) || {};
+  const turn = knownClaudeTurn(nativeSessionId);
+  const choice = { ...(agentChoices.last("claude-code") || {}), ...claudeTurnChoice(turn, models, own.effort), ...own };
+  return { nativeSessionId, choice: Object.keys(choice).length ? choice : null, models,
+    context: () => {
+      const live = released ? released.session.contextUsage() : null;
+      if (live && live.contextTokens !== null) return live;
+      const observed = lastObservedContext(turn, { models, effort: choice.effort });
+      if (!observed) return live;
+      // Measured against the model the next turn runs with, when its entry states a capacity.
+      const next = contextCapacity(matchModel(models, choice.model, { effort: choice.effort }));
+      return withObservedContext({ model: observed.model, contextWindow: next, contextTokens: null }, observed);
+    } };
 }
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
   codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
+  observeClaude: claudeObservedContext,
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
   onModels: (agentId, models) => agentModelCache.record(agentId, models),
   onChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice),
