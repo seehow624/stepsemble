@@ -6802,6 +6802,26 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
   #view-chat .composer-model-control::after { content: ""; position: absolute; inset: -4px 0; }
 }
 
+/* A sheet's Close is the same small round button as a dialog's: the control
+   fill under a light ×, with a finger-sized area around it. */
+.sheet-heading-row > :is(.icon-btn, .sheet-close) {
+  position: relative;
+  flex: 0 0 30px;
+  width: 30px; min-width: 30px; height: 30px; min-height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--control-fill);
+  color: var(--pine-soft);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.sheet-heading-row > :is(.icon-btn, .sheet-close)::after { content: ""; position: absolute; inset: -7px; border-radius: 50%; }
+.sheet-heading-row > :is(.icon-btn, .sheet-close) .icon { width: 15px; height: 15px; }
+@media (hover: hover) { .sheet-heading-row > :is(.icon-btn, .sheet-close):hover { background: var(--control-fill-hover); color: var(--ink); } }
+.sheet-heading-row > :is(.icon-btn, .sheet-close):active { background: var(--control-fill-press); color: var(--ink); transform: scale(.92); }
+
 /* ==========================================================================
    v3.10 ui-round3 — the message box's look. Surface, text, the attach menu
    and Send/Stop only: no markup or behaviour, and the model, reasoning and
