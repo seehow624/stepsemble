@@ -4,7 +4,7 @@
 // show them above the message (appendImageGallery).
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { claudeMessages } = require("../server/native-history-catalog");
+const { claudeMessages, createTranscript } = require("../server/native-history-catalog");
 const presentation = require("../public/modules/agent-transcript-presentation");
 
 const png = "iVBORw0KGgo" + "A".repeat(64);
@@ -22,12 +22,23 @@ test("Claude's history keeps the pictures a person sent, and a message of pictur
   assert.equal(messages[0].imageAttachments[0].data, "data:image/png;base64," + png);
 });
 
-test("pictures past the budget are counted without their data", () => {
+test("pictures past a page's budget come with the page before; one message's own past it are counted without their data", () => {
   const big = "A".repeat(7 * 1024 * 1024);
-  const rows = [1, 2, 3].map(index => ({ type: "user", uuid: "u" + index, timestamp: "2026-09-28T02:00:00.000Z",
-    message: { role: "user", content: [{ type: "text", text: "picture " + index }, { type: "image", source: { type: "base64", media_type: "image/png", data: big } }] } }));
-  const messages = claudeMessages(rows);
-  assert.deepEqual(messages.map(message => [message.images, message.imageAttachments.length]), [[1, 1], [1, 1], [1, 0]]);
+  const row = (index, pictures = 1) => ({ type: "user", uuid: "u" + index, timestamp: "2026-09-28T02:00:00.000Z",
+    message: { role: "user", content: [{ type: "text", text: "picture " + index },
+      ...Array.from({ length: pictures }, () => ({ type: "image", source: { type: "base64", media_type: "image/png", data: big } }))] } });
+  const transcript = createTranscript("claude-code");
+  for (const index of [1, 2, 3]) transcript.record(row(index));
+  const newest = transcript.page(), older = transcript.page({ before: newest.before });
+  assert.deepEqual(newest.messages.map(message => [message.text, message.images, message.imageAttachments.length]), [["picture 2", 1, 1], ["picture 3", 1, 1]]);
+  assert.deepEqual(older.messages.map(message => [message.text, message.images, message.imageAttachments.length]), [["picture 1", 1, 1]]);
+  assert.equal(newest.truncated || older.truncated, false);
+  assert.equal(older.before, null);
+  const crowded = createTranscript("claude-code");
+  crowded.record(row(4, 3));
+  const only = crowded.page();
+  assert.deepEqual(only.messages.map(message => [message.images, message.imageAttachments.length]), [[3, 2]]);
+  assert.equal(only.truncated, true);
 });
 
 test("Codex, OpenCode and replayed agent messages carry the pictures they hold", () => {

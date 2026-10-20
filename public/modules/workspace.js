@@ -1754,7 +1754,8 @@
     try {
       let data;
       if (row.kind === "pi_history") data = await api(`/api/session?file=${encodeURIComponent(row.reference)}`, undefined, target);
-      else if (row.record.nativeHistoryReadonly && /^(claude-history|codex-history):/.test(row.reference)) data = await api(`/api/native-history/session?taskId=${encodeURIComponent(row.reference)}`, undefined, target);
+      // A preview is the conversation's latest words; opening it reads the rest.
+      else if (row.record.nativeHistoryReadonly && /^(claude-history|codex-history):/.test(row.reference)) data = await api(`/api/native-history/session?taskId=${encodeURIComponent(row.reference)}&limit=50&tools=0`, undefined, target);
       else data = await api(`/api/agent-task?taskId=${encodeURIComponent(row.reference)}`, undefined, target);
       if (epoch !== dialogEpoch) return;
       content.textContent = Array.isArray(data.messages) ? data.messages.map(m => `${m.role || ""}\n${m.text || ""}`).join("\n\n") : data.task?.outputTail || t("historyMetadata");

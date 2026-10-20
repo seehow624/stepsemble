@@ -8,6 +8,8 @@
 //   - Send pressed before the conversation has connected keeps the message and
 //     sends it once connected;
 //   - pictures sent with a message sit above it as thumbnails;
+//   - a long saved history opens at its newest page and reads back to its
+//     oldest message without a gap;
 //   - a table in a reply scrolls sideways and keeps its headers on one line.
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -15,6 +17,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
@@ -1003,6 +1006,112 @@ export async function runEarlySendBrowserCases(browser) {
   }
 }
 
+// A Claude conversation longer than one page of its history opens at its
+// newest page; reading back to the top brings each earlier page in order, so
+// the oldest message is reached without a gap. A page that no longer joins
+// the one on screen (the transcript was replaced) is not joined: the history
+// is drawn again from its newest page. The Host's own catalog pages a
+// synthetic transcript in a disposable home.
+export async function runHistoryPagesBrowserCases(browser) {
+  const require = createRequire(import.meta.url);
+  const { createNativeHistoryCatalog } = require("../server/native-history-catalog.js");
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-history-pages-"));
+  const id = "55555555-5555-4555-8555-555555555555", project = path.join(home, ".claude", "projects", "-fixture");
+  await fs.mkdir(project, { recursive: true, mode: 0o755 });
+  const file = path.join(project, `${id}.jsonl`);
+  const row = (type, uuid, at, content) => JSON.stringify({ type, uuid, sessionId: id, cwd: "/fixture", timestamp: new Date(at).toISOString(),
+    message: { role: type, content, ...(type === "assistant" ? { id: `msg_${uuid}`, model: "fixture-claude" } : {}) } });
+  // 700 messages over seven days, a tool call before every tenth reply.
+  const expected = [], lines = [], start = Date.parse("2026-10-01T09:00:00Z");
+  for (let index = 0; index < 700; index++) {
+    const at = start + Math.floor(index / 100) * 86_400_000 + (index % 100) * 60_000, text = `Message ${String(index).padStart(3, "0")}`;
+    if (index % 20 === 19) lines.push(row("assistant", `t${index}`, at, [{ type: "tool_use", id: `toolu_${index}`, name: "Read", input: { file_path: `/fixture/${index}` } }]),
+      row("user", `r${index}`, at, [{ type: "tool_result", tool_use_id: `toolu_${index}`, content: "x".repeat(4096) }]));
+    lines.push(row(index % 2 ? "assistant" : "user", `m${index}`, at, index % 2 ? [{ type: "text", text }] : text));
+    expected.push(text);
+  }
+  await fs.writeFile(file, lines.join("\n") + "\n", { mode: 0o600 });
+  const catalog = createNativeHistoryCatalog({ home });
+  const preview = await createNativeComposerPreview();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
+  try {
+    await context.addInitScript(() => {
+      localStorage.setItem("stepsemble.onboarding.v1", "complete");
+      localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true }));
+    });
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const claude = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries.find(entry => entry.record.agentId === "claude-code").record;
+    const reads = [];
+    await context.route("**/api/workspace/entry?**", async route => {
+      const response = await route.fetch(), body = await response.json();
+      if (body.record?.agentId === "claude-code") body.record.needsLoad = true;
+      await route.fulfill({ response, json: body });
+    });
+    // The fixture conversation's history is the catalog's, page by page.
+    await context.route("**/api/native-history/session?**", async route => {
+      const query = new URL(route.request().url()).searchParams;
+      reads.push({ before: query.get("before"), limit: query.get("limit") });
+      const result = await catalog.read(`claude-history:${id}`, { before: query.get("before"), limit: query.get("limit") });
+      await route.fulfill(result.kind === "native_history_transcript" ? { json: result } : { status: 404, json: { error: result.code } });
+    });
+    for (const kind of ["events", "pending"]) await context.route(`**/api/claude/structured/${kind}?**`, route => route.fulfill({ json: {
+      [kind === "events" ? "events" : "permissions"]: [], status: { state: "available", needsLoad: true, nativeSessionId: claude.nativeSessionId, persisted: true } } }));
+    await context.route("**/api/claude/structured/models?**", route => route.fulfill({ json: {
+      models: [{ id: "fixture-claude-sonnet", name: "Fixture Claude Sonnet" }], currentModel: "fixture-claude-sonnet", nativeSessionId: claude.nativeSessionId, appliesNextTurn: true } }));
+    await context.route("**/api/agent/open", route => route.fulfill({ status: 500, json: { error: "a saved conversation opens without starting Claude" } }));
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+    await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+    const ui = await openFromSidebar(page, "Claude composer fixture");
+    await ui.waitForFunction(() => document.querySelector("#messages")?.dataset.claudeHistory === "loaded" && !rpc?.nativeLoading);
+    const shown = () => ui.evaluate(() => [...document.querySelectorAll("#messages .msg")].map(node => node.querySelector(".native-tool-card") ? "tool"
+      : node.querySelector(".bubble")?.textContent.trim() || "").filter(Boolean));
+    const first = (await shown()).filter(text => text !== "tool");
+    assert.deepEqual(first, expected.slice(-300), "the newest page opens");
+    const older = ui.locator("#messages > .history-load-button");
+    assert.equal(await older.innerText(), "Load earlier messages");
+    // Reading back to the top brings the page before.
+    await ui.evaluate(() => { document.querySelector("#messages").scrollTop = 4000; });
+    await ui.locator("#messages").hover();
+    for (let turn = 0; turn < 20 && reads.length < 2; turn++) { await page.mouse.wheel(0, -2000); await page.waitForTimeout(100); }
+    assert.ok(reads.length >= 2, "scrolling to the top asks for the page before");
+    await ui.waitForFunction(() => document.querySelectorAll("#messages .msg").length > 330 && !rpc.nativeHistoryPages.loading);
+    // The scroll has settled; the rest comes from the control.
+    await page.waitForTimeout(900);
+    const more = () => ui.evaluate(() => !rpc.nativeHistoryPages.loading && rpc.nativeHistoryPages.before !== null);
+    while (await more()) { await older.click(); await ui.waitForFunction(() => !rpc.nativeHistoryPages.loading); }
+    assert.equal(await older.count(), 0, "no control once the oldest message is shown");
+    const all = await shown();
+    assert.deepEqual(all.filter(text => text !== "tool"), expected, "every message once, oldest first, no gap");
+    assert.equal(all.filter(text => text === "tool").length, 35, "every tool call once");
+    const dates = await ui.evaluate(() => [...document.querySelectorAll("#messages .date-sep")].map(node => node.textContent));
+    assert.deepEqual(dates, ["10/1", "10/2", "10/3", "10/4", "10/5", "10/6", "10/7"], "each day is named once");
+    assert.deepEqual(reads.map(read => [read.before, read.limit]), [[null, "300"], [reads[1].before, "300"], [reads[2].before, "300"]]);
+    assert.ok(Number(reads[1].before) > Number(reads[2].before), "each page is asked for before the one on screen");
+    // The transcript is replaced while the page shows its newest part: the
+    // next older page would not join it, so the history starts over.
+    await ui.evaluate(() => loadClaudeNativeHistory(rpc, { replace: true }));
+    await ui.waitForFunction(() => rpc.nativeHistoryPages.before !== null);
+    const version = await ui.evaluate(() => rpc.nativeHistoryPages.version), replacement = [];
+    for (let index = 0; index < 400; index++) {
+      const text = `Replaced ${String(index).padStart(3, "0")}`;
+      replacement.push({ text, line: row(index % 2 ? "assistant" : "user", `n${index}`, start + 9 * 86_400_000 + index * 60_000, index % 2 ? [{ type: "text", text }] : text) });
+    }
+    await fs.writeFile(file, replacement.map(entry => entry.line).join("\n") + "\n", { mode: 0o600 });
+    // Pressed without a pointer, so the redrawn page's scroll does not read on.
+    await page.waitForTimeout(900);
+    await ui.evaluate(() => document.querySelector("#messages > .history-load-button").click());
+    await ui.waitForFunction(version => rpc.nativeHistoryPages.version !== version && !rpc.nativeHistoryPages.loading, version);
+    assert.deepEqual((await shown()).filter(text => text !== "tool"), replacement.slice(-300).map(entry => entry.text), "the replaced history starts over, nothing joined");
+    assert.equal(await older.innerText(), "Load earlier messages");
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "History pages", result: "passed", messages: expected.length, pages: 3, reads: reads.length }));
+  } finally {
+    await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); await catalog.shutdown();
+    await fs.rm(home, { recursive: true, force: true });
+  }
+}
+
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
   await runGoalChipBrowserCases(browser, options);
@@ -1018,6 +1127,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runGoalCloseBrowserCases(browser);
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
+  await runHistoryPagesBrowserCases(browser);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-conversation-ux-")));
     let child, context, stage = "fixture";

@@ -148,3 +148,40 @@ test("Claude Code: the catalog's tool calls join the reply they follow, so the d
   assert.doesNotMatch(render(value), /xxxx/, "tool output is never copied");
   assert.match(digest(value), /Files touched:\n- \/owned\/src\/auth\.js/);
 });
+
+test("a long Claude Code history is read back page by page to its start, each tool call in its turn", { skip: process.platform === "win32" }, async t => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const { createNativeHistoryCatalog } = require("../server/native-history-catalog");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-handoff-pages-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const id = "11111111-2222-4333-8444-555555555555", project = path.join(home, ".claude", "projects", "-owned");
+  fs.mkdirSync(project, { recursive: true, mode: 0o755 });
+  const rows = [];
+  for (let index = 1; index <= 5; index++) rows.push(
+    { type: "user", uuid: `u${index}`, timestamp: `2026-10-0${index}T09:00:00Z`, message: { role: "user", content: `Request ${index}` } },
+    { type: "assistant", uuid: `t${index}`, timestamp: `2026-10-0${index}T09:00:01Z`, message: { id: `m${index}`, content: [{ type: "tool_use", id: `tool${index}`, name: "Read", input: { file_path: `/owned/${index}.js` } }] } },
+    { type: "assistant", uuid: `a${index}`, timestamp: `2026-10-0${index}T09:00:02Z`, message: { id: `n${index}`, content: [{ type: "text", text: `Reply ${index}` }] } });
+  fs.writeFileSync(path.join(project, `${id}.jsonl`), rows.map(row => JSON.stringify(row)).join("\n") + "\n", { mode: 0o600 });
+  // Two messages a page: the record comes in five pages.
+  const catalog = createNativeHistoryCatalog({ home, limits: { pageMessages: 2 } });
+  t.after(() => catalog.shutdown());
+  const transcripts = createSessionTranscripts({ resolve: key => key === KEY ? { key, record: { agentId: "claude-code", nativeSessionId: id, cwd: "/owned" } } : null,
+    catalog, readPiSession: async () => { throw new Error("unused"); }, openCode: {} });
+  const value = await transcripts.read(KEY);
+  assert.deepEqual(value.turns.map(turn => [turn.user, turn.replies, turn.tools]),
+    [1, 2, 3, 4, 5].map(index => [`Request ${index}`, [`Reply ${index}`], [`Read /owned/${index}.js`]]));
+});
+
+test("a page that no longer joins the newer one ends the record there", async () => {
+  const id = "11111111-2222-4333-8444-555555555555";
+  const pages = {
+    null: { kind: "native_history_transcript", messages: [{ role: "user", text: "Newest" }, { role: "assistant", text: "Latest reply." }], before: 4, end: 6, sourceVersion: "v1" },
+    4: { kind: "native_history_transcript", messages: [{ role: "user", text: "Rewritten" }], before: null, end: 3, sourceVersion: "v2" },
+  };
+  const reads = [];
+  const transcripts = createSessionTranscripts({ resolve: key => key === KEY ? { key, record: { agentId: "claude-code", nativeSessionId: id, cwd: "/owned" } } : null,
+    catalog: { async read(taskId, { before = null } = {}) { reads.push(before); return pages[before]; } }, readPiSession: async () => "", openCode: {} });
+  const value = await transcripts.read(KEY);
+  assert.deepEqual(reads, [null, 4]);
+  assert.deepEqual(value.turns.map(turn => turn.user), ["Newest"]);
+});

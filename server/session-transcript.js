@@ -8,7 +8,7 @@ const { activePathIds } = require("./stream-safety");
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const HISTORY_ID = /^[a-f0-9-]{36}$/i;
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-const MAX_TEXT = 20000, MAX_TOOLS = 50;
+const MAX_TEXT = 20000, MAX_TOOLS = 50, MAX_HISTORY_TEXT = 8 * 1024 * 1024, MAX_HISTORY_PAGES = 64;
 // Claude Code opens a compacted conversation with this summary message.
 const CLAUDE_SUMMARY = /^This session is being continued from a previous conversation/;
 const failure = (code, statusCode) => Object.assign(new Error(code), { code, statusCode });
@@ -81,17 +81,42 @@ function piRows(content) {
 }
 
 function createSessionTranscripts({ resolve, catalog, readPiSession, openCode }) {
+  // Claude Code and Codex history comes a page at a time from the newest. A
+  // handoff reads back to the start, as a Pi session is read whole, within
+  // MAX_HISTORY_TEXT of messages (the newest kept); a page that no longer
+  // joins the newer one (the transcript was replaced) ends it.
   async function fromCatalog(id) {
-    const value = await catalog.read(id);
-    if (value?.kind !== "native_history_transcript" || !Array.isArray(value.messages)) throw failure("reference_source_unavailable", 409);
-    // A tool call came after `after` messages; it joins the turn as one line.
-    const tools = Array.isArray(value.tools) ? value.tools : [], rows = [];
-    value.messages.forEach((message, index) => {
-      rows.push({ role: message.role, text: message.text });
-      const calls = tools.filter(tool => tool?.after === index + 1).map(tool => toolLine(tool.name, tool.input && typeof tool.input === "object" ? tool.input : {}));
-      if (calls.length) rows.push({ role: "assistant", text: "", tools: calls });
-    });
-    return { rows, name: value.name || "", cwd: value.cwd || "" };
+    const pages = [];
+    let before = null, text = 0;
+    do {
+      const value = await catalog.read(id, before === null ? {} : { before });
+      if (value?.kind !== "native_history_transcript" || !Array.isArray(value.messages)) {
+        if (!pages.length) throw failure("reference_source_unavailable", 409);
+        break;
+      }
+      if (pages.length && (value.end !== before || value.sourceVersion !== pages[0].sourceVersion)) break;
+      pages.unshift(value);
+      for (const message of value.messages) text += Buffer.byteLength(String(message?.text || ""));
+      before = Number.isSafeInteger(value.before) && value.before > 0 ? value.before : null;
+    } while (before !== null && text < MAX_HISTORY_TEXT && pages.length < MAX_HISTORY_PAGES);
+    // A tool call came after `after` messages of its page; it joins the turn
+    // as one line. One before a page's first message follows the page before.
+    const rows = [];
+    for (const page of pages) {
+      const calls = new Map();
+      for (const tool of Array.isArray(page.tools) ? page.tools : []) {
+        if (!Number.isSafeInteger(tool?.after)) continue;
+        if (!calls.has(tool.after)) calls.set(tool.after, []);
+        calls.get(tool.after).push(toolLine(tool.name, tool.input && typeof tool.input === "object" ? tool.input : {}));
+      }
+      if (calls.has(0)) rows.push({ role: "assistant", text: "", tools: calls.get(0) });
+      page.messages.forEach((message, index) => {
+        rows.push({ role: message.role, text: message.text });
+        if (calls.has(index + 1)) rows.push({ role: "assistant", text: "", tools: calls.get(index + 1) });
+      });
+    }
+    const newest = pages.at(-1);
+    return { rows, name: newest.name || "", cwd: newest.cwd || "" };
   }
   async function source(record) {
     if (record.agentId === "pi" && typeof record.file === "string" && record.file) return piRows(await readPiSession(record.file));

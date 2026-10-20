@@ -2332,9 +2332,10 @@ function forkRequest(value) {
 }
 const forkFailure = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 
-// The Claude entry a branch ends at (server/claude-fork-point.js).
+// The Claude entry a branch ends at (server/claude-fork-point.js), read
+// through the history catalog's transcript reader.
 function claudeForkPoint(nativeSessionId, messageId, cwd) {
-  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env) });
+  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env), catalog: nativeHistoryCatalog });
 }
 
 // Pi's package, found from its command, for the branch script.
@@ -5168,7 +5169,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         if (desktopClaude && !(await desktopClaude.forkSupported().catch(() => false))) {
           throw forkFailure("claude_helper_update_required", "Stepsemble's Claude Code helper is updating; try branching again in a moment");
         }
-        const at = claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
+        const at = await claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
         if (!at) throw forkFailure("claude_fork_point_missing", "Claude Code does not have this reply in its record yet");
         claudeFork = { from: fork.sessionId, at, sessionId: crypto.randomUUID() };
       } else {
@@ -7380,17 +7381,20 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/native-history/session" && req.method === "GET") {
         try {
           const taskId = url.searchParams.get("taskId") || "";
-          let result = await nativeHistoryCatalog.read(taskId);
+          // An older page: the rows before `before`, at most `limit` messages;
+          // tools=0 leaves out Claude's tool calls (a preview of the words).
+          const page = { before: url.searchParams.get("before"), limit: url.searchParams.get("limit"), tools: url.searchParams.get("tools") !== "0" };
+          let result = await nativeHistoryCatalog.read(taskId, page);
           // A Claude branch has no record of its own until its first message:
           // its history is the conversation it comes from, up to the branch.
-          const branch = result?.kind !== "native_history_transcript" && /^claude-history:/.test(taskId)
+          const branch = result?.kind !== "native_history_transcript" && result?.code !== "history_page_invalid" && /^claude-history:/.test(taskId)
             ? claudeStructuredKnownSessions.get(taskId.slice("claude-history:".length)) : null;
           if (branch?.forkedFrom && branch.forkAt) {
-            const origin = await nativeHistoryCatalog.read(`claude-history:${branch.forkedFrom}`, { through: branch.forkAt });
+            const origin = await nativeHistoryCatalog.read(`claude-history:${branch.forkedFrom}`, { through: branch.forkAt, ...page });
             if (origin?.kind === "native_history_transcript") result = { ...origin, sessionId: branch.id, name: branch.name || origin.name, branchOf: branch.forkedFrom };
           }
           if (result?.kind === "native_history_transcript") sendJSON(res, 200, result);
-          else sendJSON(res, result?.code === "history_session_invalid" ? 400 : 404, { error: result?.code || "history_session_unavailable" });
+          else sendJSON(res, ["history_session_invalid", "history_page_invalid"].includes(result?.code) ? 400 : 404, { error: result?.code || "history_session_unavailable" });
         } catch { sendJSON(res, 404, { error: "history_session_unavailable" }); }
         return;
       }
