@@ -47,19 +47,19 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       // Limits and usage share one sheet grown out of the capsule over the list.
       const panel = page.locator(".usage-sheet[data-state=open]"), metric = key => panel.locator(`[data-metric=${key}] > strong`);
       const limitsTab = panel.locator("[data-overview-tab=limits]"), usageTab = panel.locator("[data-overview-tab=usage]");
-      const readyLimits = () => page.waitForFunction(() => {
+      // The sheet takes its content's height a frame after the content arrives.
+      const settled = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const readyLimits = async () => { await page.waitForFunction(() => {
         const panel = document.querySelector(".usage-sheet[data-state=open]"); return panel?.dataset.tab === "limits" && !panel.hasAttribute("aria-busy") && !!panel.querySelector(".usage-quotas");
-      });
-      const ready = () => page.waitForFunction(() => {
+      }); await settled(); };
+      const ready = async () => { await page.waitForFunction(() => {
         const panel = document.querySelector(".usage-sheet[data-state=open]"); return panel?.dataset.tab === "usage" && !panel.hasAttribute("aria-busy") && !!panel.querySelector(".usage-metric");
-      });
+      }); await settled(); };
       const tokens = async () => Number((await metric("tokens").innerText()).replace(/[^0-9]/g, ""));
       const sheet = panel, sheetGone = () => page.locator(".usage-sheet").waitFor({ state: "detached" });
       const readySheet = () => page.waitForFunction(() => {
         const sheet = document.querySelector(".usage-sheet[data-state=open]"); return !!sheet && !sheet.hasAttribute("aria-busy") && !!sheet.querySelector(".usage-quotas");
       });
-      // The sheet takes its content's height a frame after the content arrives.
-      const settled = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const openLimits = async () => { await entry.click(); await readySheet(); await settled(); };
       stage = "limits sheet";
       await openLimits();
