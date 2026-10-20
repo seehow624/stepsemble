@@ -8604,10 +8604,10 @@ const server = http.createServer(async (req, res) => {
       // it can stay cached for a year; unversioned preview pages keep the short
       // cache because nothing invalidates them by name.
       const versioned = extension !== ".html" && rel !== "sw.js" && url.searchParams.has("v");
-      // A pane, Settings and a Bot tab are shown in a frame of the Workspace,
-      // on this origin only; any other page stays unframeable.
+      // A pane, Settings, a Bot tab and Schedules are shown in a frame of the
+      // Workspace, on this origin only; any other page stays unframeable.
       const framed = rel === "index.html" && (url.searchParams.get("pane") === "1" || url.searchParams.get("settings") === "1")
-        || rel === "assistant.html" && url.searchParams.get("embed") === "1";
+        || ["assistant.html", "schedules.html"].includes(rel) && url.searchParams.get("embed") === "1";
       const paneHeaders = framed ? {
         "X-Frame-Options": "SAMEORIGIN",
         "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"

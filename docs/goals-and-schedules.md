@@ -10,10 +10,13 @@ starts closed. The chip, Codex's own goal and the subagent bubble always sit
 side by side, a long one ending in "…", and one of their panels opens at a time.
 To start a Goal in a new conversation,
 open the conversation with the agent, project and model you want, then type
-`/goal`. Schedules have their own panel: the sidebar's **Automations** list every
-computer's schedules (with the Bots' routines), and a schedule opens the panel on
-its computer at that schedule; **+** there makes a new one, and **⋯** opens each
-computer's Schedules. The desktop app and browser use the same controls.
+`/goal`. Schedules open in a pane, as a Bot's routines do, with one tab per
+computer: the sidebar's **Automations** list every computer's schedules (with
+the Bots' routines), and a schedule opens its computer's Schedules tab at that
+schedule; **+** there makes a new one, and **⋯** opens each computer's
+Schedules. A run's **Open conversation** opens the conversation beside them. The
+tab stays after a reload and closes like any other. The desktop app and browser
+use the same controls.
 
 While a conversation's Goal is running, paused or needs attention, the sidebar
 shows a small target beside the conversation's name. The mark disappears when
@@ -27,9 +30,10 @@ Codex's own goal has the same ×, once it is paused, limited or blocked. It only
 hides the goal on this device (the summary still lists it), and the chip comes
 back when the goal works again or Codex starts another.
 
-The Schedules panel uses a searchable list with an adjacent inspector on
-desktop. On a phone, select a schedule to open its details and use Back to
-return to the list. Every run a schedule starts, including Goal-mode runs,
+Schedules use a searchable list with an adjacent inspector in a wide pane. In
+a narrow pane and on a phone, select a schedule to open its details and use Back
+to return to the list; on a phone the pane fills the screen and its own Back
+returns to the Workspace's list. Every run a schedule starts, including Goal-mode runs,
 appears in that schedule's history, with the Host's elapsed time and current
 activity, usage against execution limits, results and controls. The time-budget
 meter represents elapsed time against the time limit, not a percentage of

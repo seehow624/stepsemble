@@ -85,6 +85,19 @@ test("an assistant tab keeps its route and avatar through moves, splits and save
   assert.equal(L.reference({ ...bot, avatar: "<img>" }).avatar, undefined, "only a preset name is kept");
 });
 
+test("a Schedules tab stays one through moves, splits and saves; only true marks it, and a Bot's page wins", () => {
+  const schedules = { host: "mbp", key: crypto.randomUUID(), title: "Schedules", schedules: true };
+  let tree = L.pane();
+  tree = L.insert(tree, tree.id, schedules);
+  tree = L.insert(tree, tree.id, ref("local"), "right");
+  tree = L.insert(tree, L.leaves(tree)[1].id, schedules, "bottom");
+  const tab = L.leaves(L.normalize(JSON.parse(JSON.stringify(tree)))).flatMap(p => p.tabs).find(r => r.key === schedules.key);
+  assert.deepEqual(tab, schedules);
+  for (const value of ["true", 1, {}, false]) assert.equal(L.reference({ ...schedules, schedules: value }).schedules, undefined, JSON.stringify(value));
+  const both = L.reference({ ...schedules, assistant: { page: "routines" } });
+  assert.deepEqual([both.assistant, both.schedules], [{ page: "routines" }, undefined]);
+});
+
 test("an assistant tab that names a page it cannot show is rejected", () => {
   for (const assistant of [{ page: "console" }, { page: "bot" }, { page: "bot", profile: "../x" }, { page: "group" }, { page: "nope" }, "bot", []])
     assert.throws(() => L.reference({ host: "mini", key: crypto.randomUUID(), title: "x", assistant }), /assistant/i, JSON.stringify(assistant));

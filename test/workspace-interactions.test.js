@@ -8,7 +8,7 @@ test("Close closes the focused pane's session, and its pane while others remain;
   let left = L.pane(); left = L.insert(left, left.id, a);
   const right = L.pane();
   let usageOpen = true, usageClosed = 0;
-  const context = vm.createContext({ L, settingsLayer: null, usageUI: { isOpen: () => usageOpen, close() { usageOpen = false; usageClosed++; } }, workflowUI: { close() { assert.fail("No workflow open"); } },
+  const context = vm.createContext({ L, settingsLayer: null, usageUI: { isOpen: () => usageOpen, close() { usageOpen = false; usageClosed++; } },
     document: { querySelector: () => null }, $: () => ({ open: false }), mobile: () => false,
     closeSettings() {}, closeDialog() {}, showMobileList() {}, maximized: null });
   context.tree = L.insert({ type: "split", id: "split", axis: "row", ratio: .5, first: left, second: right }, right.id, b);
@@ -221,12 +221,48 @@ test("Schedules and routines are rows of the list's Automations, not buttons abo
   assert.doesNotMatch(icon("workspace-history"), /<circle|A8\.5 8\.5/, "no clock face or circular arrow, which the Refresh button already uses");
 });
 test("a schedule row opens Schedules on its own computer and schedule, and Goal state changes do not rebuild the list", () => {
-  assert.match(source, /if \(row\.kind === "schedule"\) void workflowUI\.open\(row\.target, \{ select: row\.id \}\)/);
+  assert.match(source, /if \(row\.kind === "schedule"\) openSchedules\(row\.target, \{ select: row\.id \}\);/);
   assert.match(source, /else openAssistant\(row\.target, \{ page: "routines", profile: row\.profile \}\)/, "a routine opens its Bot's routines");
   assert.match(source, /entries: value\.entries\.map\(\(\{ working, completion, goal, activityAt, \.\.\.row \}\)/, "a Goal mark and a new activity time update in place like the activity mark");
   assert.match(source, /if \(statusOnly && \(!reordered \|\| sidebarHeld\(\)\)\)/, "a new order waits while the pointer is on the list or a menu is open");
   assert.doesNotMatch(source, /reorderRow\(b, row, "session"/, "sessions follow their activity and are not reordered by hand");
   assert.doesNotMatch(source, /workspace-goals?"/, "no message opens a Goals panel any more");
+});
+test("Schedules are one tab per computer: a new pane's page starts at the request, a ready page is told, a loading one once it is ready", () => {
+  const start = source.indexOf("  const scheduleRequests = new Map();"), end = source.indexOf("  // A Bot tab says which page it shows", start);
+  assert.ok(start > 0 && end > start);
+  const frames = new Map(), sent = [], toasts = []; let tree = L.pane(), uuid = 0;
+  const context = vm.createContext({ L, URL, location: { origin: "https://host.test" }, machines: [{ id: "mini" }, { id: "mbp" }], frames,
+    crypto: { randomUUID: () => "00000000-0000-4000-8000-00000000000" + ++uuid }, toast: text => toasts.push(text), t: key => key,
+    window: { StepsembleWorkflows: { label: key => key === "schedules" ? "Schedules" : key } },
+    allRefs: () => L.leaves(tree).flatMap(p => p.tabs), toFrame: (frame, data) => sent.push([frame, data]) });
+  vm.runInContext(source.slice(start, end), context);
+  // The Workspace draws a pane's page as it opens; the frame's src comes from the pending request.
+  context.open = ref => { tree = L.insert(tree, L.leaves(tree)[0].id, ref); const key = L.identity(ref);
+    if (!frames.has(key)) frames.set(key, { ref, frame: { src: context.schedulesUrl(ref) } }); return true; };
+  assert.equal(context.openSchedules("mbp", { select: "schedule-1" }), true);
+  const [item] = frames.values(), url = new URL(item.frame.src);
+  assert.deepEqual([item.ref.host, item.ref.schedules, item.ref.title], ["mbp", true, "Schedules"]);
+  assert.equal(url.pathname, "/schedules.html");
+  assert.deepEqual(Object.fromEntries(url.searchParams), { embed: "1", machine: "mbp", select: "schedule-1" }, "only typing a new schedule takes the focus");
+  assert.deepEqual(sent, [], "a new page starts at the schedule");
+  context.openSchedules("mbp", { create: true });
+  assert.equal(frames.size, 1); assert.equal(L.leaves(tree).flatMap(p => p.tabs).length, 1, "one tab per computer");
+  assert.deepEqual(sent, [], "a page still loading is told once it is ready");
+  item.ready = true; context.showSchedules(item);
+  const told = () => sent.map(([, data]) => JSON.parse(JSON.stringify(data)));
+  assert.deepEqual(told(), [{ type: "schedules-show", select: null, create: true, focus: true }]);
+  context.openSchedules("mbp");
+  assert.deepEqual(told().at(-1), { type: "schedules-show", select: null, create: false, focus: false }, "a ready page is told at once");
+  assert.equal(context.openSchedules("gone"), false); assert.deepEqual(toasts, ["hostUnavailable"]);
+});
+test("Schedules are a page in a pane: nothing in the Workspace waits on a dialog, and their tab is never a session", () => {
+  assert.doesNotMatch(source, /wf-panel|workflowUI|stepsemble-workflow-panel/);
+  assert.match(source, /const pageTab = ref => !!\(ref\.assistant \|\| ref\.schedules\);/);
+  assert.match(source, /allRefs\(\)\.filter\(ref => ref\.host === target && !pageTab\(ref\) && !available\.has\(ref\.key\)\)/, "a list without its key never closes it");
+  assert.match(source, /filter\(item => !pageTab\(item\.ref\) && !item\.frame\.hidden/, "it never counts as watching a session");
+  assert.match(source, /if \(!ref\?\.key \|\| pageTab\(ref\)\) \{ toast\(t\("referenceUnsupported"\)\); return; \}/);
+  assert.match(source, /if \(item\.ref\.schedules && event\.data\?\.type === "schedules-ready"\) \{ item\.ready = true; showSchedules\(item\); \}/);
 });
 test("the Workspace posts into its panes with its own postMessage, which WebKit (the Mac app) credits to the Workspace", () => {
   assert.doesNotMatch(source, /contentWindow\??\.postMessage\(/, "a pane's own postMessage, called here, names the pane as the sender in WebKit");

@@ -24,6 +24,7 @@ import { runScrollbarBrowserCases } from "./scrollbar-browser-cases.mjs";
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
 import { runWorkspacePanesBrowserCases } from "./workspace-panes-browser-cases.mjs";
 import { runWorkspaceMachinesBrowserCases } from "./workspace-machines-browser-cases.mjs";
+import { runWorkspaceSchedulesBrowserCases } from "./workspace-schedules-browser-cases.mjs";
 import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
@@ -197,6 +198,7 @@ try {
     await runWorkspaceReorderBrowserCases(browser);
     await runWorkspacePanesBrowserCases(browser);
     await runWorkspaceMachinesBrowserCases(browser);
+    await runWorkspaceSchedulesBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
   }

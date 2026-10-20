@@ -98,10 +98,14 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         assert.deepEqual((await automation.allInnerTexts()).map(text => text.split("\n")[0]), ["每日專案健康檢查", "每日專案健康檢查"]);
         assert.deepEqual((await automation.allInnerTexts()).map(text => text.split(" · ").pop()).sort(), ["Mac Mini", "MacBook Pro"]);
         await automation.filter({ hasText: "MacBook Pro" }).locator(".workspace-automation").click();
-        const panel = page.locator('.wf-panel[data-screen="detail"]');
-        await panel.waitFor();
+        const schedules = page.locator('iframe.workspace-frame[src*="/schedules.html"][src*="machine=mbp"]');
+        const panel = page.frameLocator('iframe.workspace-frame[src*="/schedules.html"]').locator('.wf-panel[data-screen="detail"]');
+        await panel.locator(".wf-inspector").waitFor();
         assert.match(await panel.textContent(), /MacBook Pro[\s\S]*每日專案健康檢查/);
-        await page.keyboard.press("Escape"); await page.locator(".wf-panel").waitFor({ state: "detached" });
+        assert.equal(await schedules.count(), 1, "in a pane");
+        // Back to the list: a phone's Back, a desktop's tab closes.
+        if (viewport.mobile) { await page.evaluate(() => history.back()); await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden")); }
+        else { await page.locator(".workspace-tab button[aria-label^='Close']").click(); await schedules.waitFor({ state: "detached" }); }
         // A section moves to the top from its ⋯, and with Alt+Up from its heading.
         await machine("mbp").locator(".workspace-machine-menu").click();
         assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["Add project", "Schedules", "Move to top", "Move up"]);
