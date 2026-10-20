@@ -2,17 +2,18 @@
 // ring, with synthetic agents only (no account or model):
 //   - Claude Code through Magpie: an alias whose resolved id carries the level
 //     and "[1m]", while Claude names the model it runs bare. The button reads
-//     "Opus 5.5 · 1M" with three of four bars lit and "thinking: Extra high"
-//     in its name, and the ring reads the context against the alias's 1M
-//     before Claude reports a capacity;
+//     "Opus 5.5 · 1M" with all four bars lit and no mark (Extra high is just
+//     below Max) and "thinking: Extra high" in its name, and the ring reads
+//     the context against the alias's 1M before Claude reports a capacity;
 //   - a stopped Claude conversation: the model, level and a last observed
 //     "~91%" its transcript recorded, not the agent's last choice elsewhere;
 //   - a read-only history: the model and level as a label and the context the
 //     Host read from its transcript;
 //   - Codex: the thread's level on its model's own list, the ring at 45%;
 //   - Pi: its level on Pi's list for the model, the ring from Pi's own percent;
+//   - the top level of a list adds a mark over the tallest bar;
 //   - the bars stay on a 390px phone, and ripple while the agent works unless
-//     motion is reduced.
+//     motion is reduced; the mark stays still.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -34,12 +35,12 @@ const MAGPIE_MODELS = [alias("opus", "xhigh", "Custom Opus model (1M context)"),
 // What the composer shows: the button's name, the bars and the ring.
 const composer = ui => ui.evaluate(() => {
   const bars = document.querySelector("#composer-model-level"), ring = document.querySelector("#context-info");
-  const lit = bars.querySelector(".composer-effort-bar.on");
+  const lit = bars.querySelector(".composer-effort-bar.on"), mark = bars.querySelector(".composer-effort-mark");
   return { name: document.querySelector("#btn-model").getAttribute("aria-label"), state: bars.dataset.state,
     lit: bars.querySelectorAll(".composer-effort-bar.on").length, title: bars.title, shown: bars.getClientRects().length > 0,
     ring: document.querySelector("#context-dashboard").dataset.contextState, context: ring.getAttribute("aria-label"),
     ringShown: ring.getClientRects().length > 0, working: document.querySelector("#btn-model").classList.contains("is-working"),
-    animation: lit ? getComputedStyle(lit).animationName : null };
+    animation: lit ? getComputedStyle(lit).animationName : null, mark: getComputedStyle(mark).opacity === "1", markAnimation: getComputedStyle(mark).animationName };
 });
 
 async function settingsFor(context, { theme, reducedMotion = true }) {
@@ -91,7 +92,7 @@ async function nativeCases(browser, width) {
     await ui.waitForFunction(() => rpc?.claudeModelsLoaded && document.querySelector("#context-dashboard").dataset.contextState === "normal");
     let shown = await composer(ui);
     assert.equal(shown.name, "Opus 5.5 · 1M, thinking: Extra high");
-    assert.deepEqual([shown.state, shown.lit, shown.title, shown.shown], ["level", 3, "Thinking: Extra high", true], "the bars stay on a phone");
+    assert.deepEqual([shown.state, shown.lit, shown.mark, shown.title, shown.shown], ["level", 4, false, "Thinking: Extra high", true], "the bars stay on a phone");
     assert.equal(shown.context, "Context: 13%", "128,581 of the alias's 1M");
     assert.equal(shown.ringShown, true);
     // The picker keeps the words; each alias says the level it runs at.
@@ -116,7 +117,7 @@ async function nativeCases(browser, width) {
     await ui.waitForFunction(() => rpc?.nativeCodex && rpc.codexModel && document.querySelector("#context-dashboard").dataset.contextState === "normal");
     shown = await composer(ui);
     assert.equal(shown.name, "Fixture Codex Fast, thinking: Medium");
-    assert.deepEqual([shown.state, shown.lit, shown.shown], ["level", 2, true]);
+    assert.deepEqual([shown.state, shown.lit, shown.mark, shown.shown], ["level", 2, false, true]);
     assert.equal(shown.context, "Context: 45%");
 
     // A stopped Claude conversation shows what its transcript recorded.
@@ -128,7 +129,7 @@ async function nativeCases(browser, width) {
     await ui.waitForFunction(() => rpc?.claudeNeedsLoad === true && rpc.claudeModelsLoaded && document.querySelector("#context-dashboard").dataset.contextState === "critical");
     shown = await composer(ui);
     assert.equal(shown.name, "Fable 5.1 · 1M, thinking: Max");
-    assert.deepEqual([shown.state, shown.lit], ["level", 4]);
+    assert.deepEqual([shown.state, shown.lit, shown.mark], ["level", 4, true], "Max, the top of the list, has its mark");
     assert.equal(shown.context, "Context: ~91%", "a last observation is marked approximate");
 
     // A read-only history: a label, not a control, and its last context.
@@ -137,6 +138,7 @@ async function nativeCases(browser, width) {
     await ui.waitForFunction(() => rpc?.nativeHistoryReadonly && !rpc.nativeLoading && rpc.historyComposer);
     shown = await composer(ui);
     assert.equal(shown.name, "Opus 5.5 · 1M, thinking: High");
+    assert.deepEqual([shown.lit, shown.mark], [3, false]);
     assert.equal(shown.context, "Context: ~25%");
     assert.equal(await ui.locator("#btn-model").getAttribute("aria-disabled"), "true");
     await ui.locator("#btn-model").dispatchEvent("click");
@@ -158,8 +160,13 @@ async function rippleCase(browser) {
     await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
     const ui = await openFromSidebar(page, "Codex composer fixture");
     await ui.waitForFunction(() => rpc?.nativeCodex && rpc.codexModel && document.querySelector("#composer-model-level .composer-effort-bar.on"));
+    // High is the top of this model's list (Low–High).
+    await ui.evaluate(() => changeThinkingLevel("high"));
+    await ui.waitForFunction(() => document.querySelector("#composer-model-level").dataset.top === "true"
+      && getComputedStyle(document.querySelector(".composer-effort-mark")).opacity === "1");
     await ui.evaluate(() => setStreaming(true));
-    assert.equal((await composer(ui)).animation, "composer-effort-ripple");
+    const working = await composer(ui);
+    assert.deepEqual([working.animation, working.mark, working.markAnimation], ["composer-effort-ripple", true, "none"], "only the bars ripple");
     await ui.evaluate(() => setStreaming(false));
     assert.equal((await composer(ui)).animation, "none");
   } finally { await context.close(); await preview.close(); }

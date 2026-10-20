@@ -138,9 +138,11 @@ test("a restored model lists exactly its own levels and brings the chip back", (
   assert.equal(el.thinkingSelect.title, "");
   assert.equal(hint.textContent, "");
   assert.equal(hint.classList.contains("hidden"), true);
-  // The bars: Max is the top of this model's own list, so all four are lit.
+  // The bars: Max is the top of this model's own list, so all four are lit
+  // and its mark shows.
   assert.equal(el.composerModelLevelText.dataset.level, "Max");
   assert.equal(litBars(el.composerModelLevelText), 4);
+  assert.equal(el.composerModelLevelText.dataset.top, "true");
   assert.equal(el.composerModelLevelText.title, "Thinking: Max");
   // A level the model does not offer is shown as unknown until Claude reports
   // the level it runs with; it is never shown as "Default".
@@ -170,6 +172,7 @@ test("Codex shows the thread's own level and offers no Default", () => {
   assert.equal(connection.codexEffort, "max");
   assert.equal(el.composerModelLevelText.dataset.level, "Max");
   assert.equal(litBars(el.composerModelLevelText), 4);
+  assert.equal(el.composerModelLevelText.dataset.top, "true");
   // A model without the chosen level takes the model's own level.
   connection.codexModel = { id: "glm", supportedReasoningEfforts: ["low", "high"], defaultReasoningEffort: "high" };
   context.syncNativeThinkingSelect(connection);
@@ -279,7 +282,8 @@ test("a level Claude reports shows on a model whose entry lists no levels", () =
   assert.equal(connection.claudeEffort, "xhigh");
   assert.equal(el.thinkingSelect.value, "xhigh");
   assert.equal(el.composerModelLevelText.dataset.level, "Extra high");
-  assert.equal(litBars(el.composerModelLevelText), 3);
+  assert.equal(litBars(el.composerModelLevelText), 4);
+  assert.equal(el.composerModelLevelText.dataset.top, "false", "only Max has the mark");
   assert.equal(el.btnModel.getAttribute("aria-label"), "Opus 5.5, thinking: Extra high");
 });
 
@@ -297,7 +301,7 @@ test("Claude's auto shows the level it runs at when reported, and its own look o
   connection.claudeEffectiveEffort = "high";
   context.syncNativeThinkingSelect(connection);
   assert.equal(el.composerModelLevelText.dataset.state, "level");
-  assert.equal(litBars(el.composerModelLevelText), 2);
+  assert.equal(litBars(el.composerModelLevelText), 3);
   assert.equal(el.composerModelLevelText.title, "Thinking: Auto · High");
   assert.equal(el.btnModel.getAttribute("aria-label"), "Opus 5.5 · 1M, thinking: Auto · High");
   assert.equal(el.thinkingSelect.options[0].textContent, "Auto · High");

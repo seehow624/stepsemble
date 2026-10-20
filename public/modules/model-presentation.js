@@ -129,15 +129,18 @@
   }
 
   /**
-   * The model button's thinking indicator: four bars, of which the level's
-   * place in the model's own list lights 1 (its lowest) to 4 (its highest).
-   * @returns {{ state: "level"|"off"|"auto"|"none", bars: number }}
+   * The model button's thinking indicator: four bars lit by the level's place
+   * in the model's own list. The list's top level lights all four and a mark
+   * of its own; the others count up from one bar, so Claude's Low to Max is
+   * 1, 2, 3, 4 and 4 with the mark. More than four below the top share the
+   * lowest bar, keeping the levels people switch between apart.
+   * @returns {{ state: "level"|"off"|"auto"|"none", bars: number, top: boolean }}
    */
   function effortBars(level, levels = []) {
     const value = String(level || "").trim().toLowerCase();
-    if (!value) return { state: "none", bars: 0 };
-    if (NO_LEVEL.has(value)) return { state: "off", bars: 0 };
-    if (AUTO_LEVEL.has(value)) return { state: "auto", bars: 0 };
+    if (!value) return { state: "none", bars: 0, top: false };
+    if (NO_LEVEL.has(value)) return { state: "off", bars: 0, top: false };
+    if (AUTO_LEVEL.has(value)) return { state: "auto", bars: 0, top: false };
     let list = [...new Set((Array.isArray(levels) ? levels : []).map(item => String(item?.value ?? item ?? "").trim().toLowerCase())
       .filter(item => item && !NO_LEVEL.has(item) && !AUTO_LEVEL.has(item)))];
     if (list.every(item => LEVEL_ORDER.includes(item))) list.sort((a, b) => LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b));
@@ -145,10 +148,10 @@
     // tops out at Max unless the level is Codex's Ultra.
     if (!list.includes(value)) list = LEVEL_ORDER.includes(value) ? LEVEL_ORDER.filter(item => item !== "ultra" || value === "ultra") : [];
     const index = list.indexOf(value);
-    if (index < 0) return { state: "level", bars: 2 };
-    // A level halfway between two bar counts takes the lower: Medium of
-    // Low–High is two bars, and High, Extra high and Max stay apart.
-    return { state: "level", bars: list.length === 1 ? 4 : 1 + Math.max(0, Math.ceil(index * 3 / (list.length - 1) - 0.5)) };
+    if (index < 0) return { state: "level", bars: 2, top: false };
+    if (index === list.length - 1) return { state: "level", bars: 4, top: true };
+    const below = list.length - 1;
+    return { state: "level", bars: below <= 4 ? index + 1 : Math.max(1, 4 - (below - 1 - index)), top: false };
   }
 
   /**

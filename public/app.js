@@ -12104,9 +12104,10 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
   const model = composerModelName || (window.stepsembleI18n?.t("Choose model") || "Choose model");
   const level = composerReasoningLevel.toLowerCase();
   // The level as four bars: how many are lit is the level's place in the
-  // model's own list. "Auto" lights the level it runs at when reported, and
-  // otherwise shows its own look; no level shows flat bars that say why.
-  const shown = modelPresentation?.effortBars(level, composerReasoningLevels) || { state: level ? "level" : "none", bars: 0 };
+  // model's own list, and its top level adds a mark. "Auto" lights the level
+  // it runs at when reported, and otherwise shows its own look; no level
+  // shows flat bars that say why.
+  const shown = modelPresentation?.effortBars(level, composerReasoningLevels) || { state: level ? "level" : "none", bars: 0, top: false };
   const effective = shown.state === "auto" && composerReasoningEffective
     ? modelPresentation?.effortBars(composerReasoningEffective, composerReasoningLevels) : null;
   const words = shown.state === "none" ? ""
@@ -12119,10 +12120,12 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
   }
   const indicator = el.composerModelLevelText;
   if (indicator) {
+    const lit = effective?.state === "level" ? effective : shown;
     const state = effective?.state === "level" ? "level" : shown.state;
-    const bars = effective?.state === "level" ? effective.bars : shown.bars;
+    const bars = lit.bars;
     indicator.dataset.state = state;
     indicator.dataset.bars = String(bars);
+    indicator.dataset.top = String(lit.top === true);
     indicator.dataset.level = words;
     indicator.title = note;
     indicator.querySelectorAll?.(".composer-effort-bar").forEach((bar, index) => bar.classList.toggle("on", index < bars));
