@@ -127,6 +127,17 @@ test("the in-app brand uses approved colour artwork with a forced-colour fallbac
   assert.match(html, /class="brand-glyph" role="img" aria-label="Stepsemble"/);
 });
 
+// WebKit lets a select's text run past its box, and only there; Chromium-run
+// browser cases cannot see it, so the rules that stop an iPhone page swaying
+// sideways are held here.
+test("pages that scroll up and down cannot be dragged sideways on an iPhone", () => {
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  assert.match(css, /\nselect \{[^}]*overflow: hidden;/, "a long option is clipped inside its select");
+  assert.match(css, /\n\.settings-scroll \{[^}]*overflow: hidden auto;/);
+  assert.match(css, /#view-chat \.session-summary \{[^}]*overflow: hidden auto;/);
+  assert.match(css, /\.session-summary-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+});
+
 test("the workspace shell sizes the brand mark without replacing its artwork", () => {
   const css = fs.readFileSync(path.join(root, "public", "modules", "workspace.css"), "utf8");
   const start = css.indexOf(".workspace-logo {");
