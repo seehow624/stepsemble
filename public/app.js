@@ -172,7 +172,7 @@ const el = {
   syncBaseDevice: $("sync-base-device"), syncCompareDevice: $("sync-compare-device"), syncCompare: $("sync-compare"), syncCompareStatus: $("sync-compare-status"), syncResult: $("sync-result"),
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"),
   btnImg: $("btn-img"), composerAdd: $("composer-add"), composerAddMenu: $("composer-add-menu"), fileInput: $("file-input"), imgPreview: $("img-preview"),
-  setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"),
+  setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"), setLook: $("set-look"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
   modelListToolbar: $("model-list-toolbar"),
   modelAgentList: $("model-agent-list"), modelAgentSignin: $("model-agent-signin"), modelAgentSigninText: $("model-agent-signin-text"),
@@ -892,6 +892,7 @@ function applyAppearance() {
   html.dataset.theme = resolvedTheme;
   html.dataset.themePreference = settings.theme;
   html.dataset.designTheme = DESIGN_THEME_IDS.has(settings.designTheme) ? settings.designTheme : DEFAULT_SETTINGS.designTheme;
+  html.dataset.look = settings.look === "classic" ? "classic" : "bold";
   html.style.setProperty("--oc-sidebar", `${settings.sidebarWidth}px`);
   html.style.fontSize = `${settings.fontScale}%`;
   document.body.classList.toggle("compact", !!settings.compact);
@@ -17238,6 +17239,7 @@ function renderSettings() {
   if (el.setAppVersion) el.setAppVersion.textContent = `v${window._appVersion || CLIENT_APP_VERSION}`;
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;
+  if (el.setLook) el.setLook.value = settings.look;
   renderThemeChoices();
   if (el.setSidebarWidth) el.setSidebarWidth.value = settings.sidebarWidth;
   if (el.setSidebarWidthValue) el.setSidebarWidthValue.textContent = `${settings.sidebarWidth}px`;
@@ -18788,6 +18790,7 @@ el.setFontScale?.addEventListener("input", () => {
   applyAppearance();
 });
 el.setTheme.addEventListener("change", () => { settings = saveSettings({ theme: el.setTheme.value }); applyAppearance(); });
+el.setLook?.addEventListener("change", () => { settings = saveSettings({ look: el.setLook.value === "classic" ? "classic" : "bold" }); applyAppearance(); });
 el.setCompact.addEventListener("change", () => { settings = saveSettings({ compact: el.setCompact.checked }); applyAppearance(); });
 el.setReducedMotion.addEventListener("change", () => { settings = saveSettings({ reducedMotion: el.setReducedMotion.checked }); applyAppearance(); });
 el.setThinking.addEventListener("change", () => { settings = saveSettings({ thinking: el.setThinking.value }); });
@@ -18817,7 +18820,7 @@ el.harnessUpdateList?.addEventListener("change", (event) => {
 // data, not interface defaults, so they survive a reset.
 // The reset sits on the Appearance page and resets that page's options only.
 // Language, projects, model choices and list filters are kept.
-const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
+const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "look", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
 el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm(tKey("settings.resetConfirm"))) return;
   settings = saveSettings(Object.fromEntries(RESET_APPEARANCE_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]])));

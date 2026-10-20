@@ -33,6 +33,7 @@
     locale: "en",
     theme: "auto",          // auto | light | dark
     designTheme: "ink-ivory",
+    look: "bold",           // bold | classic: the interface style layer
     settingsVersion: SETTINGS_VERSION,
     sidebarWidth: 336,
     fontScale: 100,
@@ -76,6 +77,7 @@
       out.settingsVersion = SETTINGS_VERSION;
       out.locale = global.stepsembleI18n?.normalizeLocale(out.locale) || "en";
       if (!DESIGN_THEME_IDS.has(out.designTheme)) out.designTheme = DEFAULT_SETTINGS.designTheme;
+      if (out.look !== "classic") out.look = DEFAULT_SETTINGS.look;
       out.sidebarWidth = Math.min(440, Math.max(280, Number(out.sidebarWidth) || DEFAULT_SETTINGS.sidebarWidth));
       out.fontScale = Math.min(125, Math.max(90, Number(out.fontScale) || DEFAULT_SETTINGS.fontScale));
       out.projectPins = Array.isArray(out.projectPins)

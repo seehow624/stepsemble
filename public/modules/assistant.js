@@ -102,7 +102,7 @@
   function loadingView() { const box = el("section", "assistant-loading"); box.setAttribute("role", "status"); box.append(el("span", "assistant-spinner"), el("span", "", t("loading"))); return box; }
   const errorView = (error, retry) => messageView(t("failed", { message: error?.message || "" }), "", { retry });
   function applyPreferences() {
-    const root = document.documentElement; root.lang = prefs.locale; root.dataset.theme = prefs.resolvedTheme; root.dataset.designTheme = prefs.designTheme;
+    const root = document.documentElement; root.lang = prefs.locale; root.dataset.theme = prefs.resolvedTheme; root.dataset.designTheme = prefs.designTheme; root.dataset.look = prefs.look;
     root.classList.toggle("reduced-motion", prefs.reducedMotion); root.style.fontSize = `${prefs.fontScale}%`;
     document.title = `Stepsemble · ${t("assistant")}`;
     for (const node of document.querySelectorAll("[data-assistant-i18n]")) node.textContent = t(node.dataset.assistantI18n);

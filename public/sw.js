@@ -37,6 +37,7 @@ const SHELL = [
   "/modules/workflow-text.js?v=3.9.34",
   "/modules/workflows.css?v=3.9.34",
   "/modules/workspace-embedded.css?v=3.9.34",
+  "/modules/look-bold.css?v=3.9.34",
   "/style.css?v=3.9.34",
   "/i18n.js?v=3.9.34",
   "/modules/app-foundation.js?v=3.9.34",

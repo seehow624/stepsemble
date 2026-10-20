@@ -1,0 +1,419 @@
+/* Interface style: Bold. The liquid glass of the limits capsule carried
+   across the app: floating glass panels over a quiet backdrop drawn from the
+   theme's own colours, pill controls that answer the press, and a reading
+   rhythm for long replies. Every rule is scoped to html[data-look="bold"],
+   so Classic (any other value, or none) is the app exactly as it was. */
+
+html[data-look="bold"] {
+  --bold-spring: cubic-bezier(.32, .72, 0, 1);
+  --bold-out: cubic-bezier(.2, .8, .2, 1);
+  --bold-radius-panel: 28px;
+  --bold-radius-card: 20px;
+  --bold-radius-pane: 24px;
+  --bold-radius-menu: 18px;
+  /* Material weight: panels are thick, menus thicker still for their text. */
+  --bold-glass: color-mix(in srgb, var(--milk) 62%, transparent);
+  --bold-glass-card: color-mix(in srgb, var(--milk) 74%, transparent);
+  --bold-glass-menu: color-mix(in srgb, var(--milk) 80%, transparent);
+  --bold-blur: blur(16px) saturate(180%);
+  --bold-hairline: color-mix(in srgb, var(--ink) 9%, transparent);
+  --bold-outline: 0 0 0 .5px color-mix(in srgb, var(--ink) 7%, transparent);
+  --bold-panel-shadow: 0 30px 70px -34px rgba(0, 0, 0, .28), 0 2px 10px -2px rgba(0, 0, 0, .05);
+  --bold-float-shadow: 0 16px 36px -18px rgba(0, 0, 0, .32), 0 2px 6px -2px rgba(0, 0, 0, .08);
+  --bold-chip-shadow: 0 6px 16px -10px rgba(0, 0, 0, .28);
+  --bold-bar-shadow: rgba(0, 0, 0, .2);
+  --bold-hover: color-mix(in srgb, var(--ink) 6%, transparent);
+  --bold-field: color-mix(in srgb, var(--ink) 6%, transparent);
+  --bold-press-fill: color-mix(in srgb, var(--ink) 11%, transparent);
+  --bold-select: color-mix(in srgb, var(--accent) 15%, color-mix(in srgb, var(--milk) 55%, transparent));
+  --bold-select-rim: color-mix(in srgb, var(--accent) 22%, transparent);
+  /* A user's message: the theme's accent, darkened a touch so its text keeps
+     4.5:1 in the warmer palettes. */
+  --bold-bubble: color-mix(in srgb, var(--accent) 84%, var(--ink));
+  --bold-on-bubble: var(--paper);
+  --bold-ambient:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 62%),
+    linear-gradient(to bottom, color-mix(in srgb, var(--paper) 95%, var(--ink)), color-mix(in srgb, var(--paper) 92%, var(--ink)));
+  /* Category tiles, as on iOS Settings, eased toward the theme's ink. */
+  --bold-tile-blue: color-mix(in oklab, #0a7aff 84%, var(--accent));
+  --bold-tile-indigo: color-mix(in oklab, #5e5ce6 84%, var(--accent));
+  --bold-tile-green: color-mix(in oklab, #28b45a 84%, var(--accent));
+  --bold-tile-orange: color-mix(in oklab, #f08a1c 86%, var(--accent));
+  --bold-tile-red: color-mix(in oklab, #f2453d 86%, var(--accent));
+  --bold-tile-gray: color-mix(in oklab, #8e8e93 80%, var(--accent));
+}
+html[data-look="bold"][data-theme="dark"] {
+  --bold-glass: color-mix(in srgb, var(--milk) 58%, transparent);
+  --bold-glass-card: color-mix(in srgb, var(--milk) 70%, transparent);
+  --bold-glass-menu: color-mix(in srgb, var(--milk) 82%, transparent);
+  --bold-outline: 0 0 0 .5px rgba(255, 255, 255, .07);
+  --bold-panel-shadow: 0 30px 70px -30px rgba(0, 0, 0, .75), 0 2px 10px -2px rgba(0, 0, 0, .3);
+  --bold-float-shadow: 0 18px 40px -16px rgba(0, 0, 0, .72), 0 2px 6px -2px rgba(0, 0, 0, .35);
+  --bold-chip-shadow: 0 8px 18px -10px rgba(0, 0, 0, .7);
+  --bold-bar-shadow: rgba(0, 0, 0, .55);
+  --bold-hover: color-mix(in srgb, var(--ink) 8%, transparent);
+  --bold-field: color-mix(in srgb, var(--ink) 9%, transparent);
+  --bold-press-fill: color-mix(in srgb, var(--ink) 14%, transparent);
+  --bold-select: color-mix(in srgb, var(--accent) 17%, color-mix(in srgb, var(--milk) 50%, transparent));
+  --bold-bubble: color-mix(in srgb, var(--accent) 90%, var(--milk));
+  --bold-ambient:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 58%),
+    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--gold) 8%, transparent), transparent 60%),
+    linear-gradient(to bottom, color-mix(in srgb, var(--paper) 82%, #000), color-mix(in srgb, var(--paper) 70%, #000));
+}
+
+/* ---------- Motion ---------- */
+@keyframes bold-materialize { from { opacity: 0; transform: scale(.94); filter: blur(6px); } }
+@keyframes bold-rise { from { opacity: 0; transform: translateY(28px) scale(.98); filter: blur(4px); } }
+@keyframes bold-fade { from { opacity: 0; } }
+
+/* ---------- Controls ---------- */
+/* Buttons are pills that settle under the finger the moment it lands. */
+html[data-look="bold"] .btn:is(.primary, .ghost, .danger) { border-radius: var(--radius-pill); transition: transform .14s var(--bold-spring), background-color .18s ease, color .18s ease, box-shadow .18s ease; }
+html[data-look="bold"] .btn.primary { background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 84%, var(--paper)), var(--accent) 70%); color: var(--paper);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), inset 0 -1px 0 rgba(0, 0, 0, .12), 0 8px 18px -10px color-mix(in srgb, var(--accent) 75%, transparent); }
+html[data-look="bold"] .btn.ghost:not(.icon-btn, .workspace-icon-btn, .goal-chip-close) { background: color-mix(in srgb, var(--milk) 45%, var(--control-fill)); box-shadow: inset 0 .5px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] .btn.danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 8px 18px -10px color-mix(in srgb, var(--err) 70%, transparent); }
+@media (hover: hover) {
+  html[data-look="bold"] .btn.primary:hover { background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 76%, var(--paper)), color-mix(in srgb, var(--accent) 92%, var(--paper))); }
+  html[data-look="bold"] .btn.ghost:not(.icon-btn, .workspace-icon-btn, .goal-chip-close):hover { background: color-mix(in srgb, var(--milk) 30%, var(--control-fill-hover)); }
+}
+html[data-look="bold"] .btn:is(.primary, .ghost, .danger):active:not(:disabled) { transform: scale(.96); transition-duration: .08s; }
+html[data-look="bold"] .btn.icon-btn, html[data-look="bold"] .icon-button-small { border-radius: 50%; box-shadow: none; }
+html[data-look="bold"] .btn.icon-btn:active:not(:disabled), html[data-look="bold"] .icon-button-small:active:not(:disabled) { transform: scale(.9); }
+html[data-look="bold"] .settings-action-btn { border-radius: var(--radius-pill); background: color-mix(in srgb, var(--milk) 45%, var(--control-fill)); box-shadow: inset 0 .5px 0 var(--glass-edge), var(--bold-outline); }
+
+/* Fields keep their frame; search fields become taller glass pills. */
+html[data-look="bold"] :is(input:is([type="text"], [type="password"], [type="url"], [type="number"], [type="email"]), textarea, select) { border-radius: 14px; }
+html[data-look="bold"] input[type="search"] { min-height: calc(var(--control-h) + 2px); padding-left: 36px; border-color: transparent; border-radius: var(--radius-pill);
+  background-color: var(--bold-field); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .06), var(--bold-outline); }
+html[data-look="bold"] input[type="search"]:focus { background-color: var(--field-bg); }
+
+/* Switches glow a little when on. */
+html[data-look="bold"] .toggle input:checked + .toggle-track { box-shadow: inset 0 1px 1px rgba(0, 0, 0, .12), 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
+
+/* ---------- Workspace: a floating glass sidebar over a quiet backdrop ---------- */
+html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] #workspace-main, html[data-look="bold"] #workspace-stage { background: transparent; }
+@media (min-width: 761px) {
+  html[data-look="bold"] #workspace-sidebar { margin: 10px 0 10px 10px; padding: 14px 12px 12px; border: 0; border-radius: var(--bold-radius-panel);
+    background: var(--bold-glass);
+    box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-panel-shadow); }
+  html[data-look="bold"] #workspace-tree { inset: max(10px, env(safe-area-inset-top)) 10px 10px; }
+  html[data-look="bold"] .workspace-branch { padding: 0 5px; }
+  /* In the Mac app the window's buttons sit inside the panel's corner, on
+     the brand row's centre line; the panes' bars stay level with them. */
+  html[data-look="bold"][data-mac-window=chromeless] #workspace-sidebar { margin: 8px 0 8px 8px; padding-top: max(0px, calc(var(--mac-controls-center) - 23px)); }
+  html[data-look="bold"][data-mac-window=chromeless] .workspace-brand-row { min-height: 30px; padding-left: max(6px, calc(var(--mac-controls-end) - 6px)); }
+  html[data-look="bold"][data-mac-window=chromeless] #workspace-tree { inset: max(2px, calc(var(--mac-controls-center) - 21px)) 8px 8px; }
+}
+html[data-look="bold"] .workspace-identity strong { font-size: 1.14rem; font-weight: 780; letter-spacing: -.032em; }
+@media (max-width: 760px) {
+  html[data-look="bold"] #workspace-sidebar { background: transparent; }
+  html[data-look="bold"] .workspace-identity strong { font-size: 1.7rem; font-weight: 800; letter-spacing: -.035em; }
+  html[data-look="bold"] .workspace-logo { width: 34px; height: 34px; flex-basis: 34px; }
+}
+html[data-look="bold"] .workspace-icon-btn { border-radius: 50%; transition: background-color .15s ease, color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] .workspace-icon-btn:active { transform: scale(.9); }
+html[data-look="bold"] .workspace-host-card { height: 52px; border: 0; border-radius: 18px; background: var(--bold-glass-card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 6px 18px -12px rgba(0, 0, 0, .25); transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] .workspace-host-card:active { transform: scale(.985); }
+html[data-look="bold"] .workspace-host-icon { top: 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
+html[data-look="bold"] .workspace-status-dot { border-color: var(--milk); }
+html[data-look="bold"] .workspace-search-wrap { min-height: calc(var(--control-h) + 2px); padding-left: 14px; border-radius: var(--radius-pill);
+  background: var(--bold-field); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .06), var(--bold-outline); }
+html[data-look="bold"] #workspace-search { min-height: calc(var(--control-h) + 2px); }
+html[data-look="bold"] .workspace-row-action { flex-basis: calc(var(--control-h) + 2px); width: calc(var(--control-h) + 2px); height: calc(var(--control-h) + 2px); border-radius: 50%;
+  background: var(--bold-field); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] .workspace-row-action:active { transform: scale(.9); }
+/* The list fades out under the search row instead of meeting a hard edge;
+   at rest its padding keeps the first row clear of the fade. */
+html[data-look="bold"] #workspace-projects { padding-top: 12px; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px); mask-image: linear-gradient(to bottom, transparent, #000 14px); }
+html[data-look="bold"] .workspace-search-row { position: relative; z-index: 1; margin-bottom: -10px; }
+html[data-look="bold"] :is(.workspace-session, .workspace-automation) { border-radius: var(--radius-pill); padding-left: 8px;
+  transition: background-color .18s ease, box-shadow .18s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] :is(.workspace-session, .workspace-automation):hover { background: var(--bold-hover); }
+html[data-look="bold"] :is(.workspace-session, .workspace-automation):active { transform: scale(.975); background: var(--bold-press-fill); }
+html[data-look="bold"] .workspace-session[data-open=true] { border-color: var(--bold-select-rim); background: var(--bold-select);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 4px 14px -8px color-mix(in srgb, var(--accent) 45%, transparent); }
+html[data-look="bold"] .workspace-session[data-open=true] strong { font-weight: 700; }
+html[data-look="bold"] :is(#workspace-projects, #workspace-assistant-list) :is(.workspace-session-menu, .workspace-project-add, .workspace-section-add, .workspace-project-menu, .workspace-machine-menu) { border-radius: 50%; }
+html[data-look="bold"] .workspace-session-row:hover .workspace-session-menu, html[data-look="bold"] .workspace-session-menu:hover { background: var(--bold-hover); }
+html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle) { border-radius: 12px; }
+html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle):is(:hover, :focus-visible) { background: var(--bold-hover); }
+html[data-look="bold"] .workspace-session-more { border-radius: var(--radius-pill); }
+html[data-look="bold"] .workspace-session-more:hover { background: var(--bold-hover); }
+html[data-look="bold"] .workspace-automation-icon { border-radius: 9px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
+/* What passes behind the capsule settles into the panel's own tint. */
+html[data-look="bold"] #workspace-sidebar footer::before { background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--milk) 55%, transparent)); }
+
+/* ---------- Panes ---------- */
+html[data-look="bold"] .workspace-pane { border: 0; border-radius: var(--bold-radius-pane); background: var(--paper); box-shadow: var(--bold-outline), var(--bold-panel-shadow); }
+html[data-look="bold"] .workspace-pane[data-focused=true] { box-shadow: var(--bold-outline), var(--bold-panel-shadow); }
+html[data-look="bold"] .workspace-split .workspace-pane[data-focused=true] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 34%, transparent), var(--bold-panel-shadow); }
+html[data-look="bold"] .workspace-frame { border-radius: 0 0 calc(var(--bold-radius-pane) - 1px) calc(var(--bold-radius-pane) - 1px); }
+/* The title bar floats over the conversation: glass with a soft falloff in
+   place of a ruled line, drawn above the conversation's frame. */
+html[data-look="bold"] .workspace-tabs { position: relative; z-index: 3; min-height: 52px; padding: 0 8px; border-bottom: 0;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--milk) 92%, var(--paper)), color-mix(in srgb, var(--milk) 70%, var(--paper)));
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 .5px 0 var(--bold-hairline), 0 12px 22px -16px var(--bold-bar-shadow); }
+html[data-look="bold"] .workspace-split .workspace-pane[data-focused=true] .workspace-tabs { box-shadow: inset 0 1px 0 var(--glass-edge), 0 .5px 0 var(--bold-hairline), 0 12px 22px -16px var(--bold-bar-shadow); }
+html[data-look="bold"] .workspace-tab > .btn { border-radius: 12px; }
+html[data-look="bold"] .workspace-tab-title { font-size: var(--text-md); font-weight: 700; letter-spacing: -.012em; }
+html[data-look="bold"] .workspace-tab .agent-logo { flex-basis: 26px; width: 26px; height: 26px; border-radius: 8px; }
+html[data-look="bold"] :is(.workspace-strip-button, .workspace-pane-menu) { border-radius: 50%; transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] :is(.workspace-strip-button, .workspace-pane-menu):hover, html[data-look="bold"] .workspace-pane-menu[aria-expanded=true] { background: var(--bold-hover); }
+html[data-look="bold"] :is(.workspace-strip-button, .workspace-pane-menu):active { transform: scale(.9); }
+html[data-look="bold"] .workspace-divider { background: transparent; }
+html[data-look="bold"] .workspace-divider:hover, html[data-look="bold"] .workspace-divider:focus { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+html[data-look="bold"] .workspace-slot::before { border-radius: 26%; box-shadow: 0 14px 30px -14px rgba(0, 0, 0, .45); }
+
+/* ---------- Menus, dialogs, sheets: glass that materialises ---------- */
+html[data-look="bold"] .workspace-menu { padding: 6px; border: 0; border-radius: var(--bold-radius-menu); background: var(--bold-glass-menu);
+  -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow);
+  transform-origin: top right; animation: bold-materialize .26s var(--bold-spring); }
+html[data-look="bold"] .workspace-menu-item { min-height: 36px; border-radius: 11px; font-size: var(--text-sm); font-weight: 520; }
+html[data-look="bold"] .workspace-menu-item:hover, html[data-look="bold"] .workspace-menu-item:focus-visible { background: var(--bold-select); }
+html[data-look="bold"] .workspace-tip { border: 0; border-radius: 14px; background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-float-shadow); }
+html[data-look="bold"] dialog { border: 0; border-radius: var(--bold-radius-panel); background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--sheet-shadow); }
+html[data-look="bold"] dialog[open] { animation: bold-materialize .32s var(--bold-spring); }
+html[data-look="bold"] dialog::backdrop { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+html[data-look="bold"] dialog header { background: transparent; }
+html[data-look="bold"] dialog h2 { font-size: 1.2rem; font-weight: 720; letter-spacing: -.02em; }
+html[data-look="bold"] .workspace-history-row { border: 0; border-radius: 18px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] #workspace-dialog-body .workspace-history-row .btn, html[data-look="bold"] #workspace-dialog-body .workspace-folder-new { border-radius: var(--radius-pill); }
+html[data-look="bold"] .workspace-folder-list { border: 0; border-radius: 18px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] .workspace-folder-path-row { border-radius: var(--radius-pill); }
+html[data-look="bold"] #workspace-toast { border-radius: var(--radius-pill); box-shadow: var(--bold-float-shadow); animation: bold-materialize .26s var(--bold-spring); }
+html[data-look="bold"] .workspace-settings-layer { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .workspace-settings-frame { background: transparent; }
+
+html[data-look="bold"] .sheet-layer { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+html[data-look="bold"] .sheet { border: 0; background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--sheet-shadow);
+  border-radius: var(--bold-radius-panel) var(--bold-radius-panel) 0 0; animation: bold-rise .34s var(--bold-spring); }
+@media (min-width: 500px) {
+  html[data-look="bold"] .sheet { border-radius: var(--bold-radius-panel); animation: bold-materialize .3s var(--bold-spring); }
+}
+html[data-look="bold"] .model-dialog .action-row.model-row { border-radius: 14px; }
+html[data-look="bold"] .model-dialog .action-row.model-row.active { background: var(--bold-select); box-shadow: inset 0 0 0 .5px var(--bold-select-rim); }
+html[data-look="bold"] .sheet-heading-row > :is(.icon-btn, .sheet-close) { border-radius: 50%; }
+
+/* ---------- Conversation ---------- */
+/* Prose reads at a measured length; code and tables may use the column. */
+html[data-look="bold"] { --oc-content: 790px; }
+html[data-look="bold"] #view-chat .md-body { font-size: 1rem; line-height: 1.7; letter-spacing: -.003em; }
+html[data-look="bold"] #view-chat .msg.assistant .md-body > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) { max-width: 68ch; }
+html[data-look="bold"] #view-chat .md-body p { margin: .7em 0; }
+html[data-look="bold"] #view-chat .md-body :is(h1, h2, h3, h4) { margin: 1.35em 0 .45em; font-weight: 720; line-height: 1.28; }
+html[data-look="bold"] #view-chat .md-body > :is(h1, h2, h3, h4):first-child { margin-top: .2em; }
+html[data-look="bold"] #view-chat .md-body h1 { font-size: 1.5rem; letter-spacing: -.025em; }
+html[data-look="bold"] #view-chat .md-body h2 { font-size: 1.28rem; letter-spacing: -.02em; }
+html[data-look="bold"] #view-chat .md-body h3 { font-size: 1.1rem; letter-spacing: -.012em; }
+html[data-look="bold"] #view-chat .md-body h4 { font-size: 1rem; }
+html[data-look="bold"] :is(:lang(zh), :lang(ja), :lang(ko)) #view-chat .md-body { line-height: 1.8; letter-spacing: .01em; }
+html[data-look="bold"] :is(:lang(zh), :lang(ja), :lang(ko)) #view-chat .md-body :is(h1, h2, h3, h4) { line-height: 1.45; letter-spacing: .01em; }
+html[data-look="bold"] #view-chat .md-body :is(ul, ol) { margin: .7em 0; padding-left: 1.45em; }
+html[data-look="bold"] #view-chat .md-body li { margin: .32em 0; padding-left: .2em; }
+html[data-look="bold"] #view-chat .md-body li::marker { color: var(--pine-soft); }
+html[data-look="bold"] #view-chat .md-body ol > li::marker { font-weight: 650; font-variant-numeric: tabular-nums; }
+html[data-look="bold"] #view-chat .md-body blockquote { margin: 1em 0; padding: .2em 0 .2em 1em; border-left: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 2px; color: color-mix(in srgb, var(--ink) 78%, transparent); }
+html[data-look="bold"] #view-chat .md-body :not(pre) > code { padding: .12em .4em; border: 0; border-radius: 7px; background: color-mix(in srgb, var(--ink) 8%, transparent); font-size: .86em; }
+html[data-look="bold"] #view-chat .md-body hr { margin: 1.6em 0; border-top-color: var(--bold-hairline); }
+/* Code and tables sit on a refined surface of their own. */
+html[data-look="bold"] #view-chat .md-body .code-block { margin: 1em 0; overflow: hidden; border: 0; border-radius: 18px; background: color-mix(in srgb, var(--ink) 4%, var(--milk));
+  box-shadow: inset 0 0 0 .5px var(--bold-hairline), 0 10px 24px -20px rgba(0, 0, 0, .5); }
+html[data-look="bold"] #view-chat .md-body .code-block-header { padding: 8px 10px 0 16px; border: 0; background: transparent; color: var(--pine-soft); font: 600 var(--text-3xs) var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+html[data-look="bold"] #view-chat .md-body .code-copy-button { border-radius: var(--radius-pill); }
+html[data-look="bold"] #view-chat .md-body pre code { padding: 0; border: 0; background: none; color: inherit; font-size: inherit; }
+html[data-look="bold"][data-theme="dark"] #view-chat .md-body .code-block { background: color-mix(in srgb, var(--paper) 62%, #000); }
+html[data-look="bold"] #view-chat .md-body .code-block pre { margin: 0; padding: 10px 16px 16px; border: 0; border-radius: 0; background: transparent; font-size: .84rem; line-height: 1.65; }
+html[data-look="bold"] #view-chat .md-body .md-table { margin: 1em 0; }
+html[data-look="bold"] #view-chat .md-body .md-table-scroll { border: 0; border-radius: 16px; background: var(--milk); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
+html[data-look="bold"] #view-chat .md-body table { border: 0; }
+html[data-look="bold"] #view-chat .md-body :is(th, td) { padding: 10px 14px; border-color: var(--bold-hairline); }
+html[data-look="bold"] #view-chat .md-body th { background: color-mix(in srgb, var(--ink) 5%, var(--milk)); font-size: var(--text-sm); font-weight: 680; }
+
+/* A user's message: a confident fill of the accent with a soft lift. */
+html[data-look="bold"] #view-chat .msg.user .bubble { border: 0; border-radius: 24px 24px 8px 24px; background: var(--bold-bubble); color: var(--bold-on-bubble);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 10px 22px -16px color-mix(in srgb, var(--accent) 80%, transparent); }
+html[data-look="bold"][data-theme="dark"] #view-chat .msg.user .bubble { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 12px 26px -16px rgba(0, 0, 0, .8); }
+html[data-look="bold"] #view-chat .msg.user .bubble :is(a, strong, em) { color: inherit; }
+html[data-look="bold"] #view-chat .msg.user .bubble .md-body :not(pre) > code { background: color-mix(in srgb, var(--bold-on-bubble) 16%, transparent); color: inherit; }
+html[data-look="bold"] #view-chat .msg.user .bubble .md-body { font-size: 1rem; line-height: 1.55; }
+html[data-look="bold"] #view-chat .msg .role-tag { letter-spacing: .01em; }
+
+/* Work under a reply reads as quiet glass chips. */
+html[data-look="bold"] #view-chat .wl-row { width: auto; max-width: 100%; margin: 4px 0; padding: 7px 14px 7px 11px; border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--milk) 55%, var(--control-fill)); box-shadow: inset 0 .5px 0 var(--glass-edge), var(--bold-outline); transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] #view-chat .wl-row:hover { background: color-mix(in srgb, var(--milk) 40%, var(--control-fill-hover)); }
+html[data-look="bold"] #view-chat .wl-row:active { transform: scale(.98); }
+html[data-look="bold"] #view-chat .activity-group { border: 0; border-radius: 18px; background: color-mix(in srgb, var(--ink) 3%, transparent); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
+html[data-look="bold"] #view-chat .tool-card { overflow: hidden; border: 0; border-radius: 16px; background: color-mix(in srgb, var(--milk) 70%, transparent); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
+html[data-look="bold"] #view-chat .thinking-toggle { border-radius: var(--radius-pill); }
+
+/* On a phone the title row floats over the conversation as glass; the
+   messages scroll on beneath it. */
+html[data-look="bold"].workspace-mobile-pane #view-chat .chat-topbar { position: absolute; z-index: 6; top: 0; left: 0; right: 0; border-bottom: 0;
+  background: color-mix(in srgb, var(--paper) 78%, transparent); -webkit-backdrop-filter: blur(12px) saturate(180%); backdrop-filter: blur(12px) saturate(180%);
+  box-shadow: 0 .5px 0 var(--bold-hairline); }
+html[data-look="bold"].workspace-mobile-pane #view-chat .messages { padding-top: calc(64px + 16px); scroll-padding-top: 72px;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .3), #000 84px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .3), #000 84px, #000 calc(100% - 28px), transparent); }
+html[data-look="bold"].workspace-mobile-pane #view-chat .chat-title { font-weight: 720; letter-spacing: -.015em; }
+html[data-look="bold"] #view-chat .chat-topbar > .icon-btn { border-radius: 50%; }
+/* On a wider screen the bar is the Workspace's; the conversation fades into
+   its edge. */
+html[data-look="bold"].workspace-embedded:not(.workspace-mobile-pane) #view-chat .messages {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 28px), transparent); }
+
+/* The message box: a floating glass capsule with real depth. */
+html[data-look="bold"] #view-chat .composer { padding: 9px 11px 8px; border: .5px solid var(--bold-hairline); border-radius: 28px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--milk) 92%, var(--ink) 3%), var(--milk));
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 22px 48px -22px rgba(0, 0, 0, .34), 0 4px 12px -6px rgba(0, 0, 0, .12);
+  transition: border-color .18s ease, box-shadow .22s ease; }
+html[data-look="bold"][data-theme="dark"] #view-chat .composer { box-shadow: inset 0 1px 0 var(--glass-edge), 0 22px 48px -18px rgba(0, 0, 0, .8), 0 4px 12px -6px rgba(0, 0, 0, .4); }
+html[data-look="bold"] #view-chat .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 4px var(--focus-halo), 0 22px 48px -22px rgba(0, 0, 0, .38), 0 4px 12px -6px rgba(0, 0, 0, .14); }
+html[data-look="bold"] #view-chat .composer-toolbar .composer-icon-btn { border-radius: 50%; transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] #view-chat .composer-toolbar .composer-icon-btn:active { transform: scale(.9); }
+html[data-look="bold"] #view-chat .composer-control { border-radius: var(--radius-pill); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+html[data-look="bold"] #view-chat .composer-control:active { transform: scale(.97); }
+html[data-look="bold"] #view-chat .composer-send { border-radius: 50%; }
+html[data-look="bold"] #view-chat .composer-send:active:not(:disabled) { transform: scale(.9); }
+html[data-look="bold"] #view-chat :is(.context-ring-btn, .composer-approval) { border-radius: var(--radius-pill); }
+html[data-look="bold"] #view-chat .composer-add-menu, html[data-look="bold"] #view-chat .approval-menu, html[data-look="bold"] #view-chat .context-popover, html[data-look="bold"] #view-chat .slash-menu {
+  border: 0; border-radius: var(--bold-radius-menu); background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow);
+  transform-origin: bottom left; animation: bold-materialize .26s var(--bold-spring); }
+html[data-look="bold"] #view-chat .composer-add-item { border-radius: 11px; }
+html[data-look="bold"] #view-chat .composer-add-item:hover { background: var(--bold-select); }
+html[data-look="bold"] #scroll-bottom-btn { border: 0; border-radius: 50%; background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-float-shadow); }
+
+/* Chips above the message box: small glass capsules. */
+html[data-look="bold"] #view-chat :is(.native-run-toggle, .goal-chip, .subagent-bubble, .task-progress-toggle) { border-color: transparent; border-radius: var(--radius-pill);
+  background: var(--bold-glass-card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-chip-shadow); }
+html[data-look="bold"] #view-chat :is(.native-run-detail, .goal-panel, .subagent-list, .task-progress-panel) { border-color: transparent; border-radius: 20px; background: var(--bold-glass-menu);
+  -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-float-shadow); }
+html[data-look="bold"] #view-chat .cq-chip { border-color: transparent; border-radius: 22px; background: var(--bold-glass-card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-chip-shadow); }
+html[data-look="bold"] #view-chat .cq-btn { border-radius: var(--radius-pill); }
+
+/* ---------- Settings ---------- */
+html[data-look="bold"] :is(#view-settings, #view-model-settings) { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar { border-bottom: 0; background: transparent; box-shadow: none; }
+html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar-title { font-weight: 700; letter-spacing: -.015em; }
+html[data-look="bold"] :is(#view-settings, #view-model-settings) :is(.settings-group, .settings-nav-list, .settings-host-card) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 10px 30px -22px rgba(0, 0, 0, .35); }
+html[data-look="bold"] .settings-group .group-title, html[data-look="bold"] .settings-nav-group { letter-spacing: .07em; }
+html[data-look="bold"] :is(#view-settings, #view-model-settings) .settings-row { border-bottom-color: var(--bold-hairline); }
+html[data-look="bold"] .settings-row span:first-child strong { font-weight: 620; letter-spacing: -.008em; }
+/* Choices in a row are glass pills, as on iOS. */
+html[data-look="bold"] :is(#view-settings, #view-model-settings) :is(.settings-row select, .theme-current) { border-color: transparent; border-radius: var(--radius-pill); background-color: var(--bold-field); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] .settings-nav-item { transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] .settings-nav-item:active { transform: scale(.985); }
+html[data-look="bold"] .settings-nav-copy strong { font-weight: 640; letter-spacing: -.01em; }
+/* Each category gets a coloured tile with a white glyph, as on iOS. */
+html[data-look="bold"] .settings-nav-icon { width: 32px; height: 32px; border-radius: 9px; color: #fff; background: var(--bold-tile, var(--bold-tile-gray));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -1px 0 rgba(0, 0, 0, .12), 0 2px 6px -2px color-mix(in srgb, var(--bold-tile, var(--bold-tile-gray)) 70%, transparent); }
+html[data-look="bold"] [data-settings-open="appearance"] { --bold-tile: var(--bold-tile-indigo); }
+html[data-look="bold"] [data-settings-open="devices"] { --bold-tile: var(--bold-tile-blue); }
+html[data-look="bold"] [data-settings-open="about"] { --bold-tile: var(--bold-tile-gray); }
+html[data-look="bold"] [data-settings-open="agents"] { --bold-tile: var(--bold-tile-orange); }
+html[data-look="bold"] [data-settings-open="notifications"] { --bold-tile: var(--bold-tile-red); }
+html[data-look="bold"] [data-settings-open="updates"] { --bold-tile: var(--bold-tile-green); }
+html[data-look="bold"] #view-settings .settings-nav-item.is-active { background: var(--bold-select); }
+html[data-look="bold"] #view-settings .settings-nav-item.is-active .settings-nav-icon { color: #fff; background: var(--bold-tile, var(--bold-tile-gray)); }
+@media (max-width: 899px) {
+  /* A phone's large title sits on its own line under Back, as on iOS. */
+  html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar { flex-wrap: wrap; height: auto; min-height: 0; row-gap: 0; padding-bottom: 2px; }
+  html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar-title { order: 3; flex: 1 0 100%; padding: 0 6px 4px; text-align: left; font-size: 2.05rem; font-weight: 780; letter-spacing: -.03em; line-height: 1.2; }
+  html[data-look="bold"] :is(:lang(zh), :lang(ja), :lang(ko)) :is(#view-settings, #view-model-settings) .topbar-title { letter-spacing: 0; line-height: 1.35; }
+  html[data-look="bold"] :is(#view-settings, #view-model-settings) .settings-scroll { padding-top: 10px; }
+}
+@media (min-width: 900px) {
+  /* An iOS-style large title over the open section; what scrolls up passes
+     under it, blurred. */
+  html[data-look="bold"] #view-settings .settings-content-title { min-height: 58px; margin: 0 0 8px; padding: 4px 2px 14px; background: transparent;
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); mask-image: linear-gradient(to bottom, #000 72%, transparent);
+    font-size: 2rem; font-weight: 760; letter-spacing: -.03em; line-height: 1.15; }
+}
+
+/* ---------- Usage sheet: segmented controls with a sliding glass thumb ---------- */
+html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle) { position: relative; isolation: isolate; border-radius: var(--radius-pill); }
+html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle) > button { position: relative; z-index: 1; border-radius: var(--radius-pill); background: transparent !important; box-shadow: none !important; transition: color .2s ease; }
+html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle)::before { content: ""; position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: var(--bold-thumb-w);
+  border-radius: var(--radius-pill); background: var(--bubble-user); box-shadow: 0 1px 3px rgba(0, 0, 0, .12), inset 0 1px 0 var(--glass-edge), var(--bold-outline);
+  transform: translateX(calc(var(--bold-thumb-i, 0) * (100% + 3px))); transition: transform .42s var(--bold-spring); }
+html[data-look="bold"] .usage-view-tabs { --bold-thumb-w: calc((100% - 9px) / 2); }
+html[data-look="bold"] .usage-view-tabs:has(> button:nth-child(2)[aria-selected=true]) { --bold-thumb-i: 1; }
+html[data-look="bold"] .usage-periods { --bold-thumb-w: calc((100% - 15px) / 4); }
+html[data-look="bold"] .usage-periods:has(> button:nth-child(2)[aria-pressed=true]) { --bold-thumb-i: 1; }
+html[data-look="bold"] .usage-periods:has(> button:nth-child(3)[aria-pressed=true]) { --bold-thumb-i: 2; }
+html[data-look="bold"] .usage-periods:has(> button:nth-child(4)[aria-pressed=true]) { --bold-thumb-i: 3; }
+html[data-look="bold"] .usage-quota-toggle { --bold-thumb-w: 76px; }
+html[data-look="bold"] .usage-quota-toggle:has(> button:nth-child(2)[aria-pressed=true]) { --bold-thumb-i: 1; }
+html[data-look="bold"] :is(.usage-metric, .usage-quota-grid) { border-radius: 20px; }
+html[data-look="bold"] .usage-sheet select { border-radius: var(--radius-pill); }
+html[data-look="bold"] .usage-refresh:active { transform: scale(.9); }
+
+/* A permission request and the summary read as glass cards over the reply. */
+html[data-look="bold"] #view-chat .agent-approval-card { border-color: transparent; border-radius: 20px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-chip-shadow); }
+html[data-look="bold"] #view-chat .agent-approval-details { border-radius: 12px; }
+html[data-look="bold"] #view-chat .session-summary { border-color: transparent; border-radius: 22px; background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); }
+
+/* ---------- Sign-in, the assistant and Schedules ---------- */
+html[data-look="bold"] .overlay { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .login-card .login-mark { box-shadow: 0 18px 36px -16px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .18); }
+html[data-look="bold"] .login-card h1 { font-size: 1.7rem; font-weight: 780; letter-spacing: -.03em; }
+html[data-look="bold"] :is(.login-help, .login-onboarding) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 14px 34px -24px rgba(0, 0, 0, .4); }
+html[data-look="bold"] :is(.login-help-tabs, .model-agent-switch, .assistant-switch) { border: 0; border-radius: var(--radius-pill); background: var(--bold-field); }
+html[data-look="bold"] :is(.login-help-tab, .model-agent-tab, .assistant-switch > *) { border-radius: var(--radius-pill); }
+html[data-look="bold"] :is(.login-help-tab[aria-selected="true"], .model-agent-tab.is-active, .assistant-switch [aria-current="page"]) { box-shadow: 0 1px 3px rgba(0, 0, 0, .14), inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] .assistant-page { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .assistant-top { border-bottom: 0; background: transparent; }
+html[data-look="bold"] .assistant-page :is(.btn, .assistant-icon-btn) { border-radius: var(--radius-pill); }
+html[data-look="bold"] .assistant-page .assistant-icon-btn { border-radius: 50%; }
+html[data-look="bold"] .assistant-card { border-color: transparent; border-radius: var(--bold-radius-card); background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 16px 36px -24px rgba(0, 0, 0, .45); }
+html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transition: transform .14s var(--bold-spring), background-color .15s ease; }
+
+/* ---------- Fallbacks ---------- */
+/* No blur available: the glass gets a thicker tint so text stays legible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-look="bold"] { --bold-glass: color-mix(in srgb, var(--milk) 92%, var(--paper)); --bold-glass-card: var(--milk); --bold-glass-menu: var(--milk); }
+}
+/* Without transparency, solid surfaces; with more contrast, defined edges. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html[data-look="bold"] { --bold-glass: var(--milk); --bold-glass-card: var(--milk); --bold-glass-menu: var(--milk); --bold-ambient: var(--paper); }
+  html[data-look="bold"] :is(#workspace-sidebar, .workspace-tabs, .workspace-menu, .workspace-tip, dialog, .sheet, .sheet-layer, dialog::backdrop, #view-chat .composer, #view-chat .chat-topbar, #scroll-bottom-btn,
+    #view-settings .topbar, #view-settings .settings-content-title, .settings-group, .settings-nav-list, .settings-host-card, #view-chat :is(.native-run-toggle, .goal-chip, .subagent-bubble, .task-progress-toggle, .native-run-detail, .goal-panel, .subagent-list, .task-progress-panel, .cq-chip, .composer-add-menu, .approval-menu, .context-popover, .slash-menu)) {
+    -webkit-backdrop-filter: none; backdrop-filter: none; }
+  html[data-look="bold"].workspace-mobile-pane #view-chat .chat-topbar, html[data-look="bold"] #view-settings .topbar, html[data-look="bold"] #view-settings .settings-content-title { background: var(--paper); }
+  html[data-look="bold"] #view-chat .composer { background: var(--milk); }
+}
+@media (prefers-contrast: more) {
+  html[data-look="bold"] { --bold-outline: 0 0 0 1px var(--line); --bold-hairline: var(--line); }
+  html[data-look="bold"] :is(#workspace-sidebar, .workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card) { outline: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); outline-offset: -1px; }
+  html[data-look="bold"] .workspace-session[data-open=true] { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+}
+@media (forced-colors: active) {
+  html[data-look="bold"] :is(#workspace-sidebar, .workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card, .workspace-search-wrap, input[type="search"]) { border: 1px solid CanvasText; box-shadow: none; }
+  html[data-look="bold"] #view-chat .msg.user .bubble { border: 1px solid CanvasText; }
+  html[data-look="bold"] .settings-nav-icon { forced-color-adjust: none; }
+  html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle)::before { display: none; }
+  html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle) > button:is([aria-selected=true], [aria-pressed=true]) { outline: 2px solid Highlight; }
+}
+/* Less motion: nothing scales or springs. style.css already stops every
+   animation and transition; the press scales are undone here. */
+html[data-look="bold"].reduced-motion :is(.btn, .icon-button-small, .settings-action-btn, .workspace-icon-btn, .workspace-host-card, .workspace-row-action, .workspace-session, .workspace-automation, .workspace-strip-button, .workspace-pane-menu,
+  .settings-nav-item, .usage-refresh, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  html[data-look="bold"] :is(.btn, .icon-button-small, .settings-action-btn, .workspace-icon-btn, .workspace-host-card, .workspace-row-action, .workspace-session, .workspace-automation, .workspace-strip-button, .workspace-pane-menu,
+    .settings-nav-item, .usage-refresh, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
+}
