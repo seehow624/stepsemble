@@ -592,6 +592,32 @@ test("Claude keeps an image prompt inside its budget and writes it whole", async
   assert.ok(userFrame.message.content.every(block => block.type === "image" && block.source.data.length === image.length));
 });
 
+test("a queued message is a user frame that names itself, comes from a person and joins the turn at its next step", async t => {
+  const child = childFixture();
+  const frames = [], events = [];
+  observeControlWire(child, message => {
+    if (message.type === "user") { frames.push(message); return; }
+    if (message.type !== "control_request" || message.request.subtype !== "initialize") return;
+    child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: { models: [], model: "sonnet" } } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 5000,
+    onRateEvent: event => events.push(event) });
+  t.after(() => session.close());
+  const uuid = "11111111-2222-4333-8444-555555555555";
+  assert.equal((await session.send("also check the docs", { uuid, priority: "next", origin: { kind: "human" } })).kind, "sent");
+  // An ordinary send stays exactly as before.
+  assert.equal((await session.send("plain")).kind, "sent");
+  for (let attempt = 0; attempt < 50 && frames.length < 2; attempt += 1) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(frames[0], { type: "user", message: { role: "user", content: [{ type: "text", text: "also check the docs" }] }, uuid, priority: "next", origin: { kind: "human" } });
+  assert.deepEqual(frames[1], { type: "user", message: { role: "user", content: [{ type: "text", text: "plain" }] } });
+  for (const options of [{ uuid: "../bad" }, { priority: "soon" }, { origin: { kind: "peer" } }]) assert.equal((await session.send("x", options)).code, "claude_prompt_invalid");
+  // Claude reports the message's fate under its uuid; the Host passes it on.
+  child.stdout.write(JSON.stringify({ type: "command_lifecycle", command_uuid: uuid, state: "queued", uuid: "aaaaaaaa-2222-4333-8444-555555555555", session_id: "native-1" }) + "\n");
+  for (let attempt = 0; attempt < 50 && !events.some(event => event.type === "command_lifecycle"); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
+  const lifecycle = events.find(event => event.type === "command_lifecycle");
+  assert.equal(lifecycle.command_uuid, uuid); assert.equal(lifecycle.state, "queued");
+});
+
 test("Claude rejects a prompt when the outbound queue is already full", async t => {
   const child = childFixture();
   Object.defineProperty(child.stdin, "writableLength", { configurable: true, value: 32 * 1024 * 1024 });

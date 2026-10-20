@@ -31,6 +31,8 @@ const { piImageInputs } = require("./server/prompt-attachments");
 const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
 const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
 const { createNativeComposerRoutes } = require("./server/native-composer-routes");
+const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = require("./server/composer-queue");
+const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver } = require("./server/composer-queue-drivers");
 const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createPiChoice } = require("./server/pi-choice");
@@ -2215,6 +2217,7 @@ onEvent: event => {
   // A sub-agent's approval holds up this conversation's turn, so it counts
   // for the conversation (a Goal pauses its clock while it waits).
   hostRates.codex(event); workflowEvents.emit("codex", event.parentThreadId || event.request?.parentThreadId || event.threadId || event.request?.threadId, event);
+  composerQueue.observe("codex", event.threadId, event);
 } });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is
@@ -3133,6 +3136,7 @@ function broadcast(sid, event) {
   trackStreaming(sid, event);
   hostRates.pi(sid, event);
   workflowEvents.emit("pi", sid, event);
+  composerQueue.observe("pi", sid, event);
   s.meta.lastActivityAt = Date.now();
   const data = JSON.stringify(event);
   const packet = { seq: ++s.eventSeq, event, bytes: Buffer.byteLength(data) };
@@ -4016,6 +4020,19 @@ function rpcCommand(sid, cmd) {
 }
 
 // 在 stdout 事件流裡把帶 id 的 response 交給 pending 的 rpcCommand
+
+// Stop. Pi's own queue is emptied first, or Pi would go on with it once
+// stopped; what it held waits in the Host's queue, which pauses.
+async function stopPi(sid) {
+  const session = rpcSessions.get(sid);
+  if (!session || session.exited) return false;
+  composerQueue.pause("pi", sid);
+  if (session.state.pendingMessageCount > 0) {
+    const cleared = await Promise.race([rpcCommand(sid, { type: "clear_queue" }).catch(() => null), new Promise(resolve => setTimeout(resolve, 2000, null))]);
+    if (cleared?.success) composerQueue.reclaim("pi", sid, [...(cleared.data?.steering || []), ...(cleared.data?.followUp || [])]);
+  }
+  return rpcWrite(sid, { type: "abort" });
+}
 
 // 沒有開啟 session 時，設定頁仍需要一份模型目錄；用短命 RPC 讀取，
 // 不送 prompt、不寫對話，收到結果後立即結束。已有 session 則優先復用它。
@@ -5339,7 +5356,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
             && (status.turnEndedAt > 0 || nativeHistoryCatalog.updatedAt("claude-code", id) > 0),
           beforeSuspend: keepClaudeSessionSettings,
         }),
-        onRateEvent: event => { hostRates.claude(localId, event); workflowEvents.emit("claude-code", localId, event); },
+        onRateEvent: event => { hostRates.claude(localId, event); workflowEvents.emit("claude-code", localId, event); composerQueue.observe("claude-code", localId, event); },
         command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
         // The desktop helper asks its own Claude CLI the same question.
         allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
@@ -5715,8 +5732,48 @@ function savedClaudeConversation(value) {
     models: agentModelCache.get("claude-code").models,
     context: released ? () => released.session.contextUsage() : null };
 }
+// Messages sent while an agent works (server/composer-queue.js). The Host
+// sends them one per turn when a turn ends, with or without a page open.
+const piQueueDriver = createPiQueueDriver({ sessions: rpcSessions, command: rpcCommand, sessionFileOf: rpcSessionFileOf });
+// The workspace entry of a queued conversation, for its Goal and compaction locks.
+function composerQueueEntry(agent, id) {
+  const sids = agent === "pi" ? new Set(piQueueDriver.liveSids(id)) : null;
+  return workspaceRegistry.list().entries.find(row => row.record.agentId === agent && (agent === "pi" ? row.record.file === id || sids.has(row.record.sid)
+    : agent === "codex" ? row.record.nativeThreadId === id || row.record.id === `codex:${id}`
+      : row.record.nativeSessionId === id || row.record.id === `claude-code:${id}`)) || null;
+}
+const composerQueue = createComposerQueue({
+  store: createComposerQueueStore({ file: path.join(CONFIG_DIR, "composer-queue.json") }),
+  drivers: {
+    pi: piQueueDriver,
+    codex: createCodexQueueDriver({ codex: codexNative, ensure: ensureCodexNativeProbe, permissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)) }),
+    "claude-code": createClaudeQueueDriver({ resolveSession: resolveClaudeStructuredSession, send: sendToClaudeStructured,
+      saved: value => savedClaudeConversation(value)?.nativeSessionId || null }),
+  },
+  // A Goal or a compaction holds its conversation; queued messages wait.
+  locked: (agent, id) => { const entry = composerQueueEntry(agent, id); return !!entry && (workflows.locked(entry.key) || compactions.locked(entry.key)); },
+  // Pi's page hears its stream; Codex and Claude pages read the queue with
+  // the state they poll.
+  onChange: (agent, id, queue) => {
+    if (agent !== "pi") return;
+    const frame = sseFrame({ type: "composer_queue", queue: { ...queue, canJump: true } }, null, null);
+    for (const sid of piQueueDriver.liveSids(id)) for (const res of rpcSessions.get(sid)?.clients || []) trySseWrite(res, frame);
+  },
+  log: error => console.warn("[stepsemble] Queued message:", error?.message || error),
+});
+function composerQueueAdmit(agent, ref) {
+  let id;
+  try { id = composerQueue.resolve(agent, ref); } catch { return null; }
+  const entry = composerQueueEntry(agent, id);
+  return entry && workflows.locked(entry.key) ? "queue_goal_running" : null;
+}
+const handleComposerQueueRoute = createComposerQueueRoutes({ queue: composerQueue, readJSON, sendJSON, admit: composerQueueAdmit });
+// The queue as a page shows it, or null where the conversation has none.
+function composerQueueSnapshot(agent, ref) {
+  try { return composerQueue.snapshot(agent, ref); } catch { return null; }
+}
 const handleNativeComposerRoute = createNativeComposerRoutes({
-  codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession, composerQueue,
   codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
@@ -6024,6 +6081,9 @@ const server = http.createServer(async (req, res) => {
       // the latest copy after replay makes reconnects deterministic without
       // advancing Last-Event-ID or causing old message events to replay.
       for (const widget of s.widgets.values()) trySseWrite(res, sseFrame(widget, null, null));
+      // The queue is state too: the page shows it as it is now.
+      const queued = composerQueueSnapshot("pi", sid);
+      if (queued) trySseWrite(res, sseFrame({ type: "composer_queue", queue: queued }, null, null));
       if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
       if (s.exited) { cleanup(); try { res.end(); } catch {} return; }
       ping = setInterval(() => { trySseWrite(res, ": ping\n\n"); }, 15000);
@@ -6686,6 +6746,7 @@ const server = http.createServer(async (req, res) => {
       if (await handleSubagentDetailRoute(req, res, url)) return;
       if (await handleHandoffRoute(req, res, url)) return;
       if (await handleNativeComposerRoute(req, res, url)) return;
+      if (await handleComposerQueueRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
       if (await handleHermesAssistantRoute(req, res, url)) return;
       // The model and level last chosen for an agent. Codex applies a choice
@@ -6729,19 +6790,27 @@ const server = http.createServer(async (req, res) => {
           if (!released && !task) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
           const status = released ? { ...released.session.status(), closed: false, state: "waiting", released: true, needsLoad: true }
             : { ...task.nativeStatus, ...claudeIdleRelease.lastProcess(task.nativeSessionId), needsLoad: true };
-          sendJSON(res, 200, p.endsWith("/events") ? { events: released ? since(released.session.events()) : [], status } : { permissions: [], status });
+          sendJSON(res, 200, p.endsWith("/events") ? { events: released ? since(released.session.events()) : [], status, composerQueue: composerQueueSnapshot("claude-code", sessionId) } : { permissions: [], status });
           return;
         }
-        sendJSON(res, 200, p.endsWith("/events") ? { events: since(resolved.session.events()), status: resolved.session.status() }
+        sendJSON(res, 200, p.endsWith("/events") ? { events: since(resolved.session.events()), status: resolved.session.status(), composerQueue: composerQueueSnapshot("claude-code", sessionId) }
           : { permissions: resolved.session.pendingPermissions(), status: resolved.session.status() });
         return;
       }
       if (p === "/api/claude/structured/prompt" && req.method === "POST") {
         try {
           const body = await readJSON(req, PROMPT_ROUTE_BYTES);
-          const result = await sendToClaudeStructured(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
-          sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
-        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
+          const text = body?.text || body?.message || "";
+          // A message sent while Claude works waits in the queue for the turn
+          // to end, unless the person sends it into the turn from its chip.
+          if (resolveClaudeStructuredSession(body?.sessionId || "") && await composerQueue.shouldQueue("claude-code", body.sessionId).catch(() => false)) {
+            sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("claude-code", body.sessionId, { text, images: body?.images, deviceId: body?.deviceId }) });
+            return;
+          }
+          const result = await sendToClaudeStructured(body?.sessionId, text, { images: body?.images });
+          if (result?.kind === "sent") composerQueue.noteDirectSend("claude-code", result.nativeSessionId || body?.sessionId);
+          sendJSON(res, result?.kind === "reject" ? 409 : 200, result?.kind === "reject" ? { ...result, error: result.error || result.code } : result);
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed", ...(error.code ? { code: error.code } : {}) }); }
         return;
       }
       if (p === "/api/claude/structured/permission" && req.method === "POST") {
@@ -6759,6 +6828,8 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, 64 * 1024);
           const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
           if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          // Stop pauses the conversation's queue: nothing more goes in by itself.
+          composerQueue.pause("claude-code", body.sessionId);
           const result = await resolved.session.interrupt();
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_interrupt_failed" }); }
@@ -6947,7 +7018,8 @@ const server = http.createServer(async (req, res) => {
           await ensureCodexNativeProbe();
           const threadId = url.searchParams.get("threadId") || null;
           if (threadId !== null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(threadId)) { sendJSON(res, 400, { error: "invalid_thread_id" }); return; }
-          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(threadId), mutation: codexNative.mutationStatus(threadId), pendingApprovals: codexNative.pendingApprovals(threadId) });
+          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(threadId), mutation: codexNative.mutationStatus(threadId), pendingApprovals: codexNative.pendingApprovals(threadId),
+            ...(threadId ? { composerQueue: composerQueueSnapshot("codex", threadId) } : {}) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_mutation_unavailable" }); }
         return;
       }
@@ -8337,7 +8409,7 @@ const server = http.createServer(async (req, res) => {
         let ok;
         if (taskId.startsWith("pi:")) {
           const sid = taskId.slice(3);
-          ok = !!sid && rpcWrite(sid, { type: "abort" });
+          ok = !!sid && await stopPi(sid);
         } else if (taskId.startsWith("opencode:")) {
           try { ok = (await hostRates.abortOpenCode(openCodeNative, taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; }
           catch { ok = false; }
@@ -8346,6 +8418,7 @@ const server = http.createServer(async (req, res) => {
         } else if (/^(kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
           try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
         } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
+          composerQueue.pause("claude-code", taskId.slice("claude-code:".length));
           try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.interrupt(); ok = result.kind === "sent"; } catch { ok = false; }
         } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
           try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
@@ -8416,19 +8489,28 @@ const server = http.createServer(async (req, res) => {
         if (message.length > 1_000_000) { sendJSON(res, 413, { error: "message too large" }); return; }
         const s = rpcSessions.get(body.sid);
         if (!s) { sendJSON(res, 404, { error: "no such rpc session" }); return; }
+        // A message sent while Pi works waits in the Host's queue and goes as
+        // the next turn. A slash command keeps Pi's own handling: an
+        // extension command runs at once even while Pi works.
+        if (!message.trimStart().startsWith("/") && await composerQueue.shouldQueue("pi", body.sid).catch(() => false)) {
+          try { sendJSON(res, 200, { queued: true, ...composerQueue.add("pi", body.sid, { text: message, images: body.images, deviceId: body.deviceId }) }); }
+          catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "queue_unavailable", code: error.code || "queue_unavailable" }); }
+          return;
+        }
         const cmd = { type: "prompt", message };
         // 圖片附件：[{type:"image", data:base64, mimeType}]，張數與總大小依 Pi 的預算
         const images = piImageInputs(body.images);
         if (images.length) cmd.images = images;
         if (s.state.isStreaming) cmd.streamingBehavior = "followUp"; // streaming 中自動排隊
         const ok = rpcWrite(body.sid, cmd);
+        if (ok && !s.state.isStreaming) composerQueue.noteDirectSend("pi", body.sid);
         sendJSON(res, ok ? 200 : 409, ok ? { queued: s.state.isStreaming } : { error: "process gone" });
         return;
       }
 
       if (p === "/api/abort" && req.method === "POST") {
         const body = await readJSON(req);
-        sendJSON(res, rpcWrite(body.sid, { type: "abort" }) ? 200 : 404, {});
+        sendJSON(res, await stopPi(body.sid) ? 200 : 404, {});
         return;
       }
 

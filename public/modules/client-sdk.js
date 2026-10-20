@@ -57,6 +57,11 @@ var StepsembleClient;
                         message = body.error.message;
                         code = body.error.code;
                     }
+                    // A refusal that names only its code, as an older Host's did.
+                    else if (typeof body.code === "string") {
+                        message = body.code;
+                        code = body.code;
+                    }
                 }
                 catch { /* Keep HTTP failure even when the body is malformed. */ }
                 throw new HttpError(message, response.status, url, code);
