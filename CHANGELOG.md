@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.32
+
+- Support Magpie, a local gateway that lets Codex, Claude Code and Pi use models from any provider. Codex's and Claude Code's settings pages show whether each goes through Magpie, with a switch that runs Magpie's own command for Codex and one that routes the Claude Code conversations Stepsemble starts through Magpie.
+- List Magpie's models in a routed Claude Code conversation's model sheet, while Claude's own models stay on the subscription, and name models through Magpie as "Magpie · MiniMax" in every model list.
+- Add Magpie as a quota source, read after each agent's own sign-in, so services such as GitHub Copilot can show their limits too.
+- Stop OpenCodex from claiming a Codex or Claude route that goes to Magpie, and hide OpenCodex's cards while it is off and nothing goes through it.
+
 ## 3.9.31
 
 - Float the limits at the bottom of the sidebar on a liquid-glass capsule; the session list scrolls behind it. It turns solid when the system asks for less transparency or more contrast.
