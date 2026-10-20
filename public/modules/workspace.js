@@ -542,7 +542,7 @@
       const rects = moving ? dragRegions() : [];
       const sent = JSON.stringify(rects);
       if (sent !== dragRegionsSent) { dragRegionsSent = sent; app.postMessage({ type: "drag-regions", rects }); }
-      const tabRegions = !settingsLayer && !(usageUI.isOpen() && !usageUI.isSheet()) && !$("workspace-dialog").open ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
+      const tabRegions = !settingsLayer && !$("workspace-dialog").open ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
         const r = label.getBoundingClientRect(), list = label.closest(".workspace-tablist").getBoundingClientRect();
         const left = Math.max(r.left, list.left), right = Math.min(r.right, list.right);
         return right > left && r.height ? [{ identity: label.parentElement.dataset.identity, rect: [left, r.top, right - left, r.height] }] : [];
@@ -555,7 +555,6 @@
     const rects = [], add = (left, top, right, bottom) => { if (right - left >= 2 && bottom - top >= 2) rects.push([left, top, right - left, bottom - top].map(Math.round)); };
     const box = element => element.getBoundingClientRect();
     if (settingsLayer) { add(0, 0, innerWidth, parseFloat(getComputedStyle(settingsLayer).paddingTop) || 0); return rects; }
-    if (usageUI.isOpen() && !usageUI.isSheet()) return rects;
     const sidebar = $("workspace-sidebar"), name = sidebar.querySelector(".workspace-identity");
     if (sidebar.getClientRects().length && name) add(box(sidebar).left, 0, box(name).right, box(name.parentElement).bottom);
     if ($("workspace-stage").getClientRects().length) {
@@ -1348,13 +1347,15 @@
   // its tightest window using the selected Remaining/Used display. It opens the limits sheet,
   // even when this Host cannot currently report an allowance.
   let usageReading = null;
-  // The capsule opens the limits as a sheet growing out of it over the list;
-  // the full Limits/Usage panel is one step further, from the sheet.
-  function toggleLimitsSheet(strip) {
-    if (usageUI.isOpen()) { usageUI.close(); return; }
+  // The capsule opens limits and usage as a sheet growing out of it over the
+  // list.
+  function openLimitsSheet(target, trigger, options = {}) {
     closeUsageTip();
-    void usageUI.openSheet(host, strip, { container: document.querySelector("#workspace-sidebar footer"), area: $("workspace-usage"),
-      top: () => $("workspace-projects").getBoundingClientRect().top }).catch(error => toast(error.message));
+    void usageUI.openSheet(target, trigger, { container: document.querySelector("#workspace-sidebar footer"), area: $("workspace-usage"),
+      top: () => $("workspace-projects").getBoundingClientRect().top, ...options }).catch(error => toast(error.message));
+  }
+  function toggleLimitsSheet(strip) {
+    if (usageUI.isOpen()) usageUI.close(); else openLimitsSheet(host, strip);
   }
   function renderUsage(data) {
     usageReading = data;
@@ -1980,13 +1981,17 @@
     } finally { booting = false; }
   }
   function visibleSessions() {
-    if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".usage-panel[open]")) return [];
+    if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open) return [];
     return [...frames.values()].filter(item => !pageTab(item.ref) && !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
   }
   function openUsageIntent(value) {
     const target = typeof value.host === "string" && machines.some(m => m.id === value.host) ? value.host : host;
-    usageUI.close();
-    void usageUI.open(target, undefined, { tab: "usage", agent: value.agent, allHosts: value.host === "" }).catch(error => toast(error.message));
+    usageUI.close({ restore: false });
+    // The sheet grows out of the sidebar, so a phone showing a session goes
+    // back to the list first, and a hidden sidebar comes back.
+    if (mobile()) showMobileList();
+    else if (document.body.classList.contains("sidebar-hidden")) { document.body.classList.remove("sidebar-hidden"); requestAnimationFrame(layoutFrames); }
+    openLimitsSheet(target, document.querySelector(".workspace-limits-strip"), { tab: "usage", agent: value.agent, allHosts: value.host === "" });
   }
   window.addEventListener("message", event => {
     const value = event.data;
