@@ -1964,6 +1964,7 @@
       theme,
       resolvedTheme: theme === "auto" ? (prefersDark ? "dark" : "light") : theme,
       designTheme: DESIGN_THEME_IDS.has(settings.designTheme) ? settings.designTheme : DEFAULT_DESIGN_THEME,
+      look: settings.look === "classic" ? "classic" : "bold",
       fontScale: clampNumber(settings.fontScale, 100, 90, 125),
       compact: settings.compact === true,
       reducedMotion: settings.reducedMotion === true,

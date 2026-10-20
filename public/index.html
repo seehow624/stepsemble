@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/modules/conversation-catalog.css?v=3.9.34">
 <link rel="stylesheet" href="/modules/workspace-embedded.css?v=3.9.34">
 <link rel="stylesheet" href="/modules/workflows.css?v=3.9.34">
+<link rel="stylesheet" href="/modules/look-bold.css?v=3.9.34">
 </head>
 <body>
 <div class="ios-status-strip" aria-hidden="true"></div>
@@ -411,6 +412,13 @@
                 <option value="auto">System</option>
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
+              </select>
+            </label>
+            <label class="settings-row settings-select-row">
+              <span><strong data-i18n-key="settings.look">Interface style</strong><small data-i18n-key="settings.lookNote">Bold glass and depth, or the classic look</small></span>
+              <select id="set-look">
+                <option value="bold" data-i18n-key="settings.lookBold">Bold</option>
+                <option value="classic" data-i18n-key="settings.lookClassic">Classic</option>
               </select>
             </label>
             <div class="settings-row settings-theme-row">

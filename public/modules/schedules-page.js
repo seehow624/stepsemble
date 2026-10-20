@@ -20,7 +20,7 @@
   // The Workspace's look, and the tab's title in its language.
   function applyPreferences() {
     const root = document.documentElement;
-    root.lang = prefs.locale; root.dataset.theme = prefs.resolvedTheme; root.dataset.designTheme = prefs.designTheme;
+    root.lang = prefs.locale; root.dataset.theme = prefs.resolvedTheme; root.dataset.designTheme = prefs.designTheme; root.dataset.look = prefs.look;
     root.classList.toggle("reduced-motion", prefs.reducedMotion); root.style.fontSize = `${prefs.fontScale}%`;
     const title = W.label("schedules");
     document.title = `Stepsemble · ${title}`;

@@ -25,6 +25,7 @@
     root.lang = prefs.locale;
     root.dataset.theme = prefs.resolvedTheme;
     root.dataset.designTheme = prefs.designTheme;
+    root.dataset.look = prefs.look;
     root.classList.toggle("reduced-motion", prefs.reducedMotion);
     root.style.fontSize = `${prefs.fontScale}%`;
     root.style.setProperty("--workspace-sidebar-width", `${prefs.sidebarWidth}px`);
