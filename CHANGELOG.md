@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.34
+
+- See usage in the same glass sheet as the limits: the sheet now has Limits and Usage tabs and grows up from the capsule to fit the tab, instead of opening another window. Pull it down, scroll or click elsewhere, or press Escape, and it sinks back into the capsule. The limits bars have their colour again.
+- Read a long Claude Code conversation whole. Conversations over 32 MB used to lose their middle silently, jumping from one day to days later; they now load a page at a time back to the first message, and a sub-agent's transcript can no longer stand in for its conversation. Branching from a reply works in these long conversations too, and long Codex histories page back the same way.
+- See the model, thinking level and context in every conversation: Claude through Magpie, a reopened or stopped Claude conversation and an idle Codex thread now show them, and an unknown context shows an empty ring instead of nothing. The thinking level is shown as rising bars beside the model, with a mark on the highest level; the name of the level stays in the tooltip.
+- Keep writing while an agent works. A message sent mid-turn to Claude Code, Codex or Pi waits in a chip above the message box, goes out by itself when the turn ends, and can be sent into the current turn now, edited or removed. The queue lives on the Host, so every device sees it; Stop pauses it. Pi keeps its Send button while it works, and Codex no longer refuses a second message.
+- One look for fields, search boxes, buttons, switches and the Settings page.
+
 ## 3.9.33
 
 - Open the limits from the sidebar as a sheet of the same liquid glass, rising out of the limits capsule over the list. It has no close button: pull it down, scroll or click anywhere else, or press Escape, and it sinks back into the capsule. Usage details open the full Limits & usage panel.
