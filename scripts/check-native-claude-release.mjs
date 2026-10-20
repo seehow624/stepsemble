@@ -165,7 +165,7 @@ try {
     assert.equal((await resumed.close()).cleanupConfirmed, true);
   });
   await check("branch", async () => {
-    const at = claudeForkPoint(sourceId, alphaReplyId, project, { configDir: env.CLAUDE_CONFIG_DIR });
+    const at = await claudeForkPoint(sourceId, alphaReplyId, project, { configDir: env.CLAUDE_CONFIG_DIR });
     assert(at, "branch point not found in the transcript");
     const sourceLines = (await fs.readFile(claudeTranscriptFile(sourceId, project, { configDir: env.CLAUDE_CONFIG_DIR }), "utf8")).split("\n").filter(Boolean).length;
     const branchId = crypto.randomUUID();

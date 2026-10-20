@@ -2332,9 +2332,10 @@ function forkRequest(value) {
 }
 const forkFailure = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 
-// The Claude entry a branch ends at (server/claude-fork-point.js).
+// The Claude entry a branch ends at (server/claude-fork-point.js), read
+// through the history catalog's transcript reader.
 function claudeForkPoint(nativeSessionId, messageId, cwd) {
-  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env) });
+  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env), catalog: nativeHistoryCatalog });
 }
 
 // Pi's package, found from its command, for the branch script.
@@ -5168,7 +5169,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         if (desktopClaude && !(await desktopClaude.forkSupported().catch(() => false))) {
           throw forkFailure("claude_helper_update_required", "Stepsemble's Claude Code helper is updating; try branching again in a moment");
         }
-        const at = claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
+        const at = await claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
         if (!at) throw forkFailure("claude_fork_point_missing", "Claude Code does not have this reply in its record yet");
         claudeFork = { from: fork.sessionId, at, sessionId: crypto.randomUUID() };
       } else {

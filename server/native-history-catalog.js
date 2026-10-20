@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const fsp = fs.promises;
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { createForkPoints } = require("./claude-fork-point");
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const MAX_PROJECT_DEPTH = 4;
@@ -390,7 +391,7 @@ function claudePictures(content) {
 function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infinity, through = null } = {}) {
   const claude = provider === "claude-code";
   let rows = [], head = 0, first = 0, total = 0, retained = 0, omittedRecords = 0, done = false, found = through === null;
-  const calls = new Map(), seen = new Set(), omittedAt = [];
+  const calls = new Map(), seen = new Set(), omittedAt = [], forks = claude ? createForkPoints() : null;
   const composer = { model: null, effort: null, contextTokens: null, contextWindow: null, observedAt: null };
   const evict = () => {
     while (retained > limits.retainedBytes && rows.length - head > 1) {
@@ -535,12 +536,14 @@ function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infin
   return {
     record(row) {
       if (done || !row || typeof row !== "object") return;
-      if (claude) claudeRecord(row); else codexRecord(row);
+      if (claude) { claudeRecord(row); forks.record(row); } else codexRecord(row);
       if (through !== null && row.uuid === through) { found = true; done = true; }
     },
     omit() { omittedRecords++; if (omittedAt.length < 10_000) omittedAt.push(total); },
     page,
     composer: () => ({ ...composer }),
+    // The entry a branch through a Claude reply ends at (claude-fork-point.js).
+    forkPoint: messageId => forks?.get(messageId) ?? null,
     get done() { return done; }, get found() { return found; },
     get retained() { return retained; }, get omittedRecords() { return omittedRecords; },
   };
@@ -791,6 +794,25 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     return state.transcript;
   }
 
+  function openedFailure(stat) {
+    if (!safeStat(stat, { allowLarge: true }) || stat.size < 1n) return "source_missing";
+    return stat.size > BigInt(Number.MAX_SAFE_INTEGER) ? "source_too_large" : null;
+  }
+
+  // The kept transcript of an open file, read up to what the file holds now:
+  // a read already under way may have begun before what was just written.
+  async function syncedTranscript(handle, provider) {
+    const stat = await handle.stat({ bigint: true }), failure = openedFailure(stat);
+    if (failure) return { failure };
+    const entry = transcriptFor(`${stat.dev}:${stat.ino}`, provider);
+    if (entry.flight) await entry.flight.catch(() => {});
+    if (!entry.flight) entry.flight = syncTranscript(entry, handle).finally(() => { entry.flight = null; });
+    const changed = await entry.flight;
+    if (changed) return { failure: changed };
+    trimTranscripts(entry);
+    return { entry, fileKey: entry.key };
+  }
+
   const pageNumber = value => {
     if (value === null || value === undefined || value === "") return null;
     if (Number.isSafeInteger(value) && value >= 0) return value;
@@ -821,24 +843,19 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     let handle;
     try {
       handle = await fsp.open(meta.filename, fs.constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-      const stat = await handle.stat({ bigint: true });
-      if (!safeStat(stat, { allowLarge: true }) || stat.size < 1n) return { kind: "source_unavailable", code: "source_missing" };
-      if (stat.size > BigInt(Number.MAX_SAFE_INTEGER)) return { kind: "source_unavailable", code: "source_too_large" };
-      const fileKey = `${stat.dev}:${stat.ino}`;
       let transcript, size, version;
       if (through !== null) {
+        const stat = await handle.stat({ bigint: true }), failure = openedFailure(stat), fileKey = `${stat.dev}:${stat.ino}`;
+        if (failure) return { kind: "source_unavailable", code: failure };
         size = Number(stat.size);
         transcript = await scanOnce(handle, provider, size, { through });
         if (!transcript.found) return { kind: "source_unavailable", code: "history_session_unavailable" };
         version = `${fileKey}:${transcripts.get(fileKey)?.generation || 0}:${through}`;
       } else {
-        const entry = transcriptFor(fileKey, provider);
-        if (!entry.flight) entry.flight = syncTranscript(entry, handle).finally(() => { entry.flight = null; });
-        const failure = await entry.flight;
-        if (failure) return { kind: "source_unavailable", code: failure };
-        trimTranscripts(entry);
-        ({ transcript } = entry.state); size = entry.state.offset;
-        version = `${fileKey}:${entry.generation}`;
+        const synced = await syncedTranscript(handle, provider);
+        if (synced.failure) return { kind: "source_unavailable", code: synced.failure };
+        ({ transcript } = synced.entry.state); size = synced.entry.state.offset;
+        version = `${synced.fileKey}:${synced.entry.generation}`;
       }
       let rows = transcript.page(page);
       if (rows.needsRange) rows = (await scanOnce(handle, provider, size, { through, keepBelow: rows.end })).page(page);
@@ -851,9 +868,24 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     finally { try { await handle?.close(); } catch {} }
   }
 
+  // The entry a branch through a Claude reply ends at, from the transcript
+  // at `filename` as its history reads it: the Host names the file from the
+  // conversation's folder (claude-fork-point.js), which may be newer than the
+  // last scan.
+  async function claudeForkPoint(filename, messageId) {
+    if (closed || !POSIX || typeof filename !== "string" || !path.isAbsolute(filename) || !filename.endsWith(".jsonl")) return null;
+    let handle;
+    try {
+      handle = await fsp.open(filename, fs.constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+      const synced = await syncedTranscript(handle, "claude-code");
+      return synced.failure ? null : synced.entry.state.transcript.forkPoint(messageId);
+    } catch { return null; }
+    finally { try { await handle?.close(); } catch {} }
+  }
+
   function status() { return { enabled: POSIX, state: closed ? "closed" : "ready", lastRefresh: lastRefresh || null, entries: entries.size, lastError, refreshing: !!flight }; }
   async function shutdown() { closed = true; entries = new Map(); transcripts.clear(); await flight?.catch?.(() => {}); return { cleanupConfirmed: true }; }
-  return Object.freeze({ refresh, listTasks, read, status, shutdown, updatedAt });
+  return Object.freeze({ refresh, listTasks, read, claudeForkPoint, status, shutdown, updatedAt });
 }
 
 module.exports = { createNativeHistoryCatalog, createTranscript, recordsFromBytes, claudeMessages, codexMessages, taskFromMeta,
