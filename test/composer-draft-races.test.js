@@ -31,6 +31,8 @@ function fixture() {
     BUILTIN_SLASH: { compact: () => new Promise(resolve => requests.push({ resolve })) }, showList: noop,
     // Outside a workspace tab Pi keeps its RPC compaction (BUILTIN_SLASH).
     WORKSPACE_ENTRY_KEY: "", agentCompaction: null, compactionCopy: key => key, compactionReason: key => key, subagentTracker: null, sessionReferences: null,
+    // While the agent works a message waits in the queue (composer-queue tests); these sends go at once.
+    composerQueueRoute: () => null,
   });
   context.window = context;
   vm.runInContext(utilities, context); Object.assign(context, context.stepsembleSessionUtils);

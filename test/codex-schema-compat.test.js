@@ -67,6 +67,17 @@ test("changes to what Stepsemble sends are refused", () => {
   })), ["union member removed"]);
 });
 
+test("a queued message steers the running turn, so turn/steer is part of the reviewed contract", () => {
+  assert.ok(USED_CLIENT_METHODS.includes("turn/steer"));
+  assert.deepEqual(reasons(check(documents => {
+    const requests = documents["ClientRequest.json"];
+    requests.oneOf = requests.oneOf.filter(variant => variant.properties?.method?.enum?.[0] !== "turn/steer");
+  })), ["request method removed"]);
+  assert.deepEqual(reasons(check(documents => {
+    delete documents["ClientRequest.json"].definitions.TurnSteerParams.properties.expectedTurnId;
+  })), ["field removed"]);
+});
+
 test("changes to what Stepsemble reads are refused", () => {
   assert.deepEqual(reasons(check(documents => {
     delete documents["v2/ThreadReadResponse.json"].definitions.Thread.properties.agentNickname;

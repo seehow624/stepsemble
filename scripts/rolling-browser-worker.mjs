@@ -21,6 +21,7 @@ import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
 import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs";
 import { runComposerEffortBrowserCases } from "./composer-effort-browser-cases.mjs";
 import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.mjs";
+import { runComposerQueueBrowserCases } from "./composer-queue-browser-cases.mjs";
 import { runScrollbarBrowserCases } from "./scrollbar-browser-cases.mjs";
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
 import { runWorkspacePanesBrowserCases } from "./workspace-panes-browser-cases.mjs";
@@ -193,7 +194,10 @@ try {
     await runCodexActivityBrowserCases(browser);
     await runComposerEffortBrowserCases(browser);
   }
-  else if (suite === "conversation-ux") await runConversationUxBrowserCases(browser);
+  else if (suite === "conversation-ux") {
+    await runConversationUxBrowserCases(browser);
+    await runComposerQueueBrowserCases(browser);
+  }
   else if (suite === "workspace") {
     await runScrollbarBrowserCases(browser);
     await runProjectFilesBrowserCases(browser);

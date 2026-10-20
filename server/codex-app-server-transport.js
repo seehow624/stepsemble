@@ -38,7 +38,7 @@ const APPROVAL_METHODS = Object.freeze([
 const CLIENT_METHODS = Object.freeze([
   "initialize", "account/rateLimits/read", "thread/start", "thread/resume", "thread/read", "thread/list",
   "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/goal/set", "thread/goal/clear", "thread/name/set", "thread/compact/start",
-  "model/list", "turn/start", "turn/interrupt",
+  "model/list", "turn/start", "turn/steer", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
@@ -898,7 +898,10 @@ function createCodexAppServerTransport({
         if (compactionPending?.threadId === tid && compactionPending.turnId === trn && method === "item/completed") compactionPending.boundary = true;
         report({ type: "context.compaction", threadId: tid, turnId: trn, itemId: item });
       }
-      report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item, itemType, ...(itemType === "agentMessage" && typeof params.item.text === "string" ? { text: params.item.text.slice(-32000) } : {}) }); return;
+      // A message steered into the turn carries the id it was sent with.
+      const clientId = itemType === "userMessage" ? nativeId(params.item.clientId) : null;
+      report({ type: method === "item/started" ? "item.started" : "item.completed", threadId: tid, turnId: trn, itemId: item, itemType,
+        ...(itemType === "agentMessage" && typeof params.item.text === "string" ? { text: params.item.text.slice(-32000) } : {}), ...(clientId ? { clientId } : {}) }); return;
     }
     if (method === "serverRequest/resolved") {
       const requestId = idValue(params?.requestId), tid = nativeId(params?.threadId), row = requestId === null ? null : approvals.get(key(requestId));
@@ -950,10 +953,12 @@ function createCodexAppServerTransport({
         // Codex refuses history reads for a thread whose first message has
         // not been sent, and any write to a thread another process (the Codex
         // app) holds open. Keep only those facts; the upstream text stays here.
+        // An older Codex that has no such method says so.
         const message = typeof value.error.message === "string" ? value.error.message.slice(0, 1024) : "";
         const code = /\balready has an active writer\b/i.test(message) ? "codex_thread_open_elsewhere" : "native_request_rejected";
         const error = new Error(code); error.code = code;
         if (/\bnot materialized\b/i.test(message)) error.threadUnmaterialized = true;
+        if (value.error.code === -32601 || /\b(unknown variant|unknown method|method not found)\b/i.test(message)) error.methodUnsupported = true;
         row.reject(error); return;
       }
       row.resolve(value.result); return;
@@ -1204,6 +1209,43 @@ function createCodexAppServerTransport({
     } finally { turnStartInFlight = false; }
   }
 
+  // Adds a message to the turn under way (turn/steer). Codex takes it only
+  // into the turn it expects, so a turn that ended or changed is refused and
+  // the caller reads the state again. clientUserMessageId comes back on the
+  // user message item when Codex takes the message into the turn.
+  let steerInFlight = false;
+  async function steerTurn(input, { expectedTurnId, clientUserMessageId = null } = {}, expectedThreadId = null) {
+    if (expectedThreadId !== null && (!nativeId(expectedThreadId) || expectedThreadId !== threadId)) return reject("native_thread_mismatch");
+    if (!initialized || closed || failure || !threadId || !turnId || state !== "turn_running" || interruptInFlight || steerInFlight
+      || compactionStarting || compactionPending) return reject("native_turn_not_running");
+    if (!nativeId(expectedTurnId) || expectedTurnId !== turnId) return reject("native_turn_mismatch");
+    if (clientUserMessageId !== null && !nativeId(clientUserMessageId)) return reject("invalid_native_params");
+    const normalizedInput = normalizeTurnInput(input);
+    if (!normalizedInput) return reject("invalid_turn_input");
+    const activeThreadId = threadId, activeTurnId = turnId;
+    const body = { threadId: activeThreadId, expectedTurnId: activeTurnId, input: normalizedInput, ...(clientUserMessageId ? { clientUserMessageId } : {}) };
+    const detached = bounded(body, MAX_TURN_REQUEST_BYTES); if (detached === null) return reject("invalid_native_params");
+    steerInFlight = true;
+    try {
+      const auth = await authorize("turn.steer", { threadId: activeThreadId, turnId: activeTurnId, params: detached }); if (auth.kind === "reject") return auth;
+      if (closed || failure || !initialized || threadId !== activeThreadId || state !== "turn_running") return reject("native_turn_not_running");
+      if (turnId !== activeTurnId) return reject("native_turn_mismatch");
+      let result;
+      try {
+        result = await request("turn/steer", detached, { writeMaxBytes: MAX_TURN_FRAME_BYTES, writeMaxQueueBytes: MAX_TURN_QUEUE_BYTES,
+          check: value => plain(value) && nativeId(value.turnId) });
+      } catch (error) {
+        if (error?.methodUnsupported === true) return reject("native_method_unsupported");
+        // Codex refuses a steer whose turn is no longer the active one.
+        if (error?.code === "native_request_rejected") return reject("native_steer_rejected");
+        throw error;
+      }
+      if (result.turnId !== activeTurnId) return reject("native_turn_mismatch");
+      report({ type: "turn.steered", threadId: activeThreadId, turnId: activeTurnId, ...(clientUserMessageId ? { clientUserMessageId } : {}), authorization: auth });
+      return { kind: "steered", threadId: activeThreadId, turnId: result.turnId, response: clone(result), dispatch: auth };
+    } finally { steerInFlight = false; }
+  }
+
   async function compactThread(expectedThreadId) {
     if (!nativeId(expectedThreadId) || expectedThreadId !== threadId) return reject("native_thread_mismatch");
     if (!initialized || closed || failure || state !== "thread_started" || turnId || turnStartInFlight || resumeInFlight || compactionStarting || compactionPending || approvals.size) return reject("native_lifecycle_conflict");
@@ -1315,6 +1357,7 @@ function createCodexAppServerTransport({
       return request("account/rateLimits/read", {}, { check: value => plain(value) });
     },
     startTurn,
+    steerTurn,
     compactThread,
     interruptTurn,
     respondApproval,

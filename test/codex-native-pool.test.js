@@ -74,6 +74,10 @@ function childFactoryHarness({ delayResume = 0, onCreate = null } = {}) {
         state.turnId = `turn-${id}`;
         return { kind: "started", threadId: expectedThreadId, turnId: state.turnId };
       },
+      async steerTurn(threadId, input, options) {
+        calls.push(["steer", id, threadId, input, options]);
+        return state.turnId ? { kind: "steered", threadId, turnId: state.turnId } : { kind: "reject", code: "native_turn_not_running" };
+      },
       async interruptTurn(expectedThreadId) {
         calls.push(["interrupt", id, expectedThreadId]);
         state.state = "thread_started";
@@ -146,6 +150,22 @@ test("pool reports the approval and sandbox policy a thread runs in, including t
   await pool.startTurn([{ type: "text", text: "hi" }], { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } }, "thread-a");
   assert.deepEqual(pool.permissionState("thread-a"), { approvalPolicy: "on-request", sandbox: "readOnly" });
   assert.deepEqual(harness.calls.find(row => row[0] === "turn")[3], { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } });
+});
+
+test("pool steers a message into the thread's own child, never another thread's", async t => {
+  const history = historyFixture();
+  const harness = childFactoryHarness();
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-pool-")) });
+  t.after(() => pool.close());
+  assert.equal((await pool.steerTurn("thread-a", [{ type: "text", text: "x" }], { expectedTurnId: "turn-a" })).code, "native_thread_missing");
+  await pool.resumeThread({ threadId: "thread-a" });
+  await pool.resumeThread({ threadId: "thread-b" });
+  await pool.startTurn([{ type: "text", text: "hi" }], {}, "thread-a");
+  const result = await pool.steerTurn("thread-a", [{ type: "text", text: "also" }], { expectedTurnId: "turn-thread-a", clientUserMessageId: "11111111-2222-4333-8444-555555555555" });
+  assert.equal(result.kind, "steered");
+  assert.deepEqual(harness.calls.filter(row => row[0] === "steer"), [["steer", "thread-a", "thread-a", [{ type: "text", text: "also" }],
+    { expectedTurnId: "turn-thread-a", clientUserMessageId: "11111111-2222-4333-8444-555555555555" }]]);
+  assert.equal((await pool.steerTurn("thread-b", [{ type: "text", text: "x" }], { expectedTurnId: "turn-thread-a" })).code, "native_turn_not_running");
 });
 
 test("pool reads a thread goal from the thread's own child, else from history", async t => {

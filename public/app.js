@@ -128,7 +128,7 @@ const el = {
   changesFooter: $("changes-footer"), changesStagingCopy: $("changes-staging-copy"),
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
-  messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
+  messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"), composerQueue: $("composer-queue"),
   nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
   nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
   nativeRunObjective: $("native-run-objective"), nativeRunActions: $("native-run-actions"),
@@ -260,6 +260,10 @@ const collapsedProjects = new Set();
 const expandedProjectSessions = new Set();
 const PROJECT_SESSION_PREVIEW_LIMIT = 3;
 let rpc = null;              // {sid, es, streaming, queued}
+// The chips of messages queued while the agent works, and the pictures this
+// page sent with them, shown with each message once the agent takes it.
+let composerQueueView = null;
+const composerQueueImages = new Map();
 let pendingAssistant = null;
 let liveToolCards = new Map();
 let liveActivity = null;     // 目前工作輪次的整組 thinking／tool 紀錄
@@ -896,7 +900,7 @@ function applyAppearance() {
   // Work-log labels are composed from keyed strings, so a language change
   // rebuilds them once the new locale is active.
   const workLocale = settings.locale || "en";
-  if (workLogLocale !== null && workLogLocale !== workLocale) queueMicrotask(() => relabelWorkLog());
+  if (workLogLocale !== null && workLogLocale !== workLocale) queueMicrotask(() => { relabelWorkLog(); composerQueueView?.refresh(); });
   workLogLocale = workLocale;
   renderContextDashboard();
 }
@@ -6481,6 +6485,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
         }
         renderCodexNativeApprovals(connection, mutation?.pendingApprovals);
       }
+      applyComposerQueue(connection, mutation?.composerQueue);
     }
     void syncNativeContext(connection);
     connection.nativeLoading = false;
@@ -7254,6 +7259,9 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
     historyNeeded = parked && !fromStart && (!sameClaude || connection.claudeNeedsLoad === false && (status.released !== true || cutShort));
     if (status.startedAt) connection.claudeStartedAt = status.startedAt;
     connection.claudeNeedsLoad = parked;
+    // A queued message Claude took goes above the answer it starts.
+    if (typeof status.nativeSessionId === "string" && status.nativeSessionId) connection.claudeNativeSessionId = status.nativeSessionId;
+    applyComposerQueue(connection, snapshot?.composerQueue);
     if (!historyNeeded) renderClaudeStructuredEvents(connection, rows, { replace: fromStart, live: !initial });
     renderClaudeStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
@@ -7988,6 +7996,7 @@ function closeChat(silent) {
   removeCodexNativeHistoryButton();
   pendingImages = [];
   renderImgPreview();
+  resetComposerQueue();
   setStreaming(false);
 }
 
@@ -10879,6 +10888,8 @@ function setActivityLabel(label = "thinking") {
 
 function handleRpcEvent(ev, eventSid = rpc?.sid) {
   if (eventSid && rpc?.sid !== eventSid) return;
+  // The Host's queue for this conversation as it is now: state, not activity.
+  if (ev.type === "composer_queue") { applyComposerQueue(rpc, ev.queue); return; }
   markRpcActivity();
   subagentTracker?.pi(ev);
   switch (ev.type) {
@@ -11133,8 +11144,11 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       break;
     }
     case "queue_update": {
-      const n = (ev.steering?.length || 0) + (ev.followUp?.length || 0);
-      el.queueNote.textContent = n > 0 ? `⏳ ${n} 則訊息排隊中` : "";
+      // A message sent in from its chip shows on the chip; the note counts
+      // only what Pi holds by itself.
+      const ours = new Set((rpc?.composerQueue?.items || []).filter(item => item.state === "dispatching").map(item => item.text));
+      const n = (ev.steering || []).filter(text => !ours.has(text)).length + (ev.followUp?.length || 0);
+      el.queueNote.textContent = n > 0 ? tKey("runtime.piQueued", { count: n }) : "";
       el.queueNote.classList.toggle("hidden", n === 0);
       if (n > 0) el.queueNote.dataset.persistent = "queue";
       else delete el.queueNote.dataset.persistent;
@@ -11456,11 +11470,11 @@ function setStreaming(on) {
   el.thinkingStatus?.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);
-  // Interactive CLI agents accept follow-up input while they are alive, so
-  // keep Send available for them. Pi's native RPC retains its queue/abort UX,
-  // and an ACP agent answers one prompt at a time, so Send becomes Stop.
+  // While an agent works Send stays beside Stop: Pi, Codex and Claude Code
+  // queue the message for when the turn ends, interactive CLI agents take
+  // it at once. An ACP agent answers one prompt at a time, so Send becomes Stop.
   const oneTurnAtATime = !!(rpc?.nativeAcp || rpc?.nativeGrokAcp);
-  el.btnSend.classList.toggle("hidden", on && (!generic || oneTurnAtATime));
+  el.btnSend.classList.toggle("hidden", on && oneTurnAtATime);
   // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
   // endpoint and Codex applies the selected model on its next prompt. Other
   // connectors have no safe model route, and read-only history must not offer
@@ -11481,7 +11495,9 @@ function setStreaming(on) {
     else el.thinkingSelect.disabled = false;
     if (codex && rpc.codexEffort) el.thinkingSelect.value = rpc.codexEffort;
   }
-  el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
+  const sendLabel = on && composerQueueTarget(rpc) && rpc?.composerQueue ? tKey("queue.add") : (window.stepsembleI18n?.t("Send") || "Send");
+  el.btnSend.title = sendLabel; el.btnSend.setAttribute("aria-label", sendLabel);
+  composerQueueView?.refresh({ busy: composerQueueBusy(rpc) });
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
   // An agent can change its own mode during a turn (Claude leaves plan mode
   // once a plan is approved), so read it again when a turn ends.
@@ -11794,6 +11810,121 @@ function renderImgPreview() {
   });
 }
 
+// ---- Messages queued while the agent works (server/composer-queue.js) ----
+// A message sent while Pi, Codex or Claude Code works waits on the Host as a
+// chip above the message box. The Host sends it when the turn ends, with or
+// without this page; its chip can send it into the turn now instead.
+function composerQueueTarget(connection = rpc) {
+  if (!connection || connection.nativeHistoryReadonly === true || connection.readOnly === true) return null;
+  if (!connection.generic) return connection.sid ? { agent: "pi", id: connection.sid } : null;
+  if (connection.nativeCodexMutation && connection.nativeThreadId) return { agent: "codex", id: connection.nativeThreadId };
+  const claude = connection.nativeClaudeStructured ? connection.claudeNativeSessionId || connection.nativeSessionId : null;
+  return claude ? { agent: "claude-code", id: claude } : null;
+}
+function composerQueueBusy(connection = rpc) {
+  return !!connection && (!!connection.streaming || connection.taskStatus === "running");
+}
+// Where a message about to be sent waits, if anywhere: only while the agent
+// works, on a Host that keeps queues. A Pi slash command keeps Pi's own
+// handling: an extension command runs at once.
+function composerQueueRoute(connection, text) {
+  const target = composerQueueTarget(connection);
+  if (!target || !connection.composerQueue || !composerQueueBusy(connection) || target.agent === "pi" && text.startsWith("/")) return null;
+  return target;
+}
+// Codex takes the model and level chosen as the message was sent.
+function composerQueueChoice(connection) {
+  if (!connection?.nativeCodexMutation) return {};
+  return { ...(connection.codexModel?.id ? { model: connection.codexModel.id } : {}),
+    ...(connection.codexEffort && connection.codexEffort !== "off" ? { effort: connection.codexEffort } : {}) };
+}
+function composerQueueViewOf() {
+  if (composerQueueView || !el.composerQueue || !window.StepsembleComposerQueue) return composerQueueView;
+  composerQueueView = window.StepsembleComposerQueue.create({ root: el.composerQueue, t: tKey,
+    onSendNow: item => void composerQueueAction("send-now", item),
+    onEdit: item => void takeQueuedMessage(item),
+    onRemove: item => void composerQueueAction("remove", item),
+    onResume: () => void composerQueueAction("resume"),
+    onDelivered: row => showQueuedMessageSent(rpc, row),
+    onEmpty: () => el.input?.focus({ preventScroll: true }) });
+  return composerQueueView;
+}
+function applyComposerQueue(connection, snapshot) {
+  if (!connection || rpc !== connection || !snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.items)) return;
+  if (composerQueueTarget(connection)?.agent !== snapshot.agent) return;
+  connection.composerQueue = snapshot;
+  composerQueueViewOf()?.update(snapshot, { busy: composerQueueBusy(connection) });
+}
+function resetComposerQueue() { composerQueueView?.reset(); }
+async function refreshComposerQueue(connection = rpc) {
+  const target = composerQueueTarget(connection);
+  if (!target) return;
+  try { applyComposerQueue(connection, (await api(`/api/composer-queue?agent=${encodeURIComponent(target.agent)}&id=${encodeURIComponent(target.id)}`))?.queue); }
+  catch { /* An older Host keeps no queue; there are no chips to show. */ }
+}
+async function composerQueueAction(action, item = null) {
+  const connection = rpc, target = composerQueueTarget(connection);
+  if (!target) return;
+  try {
+    const result = await post(`/api/composer-queue/${action}`, { ...target, ...(item ? { itemId: item.id, revision: item.revision } : {}) });
+    applyComposerQueue(connection, result?.queue);
+    if (rpc === connection && result?.outcome === "reject") toast(tKey("queue.failed"), true);
+  } catch (error) {
+    if (rpc !== connection) return;
+    const changed = ["queue_item_changed", "queue_item_busy", "queue_item_missing"].includes(error?.code);
+    toast(changed ? tKey("queue.changed") : String(error?.message || tKey("runtime.unknownError")).slice(0, 200), !changed);
+    void refreshComposerQueue(connection);
+  }
+}
+// Edit: the message comes back into the box, after anything typed there.
+async function takeQueuedMessage(item) {
+  const connection = rpc, target = composerQueueTarget(connection), draftKey = activeDraftKey;
+  if (!target) return;
+  let result;
+  try { result = await post("/api/composer-queue/take", { ...target, itemId: item.id, revision: item.revision }); }
+  catch (error) {
+    if (rpc !== connection) return;
+    toast(["queue_item_changed", "queue_item_busy", "queue_item_missing"].includes(error?.code) ? tKey("queue.changed") : String(error?.message || tKey("runtime.unknownError")).slice(0, 200), true);
+    void refreshComposerQueue(connection);
+    return;
+  }
+  applyComposerQueue(connection, result?.queue);
+  if (rpc !== connection || activeDraftKey !== draftKey) return;
+  const text = String(result?.text || ""), typed = el.input.value.replace(/\s+$/, "");
+  el.input.value = typed ? `${typed}\n\n${text}` : text;
+  const images = (Array.isArray(result?.images) ? result.images : []).map(image => ({ mimeType: image.mimeType,
+    data: String(image.data || "").startsWith("data:") ? image.data : `data:${image.mimeType || "image/png"};base64,${image.data}` }));
+  if (images.length) { pendingImages = [...pendingImages, ...images].slice(0, composerImageBudget(connection).count); renderImgPreview(); }
+  composerQueueImages.delete(item.id);
+  resizeComposerInput(); saveActiveDraft(); syncSendReady();
+  el.input.focus({ preventScroll: true });
+  el.input.selectionStart = el.input.selectionEnd = el.input.value.length;
+}
+// A queued message the agent took shows in the conversation where the agent
+// took it. Codex draws the message itself; Pi and Claude are drawn here.
+function showQueuedMessageSent(connection, row) {
+  if (!connection || rpc !== connection || connection.nativeCodex) return;
+  const text = String(row?.text || "") + (row?.truncated ? "…" : "");
+  const images = composerQueueImages.get(row.id) || [];
+  composerQueueImages.delete(row.id);
+  if (!text && !images.length && !row?.imageCount) return;
+  maybeDateSeparator(Number(row.at) || Date.now());
+  const { wrap, bubble } = makeMsgShell("user", "你");
+  wrap.dataset.ts = String(Number(row.at) || Date.now());
+  wrap.dataset.composerQueue = row.id;
+  if (text) bubble.appendChild(renderMarkdown(text));
+  if (images.length || row.imageCount) appendImageGallery(wrap, bubble, images, images.length || row.imageCount);
+  if (connection.generic) {
+    // The agent's answer goes below it, and its own copy is not drawn twice.
+    connection.genericOutputNode = null; connection.structuredThinking = null; connection.claudeOutputStart = null;
+    if (text && Array.isArray(connection.genericInputEchoes)) {
+      connection.genericInputEchoes.push({ text: String(row.text || ""), at: Date.now() });
+      if (connection.genericInputEchoes.length > 32) connection.genericInputEchoes.shift();
+    }
+  }
+  scrollBottom();
+}
+
 // A conversation opens its session in the background (Pi starts its process
 // first), and Send works before that is done. The message stays in the box
 // and is sent once the conversation is ready; after 30 seconds without a
@@ -11903,6 +12034,32 @@ async function sendCurrent() {
   const bm = !generic && text.match(/^\/(clear)\s*$/i);
   if (bm) { clearSentDraft(sendDraft); showList(); return; }
 
+  // Sent while the agent works, the message waits as a chip above the box.
+  const queueTarget = composerQueueRoute(rpc, text);
+  if (queueTarget) {
+    const queueConnection = rpc, queuedImages = pendingImages.slice();
+    pendingImages = [];
+    renderImgPreview();
+    try {
+      const result = await post("/api/composer-queue/add", { ...queueTarget, text, images: queuedImages, ...composerQueueChoice(queueConnection), deviceId: protocolDeviceId });
+      clearSentDraft(sendDraft);
+      if (referencesSent) sessionReferences?.clear();
+      if (result?.item?.id && queuedImages.length) composerQueueImages.set(result.item.id, queuedImages);
+      applyComposerQueue(queueConnection, result?.queue);
+    } catch (e) {
+      const current = rpc === queueConnection && viewGeneration === sendView && activeDraftKey === sendDraftKey;
+      if (current && ownsDraftSend(sendDraft) && !el.input.value && !pendingImages.length) {
+        el.input.value = sendDraftText;
+        resizeComposerInput();
+        saveDraftForKey(sendDraftKey, sendDraftText);
+        pendingImages = queuedImages;
+        renderImgPreview();
+      }
+      if (current) toast(e?.code === "queue_full" ? tKey("queue.full") : tKey("queue.unavailable"), true);
+    } finally { finishDraftSend(sendDraft); }
+    return;
+  }
+
   // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
   // transcript has no date lines, so native Codex skips the separator.
   const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
@@ -11981,6 +12138,20 @@ async function sendCurrent() {
     accepted = true;
     clearSentDraft(sendDraft);
     if (referencesSent) sessionReferences?.clear();
+    // The Host found the agent at work: the message waits as a chip, and
+    // shows in the conversation when the agent takes it.
+    if (result?.queued && result.item?.id && Array.isArray(result.queue?.items)) {
+      if (pendingTurn) endPendingTurn(sendConnection, pendingTurn);
+      userShell.remove();
+      if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho, { remove: true });
+      if (genericEcho && Array.isArray(sendConnection.genericInputEchoes)) {
+        const echoIndex = sendConnection.genericInputEchoes.indexOf(genericEcho);
+        if (echoIndex >= 0) sendConnection.genericInputEchoes.splice(echoIndex, 1);
+      }
+      if (images.length) composerQueueImages.set(result.item.id, images);
+      applyComposerQueue(sendConnection, result.queue);
+      return;
+    }
     // An ACP agent answers the prompt with the tokens it wrote, when it counts them.
     if (acpTurn?.outputMeter) {
       const tokens = contextUtils.acpTurnOutput(result, { agentId: acpTurn.acpAgentId || acpTurn.agentId });
@@ -12027,7 +12198,7 @@ async function sendCurrent() {
       rpc.taskStatus = "running";
       setStreaming(true);
     }
-    if (result?.queued && rpc === sendConnection) {
+    if (result?.queued && !result.queue && rpc === sendConnection) {
       el.queueNote.dataset.persistent = "queue";
       el.queueNote.textContent = tKey("runtime.messageQueued");
       el.queueNote.classList.remove("hidden");
@@ -12067,7 +12238,9 @@ async function sendCurrent() {
       // Every Claude slot is working; the message waits in the composer.
       if (sendConnection?.nativeClaudeStructured && String(e?.code || e?.message) === "desktop_capacity") toast(agentHubText("claudeCapacity"));
       else toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
-      if (codexSendConnection) appendTurnErrorNotice(codexSendConnection, e?.message || e?.code || tKey("codexRecovery.unknownError"));
+      // A send the Host refused never started a turn: no turn failed, and the
+      // message is back in the box.
+      if (codexSendConnection && !(e?.status >= 400 && e.status < 500)) appendTurnErrorNotice(codexSendConnection, e?.message || e?.code || tKey("codexRecovery.unknownError"));
     }
   } finally {
     finishDraftSend(sendDraft);

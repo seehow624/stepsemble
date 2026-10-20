@@ -16,7 +16,7 @@ async function peer(t, options = {}, autoClose = true) {
 test("history channel has a single handshake, exact read-only methods and all-source defaults", async t => {
   const p = await peer(t);
   await assert.rejects(p.client.request("thread/list"), /not_initialized/);
-  for (const method of ["thread/start", "thread/resume", "thread/fork", "thread/name/set", "thread/archive", "turn/start", "turn/interrupt", "account/login/start", "config/value/write", "item/commandExecution/requestApproval"])
+  for (const method of ["thread/start", "thread/resume", "thread/fork", "thread/name/set", "thread/archive", "turn/start", "turn/steer", "turn/interrupt", "account/login/start", "config/value/write", "item/commandExecution/requestApproval"])
     await assert.rejects(p.client.request(method), /method_refused/);
   assert.equal(p.writes.length, 0);
   await p.initialize(); await assert.rejects(p.client.initialize(), /already_initialized/);

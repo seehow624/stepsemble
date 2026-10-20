@@ -43,6 +43,9 @@ const PROCESS_BOUND_TOOLS = new Set(["CronCreate", "ScheduleWakeup", "Monitor"])
 // the queue keeps headroom for control frames behind it.
 const MAX_INPUT_FRAME_BYTES = 28 * 1024 * 1024;
 const MAX_INPUT_QUEUE_BYTES = 32 * 1024 * 1024;
+// When Claude takes a user frame: "now" interrupts the turn, "next" joins it
+// at its next step (the default), "later" waits for it to end.
+const USER_PRIORITIES = new Set(["now", "next", "later"]);
 const TYPES = new Set([
   "system", "user", "assistant", "result", "tool_use", "tool_result",
   "stream_event", "rate_limit_event", "error", "progress", "permission_request",
@@ -1105,15 +1108,22 @@ function createClaudeStructuredSession({
   function enqueueJson(value, timeoutCode = "claude_input_timeout") {
     return enqueueFrame(encodeInputFrame(value), timeoutCode);
   }
-  async function sendUser(text, { images = [] } = {}) {
+  async function sendUser(text, { images = [], uuid = null, priority = null, origin = null } = {}) {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
     const value = safeText(text, MAX_PROMPT);
     const blocks = claudeImageBlocks(images);
     // An image-only prompt is legitimate, so require text only when nothing
     // else carries the question.
     if (!value && !blocks.length) return Promise.resolve(reject("claude_prompt_invalid"));
+    // A queued message names itself, so Claude reports its fate as
+    // command_lifecycle frames; "next" lets the turn under way take it at its
+    // next step, as a message typed into Claude itself would be.
+    const commandId = uuid === null || uuid === undefined ? null : safeId(uuid);
+    if (uuid !== null && uuid !== undefined && !commandId || priority !== null && priority !== undefined && !USER_PRIORITIES.has(priority)
+      || origin !== null && origin !== undefined && origin?.kind !== "human") return Promise.resolve(reject("claude_prompt_invalid"));
     const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
-    const frame = encodeInputFrame({ type: "user", message: { role: "user", content } });
+    const frame = encodeInputFrame({ type: "user", message: { role: "user", content },
+      ...(commandId ? { uuid: commandId } : {}), ...(priority ? { priority } : {}), ...(origin ? { origin: { kind: "human" } } : {}) });
     const frameFailure = inputFrameFailure(frame);
     // Reject before changing the session to active; oversized/backpressured
     // prompts must not look like a turn was accepted or lose image blocks.
