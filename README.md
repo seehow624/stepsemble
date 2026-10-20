@@ -239,9 +239,9 @@ it and can update it.
 on the host. Each agent's page says how to sign in and shows the models it
 offers, plus its own settings: Pi's model visibility, Custom provider editor and
 token use for the last 7 days, OpenCode's providers and local server, and the
-OpenCodex routing for Codex and Claude Code when the host has OpenCodex. **Quota sources** in the same section chooses where subscription and
+Magpie or OpenCodex routing for Codex and Claude Code when the host has them. **Quota sources** in the same section chooses where subscription and
 API limits come from: each agent's own sign-in, Pi's sign-ins and keys,
-OpenCodex, or CodexBar's CLI. Turn sources on or off, and pick one for a service
+Magpie, OpenCodex, or CodexBar's CLI. Turn sources on or off, and pick one for a service
 that several sources can read.
 
 When OpenCodex has connected Pi, the Host compares the models OpenCodex serves
@@ -251,6 +251,16 @@ model menu opens. If they differ, it runs OpenCodex's own
 (OpenCodex keeps a snapshot first), so a model OpenCodex adds reaches Pi's menu
 without waiting for OpenCodex to restart. Stepsemble does not edit the block or
 read OpenCodex's credentials.
+
+When the host has [Magpie](https://usemagpie.ai) (its gateway answers on
+127.0.0.1:3425), Codex's and Claude Code's pages say whether each goes through
+it. The Codex switch runs Magpie's own `magpie codex` command; the Claude Code
+switch routes the conversations Stepsemble starts through Magpie, so they can
+choose every Magpie model while Claude's own models stay on the subscription.
+As a quota source, the Host reads `magpie accounts --json` every couple of
+minutes. A route belongs to the gateway it points at: OpenCodex never claims a
+route that goes to Magpie, and its cards step aside while it is off and nothing
+goes through it.
 
 **Settings → Notifications** turns on push alerts for the device you are using.
 An alert arrives when an agent finishes, fails or is stopped while that

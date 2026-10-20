@@ -59,15 +59,15 @@ test("provider rows ignore malformed readings", () => {
 const { normalizeQuotaConfig, readQuotaConfig, writeQuotaConfig, codexbarReports, createCodexBarReader } = require("../server/quota-sources");
 
 test("quota settings start with CodexBar off and keep only known sources and choices", async () => {
-  assert.deepEqual(normalizeQuotaConfig(null).sources, { agents: true, pi: true, opencodex: true, codexbar: false });
+  assert.deepEqual(normalizeQuotaConfig(null).sources, { agents: true, pi: true, magpie: true, opencodex: true, codexbar: false });
   const dir = home();
   try {
     assert.deepEqual((await readQuotaConfig(dir)).prefer, {});
-    await writeQuotaConfig(dir, { sources: { codexbar: true, evil: true, pi: "yes" }, prefer: { codex: "opencodex", claude: "nowhere", "../x": "pi" } });
+    await writeQuotaConfig(dir, { sources: { codexbar: true, evil: true, pi: "yes" }, prefer: { codex: "opencodex", claude: "nowhere", copilot: "magpie", "../x": "pi" } });
     const saved = await readQuotaConfig(dir);
-    assert.deepEqual([saved.sources.codexbar, saved.sources.pi, saved.prefer], [true, true, { codex: "opencodex" }]);
+    assert.deepEqual([saved.sources.codexbar, saved.sources.pi, saved.prefer], [true, true, { codex: "opencodex", copilot: "magpie" }]);
     if (process.platform !== "win32") assert.equal(fs.statSync(path.join(dir, "quota-sources.json")).mode & 0o777, 0o600);
-    await writeQuotaConfig(dir, { prefer: { codex: null } });
+    await writeQuotaConfig(dir, { prefer: { codex: null, copilot: null } });
     assert.deepEqual((await readQuotaConfig(dir)).prefer, {});
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

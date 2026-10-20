@@ -74,3 +74,15 @@ test("the model list and the model button use these names", () => {
   assert.match(app, /row\.querySelector\("small"\)\.textContent = modelPresentation\?\.detailLine\(m, agentId\)/);
   assert.doesNotMatch(app, /\(m\.provider \|\| "\?"\) \+ \(m\.contextWindow/);
 });
+
+// Magpie's models as Codex, Claude Code and Pi list them (Mini, 2026-10-20).
+test("models through Magpie name the model and say Magpie and the vendor", () => {
+  const rows = [
+    [{ id: "minimax/MiniMax-M3", displayName: "MiniMax-M3 · MiniMax", description: "MiniMax-M3 · MiniMax via magpie" }, "codex", "MiniMax-M3", "Magpie · MiniMax"],
+    [{ id: "claude/claude-opus-5-5", displayName: "Claude Opus 5.5 · Claude Code", description: "Claude Opus 5.5 · Claude Code via magpie" }, "codex", "Claude Opus 5.5", "Magpie · Anthropic"],
+    [{ id: "codex/gpt-6-luna", name: "GPT-6-Luna · Codex", provider: "magpie" }, "pi", "GPT-6-Luna", "Magpie · ChatGPT"],
+    [{ id: "minimax/MiniMax-M3", name: "MiniMax-M3", description: "Magpie gateway · MiniMax" }, "claude-code", "MiniMax-M3", "Magpie · MiniMax"],
+    [{ id: "gpt-6.1-sol", displayName: "GPT-6.1-Sol", description: "Latest workhorse model for coding and everyday work." }, "codex", "GPT-6.1-Sol", "OpenAI"],
+  ];
+  for (const [row, agent, name, provider] of rows) assert.deepEqual([present(row, agent).name, present(row, agent).provider], [name, provider], row.id);
+});

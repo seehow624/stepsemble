@@ -14,7 +14,7 @@
   // OpenCodex's "native" are a ChatGPT subscription; "openai" is OpenAI.
   const PROVIDERS = Object.freeze({
     anthropic: "Anthropic", openai: "OpenAI", "openai-codex": "ChatGPT", native: "ChatGPT", chatgpt: "ChatGPT",
-    "chatgpt or codex subscription": "ChatGPT", minimax: "MiniMax", "minimax-cn": "MiniMax", "opencode-go": "OpenCode Go",
+    "chatgpt or codex subscription": "ChatGPT", magpie: "Magpie", claude: "Anthropic", codex: "ChatGPT", minimax: "MiniMax", "minimax-cn": "MiniMax", "opencode-go": "OpenCode Go",
     "opencode go": "OpenCode Go", opencode: "OpenCode Zen", openrouter: "OpenRouter", kilo: "Kilo Gateway", "kilo gateway": "Kilo Gateway",
     xai: "xAI", "x-ai": "xAI", google: "Google", gemini: "Google", "google-vertex": "Google Vertex", deepseek: "DeepSeek", qwen: "Qwen",
     alibaba: "Alibaba", moonshotai: "Moonshot AI", moonshot: "Moonshot AI", "z-ai": "Z.ai", zai: "Z.ai", zhipuai: "Zhipu AI",
@@ -73,6 +73,15 @@
     if (/^Routed via opencodex\b/i.test(description)) route = "OpenCodex";
     // Claude's gateway models: "From gateway" or "OpenCodex gateway · …".
     if (agentId === "claude-code" && /^(?:From gateway|OpenCodex gateway)\b/i.test(description)) route = "OpenCodex";
+    // Magpie: Codex describes its models "… via magpie", Claude's list says
+    // "Magpie gateway", and Pi names the provider "magpie". The name is
+    // "MiniMax-M3 · MiniMax" and the id "minimax/MiniMax-M3".
+    if (/\bvia magpie$/i.test(description) || (agentId === "claude-code" && /^Magpie gateway\b/i.test(description))
+      || String(row.providerID || row.provider || "").trim().toLowerCase() === "magpie") {
+      route = "Magpie";
+      if ((match = /^(.+?)\s+·\s+[^·]+$/.exec(name))) name = match[1];
+      if ((match = /^([A-Za-z0-9][A-Za-z0-9._-]*)\/./.exec(id))) vendor = match[1];
+    }
     // Hermes: "OpenRouter · anthropic/claude-sonnet-5", id "openrouter:anthropic/claude-sonnet-5".
     const scoped = /^([A-Za-z0-9][A-Za-z0-9._-]*):(.+)$/.exec(id);
     if (scoped && (match = /^(.+?)\s+·\s+(.+)$/.exec(name))) { route = providerName(scoped[1]) || match[1]; name = match[2]; }

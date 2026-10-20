@@ -14471,7 +14471,7 @@ function quotaWindowRemaining(window) {
 
 function quotaSourceName(source) {
   return source.id === "agents" ? tKey("quotaSources.source.agents") : source.id === "pi" ? tKey("quotaSources.source.pi")
-    : source.id === "codexbar" ? "CodexBar" : "OpenCodex";
+    : source.id === "codexbar" ? "CodexBar" : source.id === "magpie" ? "Magpie" : "OpenCodex";
 }
 
 function quotaSourceStatus(source, host) {
@@ -17527,8 +17527,9 @@ el.claudeHelperUpdate?.addEventListener("click", async () => {
 
 function modelAgentSummary(id, catalog = null) {
   if (id === "pi") return piModelSummaryText() || modelAgentText("summary.pi");
-  // OpenCodex routing is mentioned only where the host has OpenCodex.
-  if (isRoutedModelAgent(id)) return modelAgentText(catalog?.opencodex === false ? "summary.models" : "summary.routed");
+  // Gateway routing is mentioned only where the host has a gateway.
+  if (isRoutedModelAgent(id)) return modelAgentText(catalog?.magpie === true && id !== "omp" ? "summary.routedMagpie"
+    : catalog?.opencodex === false ? "summary.models" : "summary.routed");
   if (id === "opencode") return modelAgentText("summary.opencode");
   return modelAgentText("summary.models");
 }
@@ -17893,11 +17894,20 @@ let codexGatewayRequestAgent = null;
 
 function gatewayText(key, vars = {}) { return tKey("gateway." + key, vars); }
 
-// The OpenCodex cards appear once the selected host says OpenCodex is there.
-// A host from before that field keeps showing them.
+// The gateway cards appear once the selected host says OpenCodex or Magpie
+// is there. A host from before that field keeps showing OpenCodex's.
 function codexGatewayVisible() {
   return isRoutedModelAgent(modelSettingsAgent) && codexGatewayBase === apiBase
-    && !!codexGatewayData && (modelSettingsAgent === "omp" || codexGatewayData.installed !== false);
+    && !!codexGatewayData && (modelSettingsAgent === "omp" || codexGatewayData.installed !== false || !!codexGatewayData.magpie?.installed);
+}
+
+// Beside Magpie, OpenCodex shows only while it runs or an agent still goes
+// through it, so a gateway that was switched off does not crowd the page.
+function openCodexGatewayShown(data) {
+  if (data.installed === false) return false;
+  if (!data.magpie?.installed) return true;
+  const routing = data.claude?.sessionRouting;
+  return !!data.reachable || data.codex?.mode === "gateway" || (routing?.here ?? routing?.enabled) === true;
 }
 
 async function loadCodexGateway(force = false) {
@@ -17913,7 +17923,7 @@ async function loadCodexGateway(force = false) {
   codexGatewayRequestBase = baseAtStart;
   codexGatewayRequestAgent = agentAtStart;
   if (el.codexGatewayStatus) {
-    el.codexGatewayStatus.textContent = gatewayText("checking");
+    el.codexGatewayStatus.textContent = gatewayText("checkingAny");
     el.codexGatewayStatus.classList.remove("hidden");
   }
   try {
@@ -17980,6 +17990,9 @@ function gatewayActionError(error) {
     return gatewayText("omp." + key);
   }
   if (code === "opencodex_missing") return gatewayText("error.missing");
+  if (code === "magpie_missing") return gatewayText("magpie.missing");
+  if (code === "magpie_offline") return gatewayText("magpie.offline");
+  if (code === "magpie_no_models") return gatewayText("magpie.noModels");
   if (code === "claude_routing_disabled_in_gateway") return gatewayText("error.claudeOff");
   return gatewayText("error.failed", { detail: error?.message || code || "unknown error" });
 }
@@ -18058,6 +18071,8 @@ function renderCodexGateway() {
     return;
   }
 
+  if (data.magpie?.installed) renderMagpieGateway(data.magpie);
+  if (!openCodexGatewayShown(data)) return;
   const providers = (data.providerIds || []).join(", ");
   const overview = codexGatewayCard("OpenCodex",
     data.reachable ? gatewayText("reachable", { origin: data.origin, count: data.gatewayModels?.length || 0 })
@@ -18095,16 +18110,52 @@ function renderCodexGateway() {
     el.codexGatewayList.appendChild(codexGatewayNote(gatewayText("codex.note")));
   } else {
     const wiring = data.claude?.wiring || null, routing = data.claude?.sessionRouting || null;
+    // A host from before "here" only routed through OpenCodex.
+    const here = (routing?.here ?? routing?.enabled) === true;
     const card = codexGatewayCard("Claude Code", gatewayText(wiring?.enabled ? "claude.enabled" : "claude.disabled"));
-    card.appendChild(codexGatewayNote(routing?.enabled
+    card.appendChild(codexGatewayNote(here
       ? gatewayText("claude.detailGateway", { url: routing.baseUrl || data.origin })
-      : gatewayText("claude.detailNative")));
-    const enable = !routing?.enabled;
+      : routing?.enabled ? gatewayText("claude.detailOther", { url: routing.baseUrl || "" })
+        : gatewayText("claude.detailNative")));
+    const enable = !here;
     card.appendChild(codexGatewayAction(gatewayText(enable ? "claude.toGateway" : "claude.toNative"),
       gatewayText(enable ? "claude.confirmGateway" : "claude.confirmNative"),
       { action: "claude_session_routing", enabled: enable }));
     el.codexGatewayList.appendChild(card);
   }
+}
+
+// Magpie changes an agent's route with its own command; Stepsemble only asks
+// it to, and offers a route only while Magpie answers.
+function renderMagpieGateway(magpie) {
+  const overview = codexGatewayCard("Magpie",
+    magpie.reachable ? gatewayText("reachable", { origin: magpie.origin, count: magpie.gatewayModels?.length || 0 })
+      : gatewayText("unreachable", { origin: magpie.origin }),
+    magpie.reachable ? { label: tKey("quotaSources.online"), kind: "ok" } : { label: tKey("quotaSources.offline"), kind: "warn" });
+  overview.dataset.gateway = "magpie";
+  const providers = (magpie.providerIds || []).join(", ");
+  overview.appendChild(codexGatewayNote(providers ? gatewayText("providers", { list: providers }) : gatewayText("magpie.noProviders")));
+  el.codexGatewayList.appendChild(overview);
+  if (modelSettingsAgent === "codex") {
+    const mode = magpie.codex?.mode, here = mode === "magpie";
+    const detail = here ? gatewayText("magpie.codex.magpie", { model: magpie.codex?.currentModel || "—" })
+      : mode === "other" ? gatewayText("codex.other", { url: magpie.codex?.baseUrl || "" })
+        : mode === "direct" ? gatewayText("codex.direct") : gatewayText("codex.unknown");
+    const card = codexGatewayCard("Codex", detail);
+    card.dataset.gateway = "magpie";
+    if (here || magpie.reachable) card.appendChild(codexGatewayAction(gatewayText(here ? "codex.toNative" : "magpie.codex.toMagpie"),
+      gatewayText(here ? "magpie.codex.confirmNative" : "magpie.codex.confirmMagpie"), { action: "magpie_codex_routing", enabled: !here }));
+    el.codexGatewayList.appendChild(card);
+    el.codexGatewayList.appendChild(codexGatewayNote(gatewayText("magpie.codex.note")));
+    return;
+  }
+  const routing = magpie.claude?.sessionRouting || null, here = magpie.claude?.here === true;
+  const card = codexGatewayCard("Claude Code", here ? gatewayText("magpie.claude.detailMagpie", { url: magpie.origin })
+    : routing?.enabled ? gatewayText("claude.detailOther", { url: routing.baseUrl || "" }) : gatewayText("magpie.claude.detailNative"));
+  card.dataset.gateway = "magpie";
+  if (here || magpie.reachable) card.appendChild(codexGatewayAction(gatewayText(here ? "claude.toNative" : "magpie.claude.toMagpie"),
+    gatewayText(here ? "claude.confirmNative" : "magpie.claude.confirmMagpie"), { action: "magpie_claude_routing", enabled: !here }));
+  el.codexGatewayList.appendChild(card);
 }
 
 // ---- Provider config portability ----

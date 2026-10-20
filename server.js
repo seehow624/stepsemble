@@ -60,6 +60,7 @@ const { createOpenCodeManagedService } = require("./server/opencode-managed-serv
 const { createOpenCodeConfigService } = require("./server/opencode-config-service");
 const { createOpenCodexGatewayService, findOpencodexBinary } = require("./server/opencodex-gateway-service");
 const { createOpenCodexPiSync } = require("./server/opencodex-pi-sync");
+const { createMagpieGatewayService } = require("./server/magpie-gateway-service");
 const { claudeSessionEnvOverrides } = require("./server/claude-session-routing");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
@@ -329,6 +330,8 @@ const codexPersistedObserver = createCodexPersistedObserver({ home: APP_HOME });
 const workspaceUsageModule = require("./server/workspace-usage");
 // CodexBar's CLI only runs when Quota sources has it turned on.
 const codexBarReader = createCodexBarReader({ env: process.env });
+// Magpie: a local gateway for every agent's model (127.0.0.1:3425).
+const magpieGateway = createMagpieGatewayService({ home: APP_HOME });
 const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
   home: APP_HOME, env: process.env,
   allowKeychain: settingFromEnv("WORKSPACE_KEYCHAIN_USAGE") !== "0" && workspaceUsageModule.keychainHome(APP_HOME),
@@ -336,6 +339,7 @@ const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
   readSignIn: readSignInForUsage,
   readConfig: () => readQuotaConfig(CONFIG_DIR),
   readCodexBar: () => codexBarReader.read(),
+  readMagpie: () => magpieGateway.quotaReports(),
 });
 const usageAnalytics = require("./server/usage-analytics").createUsageAnalytics({
   home: APP_HOME,
@@ -355,15 +359,18 @@ const usageAnalytics = require("./server/usage-analytics").createUsageAnalytics(
 // and which source each service uses now.
 async function quotaSourcesPayload({ fresh = false } = {}) {
   const config = await readQuotaConfig(CONFIG_DIR);
-  const [usage, opencodex, codexbar] = await Promise.all([
+  const [usage, opencodex, codexbar, magpie] = await Promise.all([
     workspaceUsage.read({ full: true, fresh }).catch(() => null),
     opencodexSource({ home: APP_HOME, env: process.env, probe: config.sources.opencodex }).catch(() => null),
     findCodexBar({ env: process.env }).catch(() => null),
+    magpieGateway.quotaSource({ probe: config.sources.magpie }).catch(() => null),
   ]);
   const services = id => usage?.sources?.[id]?.services || [];
   const sources = [
     { id: "agents", builtin: true, installed: true, enabled: config.sources.agents, services: services("agents") },
     { id: "pi", builtin: true, installed: true, enabled: config.sources.pi, services: services("pi") },
+    { id: "magpie", installed: !!magpie?.installed, running: !!magpie?.running, port: magpie?.port ?? null, dashboardUrl: null,
+      enabled: config.sources.magpie, reason: magpie?.reason || null, providers: [], services: services("magpie") },
     { id: "opencodex", installed: !!opencodex?.installed, running: !!opencodex?.running, port: opencodex?.port ?? null,
       dashboardUrl: opencodex?.dashboardUrl ?? null, enabled: config.sources.opencodex, reason: opencodex?.reason || null,
       providers: config.sources.opencodex ? opencodex?.providers || [] : [], services: services("opencodex") },
@@ -4858,9 +4865,10 @@ async function agentAuthCatalog() {
     } catch {}
     agents["claude-code"] = { ...agents["claude-code"], desktop: true, terminal, bypass, fork };
   }
-  let opencodex = false;
+  let opencodex = false, magpie = false;
   try { opencodex = openCodexGateway.installed(); } catch {}
-  return { machine: MACHINE_NAME, version: catalog.version, pty: catalog.pty, agents, opencodex };
+  try { magpie = magpieGateway.installed(); } catch {}
+  return { machine: MACHINE_NAME, version: catalog.version, pty: catalog.pty, agents, opencodex, magpie };
 }
 
 function agentAuthStream(req, res, url) {
@@ -5313,7 +5321,9 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       // before the launch so the in-session model picker lists every
       // routed model, not a stale cache.
       if (claudeOverrides.ANTHROPIC_BASE_URL) {
+        // Each gateway writes its list only for a route that goes to it.
         try { await openCodexGateway.refreshClaudeGatewayCache(); } catch {}
+        try { await magpieGateway.refreshClaudeGatewayCache(); } catch {}
       }
       // A new conversation starts with the model and level chosen last; one
       // opened again keeps its own.
@@ -6391,7 +6401,12 @@ const server = http.createServer(async (req, res) => {
 
       if (p === "/api/gateway/status" && req.method === "GET") {
         try {
-          sendJSON(res, 200, await openCodexGateway.status({ agentId: url.searchParams.get("agentId") }));
+          // Magpie travels beside OpenCodex's own fields, which older pages read.
+          const [opencodexStatus, magpieStatus] = await Promise.all([
+            openCodexGateway.status({ agentId: url.searchParams.get("agentId") }),
+            magpieGateway.status().catch(() => null),
+          ]);
+          sendJSON(res, 200, { ...opencodexStatus, magpie: magpieStatus });
         } catch (error) {
           sendJSON(res, error.statusCode || 503, { error: error.code || "gateway_status_failed" });
         }
@@ -6406,6 +6421,13 @@ const server = http.createServer(async (req, res) => {
           if (action === "codex_restore_native") result = await openCodexGateway.restoreNative();
           else if (action === "codex_restore_gateway") result = await openCodexGateway.restoreGateway();
           else if (action === "claude_session_routing") result = await openCodexGateway.setClaudeSessionRouting(body.enabled === true);
+          else if (action === "magpie_codex_routing" || action === "magpie_claude_routing") {
+            if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
+            if (typeof body.enabled !== "boolean") { sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return; }
+            const magpie = action === "magpie_codex_routing" ? await magpieGateway.setCodexRouting(body.enabled)
+              : await magpieGateway.setClaudeSessionRouting(body.enabled);
+            result = { ...(await openCodexGateway.status()), magpie };
+          }
           else if (action === "omp_integration") {
             if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
             if (Object.keys(body).some(key => !["action", "enabled"].includes(key)) || typeof body.enabled !== "boolean") {

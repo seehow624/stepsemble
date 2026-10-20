@@ -95,9 +95,11 @@ type %USERPROFILE%\.config\stepsemble\token
 
 输入框采用 Codex 的排版：左边是附件和**审批模式**，右边依次是 context 圆环、模型和圆形发送键。**审批模式**列出这个对话所用 Agent 自己的权限模式：Codex 是只读、默认、完全访问；Claude Code 是手动确认、自动接受编辑、规划、自动、不询问、跳过权限；OpenCode 是 Build 和 Plan；Hermes、Kilo、Cline 列出它们报告的模式；Grok Build 是默认和规划，这是它实际会应用的两种。Pi 和 Antigravity 没有这类模式，所以不会显示。每个对话会记住自己的选择；Codex 从下一条消息开始应用，其他 Agent 立即生效。跳过权限需要 Claude Code 的 CLI 支持；如果这台 Mac 通过 Stepsemble 的 Claude 桌面助手启动 Claude Code，助手也要是新版，可在设置的 Claude Code 页面查看并更新。
 
-**Settings → Agents & models → Models & providers** 会列出主机上安装的每个 Agent。每个 Agent 的页面会说明怎么登录、列出它提供的模型，以及它自己的设置：Pi 的模型显示、自定义 Provider 与最近 7 天用量、OpenCode 的服务商与本机服务器，还有主机装有 OpenCodex 时，Codex 与 Claude Code 的 OpenCodex 转发。同一区的 **Quota sources** 用来选择订阅与 API 额度从哪里读取：各 Agent 自己的登录、Pi 的登录与 key、OpenCodex，或 CodexBar 的 CLI。每个来源都能开关；同一个服务有多个来源时，也能指定要用哪一个。
+**Settings → Agents & models → Models & providers** 会列出主机上安装的每个 Agent。每个 Agent 的页面会说明怎么登录、列出它提供的模型，以及它自己的设置：Pi 的模型显示、自定义 Provider 与最近 7 天用量、OpenCode 的服务商与本机服务器，还有主机装有 Magpie 或 OpenCodex 时，Codex 与 Claude Code 的转发。同一区的 **Quota sources** 用来选择订阅与 API 额度从哪里读取：各 Agent 自己的登录、Pi 的登录与 key、Magpie、OpenCodex，或 CodexBar 的 CLI。每个来源都能开关；同一个服务有多个来源时，也能指定要用哪一个。
 
 OpenCodex 连接了 Pi 时，主机每 5 分钟、以及每次打开模型菜单时，会比对 OpenCodex 提供的模型和 Pi `models.json` 里 OpenCodex 那一段。两边不一样，就运行 OpenCodex 自己的 `opencodex integration client enable --client pi`，只重写那一段（OpenCodex 会先保存快照）。所以 OpenCodex 新加的模型不必等它重启，就会出现在 Pi 的菜单。Stepsemble 不会自己改那一段，也不读取 OpenCodex 的凭证。
+
+主机装有 [Magpie](https://usemagpie.ai)（gateway 在 127.0.0.1:3425）时，Codex 和 Claude Code 的页面会显示各自是否经由它。Codex 的切换会运行 Magpie 自己的 `magpie codex` 命令；Claude Code 的切换会让 Stepsemble 开始的对话经由 Magpie，就能选用 Magpie 的所有模型，Claude 自己的模型仍走订阅。作为额度来源时，主机每隔几分钟读取一次 `magpie accounts --json`。转发属于它指向的那个 gateway：OpenCodex 不会把指向 Magpie 的转发当成自己的；OpenCodex 关闭且没有 Agent 经由它时，它的卡片也不会出现。
 
 **Settings → Notifications** 为当前这台设备开启推送。Agent 完成、失败或被停止，而该对话没有在任何屏幕上打开时，就会收到通知。**Settings → About** 显示 Stepsemble 版本；各 Agent 的版本在 **Settings → Updates**。临时文件夹里的 Sub Agent 会话默认隐藏，可在“其他应用的历史”中打开显示。
 

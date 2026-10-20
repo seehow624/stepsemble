@@ -122,3 +122,9 @@ test("partial legacy readings preserve their worst coverage and bound distinct i
   assert.equal(report.coverage.partial, 2); assert.equal(report.coverage.indexing, 4); assert.equal(report.issues.length, 100); assert.equal(report.coverage.issuesOmitted, 20);
   assert.equal(report.priceUpdatedAt, 500);
 });
+
+test("Magpie's agent-named subscriptions count as their vendors", () => {
+  assert.deepEqual(Data.modelIdentity("magpie", "claude/claude-opus-5-5"), { provider: "anthropic", model: "claude-opus-5-5" });
+  assert.deepEqual(Data.modelIdentity("magpie", "codex/gpt-6-luna"), { provider: "openai", model: "gpt-6-luna" });
+  assert.deepEqual(Data.modelIdentity("magpie", "minimax/MiniMax-M3"), { provider: "minimax", model: "MiniMax-M3" });
+});

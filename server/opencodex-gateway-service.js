@@ -72,6 +72,13 @@ function tomlTopLevelString(text, key) {
   return null;
 }
 
+function loopbackPort(value) {
+  try {
+    const url = new URL(value);
+    return ["127.0.0.1", "localhost"].includes(url.hostname) ? Number(url.port) || null : null;
+  } catch { return null; }
+}
+
 function modeFromBaseUrl(baseUrl) {
   if (!baseUrl) return "direct";
   return baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost") ? "gateway" : "gateway-other";
@@ -261,6 +268,12 @@ function createOpenCodexGatewayService({
     };
   }
 
+  // "here" tells a route through OpenCodex from one through another gateway.
+  function claudeRoutingHere(wiring = claudeWiring()) {
+    const routing = readClaudeSessionRouting(appHome);
+    return { ...routing, here: routing.enabled && routing.baseUrl === wiring.baseUrl };
+  }
+
   function writeClaudeRouting(enabled) {
     const file = routingFilePath(appHome);
     const wiring = claudeWiring();
@@ -285,6 +298,10 @@ function createOpenCodexGatewayService({
   async function refreshClaudeGatewayCache() {
     const wiring = claudeWiring();
     if (!wiring.enabled) return null;
+    // Stepsemble's Claude conversations that go through another gateway keep
+    // that gateway's model list.
+    const routing = readClaudeSessionRouting(appHome);
+    if (routing.enabled && routing.baseUrl !== wiring.baseUrl) return null;
     if (typeof fetchImpl !== "function") return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), probeTimeoutMs);
@@ -367,15 +384,16 @@ function createOpenCodexGatewayService({
     }
   }
 
+  // Codex goes through OpenCodex only when it points at OpenCodex's own port;
+  // another local gateway, such as Magpie, is another address.
   function codexState() {
     let text = "";
     try { text = fs.readFileSync(codexConfigPath, "utf8"); } catch {
       return { mode: "unknown", currentModel: null, baseUrl: null };
     }
     const baseUrl = tomlTopLevelString(text, "openai_base_url");
-    const mode = baseUrl
-      ? (baseUrl.includes("127.0.0.1") || baseUrl.includes("localhost") ? "gateway" : "gateway-other")
-      : "direct";
+    const port = readOpencodexConfig()?.port || DEFAULT_PORT;
+    const mode = baseUrl ? (loopbackPort(baseUrl) === port ? "gateway" : "gateway-other") : "direct";
     return { mode, currentModel: tomlTopLevelString(text, "model"), baseUrl };
   }
 
@@ -446,7 +464,7 @@ function createOpenCodexGatewayService({
         model: claudeSettings?.model || null,
         gatewayEnabled: !!localConfig?.claudeCodeEnabled,
         wiring,
-        sessionRouting: readClaudeSessionRouting(appHome),
+        sessionRouting: claudeRoutingHere(wiring),
       },
       catalogModels: readCodexCatalog(),
       ...(ompPending ? { omp: await ompPending } : {}),
@@ -481,6 +499,9 @@ function createOpenCodexGatewayService({
   }
 
   async function setClaudeSessionRouting(enabled) {
+    // A route to another gateway is not OpenCodex's to take back.
+    const routing = readClaudeSessionRouting(appHome);
+    if (enabled !== true && routing.enabled && routing.baseUrl !== claudeWiring().baseUrl) return status();
     if (enabled === true) {
       const wiring = claudeWiring();
       if (!wiring.enabled) {
