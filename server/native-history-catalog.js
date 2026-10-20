@@ -497,8 +497,8 @@ function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infin
   };
   // The newest rows before `before` within the page budgets, never fewer
   // than one. A page whose rows were let go of says so (needsRange) and is
-  // read again from the file.
-  function page({ before = null, limit = null } = {}) {
+  // read again from the file. withTools false: the messages alone.
+  function page({ before = null, limit = null, withTools = true } = {}) {
     const end = Math.min(before === null ? total : before, total, keepBelow);
     if (end > 0 && end <= first) return { needsRange: true, end };
     const most = Math.max(1, Math.min(limits.pageMessages, Number.isSafeInteger(limit) ? limit : limits.pageMessages));
@@ -515,7 +515,7 @@ function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infin
           trimmed.set(entry, { ...entry.message, imageAttachments: kept }); cut = true;
         } else imageBytes += entry.imageBytes;
         messages++; textBytes += entry.bytes;
-      } else {
+      } else if (withTools) {
         if (!empty && (tools >= limits.pageTools || toolBytesUsed + entry.bytes > limits.pageToolBytes)) break;
         tools++; toolBytesUsed += entry.bytes;
       }
@@ -526,7 +526,7 @@ function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infin
     for (let index = start; index < end; index++) {
       const entry = rows[head + index - first];
       if (entry.message) pageMessages.push(trimmed.get(entry) || entry.message);
-      else pageTools.push({ ...entry.tool, after: pageMessages.length });
+      else if (withTools) pageTools.push({ ...entry.tool, after: pageMessages.length });
     }
     // A line left out sits before the row numbered with it; past the last row
     // it belongs to the newest page.
@@ -822,14 +822,15 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
   // through: a Claude entry id; the transcript is read up to and including
   // it (a branch's history before the branch has a record of its own).
   // before, limit: the page that ends before row `before`, of at most `limit`
-  // messages; the newest page without them. `sourceVersion` changes when the
-  // file is read again from its start, and row numbers with it.
-  async function read(taskId, { through = null, before = null, limit = null } = {}) {
+  // messages; the newest page without them. tools false: without Claude's
+  // tool calls. `sourceVersion` changes when the file is read again from its
+  // start, and row numbers with it.
+  async function read(taskId, { through = null, before = null, limit = null, tools = true } = {}) {
     await ensureFresh();
     const raw = String(taskId || "");
     const match = /^(claude-history|codex-history):([a-f0-9-]{36})$/i.exec(raw);
     if (!match) return { kind: "source_unavailable", code: "history_session_invalid" };
-    const page = { before: pageNumber(before), limit: pageNumber(limit) };
+    const page = { before: pageNumber(before), limit: pageNumber(limit), withTools: tools !== false };
     if (Number.isNaN(page.before) || Number.isNaN(page.limit) || page.limit === 0) return { kind: "source_unavailable", code: "history_page_invalid" };
     const provider = match[1] === "claude-history" ? "claude-code" : "codex";
     if (through !== null && provider !== "claude-code") return { kind: "source_unavailable", code: "history_session_unavailable" };

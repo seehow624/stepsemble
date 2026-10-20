@@ -164,6 +164,7 @@ test("authenticated HTTP exposes native history without exposing paths or mutati
   const older = await (await session(`&limit=1&before=${newest.before}`)).json();
   assert.deepEqual([older.messages.map(message => message.text), older.hasMore, older.before, older.end], [["Fix the widget"], false, null, 1]);
   assert.equal(older.sourceVersion, newest.sourceVersion);
+  assert.deepEqual((await (await session("&limit=5&tools=0")).json()).messages.map(message => message.text), ["Fix the widget", "I will inspect it."]);
   assert.equal((await session("&before=-1")).status, 400);
   assert.equal((await session("&limit=many")).status, 400);
 });
@@ -229,6 +230,9 @@ test("a transcript far past what one page holds comes back whole, page by page, 
   for (const page of pages) for (const tool of page.tools) assert.ok(tool.after >= 0 && tool.after <= page.messages.length);
   assert.ok(parses.some(pass => pass.once), "rows the catalog let go of were read again from the file");
   assert.equal(parses.filter(pass => !pass.once).length, 1, "the transcript itself was read once");
+  // A preview of the words leaves the tool calls out.
+  const words = await catalog.read(`claude-history:${CLAUDE_ID}`, { limit: 2, tools: false });
+  assert.deepEqual([words.tools, words.messages.map(message => message.text)], [[], ["Question on day 05", "Answer on day 05"]]);
 });
 
 test("a line too long or unreadable is left out, and only the page it sits in says so", posixOnly, async t => {

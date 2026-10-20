@@ -7381,8 +7381,9 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/native-history/session" && req.method === "GET") {
         try {
           const taskId = url.searchParams.get("taskId") || "";
-          // An older page: the rows before `before`, at most `limit` messages.
-          const page = { before: url.searchParams.get("before"), limit: url.searchParams.get("limit") };
+          // An older page: the rows before `before`, at most `limit` messages;
+          // tools=0 leaves out Claude's tool calls (a preview of the words).
+          const page = { before: url.searchParams.get("before"), limit: url.searchParams.get("limit"), tools: url.searchParams.get("tools") !== "0" };
           let result = await nativeHistoryCatalog.read(taskId, page);
           // A Claude branch has no record of its own until its first message:
           // its history is the conversation it comes from, up to the branch.
