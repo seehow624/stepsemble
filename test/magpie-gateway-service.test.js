@@ -19,7 +19,7 @@ function fixture(t, { online = true } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-magpie-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   for (const dir of [".codex", ".local/bin", ".pi/agent", ".config/stepsemble", ".opencodex"]) fs.mkdirSync(path.join(home, dir), { recursive: true });
-  const binary = path.join(home, ".local/bin/magpie");
+  const binary = path.join(home, ".local/bin", process.platform === "win32" ? "magpie.exe" : "magpie");
   fs.writeFileSync(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const runs = [];
   let up = online, fetches = 0, accounts = "[]";
