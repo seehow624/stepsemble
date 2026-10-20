@@ -718,7 +718,7 @@ test("project groups expose Codex-style actions without nesting buttons", () => 
   assert.match(css, /\.project-action-row/);
   // Hover and touch share one compact segmented capsule; touch keeps it
   // always visible, and the collapse chevron matches the smaller buttons.
-  assert.match(css, /\.project-group-actions \{[\s\S]{0,300}?border-radius: 11px/);
+  assert.match(css, /\.project-group-actions \{[\s\S]{0,300}?border-radius: var\(--radius-md\)/);
   assert.match(css, /\.project-group-action \{[\s\S]{0,300}?min-width: 32px/);
   assert.match(css, /\.project-group-action:active \{[\s\S]{0,120}?transform: scale\(\.92\)/);
   assert.match(css, /@media \(max-width: 979px\) \{[\s\S]{0,400}?\.project-group-actions \{ opacity: 1; \}/);

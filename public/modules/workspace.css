@@ -48,8 +48,8 @@ small { color: var(--pine-soft); }
   height: 30px;
   flex: 0 0 30px;
 }
-.workspace-identity strong { overflow: hidden; font-size: .98rem; font-weight: 720; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-icon-btn { width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: 11px; font-size: 1rem; }
+.workspace-identity strong { overflow: hidden; font-size: var(--text-2xl); font-weight: 720; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-icon-btn { width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: var(--radius-md); font-size: 1rem; }
 .workspace-icon-btn svg { display: block; width: 19px; height: 19px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .workspace-icon-btn:hover { background: var(--bubble-user); }
 /* The brand row's Refresh and Settings are bare icons, as the pane title bar's are. */
@@ -69,7 +69,7 @@ small { color: var(--pine-soft); }
   min-width: 0;
   height: 50px;
   border: .5px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--radius-md);
   background: var(--milk);
   transition: background .15s ease;
 }
@@ -84,7 +84,7 @@ small { color: var(--pine-soft); }
   border-radius: inherit;
   background: transparent;
   color: var(--ink);
-  font-size: .86rem;
+  font-size: var(--text-md);
   font-weight: 680;
   letter-spacing: -.01em;
   text-overflow: ellipsis;
@@ -99,7 +99,7 @@ small { color: var(--pine-soft); }
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
   pointer-events: none;
@@ -115,7 +115,7 @@ small { color: var(--pine-soft); }
   bottom: 9px;
   overflow: hidden;
   color: var(--pine-soft);
-  font-size: .69rem;
+  font-size: var(--text-2xs);
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -133,7 +133,7 @@ small { color: var(--pine-soft); }
   height: 43px;
   padding: 0;
   border: .5px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--milk);
   color: var(--ink);
 }
@@ -147,7 +147,7 @@ small { color: var(--pine-soft); }
   gap: 7px;
   padding: 0 12px;
   border: .5px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--milk);
   color: var(--pine-soft);
 }
@@ -162,7 +162,7 @@ small { color: var(--pine-soft); }
   border-radius: 0;
   outline: 0;
   background: transparent;
-  font-size: .78rem;
+  font-size: var(--text-sm);
 }
 #workspace-search:focus, #workspace-assistant-search:focus { outline: 0; }
 
@@ -174,31 +174,31 @@ small { color: var(--pine-soft); }
 #workspace-assistant-list::-webkit-scrollbar { display: none; }
 /* With more than one computer: Recent across them, then each computer. */
 .workspace-recent { margin-bottom: 12px; }
-.workspace-session-host { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-session-host { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; color: var(--pine-soft); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-machine { margin: 0 0 10px; border-top: .5px solid var(--line); padding-top: 6px; }
 .workspace-machine-header { display: flex; align-items: center; gap: 2px; min-height: 40px; margin: 0 0 2px 2px; }
-#workspace-projects .workspace-machine-toggle { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: 9px; text-align: left; }
+#workspace-projects .workspace-machine-toggle { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 8px; padding: 4px 5px; border-radius: var(--radius-sm); text-align: left; }
 .workspace-machine-toggle:hover, .workspace-machine-toggle:focus-visible { background: var(--bubble-user); outline: 0; }
-.workspace-machine-toggle strong { min-width: 0; overflow: hidden; font-size: .82rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-machine-toggle strong { min-width: 0; overflow: hidden; font-size: var(--text-sm); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-machine-toggle[aria-expanded=false] .workspace-project-chevron { transform: rotate(-90deg); }
-.workspace-machine-state { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-machine-state { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-machine[data-state=offline] .workspace-machine-state { color: var(--warn-ink, var(--pine-soft)); }
 .workspace-machine[data-state=offline] .workspace-machine-projects { opacity: .62; }
 .workspace-machine-projects[hidden] { display: none; }
-.workspace-machine-note { display: block; padding: 4px 9px 8px 25px; color: var(--pine-soft); font-size: .72rem; }
+.workspace-machine-note { display: block; padding: 4px 9px 8px 25px; color: var(--pine-soft); font-size: var(--text-2xs); }
 .workspace-machine-header .btn:hover { background: var(--bubble-user); color: var(--ink); }
-#workspace-projects .workspace-machine-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .96rem; }
+#workspace-projects .workspace-machine-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--pine-soft); font-size: var(--text-xl); }
 /* Recent and Automations fold like the Bots; their headings, the Bots' and
    each computer's drag the whole section to another place in the list. */
 .workspace-list-section { margin: 0 0 10px; }
 /* Automations: a schedule's clock or a routine's Bot, its name, and when it runs next. */
-.workspace-automation-icon { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--bubble-user); color: var(--pine-soft); }
+.workspace-automation-icon { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--bubble-user); color: var(--pine-soft); }
 .workspace-automation-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .workspace-automation .workspace-assistant-avatar { flex: 0 0 auto; width: 28px; height: 28px; }
 .workspace-automation-copy { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; text-align: left; }
-.workspace-automation-copy strong { overflow: hidden; font-size: .8rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-automation-copy small { overflow: hidden; color: var(--pine-soft); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-automation-state { flex: 0 0 auto; padding: 1px 7px; border-radius: 999px; background: var(--bubble-user); color: var(--pine-soft); font-size: .66rem; font-weight: 620; }
+.workspace-automation-copy strong { overflow: hidden; font-size: var(--text-sm); font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-automation-copy small { overflow: hidden; color: var(--pine-soft); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-automation-state { flex: 0 0 auto; padding: 1px 7px; border-radius: var(--radius-pill); background: var(--bubble-user); color: var(--pine-soft); font-size: var(--text-3xs); font-weight: 620; }
 .workspace-automation-row[data-state=attention] .workspace-automation-state { color: var(--danger, #c4553d); }
 .workspace-automation-row:is([data-state=paused], [data-state=finished]) .workspace-automation-copy { opacity: .72; }
 .workspace-project { margin: 0 0 10px; }
@@ -216,7 +216,7 @@ small { color: var(--pine-soft); }
   align-items: center;
   gap: 8px;
   padding: 4px 5px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   text-align: left;
 }
 .workspace-project-toggle:hover, .workspace-project-toggle:focus-visible { background: var(--bubble-user); outline: 0; }
@@ -227,25 +227,25 @@ small { color: var(--pine-soft); }
   display: block;
   overflow: hidden;
   color: var(--pine-soft);
-  font-size: .71rem;
+  font-size: var(--text-2xs);
   font-weight: 760;
   letter-spacing: .08em;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: .66rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: var(--text-3xs) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 /* A project's name reads as its name, in its own case; only the list's
    sections (Recent, Automations, the Bots, Groups) keep the small capitals,
    so a folder never looks like a section. */
-.workspace-project:not(.workspace-assistant-section) > header .workspace-project-copy strong { color: var(--ink); font-size: .8rem; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.workspace-project:not(.workspace-assistant-section) > header .workspace-project-copy strong { color: var(--ink); font-size: var(--text-sm); font-weight: 650; letter-spacing: 0; text-transform: none; }
 /* Letter-spacing made for capitals only spreads Chinese, Japanese and Korean apart. */
 :is(:lang(zh), :lang(ja), :lang(ko)) :is(.workspace-project-copy, .workspace-section-copy) strong { letter-spacing: .02em; }
-#workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .96rem; }
+#workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--pine-soft); font-size: var(--text-xl); }
 #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-assistant-list .workspace-project-add { display: grid; place-items: center; }
 :is(.workspace-project-add, .workspace-section-add) svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 :is(.workspace-project, .workspace-list-section) > header .btn:hover { background: var(--bubble-user); color: var(--ink); }
-.workspace-project-sessions > small, #workspace-projects > p { display: block; padding: 7px 9px 7px 27px; color: var(--pine-soft); font-size: .72rem; }
+.workspace-project-sessions > small, #workspace-projects > p { display: block; padding: 7px 9px 7px 27px; color: var(--pine-soft); font-size: var(--text-2xs); }
 /* An automation's row looks like a session's but is not one: code that looks
    for sessions does not find it. */
 :is(.workspace-session-row, .workspace-automation-row) { min-width: 0; display: flex; align-items: center; gap: 2px; }
@@ -259,14 +259,14 @@ small { color: var(--pine-soft); }
   gap: 9px;
   padding: 7px 9px;
   border: .5px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   text-align: left;
   transition: background .15s ease, transform .12s ease;
 }
 :is(.workspace-session, .workspace-automation):hover { background: var(--bubble-user); }
 :is(.workspace-session, .workspace-automation):active { transform: scale(.985); }
 .workspace-session .agent-logo { flex: 0 0 28px; }
-.workspace-session strong { display: block; flex: 1; min-width: 0; overflow: hidden; font-size: .81rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-session strong { display: block; flex: 1; min-width: 0; overflow: hidden; font-size: var(--text-sm); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-session-status { flex: 0 0 16px; width: 16px; height: 16px; display: grid; place-items: center; }
 .workspace-session-status::after { content: ""; display: block; box-sizing: border-box; }
 .workspace-session-status[data-state="working"]::after { width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--ink) 16%, transparent); border-top-color: var(--ink); border-right-color: color-mix(in srgb, var(--ink) 55%, transparent); border-radius: 50%; animation: workspace-session-spin .9s linear infinite; }
@@ -280,7 +280,7 @@ small { color: var(--pine-soft); }
 @keyframes workspace-session-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .workspace-session-status[data-state="working"]::after { animation: none; } }
 .workspace-session[data-open=true] { background: var(--bubble-user); border-color: var(--line); }
-#workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; color: var(--pine-soft); font-size: .9rem; }
+#workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--pine-soft); font-size: var(--text-lg); }
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:hover, .workspace-session-menu:focus-visible { background: var(--bubble-user); color: var(--ink); }
 
 /* The footer holds only the allowances: the providers' logos, and what is
@@ -333,7 +333,7 @@ small { color: var(--pine-soft); }
   min-width: 0;
   height: 52px;
   border: .5px solid var(--glass-rim);
-  border-radius: 26px;
+  border-radius: var(--radius-glass);
   background: var(--glass-tint);
   -webkit-backdrop-filter: blur(20px) saturate(190%) brightness(1.04);
   backdrop-filter: blur(20px) saturate(190%) brightness(1.04);
@@ -392,7 +392,7 @@ small { color: var(--pine-soft); }
 .workspace-limits-note[data-loading="true"] .workspace-limits-dot { animation: compaction-pulse 1.2s ease-in-out infinite; }
 html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: none; }
 @media (prefers-reduced-motion: reduce) { .workspace-limits-note .workspace-limits-dot { animation: none; } }
-.workspace-limits-summary { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-limits-summary { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-limits-marks { flex: none; display: flex; align-items: center; gap: 10px; }
 .workspace-limit-mark { display: grid; place-items: center; opacity: .7; }
 .workspace-limit-mark[data-unknown=true] { opacity: .3; }
@@ -406,14 +406,14 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   gap: 5px;
   height: 30px;
   padding: 0 8px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--level) 15%, transparent);
   white-space: nowrap;
 }
 .workspace-limit-alert[data-level="critical"] { --level: var(--err); }
 .workspace-limit-alert .workspace-provider-logo { width: 15px; height: 15px; flex-basis: 15px; }
-.workspace-limit-percent { color: var(--level); font-size: .78rem; font-weight: 650; font-variant-numeric: tabular-nums; }
-.workspace-limit-period { color: var(--pine-soft); font-size: .68rem; }
+.workspace-limit-percent { color: var(--level); font-size: var(--text-sm); font-weight: 650; font-variant-numeric: tabular-nums; }
+.workspace-limit-period { color: var(--pine-soft); font-size: var(--text-2xs); }
 .workspace-limit-alert[data-stale=true] .workspace-limit-period { text-decoration: underline dotted; text-underline-offset: 3px; }
 .workspace-limits-compact .workspace-limit-period { display: none; }
 .workspace-provider-logo { width: 16px; height: 16px; flex: 0 0 16px; display: grid; place-items: center; color: var(--ink); font-size: .56rem; font-weight: 800; }
@@ -434,17 +434,17 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   gap: 3px;
   padding: 9px 11px;
   border: .5px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--milk);
   box-shadow: 0 12px 32px rgb(0 0 0 / .22);
   pointer-events: none;
 }
-.workspace-tip-title { color: var(--ink); font-size: .76rem; font-weight: 680; }
+.workspace-tip-title { color: var(--ink); font-size: var(--text-xs); font-weight: 680; }
 .workspace-tip-row { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-.workspace-tip-key { flex: 0 0 auto; color: var(--pine-soft); font: .68rem var(--mono); }
-.workspace-tip-value { min-width: 0; flex: 1 1 auto; color: var(--ink); font-size: .72rem; text-align: right; white-space: nowrap; }
-.workspace-tip-note { color: var(--pine-soft); font-size: .68rem; }
-.workspace-tip-exact { font-family: var(--mono); font-size: .66rem; }
+.workspace-tip-key { flex: 0 0 auto; color: var(--pine-soft); font: var(--text-2xs) var(--mono); }
+.workspace-tip-value { min-width: 0; flex: 1 1 auto; color: var(--ink); font-size: var(--text-2xs); text-align: right; white-space: nowrap; }
+.workspace-tip-note { color: var(--pine-soft); font-size: var(--text-2xs); }
+.workspace-tip-exact { font-family: var(--mono); font-size: var(--text-3xs); }
 
 #workspace-main { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--paper); }
 #workspace-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--paper); }
@@ -453,7 +453,7 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
 .workspace-split { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .workspace-split[data-axis=column] { flex-direction: column; }
 .workspace-branch { display: flex; min-width: 0; min-height: 0; padding: 0 5px; }
-.workspace-divider { flex: 0 0 1px; cursor: col-resize; touch-action: none; border-radius: 999px; background: var(--line); }
+.workspace-divider { flex: 0 0 1px; cursor: col-resize; touch-action: none; border-radius: var(--radius-pill); background: var(--line); }
 .workspace-divider:hover, .workspace-divider:focus { background: color-mix(in srgb, var(--accent) 42%, var(--line)); outline: 0; }
 [data-axis=column]>.workspace-divider { cursor: row-resize; }
 
@@ -466,7 +466,7 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   min-height: 0;
   overflow: hidden;
   border: .5px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   background: var(--paper);
 }
 .workspace-pane[data-focused=true] { border-color: color-mix(in srgb, var(--accent) 8%, var(--line)); }
@@ -479,12 +479,12 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
    below as on a phone; dragging the name moves it. Its buttons have no
    frames, only a soft background under the pointer. */
 .workspace-tab { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
-.workspace-tab > .btn { min-height: 40px; padding: 0 8px; border: 0; border-radius: 9px; color: var(--ink); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tab > .btn { min-height: 40px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); color: var(--ink); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab > .btn:first-child { min-width: 0; flex: 1; }
 .workspace-tab > .workspace-tab-label { display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding-right: 4px; text-align: left; }
 .workspace-tab-copy { display: grid; min-width: 0; line-height: 1.25; }
 .workspace-tab-title { min-width: 0; overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-tab-sub { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-tab-sub { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab-sub:empty { display: none; }
 .workspace-tab .agent-logo { flex: 0 0 22px; width: 22px; height: 22px; border-radius: 6px; background: none; }
 .workspace-tab .agent-logo-mark { width: 18px; height: 18px; }
@@ -498,9 +498,9 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   flex: 0 0 auto;
   padding: 0 7px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   color: var(--pine-soft);
-  font-size: .95rem;
+  font-size: var(--text-xl);
   line-height: 1;
 }
 .workspace-pane-menu:hover, .workspace-pane-menu[aria-expanded=true] { background: var(--bubble-user); color: var(--ink); }
@@ -515,7 +515,7 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--pine-soft);
 }
@@ -532,7 +532,7 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   gap: 1px;
   padding: 5px;
   border: .5px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--milk);
   box-shadow: 0 12px 32px rgb(0 0 0 / .22);
 }
@@ -541,16 +541,16 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   display: block;
   padding: 7px 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: .76rem;
+  font-size: var(--text-xs);
   line-height: 1.35;
   text-align: left;
   white-space: normal;
 }
 .workspace-menu-item:hover, .workspace-menu-item:focus-visible { background: var(--bubble-user); outline: 0; }
 .workspace-menu-separator { height: .5px; margin: 4px 8px; background: var(--line); }
-.workspace-slot { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: auto auto; place-content: center; padding: 16px; color: var(--pine-soft); text-align: center; font-size: .78rem; }
+.workspace-slot { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: auto auto; place-content: center; padding: 16px; color: var(--pine-soft); text-align: center; font-size: var(--text-sm); }
 /* The pane's empty state carries the same approved artwork as the conversation
    view's, rather than a silhouette of the glyph: the glyph fills the
    connectors with the modules' colour and the four shapes merge. */
@@ -559,7 +559,7 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   .workspace-slot::before { background: CanvasText; -webkit-mask: url("/stepsemble-glyph.png") center / contain no-repeat; mask: url("/stepsemble-glyph.png") center / contain no-repeat; }
 }
 #workspace-frames { position: absolute; inset: 0; pointer-events: none; }
-.workspace-frame { position: absolute; border: 0; border-radius: 0 0 17px 17px; background: var(--paper); pointer-events: auto; }
+.workspace-frame { position: absolute; border: 0; border-radius: 0 0 calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px); background: var(--paper); pointer-events: auto; }
 .workspace-dragging iframe, .workspace-resizing iframe { pointer-events: none; }
 .workspace-drop { display: none; position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .workspace-dragging .workspace-drop { display: block; }
@@ -569,17 +569,17 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
 .workspace-drop[data-edge=bottom] { box-shadow: inset 0 -56px color-mix(in srgb, var(--accent) 28%, transparent); }
 .workspace-drop[data-edge=center] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .workspace-drop[data-edge=reference] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.workspace-drop[data-edge=reference]::after { content: attr(data-label); position: absolute; left: 50%; bottom: 28px; max-width: calc(100% - 32px); padding: 6px 14px; overflow: hidden; border-radius: 999px; background: var(--accent); color: var(--milk); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); }
+.workspace-drop[data-edge=reference]::after { content: attr(data-label); position: absolute; left: 50%; bottom: 28px; max-width: calc(100% - 32px); padding: 6px 14px; overflow: hidden; border-radius: var(--radius-pill); background: var(--accent); color: var(--milk); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); }
 
-dialog { width: min(720px, 94vw); max-height: 88dvh; margin: auto; padding: 20px; border: .5px solid var(--line); border-radius: 18px; background: var(--milk); color: var(--ink); }
+dialog { width: min(720px, 94vw); max-height: 88dvh; margin: auto; padding: 20px; border: .5px solid var(--line); border-radius: var(--radius-xl); background: var(--milk); color: var(--ink); }
 dialog::backdrop { background: var(--sheet-bg); }
 dialog header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding-bottom: 6px; background: var(--milk); }
-dialog h2 { flex: 1; font-size: 1rem; font-weight: 650; }
+dialog h2 { flex: 1; font-size: var(--text-2xl); font-weight: 650; }
 dialog header .btn, dialog header .btn.ghost { min-width: 34px; min-height: 34px; padding: 0; border: 0; border-color: transparent; background: transparent; color: var(--pine-soft); font-size: 1.1rem; }
 dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--bubble-user); color: var(--ink); }
 #workspace-dialog-body { display: grid; gap: 10px; }
-#workspace-dialog-body p { color: var(--pine-soft); font-size: .82rem; }
-.workspace-history-reader { justify-self: start; color: var(--ink); font-size: .82rem; font-weight: 600; text-decoration: none; }
+#workspace-dialog-body p { color: var(--pine-soft); font-size: var(--text-sm); }
+.workspace-history-reader { justify-self: start; color: var(--ink); font-size: var(--text-sm); font-weight: 600; text-decoration: none; }
 .workspace-history-reader:hover, .workspace-history-reader:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
 #workspace-dialog-body input[hidden] { display: none; }
 /* No history at all: the note stands alone, centred. */
@@ -600,13 +600,13 @@ dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--b
 .workspace-rename-fields input { flex: 1 1 auto; min-width: 0; }
 .workspace-rename-fields .btn { flex: none; }
 #workspace-dialog-body .workspace-new-session-create { min-height: 44px; margin-left: auto; padding: 0 18px; justify-content: center; }
-.workspace-new-session-worktree { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--pine-soft); font-size: .8rem; cursor: pointer; }
+.workspace-new-session-worktree { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--pine-soft); font-size: var(--text-sm); cursor: pointer; }
 .workspace-new-session-worktree[hidden] { display: none; }
 .workspace-new-session-worktree input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .workspace-signin { display: grid; gap: 10px; padding-top: 4px; border-top: .5px solid var(--line); }
 .workspace-signin[hidden] { display: none; }
 #workspace-dialog-body .workspace-signin .btn { justify-self: start; min-height: 38px; padding: 0 18px; justify-content: center; }
-.workspace-signin-frame { width: 100%; height: min(620px, 66dvh); border: .5px solid var(--line); border-radius: 12px; background: var(--paper); }
+.workspace-signin-frame { width: 100%; height: min(620px, 66dvh); border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
 /* While an agent signs in, the dialog fills the screen's height and the
    terminal takes whatever the fields above it leave, so nothing is cut off. */
 #workspace-dialog.workspace-signing-in[open] { display: flex; flex-direction: column; height: min(780px, calc(100dvh - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; }
@@ -623,67 +623,67 @@ dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--b
    list alone scrolls, and the action never disappears below a long home folder. */
 #workspace-dialog.workspace-project-dialog[open] { display: flex; flex-direction: column; width: min(620px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 32px)); padding: 0; overflow: hidden; }
 .workspace-project-dialog > header { flex: 0 0 auto; padding: 20px 24px 10px; }
-.workspace-project-dialog > header h2 { font-size: 1.1rem; letter-spacing: -.02em; }
-.workspace-project-dialog > header .btn { border: .5px solid var(--line); border-radius: 10px; }
+.workspace-project-dialog > header h2 { font-size: var(--title-sm); letter-spacing: -.02em; }
+.workspace-project-dialog > header .btn { border: .5px solid var(--line); border-radius: var(--radius-sm); }
 #workspace-dialog.workspace-project-dialog #workspace-dialog-body { min-height: 0; display: flex; flex-direction: column; gap: 0; padding: 0 24px 20px; overflow: hidden; }
-.workspace-folder-label { margin: 6px 0 7px; color: var(--pine-soft); font-size: .69rem; font-weight: 680; }
-.workspace-folder-path-row { min-width: 0; display: flex; align-items: stretch; min-height: 44px; overflow: hidden; border: .5px solid var(--line); border-radius: 11px; background: var(--milk); }
+.workspace-folder-label { margin: 6px 0 7px; color: var(--pine-soft); font-size: var(--text-2xs); font-weight: 680; }
+.workspace-folder-path-row { min-width: 0; display: flex; align-items: stretch; min-height: 44px; overflow: hidden; border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--milk); }
 .workspace-folder-path-row:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 #workspace-dialog-body .workspace-folder-nav { width: 34px; min-width: 34px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-right: .5px solid var(--line); border-radius: 0; }
 #workspace-dialog-body .workspace-folder-nav svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #workspace-dialog-body .workspace-folder-nav:hover:not(:disabled) { background: var(--bubble-user); }
-#workspace-folder-path { min-width: 0; flex: 1; height: 42px; padding: 0 12px; border: 0; border-radius: 0; outline: 0; background: transparent; font: .75rem var(--mono); }
+#workspace-folder-path { min-width: 0; flex: 1; height: 42px; padding: 0 12px; border: 0; border-radius: 0; outline: 0; background: transparent; font: var(--text-xs) var(--mono); }
 #workspace-folder-path:focus { outline: 0; }
-#workspace-dialog-body .workspace-folder-go { min-width: 46px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 10px; border: 0; border-left: .5px solid var(--line); border-radius: 0; font-size: .72rem; text-align: center; }
+#workspace-dialog-body .workspace-folder-go { min-width: 46px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 10px; border: 0; border-left: .5px solid var(--line); border-radius: 0; font-size: var(--text-2xs); text-align: center; }
 #workspace-dialog-body .workspace-folder-go:hover:not(:disabled) { background: var(--bubble-user); }
 #workspace-dialog-body .workspace-folder-nav:disabled { opacity: .4; cursor: default; }
 #workspace-dialog-body .workspace-folder-go:disabled { opacity: .4; cursor: default; }
 .workspace-folder-browse-head { display: flex; align-items: center; gap: 12px; margin: 20px 0 9px; }
-.workspace-folder-browse-head strong { flex: 1; color: var(--pine-soft); font-size: .73rem; font-weight: 670; }
-.workspace-folder-browse-head input { width: min(220px, 52%); min-height: 36px; padding: 6px 10px; font-size: .73rem; }
+.workspace-folder-browse-head strong { flex: 1; color: var(--pine-soft); font-size: var(--text-xs); font-weight: 670; }
+.workspace-folder-browse-head input { width: min(220px, 52%); min-height: 36px; padding: 6px 10px; font-size: var(--text-xs); }
 /* New folder: a compact button beside the filter, and a row at the top of the
    list where the name is typed. */
-#workspace-dialog-body .workspace-folder-new { flex: none; min-height: 36px; display: flex; align-items: center; gap: 5px; padding: 0 11px; font-size: .73rem; white-space: nowrap; }
+#workspace-dialog-body .workspace-folder-new { flex: none; min-height: 36px; display: flex; align-items: center; gap: 5px; padding: 0 11px; font-size: var(--text-xs); white-space: nowrap; }
 #workspace-dialog-body .workspace-folder-new svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 #workspace-dialog-body .workspace-folder-new:hover:not(:disabled) { background: var(--bubble-user); }
 #workspace-dialog-body .workspace-folder-new:disabled { opacity: .4; cursor: default; }
 .workspace-folder-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 12px 9px 14px; border-bottom: .5px solid var(--line); background: var(--bubble-user); }
-#workspace-dialog-body .workspace-folder-create input { min-width: 0; flex: 1 1 140px; min-height: 34px; padding: 5px 10px; font-size: .79rem; }
-#workspace-dialog-body .workspace-folder-create .btn { flex: none; min-height: 34px; padding: 0 12px; font-size: .74rem; }
+#workspace-dialog-body .workspace-folder-create input { min-width: 0; flex: 1 1 140px; min-height: 34px; padding: 5px 10px; font-size: var(--text-sm); }
+#workspace-dialog-body .workspace-folder-create .btn { flex: none; min-height: 34px; padding: 0 12px; font-size: var(--text-xs); }
 #workspace-dialog-body .workspace-folder-create .btn:disabled { opacity: .45; cursor: default; }
-#workspace-dialog-body .workspace-folder-create-error { flex: 1 1 100%; margin: 0; color: var(--err-ink); font-size: .72rem; line-height: 1.4; }
+#workspace-dialog-body .workspace-folder-create-error { flex: 1 1 100%; margin: 0; color: var(--err-ink); font-size: var(--text-2xs); line-height: 1.4; }
 #workspace-dialog-body .workspace-folder-create-error[hidden] { display: none; }
-.workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--line); border-radius: 13px; background: var(--paper); overscroll-behavior: contain; }
-#workspace-dialog-body .workspace-folder-row { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 11px; padding: 0 14px; border: 0; border-radius: 0; font-size: .79rem; text-align: left; }
+.workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--paper); overscroll-behavior: contain; }
+#workspace-dialog-body .workspace-folder-row { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 11px; padding: 0 14px; border: 0; border-radius: 0; font-size: var(--text-sm); text-align: left; }
 .workspace-folder-row + .workspace-folder-row { border-top: .5px solid var(--line) !important; }
 .workspace-folder-row:hover, .workspace-folder-row:focus-visible { background: var(--bubble-user); outline: 0; }
-.workspace-folder-icon { position: relative; width: 17px; height: 13px; flex: 0 0 17px; margin-top: 3px; border: 1.5px solid var(--pine-soft); border-radius: 3px; }
-.workspace-folder-icon::before { content: ""; position: absolute; top: -5px; left: -1.5px; width: 8px; height: 4px; border: 1.5px solid var(--pine-soft); border-bottom: 0; border-radius: 3px 3px 0 0; }
+.workspace-folder-icon { position: relative; width: 17px; height: 13px; flex: 0 0 17px; margin-top: 3px; border: 1.5px solid var(--pine-soft); border-radius: var(--radius-2xs); }
+.workspace-folder-icon::before { content: ""; position: absolute; top: -5px; left: -1.5px; width: 8px; height: 4px; border: 1.5px solid var(--pine-soft); border-bottom: 0; border-radius: var(--radius-2xs) var(--radius-2xs) 0 0; }
 .workspace-folder-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-folder-chevron { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; color: var(--pine-soft); }
-#workspace-dialog-body .workspace-folder-empty { padding: 18px 14px; color: var(--pine-soft); font-size: .76rem; }
+#workspace-dialog-body .workspace-folder-empty { padding: 18px 14px; color: var(--pine-soft); font-size: var(--text-xs); }
 #workspace-dialog-body .workspace-folder-error { color: var(--err-ink); }
 /* A folder the Host could not read: why, the Node.js to allow, what to do. */
 #workspace-dialog-body .workspace-folder-problem .workspace-folder-empty { padding-bottom: 8px; line-height: 1.5; }
 #workspace-dialog-body .workspace-folder-guide { color: var(--ink); }
-#workspace-dialog-body .workspace-folder-runtime-label { margin: 0; padding: 0 14px 5px; color: var(--pine-soft); font-size: .7rem; }
-#workspace-dialog-body .workspace-folder-runtime { display: block; margin: 0 14px 14px; padding: 6px 9px; border-radius: 8px; background: var(--bubble-user); font-size: .7rem; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
+#workspace-dialog-body .workspace-folder-runtime-label { margin: 0; padding: 0 14px 5px; color: var(--pine-soft); font-size: var(--text-2xs); }
+#workspace-dialog-body .workspace-folder-runtime { display: block; margin: 0 14px 14px; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--bubble-user); font-size: var(--text-2xs); line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
 .workspace-folder-problem-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 14px 14px; }
-#workspace-dialog-body .workspace-folder-problem-actions .btn { min-height: 34px; padding: 0 12px; justify-content: center; background: var(--milk); font-size: .74rem; }
+#workspace-dialog-body .workspace-folder-problem-actions .btn { min-height: 34px; padding: 0 12px; justify-content: center; background: var(--milk); font-size: var(--text-xs); }
 #workspace-dialog-body .workspace-folder-problem-actions .btn:disabled { opacity: .45; cursor: default; }
 .workspace-folder-footer { display: flex; align-items: center; gap: 18px; margin-top: 16px; padding-top: 16px; border-top: .5px solid var(--line); }
-.workspace-folder-footer small { min-width: 0; flex: 1; font-size: .69rem; line-height: 1.4; }
-#workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: 42px; padding: 0 17px; font-size: .77rem; text-align: center; }
+.workspace-folder-footer small { min-width: 0; flex: 1; font-size: var(--text-2xs); line-height: 1.4; }
+#workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: 42px; padding: 0 17px; font-size: var(--text-xs); text-align: center; }
 #workspace-dialog-body .workspace-folder-add:disabled { opacity: .42; cursor: default; }
-.workspace-history-filter { display: flex; align-items: center; gap: 9px; min-height: 36px; color: var(--pine-soft); font-size: .8rem; cursor: pointer; }
+.workspace-history-filter { display: flex; align-items: center; gap: 9px; min-height: 36px; color: var(--pine-soft); font-size: var(--text-sm); cursor: pointer; }
 .workspace-history-filter[hidden] { display: none; }
 .workspace-history-filter input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
-.workspace-history-row { display: flex; align-items: center; gap: 8px; padding: 12px; border: .5px solid var(--line); border-radius: 14px; background: var(--paper); }
+.workspace-history-row { display: flex; align-items: center; gap: 8px; padding: 12px; border: .5px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
 .workspace-history-row div { min-width: 0; flex: 1; }
-.workspace-history-row strong { display: block; overflow-wrap: anywhere; font-size: .84rem; font-weight: 550; }
-.workspace-history-row small { display: block; overflow-wrap: anywhere; font-size: .69rem; }
+.workspace-history-row strong { display: block; overflow-wrap: anywhere; font-size: var(--text-md); font-weight: 550; }
+.workspace-history-row small { display: block; overflow-wrap: anywhere; font-size: var(--text-2xs); }
 .workspace-history-row .btn { flex-shrink: 0; min-width: 0; }
-#workspace-toast { position: fixed; z-index: 100; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); left: 50%; max-width: 90vw; padding: 10px 18px; transform: translateX(-50%); border-radius: 999px; background: var(--ink); color: var(--paper); font-size: .8rem; }
+#workspace-toast { position: fixed; z-index: 100; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); left: 50%; max-width: 90vw; padding: 10px 18px; transform: translateX(-50%); border-radius: var(--radius-pill); background: var(--ink); color: var(--paper); font-size: var(--text-sm); }
 /* Settings open over the Workspace in the same window, below its toasts.
    Like a pane, the frame starts below the status bar. */
 .workspace-settings-layer { position: fixed; inset: 0; z-index: 90; display: flex; padding-top: env(safe-area-inset-top); background: var(--paper); }
@@ -692,9 +692,9 @@ dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--b
 [data-reorder-surface] { cursor: grab; touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 [data-reorder-surface]:active, .workspace-reorder-source [data-reorder-surface] { cursor: grabbing; }
 .workspace-reorder-source { opacity: .4; }
-.workspace-reorder-ghost { position: fixed; z-index: 150; display: flex; align-items: center; gap: 5px; padding: 4px 8px; border: .5px solid var(--line); border-radius: 12px; background: var(--milk); box-shadow: 0 8px 28px #0005; pointer-events: none; overflow: hidden; }
+.workspace-reorder-ghost { position: fixed; z-index: 150; display: flex; align-items: center; gap: 5px; padding: 4px 8px; border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--milk); box-shadow: 0 8px 28px #0005; pointer-events: none; overflow: hidden; }
 .workspace-reorder-ghost .workspace-project-toggle, .workspace-reorder-ghost .workspace-session { flex: 1; }
-.workspace-reorder-marker { position: fixed; z-index: 151; height: 3px; margin-top: -1px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.workspace-reorder-marker { position: fixed; z-index: 151; height: 3px; margin-top: -1px; border-radius: var(--radius-2xs); background: var(--accent); pointer-events: none; }
 .workspace-pin { width: 12px; height: 12px; flex: 0 0 12px; fill: currentColor; stroke: none; opacity: .65; }
 .workspace-maximized #workspace-tree > .workspace-split { display: none; }
 .workspace-mobile-nav { display: none; }
@@ -713,8 +713,8 @@ html[data-mac-window=chromeless] .workspace-brand-row { padding-left: max(6px, c
 html[data-mac-window=chromeless] .workspace-brand-row { gap: 2px; }
 html[data-mac-window=chromeless] .workspace-identity { gap: 8px; }
 html[data-mac-window=chromeless] .workspace-logo { width: 24px; height: 24px; flex-basis: 24px; }
-html[data-mac-window=chromeless] .workspace-identity strong { font-size: .92rem; }
-html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn { width: 30px; min-width: 30px; height: 30px; min-height: 30px; border-color: transparent; border-radius: 8px; color: var(--pine-soft); }
+html[data-mac-window=chromeless] .workspace-identity strong { font-size: var(--text-lg); }
+html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn { width: 30px; min-width: 30px; height: 30px; min-height: 30px; border-color: transparent; border-radius: var(--radius-sm); color: var(--pine-soft); }
 html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn:hover { color: var(--ink); }
 html[data-mac-window=chromeless] .workspace-brand-row .workspace-icon-btn svg { width: 17px; height: 17px; }
 /* The panes keep an even, narrower margin, as close to the edges as the strip
@@ -728,11 +728,11 @@ html[data-mac-window=chromeless] body.sidebar-hidden .workspace-branch .workspac
 html[data-mac-window=chromeless] .workspace-settings-layer { padding-top: calc(var(--mac-controls-bottom) + 8px); }
 
 body.compact :is(.workspace-session, .workspace-automation) { min-height: 44px; padding-top: 5px; padding-bottom: 5px; }
-body.compact .workspace-session strong { font-size: .78rem; }
+body.compact .workspace-session strong { font-size: var(--text-sm); }
 
 @media (max-width: 760px) {
   /* A phone's dialogs rise from the bottom like its other sheets. */
-  #workspace-dialog, #workspace-dialog[open] { width: 100%; max-width: 100%; margin: auto 0 0; border-width: .5px 0 0; border-radius: 18px 18px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  #workspace-dialog, #workspace-dialog[open] { width: 100%; max-width: 100%; margin: auto 0 0; border-width: .5px 0 0; border-radius: var(--radius-xl) var(--radius-xl) 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
   #workspace-dialog.workspace-project-dialog[open], #workspace-dialog.workspace-new-session-dialog { width: 100%; }
   /* The folder sheet may rise almost to the top, as a tall sheet does, so a
      short screen still shows the path, the list and the action. */
@@ -785,26 +785,26 @@ body.compact .workspace-session strong { font-size: .78rem; }
 .workspace-assistant-avatar.has-picture, .workspace-tab-avatar.has-picture { overflow: hidden; border-radius: 50%; box-shadow: 0 0 0 .5px var(--line); }
 .workspace-assistant-avatar.has-picture > img, .workspace-tab-avatar.has-picture > img { object-fit: cover; }
 .workspace-assistant-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
-.workspace-assistant-copy strong { font-size: .81rem; font-weight: 650; }
-.workspace-assistant-copy small { display: block; overflow: hidden; color: var(--pine-soft); font-size: .7rem; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-assistant-copy strong { font-size: var(--text-sm); font-weight: 650; }
+.workspace-assistant-copy small { display: block; overflow: hidden; color: var(--pine-soft); font-size: var(--text-2xs); font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-assistant-copy small:empty { display: none; }
 .workspace-assistant-faces { position: relative; flex: 0 0 28px; width: 28px; height: 28px; }
 .workspace-assistant-faces .workspace-assistant-avatar { position: absolute; width: 20px; height: 20px; }
 .workspace-assistant-faces .workspace-assistant-avatar:first-child { left: -3px; top: 0; }
 .workspace-assistant-faces .workspace-assistant-avatar:nth-child(2) { right: -3px; bottom: 0; }
-.workspace-assistant-badge { flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: var(--accent); color: var(--paper);
-  font-size: .68rem; font-weight: 700; line-height: 18px; text-align: center; }
-.btn.workspace-assistant-pending { width: 100%; min-height: 36px; margin: 0 0 8px; justify-content: flex-start; padding: 0 12px; border: .5px solid var(--line); border-radius: 10px;
-  background: color-mix(in srgb, var(--warn) 14%, var(--milk)); color: var(--ink); font-size: .78rem; font-weight: 620; }
-.workspace-assistant-note { display: grid; gap: 8px; padding: 12px 10px; color: var(--pine-soft); font-size: .78rem; line-height: 1.45; }
-.workspace-assistant-note strong { color: var(--ink); font-size: .84rem; }
+.workspace-assistant-badge { flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: var(--radius-sm); background: var(--accent); color: var(--paper);
+  font-size: var(--text-2xs); font-weight: 700; line-height: 18px; text-align: center; }
+.btn.workspace-assistant-pending { width: 100%; min-height: 36px; margin: 0 0 8px; justify-content: flex-start; padding: 0 12px; border: .5px solid var(--line); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 14%, var(--milk)); color: var(--ink); font-size: var(--text-sm); font-weight: 620; }
+.workspace-assistant-note { display: grid; gap: 8px; padding: 12px 10px; color: var(--pine-soft); font-size: var(--text-sm); line-height: 1.45; }
+.workspace-assistant-note strong { color: var(--ink); font-size: var(--text-md); }
 .workspace-assistant-note p { margin: 0; }
 .workspace-assistant-note .btn { justify-self: start; }
 .workspace-tab .workspace-tab-avatar { flex: 0 0 18px; width: 18px; height: 18px; }
-.workspace-tab-page { border-radius: 5px; color: var(--pine-soft); }
+.workspace-tab-page { border-radius: var(--radius-xs); color: var(--pine-soft); }
 .workspace-tab-page svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* The rest of a long project's sessions: one quiet line, not another row. */
-.workspace-session-more { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; margin: 1px 0 4px 34px; padding: 2px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--pine-soft); font: inherit; font-size: 12px; cursor: pointer; }
+.workspace-session-more { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; margin: 1px 0 4px 34px; padding: 2px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--pine-soft); font: inherit; font-size: 12px; cursor: pointer; }
 .workspace-session-more:hover, .workspace-session-more:focus-visible { background: var(--bubble-user); color: var(--ink); outline: 0; }
 .workspace-session-more[hidden] { display: none; }
 .workspace-session-more[data-attention="working"]::after, .workspace-session-more[data-attention="unread"]::after, .workspace-session-more[data-attention="attention"]::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
