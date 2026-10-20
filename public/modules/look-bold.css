@@ -106,6 +106,7 @@ html[data-look="bold"] #workspace-main, html[data-look="bold"] #workspace-stage 
      the brand row's centre line; the panes' bars stay level with them. */
   html[data-look="bold"][data-mac-window=chromeless] #workspace-sidebar { margin: 8px 0 8px 8px; padding-top: max(0px, calc(var(--mac-controls-center) - 23px)); }
   html[data-look="bold"][data-mac-window=chromeless] .workspace-brand-row { min-height: 30px; padding-left: max(6px, calc(var(--mac-controls-end) - 6px)); }
+  html[data-look="bold"][data-mac-window=chromeless] .workspace-identity strong { font-size: var(--text-xl); }
   html[data-look="bold"][data-mac-window=chromeless] #workspace-tree { inset: max(2px, calc(var(--mac-controls-center) - 21px)) 8px 8px; }
 }
 html[data-look="bold"] .workspace-identity strong { font-size: 1.14rem; font-weight: 780; letter-spacing: -.032em; }
