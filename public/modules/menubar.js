@@ -1,4 +1,6 @@
 "use strict";
+// The menu bar page of Mac apps up to 3.9.32, which open it from the Host they
+// start. Later apps leave the menu bar to tools such as Magpie.
 (() => {
   const D = window.StepsembleMenubarData, U = window.StepsembleUsageData, $ = id => document.getElementById(id);
   const copy = {

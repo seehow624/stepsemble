@@ -21,6 +21,9 @@
   Object.assign(strings.zh, { quotaDisplay: "显示方式", remainingMode: "剩余", usedMode: "已用", used: "已用 {percent}%",
     aggregateDates: "部分用量为整段对话总数，按对话开始日期归档；每日分布为近似值。", unknownCalls: "部分对话未保存模型调用次数，未计入调用数。", issue_overlapping_history: "已排除重叠的回合摘要；保留的逐次调用记录可能只涵盖部分对话。",
     overviewHint: "查看额度，了解每一份工作的用量。", limitsNote: "额度来自已登录的服务；Token 用量与估算费用可在“用量”查看。" });
+  Object.assign(strings.en, { usageDetails: "Usage details" });
+  Object.assign(strings["zh-Hant"], { usageDetails: "用量明細" });
+  Object.assign(strings.zh, { usageDetails: "用量明细" });
   const QUOTA_DISPLAY_KEY = "stepsemble.quota-display.v1";
   function readQuotaMode() { try { return root.localStorage?.getItem(QUOTA_DISPLAY_KEY) === "used" ? "used" : "remaining"; } catch { return "remaining"; } }
   let quotaMode = readQuotaMode();
@@ -59,11 +62,112 @@
     return { from: from.getTime(), to: to.getTime(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" };
   }
   function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+  // Apple's projection of where a released gesture comes to rest (px/s in,
+  // px out), and resistance past an edge.
+  const project = velocity => velocity / 1000 * 0.998 / (1 - 0.998);
+  const rubber = (over, size) => over * size * 0.55 / (size + 0.55 * Math.abs(over));
+  const reducedMotion = () => document.documentElement.classList.contains("reduced-motion") || !!root.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  // Places a sheet in the container, grows it out of its trigger, and lets a
+  // pull down, a scroll elsewhere, a click elsewhere or leaving the window
+  // send it back. dismiss() returns it into the trigger and removes it.
+  // area holds the trigger, which may be drawn again while the sheet is open.
+  // escape closes it and gives the focus back to the trigger.
+  function glassSheet(el, { container, area, top, body, dismiss, escape }) {
+    const listeners = [], on = (target, type, fn, options) => { target.addEventListener(type, fn, options); listeners.push([target, type, fn, options]); };
+    // Its height is the content's, up to the top of the list. Set in pixels,
+    // it grows from the capsule's 52 and follows the content as it arrives.
+    const CAPSULE = 52;
+    let drag = null, pull = 0, pullTimer, gone = false, most = 0;
+    const content = () => {
+      const last = body.lastElementChild;
+      const used = last ? last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom || 0) - body.getBoundingClientRect().top + body.scrollTop : 0;
+      return used + parseFloat(getComputedStyle(body).paddingBottom || 0);
+    };
+    const size = () => {
+      if (gone || el.dataset.state !== "open") return;
+      const chrome = [...el.children].filter(child => child !== body).reduce((sum, child) => sum + child.offsetHeight, 0) + 1;
+      el.style.height = Math.max(CAPSULE, Math.min(most, Math.ceil(chrome + content()))) + "px";
+    };
+    const fit = () => { most = Math.max(160, Math.round(container.getBoundingClientRect().bottom - top() - 8)); size(); };
+    const changes = new MutationObserver(() => requestAnimationFrame(size));
+    const height = () => el.getBoundingClientRect().height || 1;
+    const follow = dy => { el.style.transform = dy ? `translateY(${dy >= 0 ? dy : -rubber(-dy, height())}px)` : ""; };
+    const begin = y => { drag = { start: y, last: y, at: performance.now(), velocity: 0, dy: 0 }; el.dataset.dragging = "true"; };
+    const move = y => {
+      const now = performance.now(), dt = Math.max(1, now - drag.at);
+      drag.velocity = 0.8 * ((y - drag.last) / dt * 1000) + 0.2 * drag.velocity; drag.last = y; drag.at = now; drag.dy = y - drag.start; follow(drag.dy);
+    };
+    // Released, it goes where the gesture was heading: down and out, or back.
+    const release = () => {
+      if (!drag) return;
+      const { dy, velocity } = drag; drag = null; delete el.dataset.dragging;
+      if (dy > 0 && (dy + project(velocity) > height() * 0.35 || velocity > 900)) dismiss(); else follow(0);
+    };
+    container.classList.add("has-usage-sheet");
+    el.style.height = CAPSULE + "px";
+    container.append(el); fit();
+    changes.observe(body, { childList: true, subtree: true, characterData: true });
+    const grow = () => { if (gone) return; el.dataset.state = "open"; size(); };
+    if (reducedMotion()) grow(); else requestAnimationFrame(() => requestAnimationFrame(grow));
+    el.focus({ preventScroll: true });
+    // The header and grip follow a finger or the mouse; the list follows a
+    // finger once it is at its top, as a sheet does.
+    on(el, "pointerdown", event => {
+      if (event.button !== 0 || event.target.closest("button") || !event.target.closest(".usage-sheet-head, .usage-sheet-grip")) return;
+      const startY = event.clientY; let captured = false;
+      const moved = e => {
+        if (!captured && Math.abs(e.clientY - startY) < 6) return;
+        if (!captured) { captured = true; el.setPointerCapture?.(e.pointerId); begin(startY); }
+        move(e.clientY);
+      };
+      const up = () => { el.removeEventListener("pointermove", moved); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up); release(); };
+      el.addEventListener("pointermove", moved); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+    });
+    let touchY = null;
+    on(body, "touchstart", event => { touchY = body.scrollTop <= 0 && event.touches.length === 1 ? event.touches[0].clientY : null; }, { passive: true });
+    on(body, "touchmove", event => {
+      if (touchY === null) return;
+      const y = event.touches[0].clientY;
+      if (!drag && (y - touchY < 6 || body.scrollTop > 0)) { if (y < touchY) touchY = null; return; }
+      event.preventDefault();
+      if (!drag) begin(touchY);
+      move(y);
+    }, { passive: false });
+    on(body, "touchend", () => { touchY = null; release(); });
+    on(body, "touchcancel", () => { touchY = null; release(); });
+    // A trackpad pulling down at the top of the sheet draws it down after the
+    // fingers; far enough, it goes. Scrolling anywhere else sends it away.
+    on(el, "wheel", event => {
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+      if (delta >= 0 || body.scrollTop > 0) { if (pull) { pull = 0; follow(0); } return; }
+      event.preventDefault();
+      pull += -delta; follow(pull * 0.6); clearTimeout(pullTimer);
+      if (pull > 120) dismiss(); else pullTimer = setTimeout(() => { pull = 0; follow(0); }, 160);
+    }, { passive: false });
+    on(document, "wheel", event => { if (!el.contains(event.target)) dismiss(); }, { capture: true, passive: true });
+    on(document, "pointerdown", event => { if (!el.contains(event.target) && !area?.contains(event.target)) dismiss(); }, true);
+    on(document, "keydown", event => { if (event.key === "Escape" && !event.isComposing) { event.preventDefault(); event.stopPropagation(); escape(); } }, true);
+    // A click into a conversation pane moves the focus out of this document.
+    on(root, "blur", () => dismiss());
+    on(root, "resize", fit);
+    return {
+      dismiss() {
+        if (gone) return; gone = true; clearTimeout(pullTimer); changes.disconnect();
+        for (const [target, type, fn, options] of listeners) target.removeEventListener(type, fn, options);
+        delete el.dataset.dragging; el.style.transform = ""; el.dataset.state = "closing"; el.style.height = CAPSULE + "px";
+        const done = () => { el.remove(); if (!container.querySelector(".usage-sheet")) container.classList.remove("has-usage-sheet"); };
+        if (reducedMotion()) { setTimeout(done, 160); return; }
+        let finished = false; const finish = () => { if (!finished) { finished = true; done(); } };
+        el.addEventListener("transitionend", event => { if (event.target === el && event.propertyName === "height") finish(); });
+        setTimeout(finish, 520);
+      },
+    };
+  }
   function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, onQuotaDisplayChanged = () => {}, openQuotaSources = () => {}, providerLogo = () => node("span"), restoreFocus = () => {} }) {
     let indexingTimer;
     let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
-    let scrolls = { limits: 0, usage: 0 }, issuesOpen = false;
+    let scrolls = { limits: 0, usage: 0 }, issuesOpen = false, sheet = null;
     const hostGrouping = new Map();
     function selectQuotaMode(value) {
       if (value === quotaMode) return;
@@ -72,7 +176,16 @@
       if (panel && tab === "limits") renderLimits();
       onQuotaDisplayChanged();
     }
-    function close() { if (!panel) return; sequence++; clearInterval(timer); clearTimeout(indexingTimer); panel.close(); panel.remove(); panel = null; view = null; onVisibility(); if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus(); }
+    // restore: false when something else took the pointer or the focus, which
+    // keeps it.
+    function close({ restore = true } = {}) {
+      if (!panel) return;
+      sequence++; clearInterval(timer); clearTimeout(indexingTimer);
+      if (sheet) sheet.dismiss(); else { panel.close(); panel.remove(); }
+      panel = null; view = null; sheet = null; onVisibility();
+      if (!restore) return;
+      if (anchor?.isConnected) anchor.focus({ preventScroll: true }); else restoreFocus();
+    }
     function makeSelect(name, values, value, changed) {
       const select = node("select"); select.setAttribute("aria-label", label(name)); select.dataset.filter = name;
       for (const [id, title] of values) { const option = node("option", title); option.value = id; select.append(option); }
@@ -92,7 +205,7 @@
     }
     function selectHost(value, notify = true) {
       if (selectedHost === value) return;
-      selectedHost = value; view.host.value = value; previous = null; quotas = []; filters = { agent: "", project: "", model: "", entry: "" }; scrolls = { limits: 0, usage: 0 }; view.body.scrollTop = 0;
+      selectedHost = value; if (view.host) view.host.value = value; previous = null; quotas = []; filters = { agent: "", project: "", model: "", entry: "" }; scrolls = { limits: 0, usage: 0 }; view.body.scrollTop = 0;
       if (notify && value) onHostSelected(value);
       void load();
     }
@@ -340,10 +453,34 @@
         sources.dataset.quotaSource = host.host; section.append(sources);
       }
       if (grid.children.length) section.prepend(grid);
-      body.append(section, node("p", label("limitsNote"), "usage-explanation usage-muted"));
+      body.append(section);
+      if (!sheet) body.append(node("p", label("limitsNote"), "usage-explanation usage-muted"));
       if (focused?.quotaSource) [...body.querySelectorAll("[data-quota-source]")].find(el => el.dataset.quotaSource === focused.quotaSource)?.focus({ preventScroll: true });
       else if (focused?.quotaMode) [...body.querySelectorAll("[data-quota-mode]")].find(el => el.dataset.quotaMode === focused.quotaMode)?.focus({ preventScroll: true });
       body.scrollTop = scroll;
+    }
+    // The limits alone, as a sheet of glass that grows up out of the sidebar's
+    // limits capsule over the list. Pulled down, scrolled away from or left
+    // for anything else, it sinks back into the capsule. Usage details open
+    // the full panel.
+    async function openSheet(target, trigger, { container, area, top = () => 0 } = {}) {
+      if (panel || !container) return;
+      const ctx = context(); hostChoices = ctx.hosts; selectedHost = target || ctx.selected; anchor = trigger; previous = null; quotas = []; tab = "limits"; scrolls = { limits: 0, usage: 0 };
+      filters = { agent: "", project: "", model: "", entry: "" };
+      panel = node("section", "", "usage-sheet"); panel.id = "usage-panel"; panel.dataset.tab = "limits"; panel.dataset.state = "opening";
+      panel.setAttribute("role", "dialog"); panel.setAttribute("aria-labelledby", "usage-sheet-title"); panel.tabIndex = -1;
+      const grip = node("div", "", "usage-sheet-grip"); grip.setAttribute("aria-hidden", "true");
+      const header = node("header", "", "usage-sheet-head"), heading = node("div", "", "usage-sheet-heading"), title = node("h2", label("limitsTab")); title.id = "usage-sheet-title";
+      const statusNote = node("p", label("loadingLimits"), "usage-status"); statusNote.setAttribute("role", "status");
+      heading.append(title, statusNote);
+      const refresh = button("", () => void load(true), "usage-refresh"); refresh.setAttribute("aria-label", label("refresh")); refresh.title = label("refresh"); refresh.append(refreshIcon());
+      header.append(heading, refresh);
+      const body = node("div", "", "usage-body"); body.id = "usage-view";
+      const more = button(label("usageDetails"), () => { const host = selectedHost, from = anchor; close({ restore: false }); void open(host, from, { tab: "usage" }); }, "usage-sheet-more");
+      view = { body, status: statusNote, refresh, host: null, tabs: null, periods: null };
+      panel.append(grip, header, body, more);
+      sheet = glassSheet(panel, { container, area, top, body, dismiss: () => close({ restore: false }), escape: () => close() });
+      onVisibility(); schedule(); await load();
     }
     async function open(target, trigger = document.activeElement, options = {}) {
       if (panel) return;
@@ -382,7 +519,7 @@
       const next = readQuotaMode(); if (next === quotaMode) return; quotaMode = next;
       if (panel && tab === "limits") renderLimits(); onQuotaDisplayChanged();
     });
-    return { open, close, label, followHost(target) { if (panel) selectHost(target, false); }, isOpen: () => !!panel };
+    return { open, openSheet, close, label, followHost(target) { if (panel) selectHost(target, false); }, isOpen: () => !!panel, isSheet: () => !!sheet };
   }
   root.StepsembleUsageUI = { create, label, range, money, quotaRemaining, quotaPercent, quotaLabel };
 })(window);

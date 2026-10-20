@@ -171,3 +171,67 @@
 @media (max-width: 360px) { .usage-brand strong { display: none; } }
 @media (prefers-reduced-transparency: reduce) { .usage-panel::backdrop { backdrop-filter: none; background: #000b; } }
 @media (forced-colors: active) { .usage-chart-stack > span, .usage-row-track > span { forced-color-adjust: none; background: CanvasText; } }
+
+/* The limits sheet: the sidebar capsule's glass, grown up out of it over the
+   list. Same edge and light; a thicker tint and a deeper shadow for the
+   larger surface, and the cards inside on a quieter layer so the readings
+   stay legible over whatever scrolls behind. */
+.usage-sheet {
+  position: absolute; z-index: 3; left: 2px; right: 2px; bottom: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  max-height: none; border: .5px solid var(--glass-rim); border-radius: 26px;
+  background: color-mix(in srgb, var(--milk) 62%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.04); backdrop-filter: blur(28px) saturate(180%) brightness(1.04);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 -1px 0 var(--glass-rim), 0 26px 52px -18px rgba(0, 0, 0, .34), 0 4px 14px rgba(0, 0, 0, .08);
+  color: var(--ink); outline: 0; pointer-events: auto; touch-action: pan-y;
+  transition: height 480ms cubic-bezier(.32, .72, 0, 1), transform 420ms cubic-bezier(.32, .72, 0, 1);
+}
+.usage-sheet::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: .5;
+  background: linear-gradient(to bottom, var(--glass-shine), transparent 96px), radial-gradient(90% 160px at 12% 0%, var(--glass-shine), transparent 70%);
+}
+.usage-sheet[data-dragging] { transition: none; }
+.usage-sheet[data-state=closing] { pointer-events: none; transition-duration: 360ms, 360ms; }
+/* The content arrives once the glass has begun to rise, and leaves first. */
+.usage-sheet > * { position: relative; z-index: 1; flex: none; transition: opacity 220ms ease 120ms; }
+.usage-sheet[data-state=opening] > *, .usage-sheet[data-state=closing] > * { opacity: 0; transition-delay: 0ms; transition-duration: 120ms; }
+.usage-sheet-grip { height: 18px; display: grid; place-items: center; cursor: grab; touch-action: none; }
+.usage-sheet-grip::before { content: ""; width: 36px; height: 4px; border-radius: 2px; background: var(--ink); opacity: .2; }
+.usage-sheet-head { display: flex; align-items: center; gap: 10px; padding: 0 12px 10px 18px; cursor: grab; touch-action: none; }
+.usage-sheet[data-dragging] .usage-sheet-head, .usage-sheet[data-dragging] .usage-sheet-grip { cursor: grabbing; }
+.usage-sheet-heading { min-width: 0; flex: 1; }
+.usage-sheet-heading h2 { margin: 0; font-size: .95rem; font-weight: 650; letter-spacing: -.01em; }
+.usage-sheet .usage-status { min-height: 0; margin: 1px 0 0; padding: 0; color: var(--pine-soft); font-size: .68rem; text-align: left; }
+.usage-sheet .usage-refresh { flex: none; width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--pine-soft); }
+.usage-sheet .usage-refresh:hover, .usage-sheet .usage-refresh:focus-visible { background: color-mix(in srgb, var(--bubble-user) 70%, transparent); color: var(--ink); outline: 0; }
+.usage-sheet .usage-body { flex: 1 1 auto; min-height: 0; padding: 0 12px 4px; overscroll-behavior: contain; touch-action: pan-y; }
+.usage-sheet .usage-quota-toolbar { margin: 0 4px 10px; }
+.usage-sheet .usage-quota-toggle { border-color: var(--glass-rim); border-radius: 12px; background: color-mix(in srgb, var(--milk) 60%, transparent); }
+.usage-sheet .usage-quota-toggle button { width: 76px; min-height: 30px; padding: 4px 8px; border-radius: 9px; }
+.usage-sheet .usage-quota-grid { border-color: var(--glass-rim); border-radius: 16px; background: color-mix(in srgb, var(--milk) 70%, transparent); }
+.usage-sheet .usage-quota-card { grid-template-columns: 1fr; gap: 10px; padding: 12px 14px; }
+/* One window takes the card's width; two or three share it. */
+.usage-sheet .usage-quota-windows { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px 14px; }
+.usage-sheet .usage-quota-sources { display: block; min-height: 40px; margin: 2px 4px 0; }
+.usage-sheet .usage-quota-sources + .usage-quota-sources { margin-left: 4px; }
+.usage-sheet .usage-empty, .usage-sheet .usage-notice { margin: 6px 4px 10px; font-size: .78rem; color: var(--pine-soft); }
+.usage-sheet-more { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; margin: 4px 12px 10px; padding: 0 14px; border: .5px solid var(--glass-rim); border-radius: 22px; background: color-mix(in srgb, var(--milk) 55%, transparent); color: var(--ink); font: inherit; font-size: .8rem; font-weight: 560; }
+.usage-sheet-more::after { content: "›"; color: var(--pine-soft); font-size: 1rem; line-height: 1; }
+.usage-sheet-more:hover, .usage-sheet-more:focus-visible { background: color-mix(in srgb, var(--bubble-user) 80%, transparent); outline: 0; }
+.usage-sheet button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .usage-sheet .usage-refresh { width: 44px; height: 44px; } .usage-sheet-grip { height: 22px; } .usage-sheet .usage-quota-toggle button { min-height: 40px; } }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .usage-sheet { background: color-mix(in srgb, var(--milk) 94%, transparent); } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .usage-sheet { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line); }
+  .usage-sheet::after { display: none; }
+  .usage-sheet .usage-quota-grid { background: var(--paper); border-color: var(--line); }
+}
+/* Less motion: the sheet fades in and out where it stands. */
+html.reduced-motion .usage-sheet { transition: opacity 160ms ease; }
+html.reduced-motion .usage-sheet[data-state=closing] { opacity: 0; }
+html.reduced-motion .usage-sheet > * { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .usage-sheet { transition: opacity 160ms ease; }
+  .usage-sheet[data-state=closing] { opacity: 0; }
+  .usage-sheet > * { transition: none; }
+}

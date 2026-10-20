@@ -324,7 +324,10 @@ small { color: var(--pine-soft); }
   background: linear-gradient(to bottom, transparent, var(--glass-fade));
   pointer-events: none;
 }
-/* A single entry opens the fixed-size Limits/Usage panel. */
+/* While the limits sheet has grown out of the capsule, the capsule steps
+   aside; it is back the moment the sheet has sunk into its place. */
+#workspace-sidebar footer.has-usage-sheet > #workspace-usage { opacity: 0; }
+/* A single entry opens the limits sheet. */
 #workspace-usage.workspace-limits {
   position: relative;
   min-width: 0;

@@ -86,6 +86,20 @@ test("Claude routing needs Magpie answering, writes its model list without Claud
   assert.equal(await f.service.refreshClaudeGatewayCache(), null, "another gateway's route keeps its own list");
 });
 
+test("Claude's model list follows the models picked for Claude Code in Magpie", async t => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.home, ".config/magpie"), { recursive: true });
+  f.write(".config/magpie/settings.json", JSON.stringify({ hiddenModels: { claude: ["codex/gpt-6.1-sol"], codex: ["minimax/MiniMax-M3"] } }));
+  await f.service.setClaudeSessionRouting(true);
+  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-catalog.json").models.map(row => row.id), ["minimax/MiniMax-M3"]);
+  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-settings.json").modelPicker.options.map(row => row.model), ["minimax/MiniMax-M3"]);
+  // A change on the Agents page is taken up at the next launch, with the same catalog.
+  f.write(".config/magpie/settings.json", JSON.stringify({ hiddenModels: { claude: [] }, pickedModels: { claude: ["codex/gpt-6.1-sol"] } }));
+  await f.service.refreshClaudeGatewayCache();
+  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-catalog.json").models.map(row => row.id), ["codex/gpt-6.1-sol"]);
+  assert.equal(f.fetches(), 1, "the catalog itself is not fetched again");
+});
+
 test("Codex routing goes through Magpie's own command and keeps Codex's model", async t => {
   const f = fixture(t);
   f.write(".codex/config.toml", 'model = "gpt-6.1-sol"\n');

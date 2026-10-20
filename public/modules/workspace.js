@@ -504,7 +504,7 @@
       const rects = moving ? dragRegions() : [];
       const sent = JSON.stringify(rects);
       if (sent !== dragRegionsSent) { dragRegionsSent = sent; app.postMessage({ type: "drag-regions", rects }); }
-      const tabRegions = !settingsLayer && !usageUI.isOpen() && !$("workspace-dialog").open && !document.querySelector(".wf-panel[open]") ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
+      const tabRegions = !settingsLayer && !(usageUI.isOpen() && !usageUI.isSheet()) && !$("workspace-dialog").open && !document.querySelector(".wf-panel[open]") ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
         const r = label.getBoundingClientRect(), list = label.closest(".workspace-tablist").getBoundingClientRect();
         const left = Math.max(r.left, list.left), right = Math.min(r.right, list.right);
         return right > left && r.height ? [{ identity: label.parentElement.dataset.identity, rect: [left, r.top, right - left, r.height] }] : [];
@@ -517,7 +517,7 @@
     const rects = [], add = (left, top, right, bottom) => { if (right - left >= 2 && bottom - top >= 2) rects.push([left, top, right - left, bottom - top].map(Math.round)); };
     const box = element => element.getBoundingClientRect();
     if (settingsLayer) { add(0, 0, innerWidth, parseFloat(getComputedStyle(settingsLayer).paddingTop) || 0); return rects; }
-    if (usageUI.isOpen()) return rects;
+    if (usageUI.isOpen() && !usageUI.isSheet()) return rects;
     const sidebar = $("workspace-sidebar"), name = sidebar.querySelector(".workspace-identity");
     if (sidebar.getClientRects().length && name) add(box(sidebar).left, 0, box(name).right, box(name.parentElement).bottom);
     if ($("workspace-stage").getClientRects().length) {
@@ -1308,9 +1308,17 @@
   addEventListener("scroll", closeUsageTip, true);
   // The strip stays quiet while every allowance is comfortable: one line and
   // the providers' own logos. A provider close to its limit gets a chip with
-  // its tightest window using the selected Remaining/Used display. It opens the shared Limits/Usage view,
+  // its tightest window using the selected Remaining/Used display. It opens the limits sheet,
   // even when this Host cannot currently report an allowance.
   let usageReading = null;
+  // The capsule opens the limits as a sheet growing out of it over the list;
+  // the full Limits/Usage panel is one step further, from the sheet.
+  function toggleLimitsSheet(strip) {
+    if (usageUI.isOpen()) { usageUI.close(); return; }
+    closeUsageTip();
+    void usageUI.openSheet(host, strip, { container: document.querySelector("#workspace-sidebar footer"), area: $("workspace-usage"),
+      top: () => $("workspace-projects").getBoundingClientRect().top }).catch(error => toast(error.message));
+  }
   function renderUsage(data) {
     usageReading = data;
     const holder = $("workspace-usage");
@@ -1320,7 +1328,7 @@
     holder.append(box);
     if (!data || !data.providers?.length) {
       const note = data ? t("quotaUnavailable") : t("loadingQuota");
-      const strip = button("", () => void usageUI.open(host).catch(error => toast(error.message)), window.StepsembleUsageUI.label("overview") + " · " + note, "workspace-limits-strip workspace-limits-note");
+      const strip = button("", () => toggleLimitsSheet(strip), window.StepsembleUsageUI.label("overview") + " · " + note, "workspace-limits-strip workspace-limits-note");
       // The allowances' quiet line, with a muted dot while they are unknown.
       const lead = node("span", "", "workspace-limits-lead");
       lead.append(node("span", "", "workspace-limits-dot"), node("span", note, "workspace-limits-summary"));
@@ -1348,7 +1356,7 @@
       return `${row.provider.provider} · ${summary}` + (row.provider.status === "cached" && row.provider.observedAt ? ` · ${t("checked", { date: date(row.provider.observedAt) })}` : "");
     });
     const label = `${window.StepsembleUsageUI.label("overview")} · ${spoken.join(" · ")}`;
-    const strip = button("", () => void usageUI.open(host).catch(error => toast(error.message)), label, "workspace-limits-strip");
+    const strip = button("", () => toggleLimitsSheet(strip), label, "workspace-limits-strip");
     strip.removeAttribute("title");
     strip.setAttribute("aria-haspopup", "dialog"); strip.setAttribute("aria-controls", "usage-panel"); strip.setAttribute("aria-expanded", String(usageUI.isOpen()));
     const alerts = rows.filter(row => row.level === "low" || row.level === "critical");

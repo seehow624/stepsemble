@@ -14,7 +14,7 @@ See public/vendor/THIRD-PARTY-NOTICES.md and public/vendor/licenses/.
 The coding-agent programs launched by Stepsemble are separately installed
 products and are not relicensed by this distribution.
 
-The spinning menu-bar cat frames come from TokenBar / tokcat (MIT), tracing
-back to RunCat by Takuto Nakamura. Attribution and license are bundled in
-macos/Stepsemble/MenuBarCat/LICENSE.txt and the app’s MenuBarCat resources;
-public/menubar-cat.png is the first of those frames, used in the menu preview.
+public/menubar-cat.png, the first frame of the menu-bar cat that Mac apps up
+to 3.9.32 showed, comes from TokenBar / tokcat (MIT), tracing back to RunCat by
+Takuto Nakamura; it remains in the menu bar page those apps still open, and
+its license is public/vendor/licenses/menubar-cat-LICENSE.txt.
