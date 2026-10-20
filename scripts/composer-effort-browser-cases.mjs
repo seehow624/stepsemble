@@ -114,7 +114,7 @@ async function nativeCases(browser, width) {
     // Codex: the thread's level on its model's own list (Low–High).
     await back();
     ui = await openFromSidebar(page, "Codex composer fixture");
-    await ui.waitForFunction(() => rpc?.nativeCodex && rpc.codexModel && document.querySelector("#context-dashboard").dataset.contextState === "normal");
+    await ui.waitForFunction(() => rpc?.nativeCodex && rpc.codexModel && rpc.codexModelsLoaded && document.querySelector("#context-dashboard").dataset.contextState === "normal");
     shown = await composer(ui);
     assert.equal(shown.name, "Fixture Codex Fast, thinking: Medium");
     assert.deepEqual([shown.state, shown.lit, shown.mark, shown.shown], ["level", 2, false, true]);
@@ -159,7 +159,7 @@ async function rippleCase(browser) {
     const page = await context.newPage(); page.setDefaultTimeout(15_000);
     await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
     const ui = await openFromSidebar(page, "Codex composer fixture");
-    await ui.waitForFunction(() => rpc?.nativeCodex && rpc.codexModel && document.querySelector("#composer-model-level .composer-effort-bar.on"));
+    await ui.waitForFunction(() => rpc?.nativeCodex && rpc.codexModel && rpc.codexModelsLoaded && document.querySelector("#composer-model-level .composer-effort-bar.on"));
     // High is the top of this model's list (Low–High).
     await ui.evaluate(() => changeThinkingLevel("high"));
     await ui.waitForFunction(() => document.querySelector("#composer-model-level").dataset.top === "true"
