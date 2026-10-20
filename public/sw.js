@@ -33,6 +33,7 @@ const SHELL = [
   "/modules/compaction-i18n.js?v=3.9.32",
   "/modules/agent-compaction.js?v=3.9.32",
   "/modules/workflows-ui.js?v=3.9.32",
+  "/modules/schedules-page.js?v=3.9.32",
   "/modules/workflow-text.js?v=3.9.32",
   "/modules/workflows.css?v=3.9.32",
   "/modules/workspace-embedded.css?v=3.9.32",

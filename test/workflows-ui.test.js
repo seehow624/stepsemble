@@ -51,22 +51,23 @@ function dom() {
   document.body=new Element("body");document.activeElement=document.body;document.createElement=tag=>new Element(tag);
   return document;
 }
-async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[schedule()],mobile=false,crypto}={}) {
+async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[schedule()],mobile=false,crypto,open={}}={}) {
   const doc=dom(),timers=new Map();let timerId=0,uuid=0;
-  const h={doc,targets:[{key:"entry-1",record:{name:"Maintenance",agentId:"pi",cwd:"/demo/Website"}}],runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],optionRequests:[],now:1700000000000,available:true};
+  const mount=doc.createElement("main");doc.body.append(mount);
+  const h={doc,mount,targets:[{key:"entry-1",record:{name:"Maintenance",agentId:"pi",cwd:"/demo/Website"}}],runs:clone(runs),schedules:clone(schedules),posts:[],changed:0,opened:[],optionRequests:[],now:1700000000000,available:true,visible:true,backs:0,contexts:0,reads:0};
   const root={document:doc,StepsembleWorkflowI18n:i18n,crypto:crypto||{randomUUID:()=>"request-"+(++uuid)},confirm:()=>true,
     Event:class{constructor(type){this.type=type;}},dispatchEvent(){},matchMedia:()=>({matches:mobile}),
     setTimeout(fn,ms){timers.set(++timerId,{fn,ms,interval:false});return timerId;},clearTimeout(id){timers.delete(id);},
     setInterval(fn,ms){timers.set(++timerId,{fn,ms,interval:true});return timerId;},clearInterval(id){timers.delete(id);}};
   vm.runInNewContext(source,{window:root,Date:class extends Date{static now(){return h.now;}},Intl,Uint8Array});
-  h.controller=root.StepsembleWorkflows.create({
-    context:async target=>({target:target||"host-1",hostName:"Fixture",projects:["/demo/Website","/demo/API"],entries:[{key:"entry-1",record:{agentId:"pi",cwd:"/demo/Website"}}]}),
+  h.controller=root.StepsembleWorkflows.create({mount,back(){h.backs++;},visible:()=>h.visible,
+    context:async target=>(h.contexts++,{target:target||"host-1",hostName:"Fixture",projects:["/demo/Website","/demo/API"],entries:[{key:"entry-1",record:{agentId:"pi",cwd:"/demo/Website"}}]}),
     onChanged(){h.changed++;},openConversation(...args){h.opened.push(args);},
     api:async(route,body,target)=>{
       if(route==="/api/workflows/targets"){h.targetsHost=target;return h.targetsImpl?h.targetsImpl():{entries:clone(h.targets)};}
       if(route==="/api/agents")return h.agentsImpl?h.agentsImpl():{connectors:[{id:"pi",installed:true},{id:"codex",installed:true},{id:"antigravity",installed:true},{id:"hermes",installed:false}]};
       if(route.startsWith("/api/workflows/options?")){h.optionRequests.push(route);return h.optionsImpl?h.optionsImpl(route):{current:null,models:[],modes:[]};}
-      if(!body)return h.readImpl?h.readImpl():{available:h.available,keepsAwake:h.keepsAwake,runs:clone(h.runs),schedules:clone(h.schedules)};
+      if(!body)return h.reads++,h.readImpl?h.readImpl():{available:h.available,keepsAwake:h.keepsAwake,runs:clone(h.runs),schedules:clone(h.schedules)};
       h.posts.push({body:clone(body),target});if(h.postImpl)return h.postImpl(body);
       if(body.action){const row=[...h.runs,...h.schedules].find(item=>item.id===body.id);if(row.schedule){if(body.action==="pause")row.enabled=false;else if(body.action==="resume")row.enabled=true;else if(body.action==="edit")Object.assign(row,body);else if(body.action==="delete")h.schedules=h.schedules.filter(item=>item.id!==row.id);}else row.status={pause:"paused",resume:"running",stop:"stopped"}[body.action];return clone(row);}
       const row={...run("created-"+h.posts.length),...body};if(body.kind==="schedule"){row.enabled=true;h.schedules.push(row);}else h.runs.push(row);return clone(row);
@@ -79,7 +80,7 @@ async function harness({runs=[{...run(),scheduleId:"schedule-1"}],schedules=[sch
   h.submit=()=>h.find("form").onsubmit({preventDefault(){}});
   h.tick=async ms=>{const entry=[...timers.entries()].find(([,value])=>value.ms===ms);if(entry){if(!entry[1].interval)timers.delete(entry[0]);await entry[1].fn();}};
   h.close=()=>{h.controller.close();assert.equal(timers.size,0);};
-  await h.controller.open();return h;
+  await h.controller.open(undefined,open);return h;
 }
 test("the panel shows Schedules only, with one New schedule button and no Goals view", async () => {
   const h = await harness({ runs: [run("in-conversation"), { ...run("scheduled-goal"), scheduleId: "schedule-1" }] }); const add = h.byKey("new");
@@ -136,10 +137,10 @@ test("each filter carries its count instead of a separate row of totals",async()
 
 test("with no schedules the panel is one column whose empty state holds the only New",async()=>{
   const h=await harness({runs:[],schedules:[]});
-  assert.equal(h.find("dialog").dataset.empty,"true");assert.equal(h.byKey("new").hidden,true);
+  assert.equal(h.mount.dataset.empty,"true");assert.equal(h.byKey("new").hidden,true);
   const create=h.find(".wf-list").querySelector(".primary");assert.equal(create.textContent,"New schedule");assert.equal(h.doc.activeElement,create);
   await create.click();await h.byKey("editor-back").click();assert.equal(h.doc.activeElement,h.find(".wf-list").querySelector(".primary"));
-  h.schedules=[schedule()];await h.tick(4000);assert.equal(h.find("dialog").dataset.empty,"false");assert.equal(h.byKey("new").hidden,false);h.close();
+  h.schedules=[schedule()];await h.tick(4000);assert.equal(h.mount.dataset.empty,"false");assert.equal(h.byKey("new").hidden,false);h.close();
 });
 
 test("schedule filters narrow the list and search keeps the user's focus",async()=>{
@@ -208,8 +209,8 @@ test("a running schedule cannot be manually launched twice; selected history kee
 });
 
 test("mobile opens detail with focus on Back and returns focus to the selected row",async()=>{
-  const h=await harness({mobile:true});await h.byKey("row:schedule-1").click();assert.equal(h.find("dialog").dataset.screen,"detail");assert.equal(h.doc.activeElement,h.byKey("detail-back"));
-  await h.byKey("detail-back").click();assert.equal(h.find("dialog").dataset.screen,"list");assert.equal(h.doc.activeElement,h.byKey("row:schedule-1"));h.close();
+  const h=await harness({mobile:true});await h.byKey("row:schedule-1").click();assert.equal(h.mount.dataset.screen,"detail");assert.equal(h.doc.activeElement,h.byKey("detail-back"));
+  await h.byKey("detail-back").click();assert.equal(h.mount.dataset.screen,"list");assert.equal(h.doc.activeElement,h.byKey("row:schedule-1"));h.close();
 });
 
 test("private-network HTTP can create an idempotent UUID without crypto.randomUUID",async()=>{
@@ -320,9 +321,10 @@ test("the approval wait limit is editable, validated, and shown with a schedule'
   assert.match(settings,/Approval wait \(min\): 15/);assert.match(settings,/gpt-6/);s.close();
 });
 
-test("the footer says the Host keeps the computer awake only when it can",async()=>{
-  const h=await harness();assert.match(h.find(".wf-footer").textContent,/Keep the computer awake/);
-  h.keepsAwake=true;await h.tick(4000);assert.match(h.find(".wf-footer").textContent,/keeps the computer awake while tasks run/);h.close();
+test("the editor says the Host keeps the computer awake only when it can",async()=>{
+  const h=await harness();await h.byKey("new").click();assert.match(h.find(".wf-editor-footer").textContent,/Keep the computer awake/);
+  await h.byKey("editor-back").click();h.keepsAwake=true;await h.tick(4000);await h.byKey("new").click();
+  assert.match(h.find(".wf-editor-footer").textContent,/keeps the computer awake while tasks run/);h.close();
 });
 
 for(const mobile of [false,true])test(`schedule binding edits in place with explicit new/existing choice (${mobile?"mobile":"desktop"})`,async()=>{
@@ -380,4 +382,41 @@ test("late target catalogs cannot cross Hosts or replace the editor's draft",asy
   h.targetsImpl=null;await h.controller.open("host-2");await h.byKey("new").click();h.input("objectivePrompt","Other Host draft");
   pending.resolve({entries:[{key:"foreign-target",record:{agentId:"pi",cwd:"/other"}}]});await opening;
   assert.equal(h.field("objectivePrompt").value,"Other Host draft");assert(!h.field("targetConversation").options.some(o=>o.value==="foreign-target"));h.close();
+});
+
+test("the panel fills its pane: no dialog, brand, close button or footer, and a phone's Back leaves the pane",async()=>{
+  const h=await harness();
+  assert.equal(h.doc.body.querySelectorAll("dialog").length,0);
+  for(const name of [".wf-brand",".wf-close",".wf-footer",".wf-heading"])assert.equal(h.find(name),null,name);
+  assert.equal(h.mount.querySelector(".wf-pane-head").querySelector("h1").textContent,"Schedules");
+  assert.equal(h.mount.querySelector(".wf-tools").children.at(-1),h.byKey("new"),"New sits beside the search");
+  assert.equal(h.byKey("pane-back").getAttribute("aria-label"),"Back");
+  await h.byKey("pane-back").click();assert.equal(h.backs,1);
+  await h.byKey("new").click();assert.equal(h.find(".wf-close"),null,"the editor has Back only");h.close();
+  assert.equal(h.mount.children.length,0,"closing empties the pane");
+});
+
+test("Open conversation leaves Schedules open in their pane",async()=>{
+  const h=await harness();await h.byKey("goal-1:conversation").click();
+  assert.deepEqual(h.opened,[["entry-1","Ship the page","host-1"]]);
+  assert.ok(h.byKey("goal-1:pause"),"still showing the run");
+  const reads=h.reads;await h.tick(4000);assert.equal(h.reads,reads+1,"still following the Host");h.close();
+});
+
+test("asked again, the open panel shows a schedule or the form at once, without reading the computer's workspace again",async()=>{
+  const h=await harness({runs:[],schedules:[schedule(),{...schedule("schedule-2"),title:"Second"}],open:{focus:false}});
+  assert.equal(h.doc.activeElement,h.doc.body,"a restored pane takes no focus");
+  await h.controller.show({select:"schedule-2",focus:false});
+  assert.equal(h.byKey("row:schedule-2").getAttribute("aria-current"),"true");assert.equal(h.mount.dataset.screen,"detail");
+  assert.equal(h.doc.activeElement,h.doc.body);
+  await h.controller.show({create:true});assert.ok(h.find("form"));assert.equal(h.doc.activeElement,h.field("objectivePrompt"));
+  h.input("objectivePrompt","Unsent draft");await h.controller.show({select:"schedule-1"});
+  assert.equal(h.find("form"),null,"the draft gives way, as Back would");assert.equal(h.byKey("row:schedule-1").getAttribute("aria-current"),"true");
+  assert.equal(h.contexts,1);h.close();
+});
+
+test("a hidden pane stops asking its Host and resumes when shown",async()=>{
+  const h=await harness();const reads=h.reads;h.visible=false;
+  await h.tick(4000);await h.tick(4000);assert.equal(h.reads,reads);
+  h.visible=true;await h.tick(4000);assert.equal(h.reads,reads+1);h.close();
 });

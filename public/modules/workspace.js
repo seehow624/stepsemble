@@ -209,12 +209,20 @@
     try { save(); } catch (error) { toast(error.message); }
     updateTabMetadata(ref);
   }
-  // A session's tab starts with its agent's logo; a Bot tab with the Bot.
-  const tabIcon = ref => ref.assistant ? assistantUI.tabIcon(ref) : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
+  // A Bot's page and Schedules are tabs of their own, not sessions of a Host's list.
+  const pageTab = ref => !!(ref.assistant || ref.schedules);
+  const SCHEDULE_ICON = "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z";
+  function schedulesIcon() {
+    const mark = node("span", "", "workspace-tab-avatar workspace-tab-page");
+    mark.setAttribute("aria-hidden", "true"); mark.append(icon(SCHEDULE_ICON)); return mark;
+  }
+  // A session's tab starts with its agent's logo; a Bot tab with the Bot,
+  // and Schedules with their clock.
+  const tabIcon = ref => ref.assistant ? assistantUI.tabIcon(ref) : ref.schedules ? schedulesIcon() : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
   // A title bar names the session and, below it as on a phone, its computer
   // and project.
   function tabSubtitle(ref) {
-    const cwd = ref.assistant ? "" : snapshotOf(ref.host)?.entries.find(row => row.key === ref.key)?.record.cwd || "";
+    const cwd = pageTab(ref) ? "" : snapshotOf(ref.host)?.entries.find(row => row.key === ref.key)?.record.cwd || "";
     return [hostName(ref.host), cwd.split(/[\\/]/).filter(Boolean).pop() || ""].filter(Boolean).join(" · ");
   }
   function tabLabel(ref) {
@@ -279,7 +287,6 @@
   function closeActiveTab() {
     if (settingsLayer) { closeSettings(); return; }
     if (usageUI.isOpen()) { usageUI.close(); return; }
-    if (document.querySelector(".wf-panel[open]")) { workflowUI.close(); return; }
     if ($("workspace-dialog").open) { closeDialog(); return; }
     const pane = L.leaves(tree).find(row => row.id === focused) || L.leaves(tree)[0];
     if (active(pane)) closeSession(pane);
@@ -386,6 +393,37 @@
     }
     return open(existing);
   }
+  // Schedules have one tab per computer too. Opening them again shows that
+  // tab, at the schedule or the new-schedule form asked for: a new pane's page
+  // starts there, and a page still loading takes it once it says it is ready.
+  // Like a session's pane, it takes the focus only to type a new schedule.
+  const scheduleRequests = new Map();
+  function openSchedules(target, { select = null, create = false } = {}) {
+    if (!machines.some(m => m.id === target)) { toast(t("hostUnavailable")); return false; }
+    const ref = allRefs().find(tab => tab.host === target && tab.schedules)
+      || { host: target, key: crypto.randomUUID(), title: window.StepsembleWorkflows.label("schedules"), schedules: true };
+    const key = L.identity(ref);
+    scheduleRequests.set(key, { select, create, focus: create });
+    if (!open(ref)) { scheduleRequests.delete(key); return false; }
+    showSchedules(frames.get(key));
+    return true;
+  }
+  function showSchedules(item) {
+    const key = item && L.identity(item.ref), request = key && scheduleRequests.get(key);
+    if (!request || !item.ready) return;
+    scheduleRequests.delete(key); toFrame(item.frame, { type: "schedules-show", ...request });
+  }
+  function schedulesUrl(ref) {
+    const key = L.identity(ref), request = scheduleRequests.get(key), url = new URL("/schedules.html", location.origin);
+    url.searchParams.set("embed", "1"); url.searchParams.set("machine", ref.host);
+    if (request) {
+      scheduleRequests.delete(key);
+      if (request.select) url.searchParams.set("select", request.select);
+      if (request.create) url.searchParams.set("create", "1");
+      if (request.focus) url.searchParams.set("focus", "1");
+    }
+    return url.href;
+  }
   // A Bot tab says which page it shows; its label and the saved layout follow.
   function updateAssistantTab(ref, { route, title, avatar }) {
     let checked;
@@ -413,7 +451,7 @@
   }
   function referenceSession(payload, item) {
     const ref = payload?.ref;
-    if (!ref?.key || ref.assistant) { toast(t("referenceUnsupported")); return; }
+    if (!ref?.key || pageTab(ref)) { toast(t("referenceUnsupported")); return; }
     if (ref.key === item.ref.key) { toast(t("referenceSelf")); return; }
     const entry = hostSnapshots.get(ref.host)?.entries.find(row => row.key === ref.key);
     // A session on another computer is summarized there; the chip names it.
@@ -480,8 +518,8 @@
       const slot = slots.get(key);
       const visible = !!(slot && slot.getClientRects().length && slot.getBoundingClientRect().width > 0);
       // A Bot tab that is not shown stops counting as watching its chat, so
-      // the phone still hears about a reply there.
-      if (item.ref.assistant && item.frame.hidden === visible) toFrame(item.frame, { type: "workspace-visibility", visible });
+      // the phone still hears about a reply there; hidden Schedules stop asking.
+      if (pageTab(item.ref) && item.frame.hidden === visible) toFrame(item.frame, { type: "workspace-visibility", visible });
       item.frame.hidden = !visible;
       if (!visible) continue;
       const r = slot.getBoundingClientRect();
@@ -504,7 +542,7 @@
       const rects = moving ? dragRegions() : [];
       const sent = JSON.stringify(rects);
       if (sent !== dragRegionsSent) { dragRegionsSent = sent; app.postMessage({ type: "drag-regions", rects }); }
-      const tabRegions = !settingsLayer && !(usageUI.isOpen() && !usageUI.isSheet()) && !$("workspace-dialog").open && !document.querySelector(".wf-panel[open]") ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
+      const tabRegions = !settingsLayer && !(usageUI.isOpen() && !usageUI.isSheet()) && !$("workspace-dialog").open ? [...document.querySelectorAll(".workspace-tab-label")].flatMap(label => {
         const r = label.getBoundingClientRect(), list = label.closest(".workspace-tablist").getBoundingClientRect();
         const left = Math.max(r.left, list.left), right = Math.min(r.right, list.right);
         return right > left && r.height ? [{ identity: label.parentElement.dataset.identity, rect: [left, r.top, right - left, r.height] }] : [];
@@ -536,7 +574,6 @@
     const d = box(open);
     return rects.filter(([x, y, w, h]) => x >= d.right || x + w <= d.left || y >= d.bottom || y + h <= d.top);
   }
-  addEventListener("stepsemble-workflow-panel", reportDragRegions);
   new ResizeObserver(reportDragRegions).observe($("workspace-sidebar"));
   new MutationObserver(reportDragRegions).observe($("workspace-dialog"), { attributes: true, attributeFilter: ["open"] });
   addEventListener("stepsemble-mac-window", () => requestAnimationFrame(layoutFrames));
@@ -557,7 +594,7 @@
       // A video in a pane can still go full screen.
       frame.allow = "fullscreen"; frame.allowFullscreen = true;
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
-      frame.src = ref.assistant ? new URL(WAM.frameUrl(ref), location.origin).href : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
+      frame.src = ref.assistant ? new URL(WAM.frameUrl(ref), location.origin).href : ref.schedules ? schedulesUrl(ref) : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
     }
     const shown = (maximized && L.leaves(tree).find(p => p.id === maximized)) || tree;
     const corners = cornerPanes(shown);
@@ -606,7 +643,7 @@
       };
       tabs.append(tablist);
       const frameCommand = command => toFrame(frames.get(n.active)?.frame, { type: "workspace-command", command });
-      if (shownRef && !shownRef.assistant) {
+      if (shownRef && !pageTab(shownRef)) {
         const summary = button("", () => frameCommand("summary"), t("summary"), "btn workspace-strip-button workspace-summary-button");
         summary.append(icon("M6.5 3.5h11A2.5 2.5 0 0 1 20 6v12a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18V6a2.5 2.5 0 0 1 2.5-2.5zM8 8.5h8M8 12h8M8 15.5h5")); tabs.append(summary);
       }
@@ -620,7 +657,7 @@
       // of buttons costs every pane a strip of height that belongs to the
       // conversation.
       const actions = [];
-      if (shownRef && !shownRef.assistant) {
+      if (shownRef && !pageTab(shownRef)) {
         actions.push([t("rename"), () => renameSession(shownRef)]);
         if (shownRef.host === host) {
           const pinned = O.normalize(snapshot.presentation, snapshot).pinnedSessions.includes(shownRef.key);
@@ -648,7 +685,7 @@
       }
       // The conversation's own sheet (model, export, archive where they apply)
       // and a Bot's menu.
-      if (shownRef && (!shownRef.assistant || botChat)) actions.push(null, [t("moreActions"), () => frameCommand("menu")]);
+      if (shownRef && (!pageTab(shownRef) || botChat)) actions.push(null, [t("moreActions"), () => frameCommand("menu")]);
       if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
       if (shownRef || L.leaves(tree).length > 1) actions.push(null, [t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
       if (actions.some(Boolean)) {
@@ -670,7 +707,7 @@
       // reference in that conversation instead of a new pane.
       const referenceTarget = e => {
         const item = n.active && frames.get(n.active), r = item?.composerRect;
-        if (!r || item.ref.assistant) return null;
+        if (!r || pageTab(item.ref)) return null;
         const f = item.frame.getBoundingClientRect(), x = e.clientX - f.left, y = e.clientY - f.top;
         return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height ? item : null;
       };
@@ -811,21 +848,21 @@
     return automationsReading;
   }
   function openAutomation(row) {
-    if (row.kind === "schedule") void workflowUI.open(row.target, { select: row.id }).catch(error => toast(error.message));
+    if (row.kind === "schedule") openSchedules(row.target, { select: row.id });
     else openAssistant(row.target, { page: "routines", profile: row.profile });
   }
   function newAutomationActions() {
     const label = window.StepsembleWorkflows.label("newSchedule");
-    const schedules = machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => void workflowUI.open(m.id, { create: true }).catch(error => toast(error.message))])
-      : [[label, () => void workflowUI.open(host, { create: true }).catch(error => toast(error.message))]];
+    const schedules = machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => openSchedules(m.id, { create: true })])
+      : [[label, () => openSchedules(host, { create: true })]];
     const bots = assistantUI.ready ? (automationData.routines?.bots || []).filter(bot => !bot.hidden)
       .map(bot => [t("onComputer", { item: assistantUI.text("newRoutine"), computer: bot.displayName || bot.name }), () => openAssistant(assistantUI.machine.id, { page: "routines", profile: bot.name })]) : [];
     return [...schedules, ...bots];
   }
   function allAutomationActions() {
     const label = window.StepsembleWorkflows.label("schedules");
-    return [...(machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => void workflowUI.open(m.id).catch(error => toast(error.message))])
-      : [[label, () => void workflowUI.open(host).catch(error => toast(error.message))]]),
+    return [...(machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => openSchedules(m.id)])
+      : [[label, () => openSchedules(host)]]),
       ...(assistantUI.installed ? [[assistantUI.text("allRoutines"), () => openAssistant(assistantUI.machine.id, { page: "routines" })]] : [])];
   }
   function automationRow(row) {
@@ -836,7 +873,7 @@
     const meta = [row.cadence, next, row.owner].filter(Boolean).join(" · ");
     const entry = button("", () => openAutomation(row), [row.title, state, meta].filter(Boolean).join(" · "), "btn workspace-automation");
     const lead = row.kind === "routine" && row.bot ? assistantUI.avatar(row.bot) : node("span", "", "workspace-automation-icon");
-    if (!(row.kind === "routine" && row.bot)) lead.append(icon(row.kind === "routine" ? "M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" : "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"));
+    if (!(row.kind === "routine" && row.bot)) lead.append(icon(row.kind === "routine" ? "M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" : SCHEDULE_ICON));
     const copy = node("span", "", "workspace-automation-copy"); copy.append(node("strong", row.title), node("small", meta));
     entry.append(lead, copy);
     if (state) entry.append(node("span", state, "workspace-automation-state"));
@@ -924,7 +961,7 @@
     toggle.setAttribute("aria-expanded", String(!folded));
     const state = offline ? (status.at ? t("machineOfflineSince", { time: new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "2-digit", minute: "2-digit" }).format(status.at) }) : t("machineOffline")) : "";
     toggle.append(icon("m6 9 6 6 6-6", "workspace-project-chevron"), node("strong", machine.name), ...(state ? [node("small", state, "workspace-machine-state")] : []));
-    const more = button("⋯", () => openPaneMenu(more, [[t("addProject"), () => addProject(target)], [window.StepsembleWorkflows.label("schedules"), () => void workflowUI.open(target).catch(error => toast(error.message))],
+    const more = button("⋯", () => openPaneMenu(more, [[t("addProject"), () => addProject(target)], [window.StepsembleWorkflows.label("schedules"), () => openSchedules(target)],
       null, ...sectionActions(machineSectionId(target))]), t("sectionActions", { section: machine.name }), "btn workspace-machine-menu");
     more.setAttribute("aria-haspopup", "menu");
     header.append(toggle, more);
@@ -1218,8 +1255,8 @@
       // A closed window can retain an old tab in its saved layout. Reconcile
       // against membership when it opens again, without touching other hosts.
       const available = new Set(data.entries.map(entry => entry.key));
-      // A Bot tab is not a session of the Host's list.
-      const stale = allRefs().filter(ref => ref.host === target && !ref.assistant && !available.has(ref.key));
+      // A Bot tab or Schedules is not a session of the Host's list.
+      const stale = allRefs().filter(ref => ref.host === target && !pageTab(ref) && !available.has(ref.key));
       if (stale.length) { let next = tree; for (const ref of stale) next = L.drop(next, ref); commit(next); }
       setConnection(true, `${hostName(host)} · ${t("connected")}`);
       // The other computers' lists, every ten seconds, and those a split pane
@@ -1761,6 +1798,7 @@
       // The tab that only signed in to Hermes has done its job.
       if (data.type === "assistant-signed-in") { assistantUI.changed(); if (item.ref.assistant.page === "home") commit(L.drop(tree, item.ref)); }
     }
+    if (item.ref.schedules && event.data?.type === "schedules-ready") { item.ready = true; showSchedules(item); }
     if (event.data?.type === "workspace-select-tab" && !item.frame.hidden) {
       const pane = L.leaves(tree).find(p => p.active === L.identity(item.ref));
       if (pane) selectAdjacentTab(event.data.direction, pane.id);
@@ -1787,11 +1825,6 @@
       open({ host: item.ref.host, key: event.data.key, title: String(event.data.title || "").slice(0, 160) }, pane?.id || focused, beside ? "right" : "center");
       void refresh();
     }
-  });
-  const workflowUI = window.StepsembleWorkflows.create({ api,
-    async context(target = host) { target ||= host; const data = await api("/api/workspace", undefined, target); return {target, hostName:hostName(target), projects:data.projects, entries:data.entries}; },
-    openConversation(key, title, target) { open({host:target,key,title}); void refresh(); },
-    onChanged() { void refresh(); void refreshAutomations(); for (const item of frames.values()) toFrame(item.frame, { type: "workspace-workflows-changed" }); },
   });
   const usageUI = window.StepsembleUsageUI.create({ api,
     context: () => ({ selected: host, hosts: machines.map(machine => ({ id: machine.id, name: machine.name || machine.id })) }),
@@ -1947,8 +1980,8 @@
     } finally { booting = false; }
   }
   function visibleSessions() {
-    if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".wf-panel[open], .usage-panel[open]")) return [];
-    return [...frames.values()].filter(item => !item.ref.assistant && !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
+    if (document.hidden || !document.hasFocus() || settingsLayer || $("workspace-dialog").open || document.querySelector(".usage-panel[open]")) return [];
+    return [...frames.values()].filter(item => !pageTab(item.ref) && !item.frame.hidden && (!mobile() || document.body.classList.contains("sidebar-hidden"))).slice(0, 8).map(item => ({ host: item.ref.host, key: item.ref.key }));
   }
   function openUsageIntent(value) {
     const target = typeof value.host === "string" && machines.some(m => m.id === value.host) ? value.host : host;
@@ -1980,7 +2013,7 @@
       if (epoch !== noticeEpoch) return;
       const entry = data.entries.find(row => row.key === notice.key);
       if (!entry) throw new Error(t("notAdded"));
-      closeSettings(); workflowUI.close(); closeDialog(); selectHost(notice.host);
+      closeSettings(); closeDialog(); selectHost(notice.host);
       open({ host: notice.host, key: entry.key, title: plainTitle(entry.record.name) || entry.record.agentId, agentId: entry.record.agentId });
       const url = new URL(location.href); url.searchParams.delete("host"); url.searchParams.delete("entry"); window.history.replaceState(window.history.state, "", url.href);
       pendingNotice = null;

@@ -169,6 +169,12 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const embedded = await request("/assistant.html?embed=1&machine=local&bot=default");
   assert.equal(embedded.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(embedded.headers.get("content-security-policy"), /frame-ancestors 'self'/);
+  // So are Schedules in their pane.
+  assert.equal((await request("/schedules.html")).headers.get("x-frame-options"), "DENY");
+  const schedules = await request("/schedules.html?embed=1&machine=local");
+  assert.equal(schedules.status, 200);
+  assert.equal(schedules.headers.get("x-frame-options"), "SAMEORIGIN");
+  assert.match(schedules.headers.get("content-security-policy"), /frame-ancestors 'self'/);
 
   // The model menu's hidden models and providers live on the Host, so every
   // device that uses it shows the same menu.
