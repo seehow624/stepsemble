@@ -14,7 +14,7 @@ test("native Codex metadata freezes version, selected schemas and actual generat
   for (const row of fixture.schemas) { assert.match(row.sha256, /^[a-f0-9]{64}$/); assert.ok(Number.isSafeInteger(row.bytes) && row.bytes > 0); }
   assert.deepEqual(Object.values(fixture.catalogs).map(list => list.length), [99, 10, 81]);
   for (const list of Object.values(fixture.catalogs)) { assert.equal(new Set(list).size, list.length); assert.deepEqual([...list].sort(), list); }
-  for (const method of ["initialize", "thread/list", "thread/read", "thread/resume", "turn/start", "turn/interrupt"])
+  for (const method of ["initialize", "thread/list", "thread/read", "thread/resume", "turn/start", "turn/steer", "turn/interrupt"])
     assert.ok(fixture.catalogs["ClientRequest.json"].includes(method), method);
   for (const method of ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"])
     assert.ok(fixture.catalogs["ServerRequest.json"].includes(method), method);

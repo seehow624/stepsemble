@@ -7,7 +7,9 @@
 //     message shows in the conversation where the agent took it;
 //   - the next queued message goes by itself when the turn ends;
 //   - Claude Code's queued message carries its own id and is confirmed by
-//     Claude's own report of it.
+//     Claude's own report of it;
+//   - Codex (the native-composer preview with the Host's own queue and a
+//     synthetic driver): a send while it works is queued, not refused.
 // Desktop 1440 and phone 390.
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -17,7 +19,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
-import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady } from "./workspace-browser-helpers.mjs";
+import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
+import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
@@ -25,7 +28,51 @@ const chipTexts = ui => ui.evaluate(() => [...document.querySelectorAll("#compos
 const userTexts = ui => ui.evaluate(() => [...document.querySelectorAll("#messages .msg.user")].map(node => node.textContent.replace(/\s+/g, " ").trim()));
 const send = async (ui, text) => { await ui.locator("#input").fill(text); await ui.locator("#btn-send").click(); };
 
+async function runCodexQueueBrowserCase(browser) {
+  const preview = await createNativeComposerPreview({ composerQueue: true });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
+  let stage = "fixture";
+  try {
+    await context.addInitScript(() => {
+      localStorage.setItem("stepsemble.onboarding.v1", "complete");
+      localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
+    });
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(20000);
+    await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+    stage = "Codex: a message sent while it works is queued, not refused";
+    let ui = await openFromSidebar(page, "Codex composer fixture");
+    await ui.waitForFunction(() => typeof rpc !== "undefined" && !!rpc?.composerQueue && rpc.taskStatus === "running" && !genericInputBlock());
+    await send(ui, "Queued for Codex");
+    await ui.waitForFunction(() => document.querySelectorAll("#composer-queue .cq-chip").length === 1);
+    assert.equal(preview.state.codexTurns.length, 0, "no second turn while one runs");
+    assert.equal(await ui.locator(".run-error").count(), 0, "no failed card for a queued message");
+    stage = "Codex: the chip outlives a reload";
+    await page.reload(); await workspaceReady(page);
+    ui = await openFromSidebar(page, "Codex composer fixture");
+    await ui.waitForFunction(() => document.querySelectorAll("#composer-queue .cq-chip").length === 1);
+    stage = "Codex: Send now";
+    await ui.locator("#composer-queue .cq-chip .cq-send").click();
+    await ui.waitForFunction(() => !document.querySelector("#composer-queue .cq-chip:not(.cq-leaving)"));
+    assert.deepEqual(preview.state.codexQueueDeliveries.map(row => [row.text, row.jump]), [["Queued for Codex", true]]);
+    await ui.getByText("Queued for Codex", { exact: true }).first().waitFor();
+    stage = "Codex: the next message when the turn ends";
+    await send(ui, "Next for Codex");
+    await ui.waitForFunction(() => document.querySelectorAll("#composer-queue .cq-chip").length === 1);
+    await context.request.post(preview.origin + "/__fixture/codex/finish", { data: {} });
+    await ui.waitForFunction(() => !document.querySelector("#composer-queue .cq-chip:not(.cq-leaving)"));
+    assert.deepEqual(preview.state.codexQueueDeliveries.map(row => [row.text, row.jump]), [["Queued for Codex", true], ["Next for Codex", false]]);
+    await ui.getByText("Next for Codex", { exact: true }).first().waitFor();
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "composer-queue codex", result: "passed" }));
+  } catch (error) {
+    throw new Error(`composer queue (Codex) at ${stage}: ${error.message}`);
+  } finally { await context.close().catch(() => {}); await preview.close(); }
+}
+
 export async function runComposerQueueBrowserCases(browser) {
+  await runCodexQueueBrowserCase(browser);
   for (const viewport of [{ name: "desktop", width: 1440, height: 1000, mobile: false }, { name: "phone", width: 390, height: 844, mobile: true }]) {
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-composer-queue-")));
     let child, context, stage = "fixture";
