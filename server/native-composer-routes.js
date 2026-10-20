@@ -17,8 +17,22 @@ function effortValue(value) {
 }
 
 // Called only inside the main authenticated/origin-checked API block.
+// A live Claude that has reported no usage since it started (a conversation
+// opened again) shows the context its transcript last recorded, at the
+// capacity of the model it runs now when that is known.
+function withObservedContext(live, observed) {
+  if (!live || live.contextTokens !== null && live.contextTokens !== undefined || !observed || observed.contextTokens === null) return live;
+  const contextWindow = live.contextWindow ?? observed.contextWindow ?? null;
+  return { ...observed, model: live.model || observed.model, contextWindow,
+    contextPercent: contextWindow ? Number(Math.min(100, observed.contextTokens / contextWindow * 100).toFixed(6)) : null };
+}
+
+// A refusal names its reason in `error` as well as `code`, so the page can
+// tell the person why the message did not go.
+const refusal = result => ({ ...result, error: typeof result?.error === "string" && result.error ? result.error : result?.code || "native_composer_unavailable" });
+
 function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveClaude, validateDirectory, readJSON, sendJSON, gateway, onModels = null,
-  codexPermissions = null, onChoice = null, savedClaude = null, onSessionChoice = null }) {
+  codexPermissions = null, onChoice = null, savedClaude = null, onSessionChoice = null, observeClaude = null, composerQueue = null }) {
   // A Claude conversation whose process was let go keeps the model and level
   // picked for it; Claude starts with them on the next message.
   function savedClaudeResponse(p, saved, body) {
@@ -57,10 +71,14 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
           return true;
         }
         const catalog = p.endsWith("/models") ? await gateway?.refreshClaudeGatewayCache() : null;
-        const result = p.endsWith("/models") ? await resolved.session.models()
+        let result = p.endsWith("/models") ? await resolved.session.models()
           : p.endsWith("/context") ? await resolved.session.contextUsage()
             : p.endsWith("/effort") ? await resolved.session.setEffort(effortValue(body?.effort))
               : await resolved.session.setModel(modelValue(body?.model));
+        if (p.endsWith("/context") && observeClaude && result && (result.contextTokens === null || result.contextTokens === undefined)) {
+          const nativeSessionId = resolved.session.status?.()?.nativeSessionId;
+          try { if (nativeSessionId) result = withObservedContext(result, observeClaude(nativeSessionId)); } catch {}
+        }
         if (p.endsWith("/models") && result?.kind !== "reject") { try { onModels?.("claude-code", result?.models); } catch {} }
         // A model or level the person picks becomes the one the next
         // conversation starts with, and this conversation keeps it.
@@ -108,8 +126,10 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
       const threadId = body.threadId;
       if (typeof threadId !== "string" || !ID.test(threadId)) throw invalid("invalid_thread_id");
       if (p.endsWith("/interrupt")) {
+        // Stop pauses the thread's queue: nothing more goes in by itself.
+        composerQueue?.pause("codex", threadId);
         const result = await codex.interruptTurn(threadId);
-        sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
+        sendJSON(res, result?.kind === "reject" ? 409 : 200, result?.kind === "reject" ? refusal(result) : result);
         return true;
       }
       const text = typeof body.text === "string" ? body.text : "";
@@ -120,6 +140,11 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
       if (body.cwd !== undefined) params.cwd = validateDirectory(body.cwd, "Codex");
       if (body.model !== undefined) params.model = modelValue(body.model);
       if (body.effort !== undefined) params.effort = modelValue(body.effort);
+      // A message sent while Codex works waits in the thread's queue and goes
+      // as the next turn, with the model and level chosen as it was sent.
+      const queue = () => sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("codex", threadId,
+        { text, images: body.images, model: params.model, effort: params.effort, deviceId: body.deviceId }) });
+      if (composerQueue && await composerQueue.shouldQueue("codex", threadId).catch(() => false)) { queue(); return true; }
       // The approval mode chosen for this thread travels with every turn, so
       // it holds even after Codex resumes the thread with its config defaults.
       Object.assign(params, codexPermissions?.(threadId) || {});
@@ -132,15 +157,20 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
       }
       if (!native.threadId) {
         const resumed = await codex.resumeThread({ threadId });
-        if (resumed?.kind === "reject") { sendJSON(res, 409, resumed); return true; }
+        if (resumed?.kind === "reject") { sendJSON(res, 409, refusal(resumed)); return true; }
       }
       const result = await codex.startTurn(input, params, threadId);
-      sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
+      // A turn that began between the check and the send: the message waits.
+      if (result?.kind === "reject" && result.code === "native_lifecycle_conflict" && composerQueue
+        && await composerQueue.shouldQueue("codex", threadId).catch(() => false)) { queue(); return true; }
+      if (result?.kind !== "reject") composerQueue?.noteDirectSend("codex", threadId);
+      sendJSON(res, result?.kind === "reject" ? 409 : 200, result?.kind === "reject" ? refusal(result) : result);
     } catch (error) {
-      sendJSON(res, error.statusCode || 409, { error: error.code || "native_composer_unavailable" });
+      const code = error.code || "native_composer_unavailable";
+      sendJSON(res, error.statusCode || 409, { error: code, code });
     }
     return true;
   };
 }
 
-module.exports = { createNativeComposerRoutes, PROMPT_BODY_BYTES };
+module.exports = { createNativeComposerRoutes, withObservedContext, PROMPT_BODY_BYTES };

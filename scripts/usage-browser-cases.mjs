@@ -44,23 +44,23 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await page.goto(fixture.origin + "/workspace.html?host=mini");
       await page.locator("#workspace-host option[value=mini]").waitFor({ state: "attached" });
       const entry = page.locator(".workspace-limits-strip");
-      const panel = page.locator(".usage-panel[open]"), metric = key => panel.locator(`[data-metric=${key}] > strong`);
+      // Limits and usage share one sheet grown out of the capsule over the list.
+      const panel = page.locator(".usage-sheet[data-state=open]"), metric = key => panel.locator(`[data-metric=${key}] > strong`);
       const limitsTab = panel.locator("[data-overview-tab=limits]"), usageTab = panel.locator("[data-overview-tab=usage]");
-      const readyLimits = () => page.waitForFunction(() => {
-        const panel = document.querySelector(".usage-panel[open]"); return panel?.dataset.tab === "limits" && !panel.hasAttribute("aria-busy");
-      });
-      const ready = () => page.waitForFunction(() => {
-        const panel = document.querySelector(".usage-panel[open]"); return panel && !panel.hasAttribute("aria-busy") && !!panel.querySelector(".usage-metric");
-      });
+      // The sheet takes its content's height a frame after the content arrives.
+      const settled = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const readyLimits = async () => { await page.waitForFunction(() => {
+        const panel = document.querySelector(".usage-sheet[data-state=open]"); return panel?.dataset.tab === "limits" && !panel.hasAttribute("aria-busy") && !!panel.querySelector(".usage-quotas");
+      }); await settled(); };
+      const ready = async () => { await page.waitForFunction(() => {
+        const panel = document.querySelector(".usage-sheet[data-state=open]"); return panel?.dataset.tab === "usage" && !panel.hasAttribute("aria-busy") && !!panel.querySelector(".usage-metric");
+      }); await settled(); };
       const tokens = async () => Number((await metric("tokens").innerText()).replace(/[^0-9]/g, ""));
-      // The capsule opens the limits as a sheet grown out of it over the list;
-      // Usage details opens the full panel.
-      const sheet = page.locator(".usage-sheet[data-state=open]"), sheetGone = () => page.locator(".usage-sheet").waitFor({ state: "detached" });
+      const sheet = panel, sheetGone = () => page.locator(".usage-sheet").waitFor({ state: "detached" });
       const readySheet = () => page.waitForFunction(() => {
         const sheet = document.querySelector(".usage-sheet[data-state=open]"); return !!sheet && !sheet.hasAttribute("aria-busy") && !!sheet.querySelector(".usage-quotas");
       });
-      const openLimits = async () => { await entry.click(); await readySheet(); };
-      const openPanel = async () => { await openLimits(); await sheet.locator(".usage-sheet-more").click(); await ready(); await limitsTab.click(); await readyLimits(); };
+      const openLimits = async () => { await entry.click(); await readySheet(); await settled(); };
       stage = "limits sheet";
       await openLimits();
       assert.equal(await page.locator("#workspace-analytics").count(), 0, "the sidebar has only one entry");
@@ -84,17 +84,24 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await page.mouse.move(head.x + 40, head.y + 10); await page.mouse.down(); await page.mouse.move(head.x + 40, head.y + 320, { steps: 8 }); await page.mouse.up(); await sheetGone();
       await openLimits(); await page.mouse.move(sidebarBox.x + 60, (listBox.y + sheetBox.y) / 2); await page.mouse.wheel(0, 200); await sheetGone();
       assert.equal(analyticsRequests.length, 0);
-      stage = "usage details";
-      await openLimits(); await sheet.locator(".usage-sheet-more").click(); await ready(); await sheetGone();
-      assert.equal(await panel.getAttribute("data-tab"), "usage");
+      stage = "usage in the same sheet";
+      await openLimits(); const limitsHeight = (await sheet.boundingBox()).height;
+      await usageTab.click(); await ready(); await settled();
+      assert.equal(await page.locator(".usage-sheet").count(), 1, "usage opens in the same sheet, not another window");
+      assert.equal(await page.locator("dialog").filter({ visible: true }).count(), 0);
+      const anchored = async () => {
+        const [box, capsule, list] = await Promise.all([sheet, page.locator("#workspace-usage"), page.locator("#workspace-projects")].map(item => item.boundingBox()));
+        return Math.abs(box.y + box.height - capsule.y - capsule.height) <= 1 && box.y >= list.y - 1 ? box : null;
+      };
+      await page.waitForFunction(() => { const el = document.querySelector(".usage-sheet"); return el && Math.abs(el.getBoundingClientRect().height - parseFloat(el.style.height)) < 1; });
+      const usageBox = await anchored();
+      assert.ok(usageBox && usageBox.height > limitsHeight, "the sheet extends upward for usage and stays over the list");
+      assert.equal(await sheet.locator(".usage-sheet-more, .usage-close").count(), 0, "no extra buttons");
       await limitsTab.click(); await readyLimits();
       assert.equal(await panel.locator(".usage-quota-card").count(), 2);
       const codexQuota = panel.locator(".usage-quota-card").filter({ hasText: "Codex" });
       assert.equal(await codexQuota.getByRole("progressbar").getAttribute("aria-valuenow"), "72");
-      // The panel's height follows its content; its top, header and controls stay put.
-      const place = async () => { const { x, y, width } = await panel.boundingBox(); return { x, y, width }; };
-      const host = panel.locator(".usage-controls select"), geometry = async () => ({ panel: await place(), header: await panel.locator(".usage-header").boundingBox(), top: await panel.locator(".usage-top").boundingBox() });
-      const beforeTab = await geometry();
+      const host = panel.locator("select[data-filter=host]");
       const analyticsBefore = analyticsRequests.length, quotaBefore = quotaRequests.length;
       await panel.getByRole("button", { name: mobile ? "重新整理" : "Refresh", exact: true }).click(); await readyLimits();
       assert.ok(quotaRequests.slice(quotaBefore).some(url => new URL(url).searchParams.get("fresh") === "1"), "refresh reads fresh limits");
@@ -112,7 +119,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await limitsTab.focus(); await page.keyboard.press("ArrowRight");
       await ready(); const mini = await tokens(); assert.ok(mini > 0);
       assert.equal(await usageTab.getAttribute("aria-selected"), "true");
-      assert.deepEqual(await geometry(), beforeTab, "tab switching keeps the panel and common header fixed");
+      assert.ok(await anchored(), "switching tabs keeps the sheet on the capsule");
       assert.equal(await panel.locator(".usage-quota-card").count(), 0, "quota and usage each have their own tab");
       const miniCalls = Number(await metric("calls").innerText());
       assert.ok(miniCalls > 0 && miniCalls % 3 === 0 && miniCalls <= 21, "one call per supported agent on each elapsed weekday");
@@ -222,18 +229,18 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await panel.locator(".usage-body").evaluate(el => { el.scrollTop = 0; });
       if (screenshotDirectory) { await fs.mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, mobile ? "usage-mobile.png" : "usage-desktop.png") }); }
       stage = "close restores workspace";
-      await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" });
+      await page.keyboard.press("Escape"); await sheetGone();
       assert.equal(await entry.evaluate(el => el === document.activeElement), true);
       const requestsAtClose = analyticsRequests.length; await page.clock.fastForward(120001);
       assert.equal(analyticsRequests.length, requestsAtClose, "closing stops the analytics refresh timer");
       // With one list for every computer there is no Workspace switch: the
       // panel's own choice is the default it opens on next time.
-      await openPanel(); await host.selectOption("mbp"); await readyLimits();
-      await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" });
-      await openPanel();
-      assert.equal(await page.locator(".usage-controls select").inputValue(), "mbp", "opens on the computer chosen last");
+      await openLimits(); await host.selectOption("mbp"); await readyLimits();
+      await page.keyboard.press("Escape"); await sheetGone();
+      await openLimits();
+      assert.equal(await host.inputValue(), "mbp", "opens on the computer chosen last");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab")));
-      await panel.waitFor({ state: "detached" }); assert.equal(await page.locator("#workspace-host").inputValue(), "mbp");
+      await sheetGone(); assert.equal(await page.locator("#workspace-host").inputValue(), "mbp");
       stage = "quota sources follow the Host";
       await openLimits(); await sheet.locator(".usage-quota-sources").click();
       await sheetGone(); const settings = page.locator("iframe.workspace-settings-frame"); await settings.waitFor();
@@ -252,10 +259,10 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.ok(quiet.text && quiet.size <= 12.5 && quiet.dot, JSON.stringify(quiet));
       await openLimits();
       assert.equal(await sheet.locator(".usage-quota-card").count(), 0);
-      await sheet.locator(".usage-sheet-more").click(); await ready(); assert.ok(await tokens() > 0, "unavailable subscription limits do not block recorded usage");
-      await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" }); await context.unroute("**/api/workspace/usage*");
+      await usageTab.click(); await ready(); assert.ok(await tokens() > 0, "unavailable subscription limits do not block recorded usage");
+      await page.keyboard.press("Escape"); await sheetGone(); await context.unroute("**/api/workspace/usage*");
       stage = "return to original conversation";
-      await openLimits(); await sheet.locator(".usage-sheet-more").click(); await ready();
+      await openLimits(); await usageTab.click(); await ready();
       await panel.getByRole("tab", { name: mobile ? "Session" : "Sessions", exact: true }).click();
       stage = "unregistered native history";
       const beforeNative = Number(await metric("calls").innerText());
@@ -278,14 +285,14 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       stage = "return to original conversation";
       const opened = page.waitForResponse(response => new URL(response.url()).pathname === "/r/mbp/api/workspace/entry");
       await panel.locator(".usage-list-row").filter({ hasText: "Build the usage overview" }).click();
-      await panel.waitFor({ state: "detached" });
+      await sheetGone();
       await page.locator(".workspace-tab").filter({ hasText: "Build the usage overview" }).waitFor({ state: mobile ? "attached" : "visible" });
       const frame = page.locator("iframe.workspace-frame").filter({ visible: true }); await frame.waitFor();
       assert.equal(new URL(await frame.getAttribute("src")).searchParams.get("host"), "mbp", "Session opens on its own Host");
       assert.equal((await opened).status(), 200, "the original Host opens its registered conversation");
       assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(modelRequests, []);
       console.log(JSON.stringify({ case: "Usage overview " + (mobile ? "phone zh-Hant" : "desktop"), result: "passed", authenticated: true,
-        realParsing: true, machineHistory: true, nativeSessionFilter: true, limitsSheet: true, sharedLimits: true, lazyUsage: true, hostSync: true, fixedPanel: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
+        realParsing: true, machineHistory: true, nativeSessionFilter: true, limitsSheet: true, usageInSheet: true, sharedLimits: true, lazyUsage: true, hostSync: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
     } catch (error) { throw new Error(`Usage overview ${mobile ? "phone" : "desktop"} at ${stage}: ${error.message}`, { cause: error }); }
     finally { await context.close(); await fixture.close(); }
   }
@@ -360,10 +367,10 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     if (screenshotDirectory) { await fs.mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, "menubar-shared-account.png") }); }
     const opened = context.waitForEvent("page");
     await page.locator("#open").click(); const full = await opened;
-    await full.locator('.usage-panel[open][data-tab="usage"]').waitFor();
-    assert.equal(await full.locator(".usage-controls select").inputValue(), "");
+    await full.locator('.usage-sheet[data-state=open][data-tab="usage"]').waitFor();
+    assert.equal(await full.locator(".usage-sheet select[data-filter=host]").inputValue(), "");
     await full.locator("[data-overview-tab=limits]").click();
-    await full.waitForFunction(() => document.querySelector(".usage-panel")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 1);
+    await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 1);
     assert.match(await full.locator(".usage-quota-card").innerText(), /Mac Mini · MacBook Pro/);
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-shared-account.png") });
     // The new native reader owns activity polling; an older native shell still

@@ -16,6 +16,7 @@ const { createLineDecoder } = require("./stream-safety");
 const { claudeImageBlocks } = require("./prompt-attachments");
 const { gatewaySettingsPath, gatewayCatalogPath } = require("./claude-session-routing");
 const { createEventWindow } = require("./structured-event-window");
+const { matchModel, contextCapacity } = require("../public/modules/model-presentation");
 
 const CLAUDE_STRUCTURED_VERSION = "claude-cli-stream-json-v1";
 // One line is one event. A tool result can carry an image and a complete
@@ -42,6 +43,9 @@ const PROCESS_BOUND_TOOLS = new Set(["CronCreate", "ScheduleWakeup", "Monitor"])
 // the queue keeps headroom for control frames behind it.
 const MAX_INPUT_FRAME_BYTES = 28 * 1024 * 1024;
 const MAX_INPUT_QUEUE_BYTES = 32 * 1024 * 1024;
+// When Claude takes a user frame: "now" interrupts the turn, "next" joins it
+// at its next step (the default), "later" waits for it to end.
+const USER_PRIORITIES = new Set(["now", "next", "later"]);
 const TYPES = new Set([
   "system", "user", "assistant", "result", "tool_use", "tool_result",
   "stream_event", "rate_limit_event", "error", "progress", "permission_request",
@@ -562,6 +566,10 @@ function createClaudeStructuredSession({
   let availableModels = [];
   let selectedModel = null;
   let selectedEffort = null;
+  // Claude left to choose its own level ("auto"), and the level its
+  // settings name for it, when it reports one.
+  let autoEffort = false;
+  let effectiveEffort = null;
   let permissionMode = null;
   let contextSnapshot = {
     model: null,
@@ -813,7 +821,11 @@ function createClaudeStructuredSession({
       || availableModels.find(model => modelBase(model.resolvedModel) === modelBase(id) && /\[1m\]$/.test(model.id) === /\[1m\]$/.test(id))
       // Claude's transcript names the model bare, also with 1M context.
       || availableModels.find(model => model.resolvedModel && modelBase(model.resolvedModel) === modelBase(id))
-      || availableModels.find(model => modelBase(model.id) === modelBase(id));
+      || availableModels.find(model => modelBase(model.id) === modelBase(id))
+      // A gateway's alias resolves to its own id with a route and a level
+      // ("opus" is "claude/claude-opus-5-5:xhigh[1m]"); with several aliases
+      // for one model, the one at the level Claude runs with.
+      || matchModel(availableModels, id, { effort: selectedEffort });
     return exact ? exact.id : null;
   }
 
@@ -836,9 +848,12 @@ function createClaudeStructuredSession({
       if (model && (!selectedModel || selectedModel === "default" || !catalogModelId(selectedModel))) selectedModel = model;
       const effort = effortId(applied.effort);
       if (effort && effort !== "auto") selectedEffort = effort;
+      autoEffort = effort === "auto" && (!selectedEffort || selectedEffort === "auto");
       if (selectedModel) contextSnapshot = { ...contextSnapshot, model: contextSnapshot.model || selectedModel };
       const effective = plain(acknowledged.response.effective) ? acknowledged.response.effective : {};
-      return { appliedEffort: effort, configuredEffort: effortId(effective.effortLevel) };
+      const configured = effortId(effective.effortLevel);
+      effectiveEffort = configured && configured !== "auto" ? configured : null;
+      return { appliedEffort: effort, configuredEffort: configured };
     } catch { return null; }
   }
 
@@ -1093,15 +1108,22 @@ function createClaudeStructuredSession({
   function enqueueJson(value, timeoutCode = "claude_input_timeout") {
     return enqueueFrame(encodeInputFrame(value), timeoutCode);
   }
-  async function sendUser(text, { images = [] } = {}) {
+  async function sendUser(text, { images = [], uuid = null, priority = null, origin = null } = {}) {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
     const value = safeText(text, MAX_PROMPT);
     const blocks = claudeImageBlocks(images);
     // An image-only prompt is legitimate, so require text only when nothing
     // else carries the question.
     if (!value && !blocks.length) return Promise.resolve(reject("claude_prompt_invalid"));
+    // A queued message names itself, so Claude reports its fate as
+    // command_lifecycle frames; "next" lets the turn under way take it at its
+    // next step, as a message typed into Claude itself would be.
+    const commandId = uuid === null || uuid === undefined ? null : safeId(uuid);
+    if (uuid !== null && uuid !== undefined && !commandId || priority !== null && priority !== undefined && !USER_PRIORITIES.has(priority)
+      || origin !== null && origin !== undefined && origin?.kind !== "human") return Promise.resolve(reject("claude_prompt_invalid"));
     const content = value ? [{ type: "text", text: value }, ...blocks] : blocks;
-    const frame = encodeInputFrame({ type: "user", message: { role: "user", content } });
+    const frame = encodeInputFrame({ type: "user", message: { role: "user", content },
+      ...(commandId ? { uuid: commandId } : {}), ...(priority ? { priority } : {}), ...(origin ? { origin: { kind: "human" } } : {}) });
     const frameFailure = inputFrameFailure(frame);
     // Reject before changing the session to active; oversized/backpressured
     // prompts must not look like a turn was accepted or lose image blocks.
@@ -1123,10 +1145,18 @@ function createClaudeStructuredSession({
         return { ...result, kind: "sent", nativeSessionId: parser.status().sessionId || (fork ? fork.sessionId : sessionId) };
       });
   }
+  // The level the conversation runs at: one picked, "auto" when Claude
+  // chooses (with the level it reports for that), or none it has told.
+  function currentEffort() {
+    if (selectedEffort && selectedEffort !== "auto") return { currentEffort: selectedEffort };
+    if (selectedEffort === "auto" || autoEffort) return { currentEffort: "auto", ...(effectiveEffort ? { effectiveEffort } : {}) };
+    return { currentEffort: null };
+  }
   async function models() {
     await initializeNative();
     refreshAvailableModels(initializationResult);
-    return { models: clone(availableModels), currentModel: selectedModel || null, currentEffort: selectedEffort || null };
+    // The catalog's own entry for the model Claude names in full or bare.
+    return { models: clone(availableModels), currentModel: catalogModelId(selectedModel) || selectedModel || null, ...currentEffort() };
   }
   async function setModel(model) {
     const failure = ensureOpen();
@@ -1194,14 +1224,24 @@ function createClaudeStructuredSession({
     }
     const response = plain(acknowledged?.response) ? acknowledged.response : {};
     selectedEffort = effortId(response.effort || response.currentEffort || response.current_effort || response.effortLevel) || requested;
+    autoEffort = selectedEffort === "auto";
+    // Without the flag Claude runs at a level it has not reported.
+    effectiveEffort = null;
     return { kind: "changed", effort: selectedEffort };
   }
   function contextUsage() {
+    const model = selectedModel || contextSnapshot.model || null;
+    // Claude reports the capacity only when a turn ends. Until then it is the
+    // one the model's catalog entry states, or its "[1m]".
+    const contextWindow = contextSnapshot.contextWindow
+      ?? contextCapacity(availableModels.find(row => row.id === catalogModelId(model)) || { id: model || "" });
+    const contextTokens = contextSnapshot.contextTokens ?? null;
     return {
-      model: selectedModel || contextSnapshot.model || null,
-      contextWindow: contextSnapshot.contextWindow ?? null,
-      contextTokens: contextSnapshot.contextTokens ?? null,
-      contextPercent: contextSnapshot.contextPercent ?? null,
+      model,
+      contextWindow: contextWindow ?? null,
+      contextTokens,
+      contextPercent: contextSnapshot.contextPercent ?? (contextWindow && contextTokens !== null
+        ? Number(Math.min(100, (contextTokens / contextWindow) * 100).toFixed(6)) : null),
       usage: contextSnapshot.usage ? clone(contextSnapshot.usage) : null,
     };
   }

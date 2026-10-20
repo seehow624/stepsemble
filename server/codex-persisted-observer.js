@@ -9,12 +9,19 @@
 const fs = require("node:fs");
 const fsp = fs.promises;
 const path = require("node:path");
+const zlib = require("node:zlib");
 const { DatabaseSync } = require("node:sqlite");
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const POSIX = process.platform === "darwin" || process.platform === "linux";
 const MAX_TAIL_BYTES = 8 * 1024 * 1024;
 const MAX_LINE_BYTES = 8 * 1024 * 1024;
+// Codex compresses a rollout it is done with ("….jsonl.zst") and keeps the
+// .jsonl name in its database. One is read whole, in a stream, keeping only
+// its last usage; this bounds what one may expand to.
+const MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024;
+const COMPRESSED_CACHE_LIMIT = 32;
+const TOKEN_USAGE = Buffer.from('"last_token_usage"');
 const CACHE_MS = 1_000;
 const O_NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
 const O_NONBLOCK = fs.constants.O_NONBLOCK || 0;
@@ -177,6 +184,81 @@ async function readLatestContext(filename) {
   finally { try { await handle?.close(); } catch {} }
 }
 
+// The last usage in one stretch of whole lines, or null.
+function lastContextIn(lines) {
+  let at = lines.lastIndexOf(TOKEN_USAGE);
+  while (at >= 0) {
+    const start = lines.lastIndexOf(0x0a, at) + 1;
+    const newline = lines.indexOf(0x0a, at);
+    const line = lines.subarray(start, newline < 0 ? lines.length : newline);
+    if (line.length <= MAX_LINE_BYTES) {
+      try {
+        const context = normalizeContext(JSON.parse(line.toString("utf8")));
+        if (context) return context;
+      } catch {}
+    }
+    at = start > 0 ? lines.lastIndexOf(TOKEN_USAGE, start - 1) : -1;
+  }
+  return null;
+}
+
+// A compressed rollout, expanded as a stream: only lines that carry a usage
+// are parsed, and only the last one is kept.
+async function readLatestCompressedContext(filename) {
+  let handle;
+  try {
+    handle = await fsp.open(filename, fs.constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    const before = await handle.stat({ bigint: true });
+    if (!safeOwnedFile(before) || before.size < 1n) return null;
+    const expand = zlib.createZstdDecompress({ chunkSize: 1024 * 1024 });
+    const source = handle.createReadStream({ start: 0, highWaterMark: 1024 * 1024, autoClose: false });
+    source.on("error", error => expand.destroy(error));
+    source.pipe(expand);
+    let latest = null, carry = null, skipping = false, expanded = 0;
+    for await (const chunk of expand) {
+      expanded += chunk.length;
+      if (expanded > MAX_EXPANDED_BYTES) { expand.destroy(); return null; }
+      let data = chunk;
+      // The rest of a line too long to read is let go of.
+      if (skipping) {
+        const newline = data.indexOf(0x0a);
+        if (newline < 0) continue;
+        data = data.subarray(newline + 1);
+        skipping = false;
+      }
+      if (carry) { data = Buffer.concat([carry, data]); carry = null; }
+      const last = data.lastIndexOf(0x0a);
+      if (last < 0) {
+        if (data.length > MAX_LINE_BYTES) skipping = true; else carry = data;
+        continue;
+      }
+      latest = lastContextIn(data.subarray(0, last)) || latest;
+      const rest = data.subarray(last + 1);
+      if (rest.length > MAX_LINE_BYTES) skipping = true; else if (rest.length) carry = Buffer.from(rest);
+    }
+    if (carry) latest = lastContextIn(carry) || latest;
+    const after = await handle.stat({ bigint: true });
+    if (!safeOwnedFile(after) || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size) return null;
+    return latest ? { context: latest, sourceMtime: Number(after.mtimeMs) || null } : null;
+  } catch { return null; }
+  finally { try { await handle?.close(); } catch {} }
+}
+
+// The rollout a thread's row names. Codex records "….jsonl" and may have
+// compressed it since; newer rollouts are named "rollout-…-<thread>_<id>.jsonl".
+async function rolloutFile(recorded, threadId) {
+  const name = new RegExp(`-${threadId}(?:_[a-f0-9-]{36})?\\.jsonl(?:\\.zst)?$`, "i");
+  const plainName = recorded.replace(/\.zst$/i, "");
+  for (const candidate of [...new Set([recorded, plainName, plainName + ".zst"])]) {
+    if (!name.test(path.basename(candidate))) continue;
+    try {
+      const stat = await fsp.lstat(candidate, { bigint: true });
+      if (safeOwnedFile(stat)) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
 function createCodexPersistedObserver({ home = require("node:os").homedir(), clock = () => Date.now() } = {}) {
   const root = path.resolve(home, ".codex");
   const stateFile = path.join(root, "state_5.sqlite");
@@ -186,6 +268,24 @@ function createCodexPersistedObserver({ home = require("node:os").homedir(), clo
   const cache = new Map();
   const statusCache = new Map();
   const flights = new Map();
+  // A compressed rollout does not change; its last usage is read once per
+  // version of the file.
+  const compressed = new Map();
+
+  async function latestContext(filename) {
+    if (!/\.zst$/i.test(filename)) return readLatestContext(filename);
+    let stat;
+    try { stat = await fsp.lstat(filename, { bigint: true }); } catch { return null; }
+    const version = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+    let hit = compressed.get(filename);
+    if (!hit || hit.version !== version) {
+      hit = { version, observed: await readLatestCompressedContext(filename) };
+      compressed.delete(filename);
+      compressed.set(filename, hit);
+      while (compressed.size > COMPRESSED_CACHE_LIMIT) compressed.delete(compressed.keys().next().value);
+    }
+    return hit.observed ? { context: { ...hit.observed.context, usage: { ...hit.observed.context.usage } }, sourceMtime: hit.observed.sourceMtime } : null;
+  }
 
   function observeStatusUncached(threadId) {
     if (!POSIX || !UUID.test(threadId || "")) return null;
@@ -238,16 +338,16 @@ function createCodexPersistedObserver({ home = require("node:os").homedir(), clo
       "SELECT rollout_path, updated_at FROM threads WHERE id = ? LIMIT 1",
     ).get(threadId));
     if (!thread || typeof thread.rollout_path !== "string" || !path.isAbsolute(thread.rollout_path)) return null;
-    const filename = path.resolve(thread.rollout_path);
-    if (!rolloutRoots.some(directory => contained(directory, filename))) return null;
-    const nameMatch = path.basename(filename).match(/([a-f0-9-]{36})\.jsonl$/i);
-    if (nameMatch?.[1]?.toLowerCase() !== threadId.toLowerCase()) return null;
+    const recorded = path.resolve(thread.rollout_path);
+    if (!rolloutRoots.some(directory => contained(directory, recorded))) return null;
+    const filename = await rolloutFile(recorded, threadId);
+    if (!filename) return null;
 
     const latestTurn = observeStatusUncached(threadId);
     const goalRow = withReadonlyDatabase(goalsFile, db => db.prepare(
       "SELECT objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms FROM thread_goals WHERE thread_id = ? LIMIT 1",
     ).get(threadId));
-    const observed = await readLatestContext(filename);
+    const observed = await latestContext(filename);
     const now = Number(clock()) || Date.now();
     const status = latestTurn?.status || "unknown";
     const lastActivityAt = Math.max(
@@ -291,8 +391,9 @@ function createCodexPersistedObserver({ home = require("node:os").homedir(), clo
     return { enabled: POSIX, source: "codex_persisted_state", cacheEntries: cache.size + statusCache.size };
   }
 
-  function shutdown() { cache.clear(); statusCache.clear(); flights.clear(); return { cleanupConfirmed: true }; }
+  function shutdown() { cache.clear(); statusCache.clear(); flights.clear(); compressed.clear(); return { cleanupConfirmed: true }; }
   return Object.freeze({ observe, observeStatus, observeStatuses, status, shutdown });
 }
 
-module.exports = { createCodexPersistedObserver, normalizeContext, LIMITS: Object.freeze({ MAX_TAIL_BYTES }) };
+module.exports = { createCodexPersistedObserver, normalizeContext, readLatestCompressedContext, rolloutFile,
+  LIMITS: Object.freeze({ MAX_TAIL_BYTES, MAX_EXPANDED_BYTES }) };

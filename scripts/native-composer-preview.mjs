@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 const { definition, scheduleSpec, nextOccurrence } = createRequire(import.meta.url)("../server/workflows.js");
 const { createProjectFilesService } = createRequire(import.meta.url)("../server/project-files.js");
 const { createGitChangesService } = createRequire(import.meta.url)("../server/git-changes.js");
+const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = createRequire(import.meta.url)("../server/composer-queue.js");
 // The page reloads itself when the Host reports another version, so the
 // preview reports the page's own version.
 const { version: APP_VERSION } = createRequire(import.meta.url)("../package.json");
@@ -295,7 +296,7 @@ function codexThreadPayload() {
     cwd: tasks[0].cwd,
     updatedAt: Date.now(),
     model: state.codexModel,
-    status: { type: state.projectReview ? "idle" : state.codexFailure ? (!latest || latest.status === "failed" ? "systemError" : "idle") : "active", activeFlags: [] },
+    status: { type: state.projectReview || state.codexIdle ? "idle" : state.codexFailure ? (!latest || latest.status === "failed" ? "systemError" : "idle") : "active", activeFlags: [] },
   };
 }
 
@@ -335,8 +336,8 @@ function codexTurns() {
       startedAt: turn.receivedAt, completedAt: turn.receivedAt + 100, items: [] });
   }
   rows.reverse();
-  rows.push({ id: "fixture-turn-0", status: state.projectReview ? "completed" : state.codexFailure ? "failed" : "inProgress", startedAt,
-    completedAt: state.codexFailure || state.projectReview ? startedAt + 100 : null, error: state.codexFailure ? {
+  rows.push({ id: "fixture-turn-0", status: state.projectReview || state.codexIdle ? "completed" : state.codexFailure ? "failed" : "inProgress", startedAt,
+    completedAt: state.codexFailure || state.projectReview || state.codexIdle ? startedAt + 100 : null, error: state.codexFailure ? {
       message: "Selected model is at capacity. Please try a different model.", codexErrorInfo: "serverOverloaded",
     } : null, items: [] });
   return rows;
@@ -380,7 +381,7 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
@@ -394,6 +395,22 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   const imageLookups = new Map();
   state.codexControlUnavailable = false;
   state.codexTurns.length = 0; state.codexModel = codexModels[0].id;
+  // Opt-in: messages sent while the fixture's Codex works wait in the Host's
+  // own queue (server/composer-queue.js), sent by a synthetic driver.
+  state.codexIdle = false; state.codexQueueDeliveries = [];
+  const queue = composerQueue ? createComposerQueue({ store: createComposerQueueStore(), sweepMs: 0, drivers: { codex: {
+    resolve: ref => ref === CODEX_THREAD ? ref : null,
+    available: () => true,
+    busy: () => !state.codexIdle,
+    async deliver(id, item, payload, { jump }) {
+      state.codexQueueDeliveries.push({ itemId: item.id, text: payload.text, jump });
+      state.codexTurns.push({ text: payload.text, images: payload.images, turnId: `fixture-turn-${state.codexTurns.length + 1}`, receivedAt: Date.now(), queued: true });
+      if (!jump) state.codexIdle = false;
+      return { kind: "delivered" };
+    },
+    fromEvent: (threadId, event) => event.type === "turn.completed" ? { id: threadId, turnEnded: "completed" } : null,
+  } } }) : null;
+  const queueRoutes = queue ? createComposerQueueRoutes({ queue, readJSON: req => parseJsonBody(req), sendJSON: (res, status, body) => json(res, status, body) }) : null;
   state.codexGoal = codexGoal(); state.codexGoalChanges = [];
   if (workflows) {
     state.goals = workflows.runs || [];
@@ -533,7 +550,9 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
-      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { adapter: { mutationReady: !state.codexControlUnavailable }, pendingApprovals: state.codexFailure || state.projectReview ? [] : [{
+      if (queueRoutes && await queueRoutes(req, res, requestUrl)) return;
+      if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { adapter: { mutationReady: !state.codexControlUnavailable },
+        ...(queue ? { composerQueue: queue.snapshotOf("codex", CODEX_THREAD) } : {}), pendingApprovals: state.codexFailure || state.projectReview || queue ? [] : [{
         requestId: 7, threadId: CODEX_THREAD, method: "item/commandExecution/requestApproval",
         params: { cwd: "/synthetic-project", command: "echo synthetic-fixture-only" },
         summary: "Synthetic permission card — no command will run.", authority: { sourceAuthenticated: true }, responseWritten: !!state.codexApproval,
@@ -547,6 +566,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       if (pathname === "/api/codex/mutation/turn" && req.method === "POST") {
         let body;
         try { body = await parseJsonBody(req); } catch { return json(res, 400, { error: "invalid_request" }); }
+        if (queue && !state.codexIdle) return json(res, 200, { kind: "queued", queued: true, ...queue.add("codex", body.threadId, { text: body.text, images: body.images, model: body.model, effort: body.effort }) });
         const turnId = `fixture-turn-${state.codexTurns.length + 1}`;
         state.codexTurns.push({ ...body, turnId, status: state.codexFailure ? "completed" : undefined,
           receivedAt: Date.now(), imageCount: Array.isArray(body?.images) ? body.images.length : 0 });
@@ -605,6 +625,12 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         if (latest) { latest.status = "failed"; latest.error = { message: "Synthetic second failure", codexErrorInfo: "serverOverloaded" }; }
         return json(res, 200, { ok: true });
       }
+      // The fixture's Codex turn ends; the queue sends its next message.
+      if (pathname === "/__fixture/codex/finish" && req.method === "POST") {
+        state.codexIdle = true;
+        queue?.observe("codex", CODEX_THREAD, { type: "turn.completed", status: "completed" });
+        return json(res, 200, { ok: true });
+      }
       if (pathname === "/__fixture/reset" && req.method === "POST") { state.codexTurns.length = 0; state.claudePrompts.length = 0; state.codexInterrupts = 0; state.claudeInterrupts = 0; state.codexModel = codexModels[0].id; state.claudeModel = claudeModels[0].id; state.openCodeCatalogReads = 0; state.openCodeReconciles = 0; return json(res, 200, { ok: true }); }
       if (pathname.startsWith("/api/")) return json(res, 200, {});
       if (!["GET", "HEAD"].includes(req.method)) return json(res, 405, { error: "preview_method_not_allowed" });
@@ -615,6 +641,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   await once(server, "listening");
   origin = `http://127.0.0.1:${server.address().port}`;
   const close = async () => {
+    queue?.close();
     if (closing) return closing;
     closing = new Promise(resolve => server.close(() => resolve()));
     server.closeAllConnections?.();

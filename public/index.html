@@ -255,6 +255,11 @@
         <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
       </button>
     </section>
+    <div id="composer-queue" class="composer-queue" role="group" aria-label="Queued messages" hidden data-i18n-ignore>
+      <div class="cq-head" hidden><span class="cq-head-text"></span><button class="cq-resume" type="button">Resume</button></div>
+      <ol class="cq-list"></ol>
+      <p class="cq-live sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    </div>
     <footer class="composer">
       <p id="agent-input-note" class="agent-input-note hidden" role="status" aria-live="polite"></p>
       <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
@@ -307,7 +312,7 @@
             </span>
             <p id="context-dashboard-summary" class="sr-only" data-i18n-ignore></p>
           </section>
-          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-labelledby="composer-model-name composer-model-level"><span class="composer-model-copy"><span id="composer-model-name" class="composer-model-name" data-i18n-ignore>Choose model</span><span id="composer-model-level" class="composer-model-level hidden" data-i18n-ignore></span></span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
+          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-label="Model &amp; reasoning"><span class="composer-model-copy"><span id="composer-model-name" class="composer-model-name" data-i18n-ignore>Choose model</span><span id="composer-model-level" class="composer-effort hidden" data-state="none" data-bars="0" data-top="false" aria-hidden="true" data-i18n-ignore><svg class="composer-effort-glyph" viewBox="0 0 11 13" width="11" height="13" focusable="false"><circle class="composer-effort-mark" cx="10" cy="1" r="1"/><rect class="composer-effort-bar" x="0" y="9" width="2" height="4" rx=".5" style="--bar:0;--h:4"/><rect class="composer-effort-bar" x="3" y="7" width="2" height="6" rx=".5" style="--bar:1;--h:6"/><rect class="composer-effort-bar" x="6" y="5" width="2" height="8" rx=".5" style="--bar:2;--h:8"/><rect class="composer-effort-bar" x="9" y="3" width="2" height="10" rx=".5" style="--bar:3;--h:10"/></svg></span></span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
           <button id="btn-abort" class="btn primary composer-send composer-stop hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
           <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
         </div>
@@ -1126,6 +1131,7 @@
 <script src="/modules/notifications.js?v=3.9.33"></script>
 <script src="/modules/native-dialogs.js?v=3.9.33"></script>
 <script src="/modules/composer-ime.js?v=3.9.33"></script>
+<script src="/modules/composer-queue.js?v=3.9.33"></script>
 <script src="/modules/workflow-text.js?v=3.9.33"></script>
 <script src="/modules/goal-composer.js?v=3.9.33"></script>
 <script src="/modules/session-reference-i18n.js?v=3.9.33"></script><script src="/modules/session-reference.js?v=3.9.33"></script><script src="/modules/subagent-i18n.js?v=3.9.33"></script><script src="/modules/subagents.js?v=3.9.33"></script><script src="/modules/subagent-panel.js?v=3.9.33"></script><script src="/modules/session-summary.js?v=3.9.33"></script><script src="/modules/compaction-i18n.js?v=3.9.33"></script><script src="/modules/agent-compaction.js?v=3.9.33"></script>

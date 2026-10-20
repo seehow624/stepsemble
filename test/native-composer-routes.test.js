@@ -4,9 +4,9 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const { once } = require("node:events");
 const { createHttpUtils } = require("../server/http-utils");
-const { createNativeComposerRoutes, PROMPT_BODY_BYTES } = require("../server/native-composer-routes");
+const { createNativeComposerRoutes, withObservedContext, PROMPT_BODY_BYTES } = require("../server/native-composer-routes");
 
-async function fixture(t, { codexContextError = null, observedContext = null, codexPermissions = null, savedClaude = null } = {}) {
+async function fixture(t, { codexContextError = null, observedContext = null, codexPermissions = null, savedClaude = null, claudeContext = null, observeClaude = null, composerQueue = null, startTurnResult = null } = {}) {
   const calls = [];
   let threadId = "thread-a";
   const context = { model: "model-a", contextTokens: 4500, contextWindow: 10000, contextPercent: 45, usage: { inputTokens: 4500 } };
@@ -15,18 +15,19 @@ async function fixture(t, { codexContextError = null, observedContext = null, co
     contextUsage: async id => { calls.push(["context", id]); if (codexContextError) throw codexContextError; return context; },
     nativeState: () => ({ threadId }),
     resumeThread: async params => { calls.push(["resume", params]); threadId = params.threadId; return { kind: "resumed" }; },
-    startTurn: async (...args) => { calls.push(["turn", ...args]); return { kind: "started" }; },
+    startTurn: async (...args) => { calls.push(["turn", ...args]); return startTurnResult ? startTurnResult() : { kind: "started" }; },
     interruptTurn: async id => { calls.push(["interrupt", id]); return id === threadId ? { kind: "requested" } : { kind: "reject", code: "native_thread_mismatch" }; },
   };
   const session = {
     models: async () => ({ models: [{ id: "claude-model", name: "Claude Model", supportsEffort: true, supportedEffortLevels: ["low", "high"] }], currentModel: "claude-model", currentEffort: "low" }),
-    contextUsage: () => ({ ...context, model: "claude-model", contextWindow: null, contextPercent: null }),
+    contextUsage: () => claudeContext || ({ ...context, model: "claude-model", contextWindow: null, contextPercent: null }),
+    ...(observeClaude ? { status: () => ({ nativeSessionId: "native-a" }) } : {}),
     setModel: async model => { calls.push(["claude-model", model]); return { kind: "changed", model }; },
     setEffort: async effort => { calls.push(["claude-effort", effort]); return { kind: "changed", effort }; },
   };
   const { readJSON, sendJSON } = createHttpUtils();
   const handle = createNativeComposerRoutes({ codex, ensureCodex: async () => {}, observeCodex: async () => observedContext ? { context: observedContext } : null,
-    resolveClaude: id => id === "claude-a" ? { session } : null, codexPermissions, savedClaude,
+    resolveClaude: id => id === "claude-a" ? { session } : null, codexPermissions, savedClaude, observeClaude, composerQueue,
     onChoice: (agentId, sessionId, choice) => calls.push(["choice", agentId, sessionId, choice]),
     onSessionChoice: (agentId, sessionId, choice) => calls.push(["session-choice", agentId, sessionId, choice]),
     validateDirectory: cwd => { if (cwd !== "/owned/project") throw Object.assign(new Error("outside"), { code: "agent_directory_invalid", statusCode: 400 }); return cwd; }, readJSON, sendJSON });
@@ -128,4 +129,77 @@ test("a Claude conversation whose process was let go keeps its catalog and the c
   assert.deepEqual(f.calls.pop(), ["session-choice", "claude-code", "native-b", { effort: "auto" }], "auto is kept for this conversation only");
   assert.equal((await f.request("/api/claude/structured/effort", { sessionId: "claude-b", effort: "huge" })).status, 400);
   assert.equal((await f.request("/api/claude/structured/models?sessionId=claude-unknown")).status, 404);
+});
+
+// A Claude opened again reports no usage until it answers; its transcript's
+// last reading is shown meanwhile, at the capacity of the model it runs now.
+test("a live Claude without usage yet shows its transcript's last context", async t => {
+  const observed = { model: "claude/claude-opus-5-5:xhigh[1m]", contextWindow: 1_000_000, contextTokens: 128_581, contextPercent: 12.8581,
+    usage: { totalTokens: 128_881 }, effort: "xhigh", source: "last_observed", observedAt: "2026-10-20T07:33:12.607Z", stale: true };
+  const asked = [];
+  const f = await fixture(t, { claudeContext: { model: "opus", contextWindow: 500_000, contextTokens: null, contextPercent: null, usage: null },
+    observeClaude: id => { asked.push(id); return observed; } });
+  const context = await f.request("/api/claude/structured/context?sessionId=claude-a");
+  assert.deepEqual(asked, ["native-a"]);
+  assert.equal(context.data.source, "last_observed");
+  assert.equal(context.data.stale, true);
+  assert.equal(context.data.model, "opus");
+  assert.equal(context.data.contextTokens, 128_581);
+  assert.equal(context.data.contextWindow, 500_000);
+  assert.equal(Math.round(context.data.contextPercent * 100) / 100, 25.72);
+});
+
+test("a live reading wins over the transcript, and an empty transcript changes nothing", () => {
+  const live = { model: "opus", contextWindow: 1_000_000, contextTokens: 64_576, contextPercent: 6.4576, usage: null };
+  const observed = { model: "opus", contextWindow: 1_000_000, contextTokens: 128_581, contextPercent: 12.86, source: "last_observed", stale: true };
+  assert.equal(withObservedContext(live, observed), live);
+  const waiting = { ...live, contextTokens: null, contextPercent: null };
+  assert.equal(withObservedContext(waiting, null), waiting);
+  assert.equal(withObservedContext(waiting, { ...observed, contextTokens: null }), waiting);
+  assert.equal(withObservedContext({ ...waiting, contextWindow: null }, observed).contextWindow, 1_000_000);
+});
+
+test("a stopped Claude conversation shows the context and choice its transcript recorded", async t => {
+  const saved = { nativeSessionId: "native-d", choice: { model: "claude-fable-5-1[1m]", effort: "max" }, models: [],
+    context: () => ({ model: "ocx-claude-native--claude-fable-5-1[1m]", contextWindow: 1_000_000, contextTokens: 911_433, contextPercent: 91.1433,
+      source: "last_observed", observedAt: "2026-10-18T21:50:05.292Z", stale: true }) };
+  const f = await fixture(t, { savedClaude: id => id === "native-d" ? saved : null });
+  const models = await f.request("/api/claude/structured/models?sessionId=native-d");
+  assert.equal(models.data.currentModel, "claude-fable-5-1[1m]");
+  assert.equal(models.data.currentEffort, "max");
+  const context = await f.request("/api/claude/structured/context?sessionId=native-d");
+  assert.equal(context.status, 200);
+  assert.equal(context.data.source, "last_observed");
+  assert.equal(context.data.contextPercent, 91.1433);
+});
+
+test("a refused Codex turn says why in error and code alike", async t => {
+  const f = await fixture(t, { startTurnResult: () => ({ kind: "reject", code: "native_lifecycle_conflict" }) });
+  const refused = await f.request("/api/codex/mutation/turn", { threadId: "thread-a", text: "while it works" });
+  assert.equal(refused.status, 409);
+  assert.deepEqual(refused.data, { kind: "reject", code: "native_lifecycle_conflict", error: "native_lifecycle_conflict" });
+  const invalid = await f.request("/api/codex/mutation/turn", { threadId: "thread-a" });
+  assert.deepEqual(invalid.data, { error: "codex_turn_input_invalid", code: "codex_turn_input_invalid" });
+});
+
+test("a message sent while Codex works joins the thread's queue with its model and level; Stop pauses the queue", async t => {
+  const queued = [], paused = [], direct = [];
+  let working = true;
+  const composerQueue = {
+    shouldQueue: async (agent, id) => agent === "codex" && id === "thread-a" && working,
+    add: (agent, id, input) => { queued.push({ agent, id, input }); return { item: { id: "item-1", state: "queued" }, queue: { items: [{ id: "item-1" }] } }; },
+    pause: (agent, id) => paused.push([agent, id]),
+    noteDirectSend: (agent, id) => direct.push([agent, id]),
+  };
+  const f = await fixture(t, { composerQueue });
+  const response = await f.request("/api/codex/mutation/turn", { threadId: "thread-a", text: "and then this", model: "model-a", effort: "high", deviceId: "phone-1" });
+  assert.equal(response.status, 200);
+  assert.equal(response.data.kind, "queued"); assert.equal(response.data.queued, true); assert.equal(response.data.item.id, "item-1");
+  assert.deepEqual(queued, [{ agent: "codex", id: "thread-a", input: { text: "and then this", images: undefined, model: "model-a", effort: "high", deviceId: "phone-1" } }]);
+  assert.equal(f.calls.some(call => call[0] === "turn"), false, "no second turn while one runs");
+  await f.request("/api/codex/mutation/interrupt", { threadId: "thread-a" });
+  assert.deepEqual(paused, [["codex", "thread-a"]]);
+  working = false;
+  assert.equal((await f.request("/api/codex/mutation/turn", { threadId: "thread-a", text: "idle" })).status, 200);
+  assert.deepEqual(direct, [["codex", "thread-a"]], "an ordinary send picks a paused queue up again");
 });

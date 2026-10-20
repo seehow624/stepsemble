@@ -128,7 +128,7 @@ const el = {
   changesFooter: $("changes-footer"), changesStagingCopy: $("changes-staging-copy"),
   changesDiffPane: $("changes-diff-pane"), changesDetailBack: $("changes-detail-back"), changesDiffKind: $("changes-diff-kind"),
   changesDiffTitle: $("changes-diff-title"), changesDiffEmpty: $("changes-diff-empty"), changesDiff: $("changes-diff"),
-  messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"),
+  messages: $("messages"), scrollBottomBtn: $("scroll-bottom-btn"), queueNote: $("queue-note"), taskReplayNote: $("task-replay-note"), composerQueue: $("composer-queue"),
   nativeRunState: $("native-run-state"), nativeRunIndicator: $("native-run-indicator"), nativeRunTitle: $("native-run-title"),
   nativeRunDetail: $("native-run-detail"), nativeRunMeta: $("native-run-meta"), nativeRunToggle: $("native-run-toggle"),
   nativeRunObjective: $("native-run-objective"), nativeRunActions: $("native-run-actions"),
@@ -260,6 +260,10 @@ const collapsedProjects = new Set();
 const expandedProjectSessions = new Set();
 const PROJECT_SESSION_PREVIEW_LIMIT = 3;
 let rpc = null;              // {sid, es, streaming, queued}
+// The chips of messages queued while the agent works, and the pictures this
+// page sent with them, shown with each message once the agent takes it.
+let composerQueueView = null;
+const composerQueueImages = new Map();
 let pendingAssistant = null;
 let liveToolCards = new Map();
 let liveActivity = null;     // 目前工作輪次的整組 thinking／tool 紀錄
@@ -275,6 +279,11 @@ const draftWrites = new Map();
 const pendingDraftSends = new Map();
 let composerModelName = "";
 let composerReasoningLevel = "off";
+// The thinking bars beside the model: the model's own levels they scale a
+// level against, why there is no level to show, and the level "auto" runs at.
+let composerReasoningLevels = [];
+let composerReasoningNote = "";
+let composerReasoningEffective = "";
 let modelCatalog = [];
 let modelCatalogSources = new Map();
 let configuredProviders = [];
@@ -891,7 +900,7 @@ function applyAppearance() {
   // Work-log labels are composed from keyed strings, so a language change
   // rebuilds them once the new locale is active.
   const workLocale = settings.locale || "en";
-  if (workLogLocale !== null && workLogLocale !== workLocale) queueMicrotask(() => relabelWorkLog());
+  if (workLogLocale !== null && workLogLocale !== workLocale) queueMicrotask(() => { relabelWorkLog(); composerQueueView?.refresh(); });
   workLogLocale = workLocale;
   renderContextDashboard();
 }
@@ -2165,7 +2174,7 @@ function agentHubText(key, vars = {}) {
     taskStoppedToast: "Agent task stopped",
     taskStopFailed: "Could not stop agent task",
     taskReadOnly: "This native history is read-only.",
-    historyPartial: "Some very large records are omitted; the source file was not changed.",
+    historyPartial: "Some very large records are shortened or left out; the source file was not changed.",
     taskNoOutput: "No output yet",
     taskLastActivity: "Updated {value}",
     reconnectingNote: "Reconnecting to the supervisor…",
@@ -2859,8 +2868,9 @@ function appendNativeHistoryTool(tool, agentId, container = el.messages) {
 
 // An agent's history into `container`: its messages, each tool call before
 // the message at its `after` index. Yields now and then so a long history
-// does not hold the page; stops when `current()` turns false.
-async function renderNativeHistory(result, agentId, container, current, { forkFor = null } = {}) {
+// does not hold the page; stops when `current()` turns false. dates: the
+// date separators of a page drawn apart from the one on screen.
+async function renderNativeHistory(result, agentId, container, current, { forkFor = null, dates = null } = {}) {
   const tools = Array.isArray(result?.tools) ? result.tools : [];
   let toolIndex = 0, sliceStarted = performance.now();
   const toolsBefore = index => {
@@ -2876,11 +2886,94 @@ async function renderNativeHistory(result, agentId, container, current, { forkFo
       sliceStarted = performance.now();
     }
     toolsBefore(index);
-    maybeDateSeparator(message.ts || message.timestamp, container);
+    maybeDateSeparator(message.ts || message.timestamp, container, dates);
     appendNativeHistoryMessage(message, agentId, container, { fork: typeof forkFor === "function" ? forkFor(message) : null });
   }
   toolsBefore(Infinity);
   return current();
+}
+
+// A long Claude Code or Codex history comes a page at a time, newest first;
+// the page before starts at row `before`.
+const NATIVE_HISTORY_PAGE = 300;
+function nativeHistoryPath(taskId, before = null) {
+  return `/api/native-history/session?taskId=${encodeURIComponent(taskId)}&limit=${NATIVE_HISTORY_PAGE}${before === null ? "" : `&before=${before}`}`;
+}
+
+function showNativeHistoryNote(partial) {
+  const note = el.taskReplayNote;
+  if (!note) return;
+  if (partial) note.removeAttribute("data-i18n-key");
+  else note.dataset.i18nKey = "agentHub.taskReadOnly";
+  note.textContent = partial ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
+  note.classList.remove("hidden");
+}
+
+// The newest page is drawn; earlier ones come from the control at the top.
+// reload: draws the history again from its newest page.
+function trackNativeHistoryPages(connection, result, { taskId, agentId, forkFor = null, reload }) {
+  const before = Number.isSafeInteger(result?.before) && result.before > 0 ? result.before : null;
+  connection.nativeHistoryPages = { taskId, agentId, forkFor, reload, before, version: typeof result?.sourceVersion === "string" ? result.sourceVersion : null,
+    loading: false, error: null, button: connection.nativeHistoryPages?.button || null };
+  showNativeHistoryOlderButton(connection);
+}
+
+function showNativeHistoryOlderButton(connection) {
+  const state = connection?.nativeHistoryPages;
+  if (!state) return;
+  if (rpc !== connection || state.before === null || !state.version) { state.button?.remove(); return; }
+  if (!state.button) {
+    state.button = document.createElement("button");
+    state.button.type = "button";
+    state.button.className = "history-load-button";
+    state.button.addEventListener("click", () => void loadOlderNativeHistory(connection));
+  }
+  const button = state.button, labelKey = state.loading ? "runtime.historyLoading" : state.error ? "runtime.historyRetry" : "runtime.historyOlder";
+  button.dataset.i18nKey = labelKey;
+  button.textContent = tKey(labelKey);
+  button.disabled = state.loading;
+  button.setAttribute("aria-busy", String(state.loading));
+  if (state.error) button.dataset.autoLoadPaused = "1"; else delete button.dataset.autoLoadPaused;
+  if (el.messages.firstChild !== button) el.messages.prepend(button);
+}
+
+async function loadOlderNativeHistory(connection) {
+  const state = connection?.nativeHistoryPages;
+  if (rpc !== connection || !state || state.loading || state.before === null) return;
+  const current = () => rpc === connection && connection.nativeHistoryPages === state;
+  state.loading = true; state.error = null; showNativeHistoryOlderButton(connection);
+  try {
+    const result = await api(nativeHistoryPath(state.taskId, state.before));
+    if (!current()) return;
+    // A page joins the one on screen only where that one starts. A transcript
+    // read again from its start numbers its rows anew: draw it again instead.
+    if (!Array.isArray(result?.messages) || result.end !== state.before || result.sourceVersion !== state.version
+      || result.before !== null && !(Number.isSafeInteger(result.before) && result.before >= 0 && result.before < state.before)) {
+      state.loading = false;
+      await state.reload?.();
+      return;
+    }
+    const staging = document.createElement("div"), dates = { last: null };
+    if (!await renderNativeHistory(result, state.agentId, staging, current, { forkFor: state.forkFor, dates })) return;
+    // The page on screen already says the date this one ends on.
+    const junction = el.messages.querySelector(".date-sep");
+    if (dates.last && junction?.dataset.date === dates.last) junction.remove();
+    const oldHeight = el.messages.scrollHeight, oldTop = el.messages.scrollTop;
+    const fragment = document.createDocumentFragment();
+    while (staging.firstChild) fragment.appendChild(staging.firstChild);
+    el.messages.insertBefore(fragment, state.button?.parentNode === el.messages ? state.button.nextSibling : el.messages.firstChild);
+    state.before = result.before;
+    if (result.truncated && connection.nativeHistoryReadonly) showNativeHistoryNote(true);
+    layoutWorkLog({ keepScroll: true });
+    el.messages.scrollTop = el.messages.scrollHeight - oldHeight + oldTop;
+    updateScrollBottomButton();
+  } catch (error) {
+    if (!current()) return;
+    state.error = String(error?.message || "history unavailable").slice(0, 128);
+    toast(tKey("runtime.historyFailed", { detail: state.error }), true);
+  } finally {
+    if (current()) { state.loading = false; showNativeHistoryOlderButton(connection); }
+  }
 }
 
 async function openNativeHistoryTask(task, generationOverride = null) {
@@ -2911,7 +3004,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
   const connection = rpc;
   syncGenericInputState();
   try {
-    const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
+    const result = await api(nativeHistoryPath(taskId));
     if (rpc !== connection || generation !== viewGeneration) return;
     if (!Array.isArray(result?.messages)) throw new Error("history_session_invalid");
     const staging = document.createElement("div");
@@ -2919,15 +3012,11 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
-    const note = el.taskReplayNote;
-    if (note) {
-      if (result.truncated) note.removeAttribute("data-i18n-key");
-      else note.dataset.i18nKey = "agentHub.taskReadOnly";
-      note.textContent = result.truncated ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
-      note.classList.remove("hidden");
-    }
+    trackNativeHistoryPages(connection, result, { taskId, agentId, reload: () => openNativeHistoryTask(task) });
+    showNativeHistoryNote(result.truncated === true);
     keepSessionUsageAtEnd(); scrollBottom(true);
     connection.nativeLoading = false; connection.connectionLost = false;
+    applyHistoryComposer(connection, result.composer, agentId);
     applyGenericTaskSnapshot({ id: taskId, taskId, agentId, status: "history", nativeHistoryReadonly: true, readOnly: true,
       name, cwd, startedAt: normalizedTimestampMs(task.startedAt), lastActivityAt: normalizedTimestampMs(task.lastActivityAt) });
     syncGenericInputState();
@@ -2936,6 +3025,31 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
     toast(tKey("runtime.historyFailed", { detail: String(error?.message || "history unavailable").slice(0, 128) }), true);
   }
+}
+
+// What a read-only history's agent last ran with, when the Host read it from
+// the transcript ({ model, effort, contextTokens, contextWindow, observedAt },
+// each may be null): the model and its level as a label, and the context as a
+// last observation.
+function applyHistoryComposer(connection, composer, agentId) {
+  if (rpc !== connection || !composer || typeof composer !== "object" || Array.isArray(composer)) return;
+  const text = value => typeof value === "string" && value.trim() ? value.trim().slice(0, 256) : null;
+  const model = text(composer.model), effort = (text(composer.effort) || "").toLowerCase();
+  const row = model ? (agentId === "claude-code" ? normalizeClaudeModel(model) : normalizeCodexModel(model)) : null;
+  const observedAt = typeof composer.observedAt === "number" && Number.isFinite(composer.observedAt) ? new Date(composer.observedAt).toISOString()
+    : typeof composer.observedAt === "string" && Number.isFinite(Date.parse(composer.observedAt)) ? composer.observedAt : null;
+  const tokens = finiteNonNegative(composer.contextTokens), capacity = positiveFinite(composer.contextWindow) ?? modelPresentation?.contextCapacity(row) ?? null;
+  connection.historyComposer = { model, effort, observed: tokens !== null };
+  composerModelContextWindow = capacity;
+  updateComposerSummary(row ? modelTitle(row, connection) : "", effort,
+    { levels: agentId === "codex" ? CODEX_EFFORTS.filter(level => level !== "off") : THINKING_LEVEL_ORDER, note: "", effective: "" });
+  if (tokens !== null) {
+    contextStats = normalizeNativeContextStats({ model, contextTokens: tokens, contextWindow: capacity, contextPercent: null,
+      source: "last_observed", observedAt, stale: true }, { inputIncludesCache: agentId === "codex" });
+    contextStatsState = "ready";
+  }
+  syncComposerModelControl(connection);
+  renderContextDashboard();
 }
 
 el.agentHubToggle?.addEventListener("click", toggleAgentHub);
@@ -6371,6 +6485,7 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
         }
         renderCodexNativeApprovals(connection, mutation?.pendingApprovals);
       }
+      applyComposerQueue(connection, mutation?.composerQueue);
     }
     void syncNativeContext(connection);
     connection.nativeLoading = false;
@@ -7005,15 +7120,15 @@ async function loadClaudeNativeHistory(connection, { replace = false } = {}) {
   if (!connection?.claudeHistoryCandidate || !replace && connection.claudeHistoryLoaded || !connection.nativeSessionId) return false;
   const taskId = `claude-history:${connection.nativeSessionId}`;
   try {
-    const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
+    const result = await api(nativeHistoryPath(taskId));
     if (rpc !== connection || !Array.isArray(result?.messages) || !result.messages.length) {
       connection.claudeHistoryLoadState = "empty";
       if (rpc === connection) el.messages.dataset.claudeHistory = "empty";
       return false;
     }
     const staging = document.createElement("div");
-    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection,
-      { forkFor: message => message?.role === "assistant" ? claudeReplyFork(connection, message.id) : null })) return false;
+    const forkFor = message => message?.role === "assistant" ? claudeReplyFork(connection, message.id) : null;
+    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection, { forkFor })) return false;
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     // Drawn again in place: what the page drew live gives way to the
@@ -7023,6 +7138,7 @@ async function loadClaudeNativeHistory(connection, { replace = false } = {}) {
       resetStructuredTranscriptPresentation(connection);
       connection.claudeReplyNode = null; connection.claudeReplyMessageId = null; connection.claudeOutputStart = null;
     } else el.messages.appendChild(fragment);
+    trackNativeHistoryPages(connection, result, { taskId, agentId: "claude-code", forkFor, reload: () => loadClaudeNativeHistory(connection, { replace: true }) });
     connection.claudeHistoryLoaded = true;
     // Claude's messages this history shows, including those that only called
     // a tool, which a live view then does not draw again.
@@ -7143,6 +7259,9 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
     historyNeeded = parked && !fromStart && (!sameClaude || connection.claudeNeedsLoad === false && (status.released !== true || cutShort));
     if (status.startedAt) connection.claudeStartedAt = status.startedAt;
     connection.claudeNeedsLoad = parked;
+    // A queued message Claude took goes above the answer it starts.
+    if (typeof status.nativeSessionId === "string" && status.nativeSessionId) connection.claudeNativeSessionId = status.nativeSessionId;
+    applyComposerQueue(connection, snapshot?.composerQueue);
     if (!historyNeeded) renderClaudeStructuredEvents(connection, rows, { replace: fromStart, live: !initial });
     renderClaudeStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
@@ -7215,16 +7334,27 @@ async function syncClaudeStructuredModelCatalog(connection = rpc, { force = fals
   const { models, current: currentModel } = claudeCatalogFrom(result);
   connection.claudeModels = models;
   connection.claudeModelsLoaded = true;
-  const current = claudeModelFromCatalog(models, currentModel)
+  applyClaudeEffortReport(connection, result);
+  const current = claudeModelFromCatalog(models, currentModel, { effort: connection.claudeEffort, current: connection.claudeModel })
     || null;
   if (current && !connection.claudeModelSelected) {
     connection.claudeModel = current;
     composerModelContextWindow = positiveFinite(current.contextWindow);
     updateComposerSummary(modelTitle(current, connection), undefined);
+    // The model's capacity gives a reading Claude made without one its percentage.
+    renderContextDashboard();
   }
-  connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
   syncNativeThinkingSelect(connection);
   return models;
+}
+
+// The level Claude reports it runs at: a level, or "auto" with the level its
+// settings name for that when Claude reports one.
+function applyClaudeEffortReport(connection, result) {
+  const reported = String(result?.currentEffort || "").toLowerCase();
+  if (reported) connection.claudeEffort = reported;
+  else connection.claudeEffort = String(connection.claudeEffort || "").toLowerCase() || null;
+  connection.claudeEffectiveEffort = reported === "auto" ? String(result?.effectiveEffort || "").toLowerCase() || null : null;
 }
 
 async function openClaudeStructuredTask(task, generationOverride = null) {
@@ -7265,7 +7395,7 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
     claudeNeedsLoad: task.deferred === true, claudeStartedAt: null,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
-    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null, claudeEffort: "auto",
+    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null, claudeEffort: null, claudeEffectiveEffort: null,
     // Native Claude transcript discovery is independent from the live
     // adapter lifecycle. A newly opened session may still be labelled
     // `waiting` while its JSONL transcript already contains prior turns.
@@ -7866,6 +7996,7 @@ function closeChat(silent) {
   removeCodexNativeHistoryButton();
   pendingImages = [];
   renderImgPreview();
+  resetComposerQueue();
   setStreaming(false);
 }
 
@@ -8140,14 +8271,17 @@ function applyNativeContextStats(response, connection = rpc) {
   const hasExplicitModel = isCodex
     ? connection.codexModelSelected === true
     : connection.claudeModelSelected === true;
-  if (normalized.model !== null && !hasExplicitModel) {
+  // A last observation names the model the conversation ran with then; the
+  // one its next turn runs with is its model list's.
+  if (normalized.model !== null && !hasExplicitModel && normalized.source !== "last_observed") {
     // A context response only names the model. The catalog entry for the same
     // model carries its display name and reasoning levels, so use that; the
     // bare name used to replace it and hide the level beside the model.
     const observed = isCodex ? normalizeCodexModel(normalized.model) : null;
     const model = isCodex
-      ? observed && (Array.isArray(connection.codexModels) && connection.codexModels.find(row => row?.id === observed.id) || observed)
-      : claudeModelFromCatalog(connection.claudeModels, normalized.model);
+      ? observed && (Array.isArray(connection.codexModels) && connection.codexModels.find(row => row?.id === observed.id)
+        || (connection.codexModel?.id === observed.id ? connection.codexModel : observed))
+      : claudeModelFromCatalog(connection.claudeModels, normalized.model, { effort: connection.claudeEffort, current: connection.claudeModel });
     if (model) {
       if (isCodex) connection.codexModel = model;
       else connection.claudeModel = model;
@@ -8222,12 +8356,17 @@ function renderContextDashboard() {
     : positiveFinite(contextUsage?.contextWindow)
       ?? positiveFinite(contextStats?.contextCapacity)
       ?? modelCapacity;
-  // Pi's contextUsage.percent is authoritative. Do not derive this from the
-  // cumulative token totals: those totals survive compaction and count work
-  // which is no longer in the current prompt context.
-  const percent = finiteNonNegative(contextUsage?.percent);
+  // An agent's own percentage (Pi's contextUsage.percent) is authoritative.
+  // Without one, it is the current context's tokens over the capacity the
+  // agent or its model states; never the cumulative token totals, which
+  // survive compaction and count work no longer in the current context.
+  const percent = finiteNonNegative(contextUsage?.percent)
+    ?? (used !== null && capacity !== null ? Math.min(100, (used / capacity) * 100) : null);
   const lastObserved = statsForValues?.source === "last_observed" && statsForValues?.stale === true;
   const visiblePercent = percent === null ? tKey("contextDashboard.unknown") : `${lastObserved ? "~" : ""}${formatPercent(percent)}`;
+  // An agent that never reports its context has no gauge; one that has not
+  // yet shows an empty ring and a dash.
+  const unsupported = contextReportUnsupported(rpc);
   const cacheHitPercent = computeCacheHitRate(usage);
   // Most OpenAI-compatible providers never report cache writes (their caching
   // is automatic and surfaced only as cache hits). Show an em dash instead of
@@ -8240,11 +8379,13 @@ function renderContextDashboard() {
   setValue(el.contextUsed, formatTokenCount(used));
   setValue(el.contextCapacity, formatTokenCount(capacity));
   setValue(el.contextPercent, percent === null ? "—" : visiblePercent);
-  setValue(el.contextInlinePercent, visiblePercent);
+  setValue(el.contextInlinePercent, percent === null ? "—" : visiblePercent);
   if (el.contextInfo) {
     el.contextInfo.setAttribute("aria-label", `${tKey("contextDashboard.context")}: ${visiblePercent}`);
     el.contextInfo.title = `${tKey("contextDashboard.context")}: ${visiblePercent} · ${tKey("contextDashboard.details")}`;
   }
+  if (unsupported) el.contextDashboard.title = unsupported;
+  else el.contextDashboard.removeAttribute?.("title");
   setValue(el.contextInput, formatTokenCount(usage.input));
   setValue(el.contextOutput, formatTokenCount(usage.output));
   setValue(el.contextCacheHit, formatTokenCount(usage.cacheRead));
@@ -8261,7 +8402,7 @@ function renderContextDashboard() {
       ? "" : tKey("contextDashboard.cacheWriteNone");
   }
 
-  const progressState = percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
+  const progressState = unsupported !== null ? "unsupported" : percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
   el.contextDashboard.dataset.contextState = progressState;
   if (el.contextProgress) {
     el.contextProgress.setAttribute("aria-valuetext", visiblePercent);
@@ -8275,7 +8416,7 @@ function renderContextDashboard() {
     }
   }
 
-  const summary = tKey("contextDashboard.summary", {
+  const summary = unsupported || tKey("contextDashboard.summary", {
     used: formatTokenCount(used), capacity: formatTokenCount(capacity), percent: visiblePercent,
     input: formatTokenCount(usage.input), output: formatTokenCount(usage.output),
     cacheHit: formatTokenCount(usage.cacheRead), cacheHitPercent: formatPercent(cacheHitPercent),
@@ -8299,6 +8440,17 @@ function renderContextDashboard() {
     el.contextDashboardStatus.textContent = status;
     el.contextDashboardStatus.classList.toggle("hidden", !status);
   }
+}
+
+// Why a conversation has no context gauge, or null when it has one. Google
+// Antigravity and an agent run in a terminal never report their context; a
+// read-only history shows one only when its transcript gave the Host one.
+function contextReportUnsupported(connection) {
+  if (!connection || !connection.generic) return null;
+  if (connection.nativeCodex || connection.nativeCodexMutation || connection.nativeClaudeStructured || connection.nativeOpenCode
+    || connection.nativeAcp || connection.nativeGrokAcp) return null;
+  if (connection.nativeHistoryReadonly) return connection.historyComposer?.observed ? null : "";
+  return tKey("contextDashboard.notSupported", { agent: connection.agentLabel || agentConnectorLabel(connection.agentId) || "" });
 }
 
 /** Fetch exact current-context and cumulative session stats, without polling. */
@@ -10736,6 +10888,8 @@ function setActivityLabel(label = "thinking") {
 
 function handleRpcEvent(ev, eventSid = rpc?.sid) {
   if (eventSid && rpc?.sid !== eventSid) return;
+  // The Host's queue for this conversation as it is now: state, not activity.
+  if (ev.type === "composer_queue") { applyComposerQueue(rpc, ev.queue); return; }
   markRpcActivity();
   subagentTracker?.pi(ev);
   switch (ev.type) {
@@ -10990,8 +11144,11 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       break;
     }
     case "queue_update": {
-      const n = (ev.steering?.length || 0) + (ev.followUp?.length || 0);
-      el.queueNote.textContent = n > 0 ? `⏳ ${n} 則訊息排隊中` : "";
+      // A message sent in from its chip shows on the chip; the note counts
+      // only what Pi holds by itself.
+      const ours = new Set((rpc?.composerQueue?.items || []).filter(item => item.state === "dispatching").map(item => item.text));
+      const n = (ev.steering || []).filter(text => !ours.has(text)).length + (ev.followUp?.length || 0);
+      el.queueNote.textContent = n > 0 ? tKey("runtime.piQueued", { count: n }) : "";
       el.queueNote.classList.toggle("hidden", n === 0);
       if (n > 0) el.queueNote.dataset.persistent = "queue";
       else delete el.queueNote.dataset.persistent;
@@ -11313,16 +11470,17 @@ function setStreaming(on) {
   el.thinkingStatus?.classList.toggle("hidden", !on);
   el.thinkingStatus?.classList.toggle("running", !!on && rpc?.activityLabel !== "waiting");
   el.btnAbort.classList.toggle("hidden", !on);
-  // Interactive CLI agents accept follow-up input while they are alive, so
-  // keep Send available for them. Pi's native RPC retains its queue/abort UX,
-  // and an ACP agent answers one prompt at a time, so Send becomes Stop.
+  // While an agent works Send stays beside Stop: Pi, Codex and Claude Code
+  // queue the message for when the turn ends, interactive CLI agents take
+  // it at once. An ACP agent answers one prompt at a time, so Send becomes Stop.
   const oneTurnAtATime = !!(rpc?.nativeAcp || rpc?.nativeGrokAcp);
-  el.btnSend.classList.toggle("hidden", on && (!generic || oneTurnAtATime));
+  el.btnSend.classList.toggle("hidden", on && oneTurnAtATime);
   // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
   // endpoint and Codex applies the selected model on its next prompt. Other
   // connectors have no safe model route, and read-only history must not offer
-  // to change anything.
-  el.btnModel?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
+  // to change anything. The thinking bars ripple while the agent works.
+  syncComposerModelControl(rpc);
+  el.btnModel?.classList.toggle("is-working", !!on && !!rpc);
   // Attachments follow the connector's wire format, not the Pi/generic split:
   // OpenCode, Claude Code and the ACP agents all carry image content blocks.
   syncComposerAdd();
@@ -11337,7 +11495,9 @@ function setStreaming(on) {
     else el.thinkingSelect.disabled = false;
     if (codex && rpc.codexEffort) el.thinkingSelect.value = rpc.codexEffort;
   }
-  el.btnSend.title = on ? "" : (window.stepsembleI18n?.t("Send") || "Send");
+  const sendLabel = on && composerQueueTarget(rpc) && rpc?.composerQueue ? tKey("queue.add") : (window.stepsembleI18n?.t("Send") || "Send");
+  el.btnSend.title = sendLabel; el.btnSend.setAttribute("aria-label", sendLabel);
+  composerQueueView?.refresh({ busy: composerQueueBusy(rpc) });
   el.btnAbort.title = on ? (window.stepsembleI18n?.t("Stop") || "Stop") : "";
   // An agent can change its own mode during a turn (Claude leaves plan mode
   // once a plan is approved), so read it again when a turn ends.
@@ -11345,9 +11505,21 @@ function setStreaming(on) {
   syncApprovalControl();
 }
 
+// The model button: a control where the model can be changed, and a plain
+// label where a read-only history names the model it last ran with.
+function syncComposerModelControl(connection = rpc) {
+  if (!el.btnModel) return;
+  const live = connectorAllowsLiveControls(connection);
+  const observed = !live && !!connection?.historyComposer?.model;
+  el.btnModel.classList.toggle("hidden", !live && !observed);
+  el.btnModel.classList.toggle("is-static", observed);
+  if (observed) el.btnModel.setAttribute("aria-disabled", "true");
+  else el.btnModel.removeAttribute("aria-disabled");
+}
+
 // ---- 送出 / 中止 ----
 el.btnSend.addEventListener("click", sendCurrent);
-el.btnModel.addEventListener("click", openModelSheet);
+el.btnModel.addEventListener("click", () => { if (el.btnModel.getAttribute("aria-disabled") !== "true") void openModelSheet(); });
 let conversationGoal = null;
 let agentCompaction = null;
 let subagentTracker = null, subagentPanel = null;
@@ -11638,6 +11810,121 @@ function renderImgPreview() {
   });
 }
 
+// ---- Messages queued while the agent works (server/composer-queue.js) ----
+// A message sent while Pi, Codex or Claude Code works waits on the Host as a
+// chip above the message box. The Host sends it when the turn ends, with or
+// without this page; its chip can send it into the turn now instead.
+function composerQueueTarget(connection = rpc) {
+  if (!connection || connection.nativeHistoryReadonly === true || connection.readOnly === true) return null;
+  if (!connection.generic) return connection.sid ? { agent: "pi", id: connection.sid } : null;
+  if (connection.nativeCodexMutation && connection.nativeThreadId) return { agent: "codex", id: connection.nativeThreadId };
+  const claude = connection.nativeClaudeStructured ? connection.claudeNativeSessionId || connection.nativeSessionId : null;
+  return claude ? { agent: "claude-code", id: claude } : null;
+}
+function composerQueueBusy(connection = rpc) {
+  return !!connection && (!!connection.streaming || connection.taskStatus === "running");
+}
+// Where a message about to be sent waits, if anywhere: only while the agent
+// works, on a Host that keeps queues. A Pi slash command keeps Pi's own
+// handling: an extension command runs at once.
+function composerQueueRoute(connection, text) {
+  const target = composerQueueTarget(connection);
+  if (!target || !connection.composerQueue || !composerQueueBusy(connection) || target.agent === "pi" && text.startsWith("/")) return null;
+  return target;
+}
+// Codex takes the model and level chosen as the message was sent.
+function composerQueueChoice(connection) {
+  if (!connection?.nativeCodexMutation) return {};
+  return { ...(connection.codexModel?.id ? { model: connection.codexModel.id } : {}),
+    ...(connection.codexEffort && connection.codexEffort !== "off" ? { effort: connection.codexEffort } : {}) };
+}
+function composerQueueViewOf() {
+  if (composerQueueView || !el.composerQueue || !window.StepsembleComposerQueue) return composerQueueView;
+  composerQueueView = window.StepsembleComposerQueue.create({ root: el.composerQueue, t: tKey,
+    onSendNow: item => void composerQueueAction("send-now", item),
+    onEdit: item => void takeQueuedMessage(item),
+    onRemove: item => void composerQueueAction("remove", item),
+    onResume: () => void composerQueueAction("resume"),
+    onDelivered: row => showQueuedMessageSent(rpc, row),
+    onEmpty: () => el.input?.focus({ preventScroll: true }) });
+  return composerQueueView;
+}
+function applyComposerQueue(connection, snapshot) {
+  if (!connection || rpc !== connection || !snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.items)) return;
+  if (composerQueueTarget(connection)?.agent !== snapshot.agent) return;
+  connection.composerQueue = snapshot;
+  composerQueueViewOf()?.update(snapshot, { busy: composerQueueBusy(connection) });
+}
+function resetComposerQueue() { composerQueueView?.reset(); }
+async function refreshComposerQueue(connection = rpc) {
+  const target = composerQueueTarget(connection);
+  if (!target) return;
+  try { applyComposerQueue(connection, (await api(`/api/composer-queue?agent=${encodeURIComponent(target.agent)}&id=${encodeURIComponent(target.id)}`))?.queue); }
+  catch { /* An older Host keeps no queue; there are no chips to show. */ }
+}
+async function composerQueueAction(action, item = null) {
+  const connection = rpc, target = composerQueueTarget(connection);
+  if (!target) return;
+  try {
+    const result = await post(`/api/composer-queue/${action}`, { ...target, ...(item ? { itemId: item.id, revision: item.revision } : {}) });
+    applyComposerQueue(connection, result?.queue);
+    if (rpc === connection && result?.outcome === "reject") toast(tKey("queue.failed"), true);
+  } catch (error) {
+    if (rpc !== connection) return;
+    const changed = ["queue_item_changed", "queue_item_busy", "queue_item_missing"].includes(error?.code);
+    toast(changed ? tKey("queue.changed") : String(error?.message || tKey("runtime.unknownError")).slice(0, 200), !changed);
+    void refreshComposerQueue(connection);
+  }
+}
+// Edit: the message comes back into the box, after anything typed there.
+async function takeQueuedMessage(item) {
+  const connection = rpc, target = composerQueueTarget(connection), draftKey = activeDraftKey;
+  if (!target) return;
+  let result;
+  try { result = await post("/api/composer-queue/take", { ...target, itemId: item.id, revision: item.revision }); }
+  catch (error) {
+    if (rpc !== connection) return;
+    toast(["queue_item_changed", "queue_item_busy", "queue_item_missing"].includes(error?.code) ? tKey("queue.changed") : String(error?.message || tKey("runtime.unknownError")).slice(0, 200), true);
+    void refreshComposerQueue(connection);
+    return;
+  }
+  applyComposerQueue(connection, result?.queue);
+  if (rpc !== connection || activeDraftKey !== draftKey) return;
+  const text = String(result?.text || ""), typed = el.input.value.replace(/\s+$/, "");
+  el.input.value = typed ? `${typed}\n\n${text}` : text;
+  const images = (Array.isArray(result?.images) ? result.images : []).map(image => ({ mimeType: image.mimeType,
+    data: String(image.data || "").startsWith("data:") ? image.data : `data:${image.mimeType || "image/png"};base64,${image.data}` }));
+  if (images.length) { pendingImages = [...pendingImages, ...images].slice(0, composerImageBudget(connection).count); renderImgPreview(); }
+  composerQueueImages.delete(item.id);
+  resizeComposerInput(); saveActiveDraft(); syncSendReady();
+  el.input.focus({ preventScroll: true });
+  el.input.selectionStart = el.input.selectionEnd = el.input.value.length;
+}
+// A queued message the agent took shows in the conversation where the agent
+// took it. Codex draws the message itself; Pi and Claude are drawn here.
+function showQueuedMessageSent(connection, row) {
+  if (!connection || rpc !== connection || connection.nativeCodex) return;
+  const text = String(row?.text || "") + (row?.truncated ? "…" : "");
+  const images = composerQueueImages.get(row.id) || [];
+  composerQueueImages.delete(row.id);
+  if (!text && !images.length && !row?.imageCount) return;
+  maybeDateSeparator(Number(row.at) || Date.now());
+  const { wrap, bubble } = makeMsgShell("user", "你");
+  wrap.dataset.ts = String(Number(row.at) || Date.now());
+  wrap.dataset.composerQueue = row.id;
+  if (text) bubble.appendChild(renderMarkdown(text));
+  if (images.length || row.imageCount) appendImageGallery(wrap, bubble, images, images.length || row.imageCount);
+  if (connection.generic) {
+    // The agent's answer goes below it, and its own copy is not drawn twice.
+    connection.genericOutputNode = null; connection.structuredThinking = null; connection.claudeOutputStart = null;
+    if (text && Array.isArray(connection.genericInputEchoes)) {
+      connection.genericInputEchoes.push({ text: String(row.text || ""), at: Date.now() });
+      if (connection.genericInputEchoes.length > 32) connection.genericInputEchoes.shift();
+    }
+  }
+  scrollBottom();
+}
+
 // A conversation opens its session in the background (Pi starts its process
 // first), and Send works before that is done. The message stays in the box
 // and is sent once the conversation is ready; after 30 seconds without a
@@ -11747,6 +12034,32 @@ async function sendCurrent() {
   const bm = !generic && text.match(/^\/(clear)\s*$/i);
   if (bm) { clearSentDraft(sendDraft); showList(); return; }
 
+  // Sent while the agent works, the message waits as a chip above the box.
+  const queueTarget = composerQueueRoute(rpc, text);
+  if (queueTarget) {
+    const queueConnection = rpc, queuedImages = pendingImages.slice();
+    pendingImages = [];
+    renderImgPreview();
+    try {
+      const result = await post("/api/composer-queue/add", { ...queueTarget, text, images: queuedImages, ...composerQueueChoice(queueConnection), deviceId: protocolDeviceId });
+      clearSentDraft(sendDraft);
+      if (referencesSent) sessionReferences?.clear();
+      if (result?.item?.id && queuedImages.length) composerQueueImages.set(result.item.id, queuedImages);
+      applyComposerQueue(queueConnection, result?.queue);
+    } catch (e) {
+      const current = rpc === queueConnection && viewGeneration === sendView && activeDraftKey === sendDraftKey;
+      if (current && ownsDraftSend(sendDraft) && !el.input.value && !pendingImages.length) {
+        el.input.value = sendDraftText;
+        resizeComposerInput();
+        saveDraftForKey(sendDraftKey, sendDraftText);
+        pendingImages = queuedImages;
+        renderImgPreview();
+      }
+      if (current) toast(e?.code === "queue_full" ? tKey("queue.full") : tKey("queue.unavailable"), true);
+    } finally { finishDraftSend(sendDraft); }
+    return;
+  }
+
   // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
   // transcript has no date lines, so native Codex skips the separator.
   const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
@@ -11825,6 +12138,20 @@ async function sendCurrent() {
     accepted = true;
     clearSentDraft(sendDraft);
     if (referencesSent) sessionReferences?.clear();
+    // The Host found the agent at work: the message waits as a chip, and
+    // shows in the conversation when the agent takes it.
+    if (result?.queued && result.item?.id && Array.isArray(result.queue?.items)) {
+      if (pendingTurn) endPendingTurn(sendConnection, pendingTurn);
+      userShell.remove();
+      if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho, { remove: true });
+      if (genericEcho && Array.isArray(sendConnection.genericInputEchoes)) {
+        const echoIndex = sendConnection.genericInputEchoes.indexOf(genericEcho);
+        if (echoIndex >= 0) sendConnection.genericInputEchoes.splice(echoIndex, 1);
+      }
+      if (images.length) composerQueueImages.set(result.item.id, images);
+      applyComposerQueue(sendConnection, result.queue);
+      return;
+    }
     // An ACP agent answers the prompt with the tokens it wrote, when it counts them.
     if (acpTurn?.outputMeter) {
       const tokens = contextUtils.acpTurnOutput(result, { agentId: acpTurn.acpAgentId || acpTurn.agentId });
@@ -11871,7 +12198,7 @@ async function sendCurrent() {
       rpc.taskStatus = "running";
       setStreaming(true);
     }
-    if (result?.queued && rpc === sendConnection) {
+    if (result?.queued && !result.queue && rpc === sendConnection) {
       el.queueNote.dataset.persistent = "queue";
       el.queueNote.textContent = tKey("runtime.messageQueued");
       el.queueNote.classList.remove("hidden");
@@ -11911,7 +12238,9 @@ async function sendCurrent() {
       // Every Claude slot is working; the message waits in the composer.
       if (sendConnection?.nativeClaudeStructured && String(e?.code || e?.message) === "desktop_capacity") toast(agentHubText("claudeCapacity"));
       else toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
-      if (codexSendConnection) appendTurnErrorNotice(codexSendConnection, e?.message || e?.code || tKey("codexRecovery.unknownError"));
+      // A send the Host refused never started a turn: no turn failed, and the
+      // message is back in the box.
+      if (codexSendConnection && !(e?.status >= 400 && e.status < 500)) appendTurnErrorNotice(codexSendConnection, e?.message || e?.code || tKey("codexRecovery.unknownError"));
     }
   } finally {
     finishDraftSend(sendDraft);
@@ -11996,6 +12325,9 @@ function resetComposerSummary() {
   el.approvalControl?.classList.add("hidden");
   composerModelName = "";
   composerReasoningLevel = "off";
+  composerReasoningLevels = [];
+  composerReasoningNote = "";
+  composerReasoningEffective = "";
   availableModels = [];
   modelSheetCurrentId = null;
   modelSheetCurrentProvider = null;
@@ -12009,41 +12341,58 @@ function resetComposerSummary() {
   resetContextDashboard();
   updateComposerSummary();
 }
-function updateComposerSummary(modelName, thinkingLevel) {
+// reasoning: { levels, note, effective } — the model's own levels, why it has
+// none to show, and the level an "auto" runs at; each kept until changed.
+function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
   if (modelName !== undefined) composerModelName = String(modelName || "");
   // An empty level is the explicit "this model has no thinking control"
   // signal, so it must clear the chip instead of leaving the level the
   // previously selected model was using on screen.
   if (thinkingLevel !== undefined) composerReasoningLevel = String(thinkingLevel || "");
+  if (reasoning?.levels !== undefined) composerReasoningLevels = Array.isArray(reasoning.levels) ? reasoning.levels.map(String) : [];
+  if (reasoning?.note !== undefined) composerReasoningNote = String(reasoning.note || "");
+  if (reasoning?.effective !== undefined) composerReasoningEffective = String(reasoning.effective || "");
   // Until the agent names its model, the chip invites a choice; it never
   // shows a "default" that hides which model will answer.
   const model = composerModelName || (window.stepsembleI18n?.t("Choose model") || "Choose model");
-  // Codex and Claude have no "off" or "auto" level to show: an unknown level
-  // is left out rather than shown as a default.
-  const levelLabel = !composerReasoningLevel ? ""
-    : (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && ["off", "auto"].includes(composerReasoningLevel) ? "" : composerReasoningLevel;
-  const summary = levelLabel ? `${model} · ${levelLabel}` : model;
-  // The chip is fixed-width: the model name truncates with an ellipsis while
-  // the trailing thinking level always stays fully visible.
+  const level = composerReasoningLevel.toLowerCase();
+  // The level as four bars: how many are lit is the level's place in the
+  // model's own list, and its top level adds a mark. "Auto" lights the level
+  // it runs at when reported, and otherwise shows its own look; no level
+  // shows flat bars that say why.
+  const shown = modelPresentation?.effortBars(level, composerReasoningLevels) || { state: level ? "level" : "none", bars: 0, top: false };
+  const effective = shown.state === "auto" && composerReasoningEffective
+    ? modelPresentation?.effortBars(composerReasoningEffective, composerReasoningLevels) : null;
+  const words = shown.state === "none" ? ""
+    : shown.state === "auto" ? reasoningLevelText("auto") + (effective?.state === "level" ? " · " + reasoningLevelText(composerReasoningEffective) : "")
+      : reasoningLevelText(level);
+  const note = words ? tKey("runtime.thinkingTooltip", { level: words }) : composerReasoningNote || tKey("runtime.thinkingNotReported");
   if (el.composerModelNameText) {
     el.composerModelNameText.textContent = model;
     el.composerModelNameText.title = model;
   }
-  if (el.composerModelLevelText) {
-    el.composerModelLevelText.textContent = levelLabel ? reasoningLevelText(levelLabel) : "";
-    el.composerModelLevelText.classList.toggle("hidden", !levelLabel);
+  const indicator = el.composerModelLevelText;
+  if (indicator) {
+    const lit = effective?.state === "level" ? effective : shown;
+    const state = effective?.state === "level" ? "level" : shown.state;
+    const bars = lit.bars;
+    indicator.dataset.state = state;
+    indicator.dataset.bars = String(bars);
+    indicator.dataset.top = String(lit.top === true);
+    indicator.dataset.level = words;
+    indicator.title = note;
+    indicator.querySelectorAll?.(".composer-effort-bar").forEach((bar, index) => bar.classList.toggle("on", index < bars));
+    // The bars belong to a model; none show before one is known.
+    indicator.classList.toggle("hidden", !composerModelName);
   }
   if (el.btnModel) {
-    const label = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
-    el.btnModel.title = label;
-    el.btnModel.setAttribute("aria-label", `${label}: ${summary}`);
+    el.btnModel.title = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
+    el.btnModel.setAttribute("aria-label", words ? tKey("runtime.modelThinking", { model, level: words }) : `${model}. ${note}`);
   }
 }
 // Levels read the way Codex shows them beside the model: "Medium", "Max".
 function reasoningLevelText(level) {
-  const value = String(level || "");
-  if (value === "xhigh") return "Extra high";
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  return modelPresentation?.levelName(level) || String(level || "");
 }
 // The Host keeps the model and level last chosen for an agent, so its next
 // conversation starts with them, on every device.
@@ -12064,7 +12413,9 @@ function applyComposerState(data) {
     }
   }
   el.thinkingSelect.value = level;
-  updateComposerSummary(modelName, level);
+  // Pi's levels for this model once Pi has listed them; its whole list until then.
+  const key = model ? `${model.provider || ""}/${model.id || ""}` : "";
+  updateComposerSummary(modelName, level, { levels: thinkingLevelsForModel.get(key) || PI_THINKING_LEVELS, note: "", effective: "" });
   renderContextDashboard();
   void syncThinkingLevelSupport(model, level);
 }
@@ -12079,6 +12430,7 @@ let defaultThinkingSelectOptions = null;
 
 const CODEX_EFFORTS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const THINKING_LEVEL_ORDER = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+const PI_THINKING_LEVELS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function captureDefaultThinkingSelectOptions() {
   if (!el.thinkingSelect || defaultThinkingSelectOptions) return;
@@ -12137,10 +12489,11 @@ function syncNativeThinkingSelect(connection = rpc) {
   if (!select) return;
   captureDefaultThinkingSelectOptions();
   setThinkingHint("");
-  // OpenCode takes no thinking level from Stepsemble, so it offers none.
+  // OpenCode takes no thinking level from Stepsemble, so it offers none; the
+  // bars say so rather than vanish.
   if (connection?.nativeOpenCode) {
     setThinkingControlVisibility(true); select.disabled = true;
-    if (rpc === connection) updateComposerSummary(undefined, "");
+    if (rpc === connection) updateComposerSummary(undefined, "", { levels: [], note: tKey("runtime.thinkingNotOffered", { agent: "OpenCode" }), effective: "" });
     return;
   }
   if (connection?.nativeClaudeStructured) {
@@ -12148,7 +12501,10 @@ function syncNativeThinkingSelect(connection = rpc) {
     const advertised = Array.isArray(model?.supportedEffortLevels)
       ? model.supportedEffortLevels.map(level => String(level).trim().toLowerCase()).filter(level => THINKING_LEVEL_ORDER.includes(level))
       : [];
-    const supportsEffort = model?.supportsEffort === true || advertised.length > 0;
+    // A model's list entry says whether it has levels, also by leaving them
+    // out; a bare name Claude reported says nothing about them.
+    const declared = !!model && model.effortDeclared !== false;
+    const supportsEffort = model?.supportsEffort === true || advertised.length > 0 || !declared;
     if (!supportsEffort) {
       // A model without a thinking level (Claude's Haiku): no level to pick,
       // and the hint says why.
@@ -12158,7 +12514,7 @@ function syncNativeThinkingSelect(connection = rpc) {
       select.title = tKey("runtime.thinkingUnsupported");
       setThinkingHint(tKey("runtime.thinkingUnsupported"));
       // The chip must not keep showing the level of a different model.
-      updateComposerSummary(undefined, "");
+      updateComposerSummary(undefined, "", { levels: [], note: tKey("runtime.thinkingUnsupported"), effective: "" });
       return;
     }
     setThinkingControlVisibility(false);
@@ -12166,25 +12522,33 @@ function syncNativeThinkingSelect(connection = rpc) {
     select.removeAttribute("title");
     const levels = [...new Set(advertised.length ? advertised : [...THINKING_LEVEL_ORDER])];
     const choices = new Set(levels);
-    // Claude reports the level it runs with; one it has not reported yet is
-    // shown as unknown rather than as a default.
-    connection.claudeEffort = [connection.claudeEffort, model.defaultEffort]
-      .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || null;
-    setSelectOptions(select, [...(connection.claudeEffort ? [] : [{ value: "", label: "—", disabled: true }]),
+    // Claude reports the level it runs with, or "auto" when it chooses; one
+    // it has not reported yet is shown as unknown rather than as a default.
+    const auto = String(connection.claudeEffort || "").toLowerCase() === "auto";
+    connection.claudeEffort = [connection.claudeEffort, model?.defaultEffort]
+      .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || (auto ? "auto" : null);
+    const current = choices.has(connection.claudeEffort) ? connection.claudeEffort : "";
+    const effective = auto && choices.has(connection.claudeEffectiveEffort) ? connection.claudeEffectiveEffort : "";
+    setSelectOptions(select, [...(current ? [] : [{ value: "", label: auto ? reasoningLevelText("auto") + (effective ? " · " + reasoningLevelText(effective) : "") : "—", disabled: true }]),
       ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
-    select.value = connection.claudeEffort || "";
-    updateComposerSummary(undefined, connection.claudeEffort || "");
+    select.value = current;
+    updateComposerSummary(undefined, connection.claudeEffort || "", { levels, note: "", effective });
     return;
   }
   // An ACP agent lists its own reasoning levels (Grok: Extra high to Low);
   // one that lists none has no level to choose.
   if (connection?.nativeAcp || connection?.nativeGrokAcp) {
     const thought = acpThoughtOption(connection.acpConfigOptions);
-    if (!thought) { setThinkingControlVisibility(true); select.disabled = true; return; }
+    if (!thought) {
+      setThinkingControlVisibility(true); select.disabled = true;
+      if (rpc === connection) updateComposerSummary(undefined, "", { levels: [], note: tKey("runtime.thinkingNotOffered", { agent: agentConnectorLabel(acpAgentOf(connection)) }), effective: "" });
+      return;
+    }
     setThinkingControlVisibility(false);
     setSelectOptions(select, thought.options.map(choice => ({ value: choice.value, label: choice.name || reasoningLevelText(choice.value) })));
     select.value = String(thought.currentValue || "");
     select.disabled = false;
+    if (rpc === connection) updateComposerSummary(undefined, String(thought.currentValue || ""), { levels: thought.options.map(choice => choice.value), note: "", effective: "" });
     return;
   }
   setThinkingControlVisibility(false);
@@ -12212,7 +12576,7 @@ function syncNativeThinkingSelect(connection = rpc) {
   setSelectOptions(select, [...(next ? [] : [{ value: "", label: "—", disabled: true }]), ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
   select.value = next || "";
   select.disabled = false;
-  updateComposerSummary(undefined, next || "");
+  updateComposerSummary(undefined, next || "", { levels, note: "", effective: "" });
 }
 
 function updateThinkingSelectOptions() {
@@ -12240,6 +12604,8 @@ async function syncThinkingLevelSupport(model, reportedLevel) {
     updateThinkingSelectOptions();
     if (reportedLevel) el.thinkingSelect.value = reportedLevel;
   }
+  // The bars scale against this model's own levels.
+  if (composerModelKey === key && thinkingLevelsForModel.has(key)) updateComposerSummary(undefined, undefined, { levels: thinkingLevelsForModel.get(key) });
 }
 async function syncComposerState(expectedSid = rpc?.sid) {
   if (!expectedSid || !rpc || rpc.sid !== expectedSid) return;
@@ -12534,7 +12900,8 @@ function normalizeCodexModel(model) {
 function normalizeClaudeModel(model) {
   if (typeof model === "string") {
     const id = model.trim();
-    return id ? { id, name: id, provider: "claude-code", contextWindow: null, reasoning: false } : null;
+    // A bare name says nothing of the model's levels; that is not "none".
+    return id ? { id, name: id, provider: "claude-code", contextWindow: modelPresentation?.contextCapacity({ id }) ?? null, reasoning: false, effortDeclared: false } : null;
   }
   if (!model || typeof model !== "object") return null;
   const id = String(model.id || model.model || model.slug || model.name || "").trim();
@@ -12551,12 +12918,15 @@ function normalizeClaudeModel(model) {
     reasoning: model.reasoning === true || model.supportsReasoning === true || model.supportsEffort === true || supportedEffortLevels.length > 0,
     supportsEffort: model.supportsEffort === true || supportedEffortLevels.length > 0,
     supportedEffortLevels: [...new Set(supportedEffortLevels)],
+    // Claude's list leaves the levels out for a model without any (Haiku).
+    effortDeclared: model.effortDeclared !== false,
     supportsAutoMode: model.supportsAutoMode === true,
     defaultEffort: String(model.defaultEffort || model.default_effort || "").trim().toLowerCase() || null,
     // Claude's catalog gives no capacity; its "[1m]" aliases are the 1M
-    // context models ("opus[1m]", "Opus (1M context)"). Claude's own usage
-    // report replaces this once a turn has run.
-    contextWindow: positiveFinite(model.contextWindow ?? model.context_window)
+    // context models ("opus[1m]", "Opus (1M context)", a gateway's
+    // "claude/claude-opus-5-5:xhigh[1m]"). Claude's own usage report
+    // replaces this once a turn has run.
+    contextWindow: modelPresentation?.contextCapacity(model) ?? positiveFinite(model.contextWindow ?? model.context_window)
       ?? (/\[1m\]$/i.test(id) || /\b1M context\b/i.test(String(model.name || model.displayName || "")) ? 1_000_000 : null),
   };
 }
@@ -12564,22 +12934,19 @@ function normalizeClaudeModel(model) {
 // Native Claude controls acknowledge a model switch with only its wire id.
 // Reattach the already-fetched catalog row so gateway aliases keep their
 // context capacity and reasoning metadata immediately after switching.
-function claudeModelFromCatalog(models, value) {
+// Claude names a running model in full or bare ("claude-opus-5-5"), its list
+// by an alias ("opus") whose resolvedModel can carry a gateway's route and
+// level; with several aliases for one model, the one at the conversation's
+// level wins. A name that matches no row never replaces the row already
+// shown for that model (`current`): the bare name has no levels or capacity.
+function claudeModelFromCatalog(models, value, { effort = null, current = null } = {}) {
   const normalized = normalizeClaudeModel(value);
   if (!normalized) return null;
-  // Claude names a running model in full ("claude-opus-5-5[1m]"); its list
-  // names the same model "opus[1m]", with the full name as resolvedModel.
-  const rows = Array.isArray(models) ? models : [];
-  const base = id => String(id || "").replace(/\[[^\]]*\]$/, "");
-  const wide = id => /\[1m\]$/i.test(String(id || ""));
-  const row = rows.find(candidate => candidate?.id === normalized.id)
-    || rows.find(candidate => candidate?.resolvedModel === normalized.id)
-    || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id) && wide(candidate.id) === wide(normalized.id))
-    // Claude's transcript and usage name the model bare ("claude-opus-5-5"),
-    // also when it runs with 1M context.
-    || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id))
-    || rows.find(candidate => base(candidate?.id) === base(normalized.id));
-  return row || normalized;
+  const row = modelPresentation?.matchModel(Array.isArray(models) ? models : [], normalized.id, { effort });
+  if (row) return row;
+  const key = modelPresentation?.modelKey;
+  if (current && key && [current.id, current.resolvedModel].some(name => name && key(name) === key(normalized.id))) return current;
+  return normalized;
 }
 
 // Claude's list without its "default" entry, which an older Host still sends
@@ -12686,6 +13053,7 @@ function acpAgentOf(connection) { return connection?.nativeGrokAcp ? "grok-build
 // Which agent a conversation runs, for naming its models.
 function connectionAgentId(connection = rpc) {
   if (!connection) return "";
+  if (connection.nativeHistoryProvider) return connection.nativeHistoryProvider;
   if (connection.nativeCodexMutation || connection.nativeCodex) return "codex";
   if (connection.nativeClaudeStructured) return "claude-code";
   if (connection.nativeOpenCode) return "opencode";
@@ -12774,15 +13142,16 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       availableModels = catalog.models;
       connection.claudeModels = availableModels;
       connection.claudeModelsLoaded = true;
+      applyClaudeEffortReport(connection, result);
       if (!connection.claudeModelSelected) {
-        const current = claudeModelFromCatalog(availableModels, catalog.current);
+        const current = claudeModelFromCatalog(availableModels, catalog.current, { effort: connection.claudeEffort, current: connection.claudeModel });
         if (current) {
           connection.claudeModel = current;
           composerModelContextWindow = positiveFinite(current.contextWindow);
           updateComposerSummary(modelTitle(current, connection), undefined);
+          renderContextDashboard();
         }
       }
-      connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
       syncNativeThinkingSelect(connection);
       const current = connection.claudeModel || normalizeClaudeModel(catalog.current);
       renderModelList(current?.id || null, "claude-code");
@@ -12934,11 +13303,11 @@ function renderModelList(currentId, currentProvider = null) {
           if (result?.accepted === false || result?.kind === "reject" || result?.success === false) {
             throw new Error(result.error || result.code || "Claude rejected the model switch");
           }
-          const selected = claudeModelFromCatalog(connection.claudeModels, result?.model) || model;
+          const selected = claudeModelFromCatalog(connection.claudeModels, result?.model, { effort: result?.effort, current: model }) || model;
           connection.claudeModel = selected;
           connection.claudeModelSelected = true;
           // Claude reports the level it runs with on the new model.
-          if (typeof result?.effort === "string" && result.effort) connection.claudeEffort = result.effort.toLowerCase();
+          if (typeof result?.effort === "string" && result.effort) { connection.claudeEffort = result.effort.toLowerCase(); connection.claudeEffectiveEffort = null; }
           // A model ACK invalidates the previous model's context capacity. The
           // follow-up adapter readback owns the new value (which may remain
           // unknown). Keep a catalog capacity when it is available, while
@@ -14857,14 +15226,16 @@ function attachAcpReplyActions(connection, { live = false } = {}) {
 let _lastMsgDate = null; let lastUserText = "";
 let runFailureRendered = false;
 let lastRunFailure = null;
-function maybeDateSeparator(ts, container = el.messages) {
+// dates: the last date of a page drawn apart, in place of the conversation's.
+function maybeDateSeparator(ts, container = el.messages, dates = null) {
   if (!ts) return;
   const d = new Date(ts);
   const key = d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate();
-  if (_lastMsgDate === key) return;
-  _lastMsgDate = key;
+  if ((dates ? dates.last : _lastMsgDate) === key) return;
+  if (dates) dates.last = key; else _lastMsgDate = key;
   const div = document.createElement("div");
   div.className = "date-sep";
+  div.dataset.date = key;
   div.textContent = `${d.getMonth() + 1}/${d.getDate()}`;
   container.appendChild(div);
   if (container === el.messages) keepSessionUsageAtEnd();

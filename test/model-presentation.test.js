@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { present, detailLine } = require("../public/modules/model-presentation");
+const { present, detailLine, modelKey, modelTags, matchModel, contextCapacity, effortBars, levelName } = require("../public/modules/model-presentation");
 
 // Rows as each agent lists them (Mini, 2026-09-27).
 const rows = (agent, list) => list.map(([row, name, detail]) => ({ agent, row, name, detail }));
@@ -85,4 +85,95 @@ test("models through Magpie name the model and say Magpie and the vendor", () =>
     [{ id: "gpt-6.1-sol", displayName: "GPT-6.1-Sol", description: "Latest workhorse model for coding and everyday work." }, "codex", "GPT-6.1-Sol", "OpenAI"],
   ];
   for (const [row, agent, name, provider] of rows) assert.deepEqual([present(row, agent).name, present(row, agent).provider], [name, provider], row.id);
+});
+
+// Claude Code routed through Magpie lists its own aliases by Magpie's id with
+// the level each runs at (Mini, 2026-10-21).
+const magpieAliases = [
+  { id: "opus", name: "claude/claude-opus-5-5:xhigh[1m]", resolvedModel: "claude/claude-opus-5-5:xhigh[1m]", description: "Custom Opus model (1M context)", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "fable", name: "claude/claude-opus-5-5:high[1m]", resolvedModel: "claude/claude-opus-5-5:high[1m]", description: "Custom Fable model", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "sonnet", name: "claude/claude-opus-5-5:medium[1m]", resolvedModel: "claude/claude-opus-5-5:medium[1m]", description: "Custom Sonnet model (1M context)", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "haiku", name: "claude/claude-haiku-5-5:xhigh[1m]", resolvedModel: "claude/claude-haiku-5-5:xhigh[1m]", description: "Custom Haiku model" },
+  { id: "minimax/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", resolvedModel: "minimax/MiniMax-M3.1-Flash", description: "Magpie gateway · MiniMax", contextWindow: 1_000_000, gateway: "magpie" },
+];
+
+test("Claude's Magpie aliases are named with their 1M context, Magpie and the level each runs at", () => {
+  assert.deepEqual(magpieAliases.map(row => [present(row, "claude-code").name, detailLine(row, "claude-code")]), [
+    ["Opus 5.5 · 1M", "Magpie · Anthropic · Extra high"],
+    ["Opus 5.5 · 1M", "Magpie · Anthropic · High"],
+    ["Opus 5.5 · 1M", "Magpie · Anthropic · Medium"],
+    ["Haiku 5.5 · 1M", "Magpie · Anthropic · Extra high"],
+    ["MiniMax-M3.1-Flash", "Magpie · MiniMax · 1M ctx"],
+  ]);
+});
+
+test("a model id is compared without its route, level and tags", () => {
+  assert.equal(modelKey("claude/claude-opus-5-5:xhigh[1m]"), "claude-opus-5-5");
+  assert.equal(modelKey("claude-opus-5-5[1m]"), "claude-opus-5-5");
+  assert.equal(modelKey("ocx-claude-native--claude-fable-5-1[1m]"), "claude-fable-5-1");
+  assert.equal(modelKey("claude-ocx-native--gpt-6-astra--fast"), "gpt-6-astra--fast");
+  assert.equal(modelKey("openrouter/anthropic/claude-sonnet-5"), "claude-sonnet-5");
+  assert.equal(modelKey("gpt-6.1-sol"), "gpt-6.1-sol");
+  assert.deepEqual(modelTags("claude/claude-opus-5-5:xhigh[1m]"), { wide: true, effort: "xhigh" });
+  assert.deepEqual(modelTags("claude-opus-5-5"), { wide: false, effort: null });
+});
+
+test("a reported model finds its catalog row, the one at the conversation's level among several", () => {
+  // Claude reports the model it runs bare.
+  assert.equal(matchModel(magpieAliases, "claude-opus-5-5", { effort: "xhigh" }).id, "opus");
+  assert.equal(matchModel(magpieAliases, "claude-opus-5-5", { effort: "high" }).id, "fable");
+  assert.equal(matchModel(magpieAliases, "claude-opus-5-5", { effort: "medium" }).id, "sonnet");
+  // A level no alias runs at keeps the first.
+  assert.equal(matchModel(magpieAliases, "claude-opus-5-5", { effort: "max" }).id, "opus");
+  // The id's own level names its alias; an exact id or resolvedModel wins.
+  assert.equal(matchModel(magpieAliases, "claude/claude-opus-5-5:high[1m]", { effort: "xhigh" }).id, "fable");
+  assert.equal(matchModel(magpieAliases, "sonnet", { effort: "xhigh" }).id, "sonnet");
+  assert.equal(matchModel(magpieAliases, "claude-haiku-5-5").id, "haiku");
+  assert.equal(matchModel(magpieAliases, "MiniMax-M3.1-Flash").id, "minimax/MiniMax-M3.1-Flash");
+  // Claude's own list: a bare name keeps a model of the same 1M-ness first.
+  const own = [{ id: "sonnet[1m]", resolvedModel: "claude-sonnet-5[1m]" }, { id: "sonnet", resolvedModel: "claude-sonnet-5" }];
+  assert.equal(matchModel(own, "claude-sonnet-5").id, "sonnet");
+  assert.equal(matchModel(own, "claude-sonnet-5-x[1m]"), null);
+  assert.equal(matchModel([], "claude-opus-5-5"), null);
+  assert.equal(matchModel(magpieAliases, "claude-fable-5-1"), null);
+});
+
+test("a model's capacity is the one it states, else 1M from its name or description", () => {
+  assert.equal(contextCapacity({ id: "x", contextWindow: 272_000 }), 272_000);
+  assert.equal(contextCapacity(magpieAliases[1]), 1_000_000, "[1m] in resolvedModel");
+  assert.equal(contextCapacity({ id: "sonnet", description: "Sonnet 5 with 1M context" }), 1_000_000);
+  assert.equal(contextCapacity({ id: "opus", name: "Opus (1M context)" }), 1_000_000);
+  assert.equal(contextCapacity("claude-opus-5-5[1m]"), 1_000_000);
+  assert.equal(contextCapacity({ id: "claude-opus-5-5" }), null);
+  assert.equal(contextCapacity(null), null);
+});
+
+test("a level lights its place in the model's own list on four bars, and the top level a mark", () => {
+  // "4+" is all four bars with the top level's mark.
+  const bars = (levels, list) => levels.map(level => { const shown = effortBars(level, list); return shown.top ? "4+" : shown.bars; });
+  const claude = ["low", "medium", "high", "xhigh", "max"];
+  assert.deepEqual(bars(claude, claude), [1, 2, 3, 4, "4+"], "every Claude level has its own look");
+  // Short lists count up from one bar, so no two levels share one.
+  assert.deepEqual(bars(["low", "high"], ["low", "high"]), [1, "4+"]);
+  assert.deepEqual(bars(["low", "medium", "high"], ["off", "low", "medium", "high"]), [1, 2, "4+"], "Medium stays apart from High");
+  assert.deepEqual(bars(["low", "medium", "high", "xhigh"], ["low", "medium", "high", "xhigh"]), [1, 2, 3, "4+"]);
+  assert.deepEqual(bars(["high"], ["high"]), ["4+"], "a model with one level shows it as its top");
+  // Longer lists share the lowest bar, once.
+  const codex = ["low", "medium", "high", "xhigh", "max", "ultra"];
+  assert.deepEqual(bars(codex, codex), [1, 1, 2, 3, 4, "4+"]);
+  const pi = ["minimal", "low", "medium", "high", "xhigh", "max"];
+  assert.deepEqual(bars(pi, ["off", ...pi]), [1, 1, 2, 3, 4, "4+"]);
+  // Seven levels into four bars share it twice, still at the low end.
+  const every = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+  assert.deepEqual(bars(every, every), [1, 1, 1, 2, 3, 4, "4+"]);
+  // Grok lists its levels from Extra high down; they are ranked all the same.
+  assert.deepEqual(bars(["low", "high", "xhigh"], ["xhigh", "high", "medium", "low"]), [1, 3, "4+"]);
+  // A level outside the model's list is placed on the full scale, topped by Max.
+  assert.deepEqual(bars(["max", "xhigh", "minimal", "ultra"], []), ["4+", 4, 1, "4+"]);
+  assert.deepEqual(effortBars("off", claude), { state: "off", bars: 0, top: false });
+  assert.deepEqual(effortBars("none", claude), { state: "off", bars: 0, top: false });
+  assert.deepEqual(effortBars("auto", claude), { state: "auto", bars: 0, top: false });
+  assert.deepEqual(effortBars("", claude), { state: "none", bars: 0, top: false });
+  assert.equal(levelName("xhigh"), "Extra high");
+  assert.equal(levelName("max"), "Max");
 });

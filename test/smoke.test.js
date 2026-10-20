@@ -787,7 +787,7 @@ test("simplified mobile UI keeps one project action, one model control, and port
   assert.doesNotMatch(html, /id="composer-thinking"|id="stream-dot"|id="fab-new"|id="set-session-count"/);
   assert.match(html, /id="btn-model"[^>]*title="Model &amp; reasoning"/);
   assert.match(app, /function updateNewProjectAffordance\(\)/);
-  assert.match(app, /function updateComposerSummary\(modelName, thinkingLevel\)/);
+  assert.match(app, /function updateComposerSummary\(modelName, thinkingLevel, reasoning = null\)/);
   assert.match(app, /const ACTIVITY_STATUS_KEYS/);
   assert.match(app, /screen\.orientation\.lock\("portrait"\)/);
   assert.match(css, /#setting-sidebar-width-row\s*\{\s*display:\s*none/);

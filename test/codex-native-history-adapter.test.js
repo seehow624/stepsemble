@@ -276,6 +276,34 @@ test("Codex composer adapter forwards images and overrides, isolates usage by th
   assert.equal(calls.length, 2);
 });
 
+test("Codex steer goes through the intent journal as turn.steer and settles on Codex's answer", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-steer-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  let options;
+  const steers = [];
+  const fake = {
+    async initialize() {},
+    async listThreads() { return { kind: "threads", data: [thread({ id: "thread-a", sessionId: "session-a" })], nextCursor: null }; },
+    state() { return { threadId: "thread-a", turnId: "turn-a", state: "turn_running" }; },
+    async steerTurn(input, steer, threadId) {
+      const dispatch = await options.authorizeNative("turn.steer", { threadId, turnId: steer.expectedTurnId, params: { input } });
+      steers.push({ input, steer, threadId });
+      return { kind: "steered", threadId, turnId: steer.expectedTurnId, dispatch };
+    },
+    async close() { return { kind: "closed", cleanupConfirmed: true }; },
+  };
+  const adapter = createCodexNativeHistoryAdapter({ enabled: true, mutationEnabled: true, executable: process.execPath, cwd: temp,
+    journalFile: path.join(temp, "mutations.json"), clock: () => 2_000_000_000_000, transportFactory: async incoming => { options = incoming; return fake; } });
+  t.after(() => adapter.close());
+  assert.equal((await adapter.refresh()).ready, true);
+  const result = await adapter.steerTurn("thread-a", [{ type: "text", text: "also" }], { expectedTurnId: "turn-a", clientUserMessageId: "11111111-2222-4333-8444-555555555555" });
+  assert.equal(result.kind, "steered");
+  assert.deepEqual(steers[0].steer, { expectedTurnId: "turn-a", clientUserMessageId: "11111111-2222-4333-8444-555555555555" });
+  const row = adapter.mutationStatus().operations.at(-1);
+  assert.equal(row.operation, "turn.steer"); assert.equal(row.state, "succeeded");
+  assert.deepEqual(await adapter.steerTurn("thread-b", [{ type: "text", text: "x" }], { expectedTurnId: "turn-a" }), { kind: "reject", code: "native_thread_mismatch" });
+});
+
 test("Codex native context snapshots restore only the exact thread after adapter recreation", async t => {
   if (typeof process.getuid !== "function") { t.skip("Owner-only snapshot persistence requires POSIX ownership proof"); return; }
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-codex-native-context-"));

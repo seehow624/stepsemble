@@ -7,13 +7,11 @@
 // Shared by the Host and scripts/check-native-claude-release.mjs, which
 // checks that a new Claude Code still writes a transcript this can read.
 
-const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
 const ENTRY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
-const MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024;
 
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR && path.isAbsolute(env.CLAUDE_CONFIG_DIR)
@@ -26,35 +24,51 @@ function claudeTranscriptFile(nativeSessionId, cwd, { configDir = claudeConfigDi
   return path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
 }
 
-function claudeForkPointFromRows(rows, messageId) {
-  if (typeof messageId !== "string" || !messageId) return null;
-  const entries = (Array.isArray(rows) ? rows : [])
-    .filter(row => row && typeof row.uuid === "string" && (row.type === "user" || row.type === "assistant"));
-  const personWrote = row => {
-    if (row.type !== "user" || row.isMeta === true) return false;
-    const content = row.message?.content;
-    const text = typeof content === "string" ? content
-      : Array.isArray(content) ? content.filter(part => part?.type === "text").map(part => part.text || "").join("") : "";
-    return !!text.trim() && !/^\s*<(task-notification|local-command-)/.test(text);
-  };
-  let at = -1;
-  entries.forEach((row, index) => { if (row.type === "assistant" && row.message?.id === messageId) at = index; });
-  if (at < 0) return null;
-  let end = at;
-  for (let index = at + 1; index < entries.length && !personWrote(entries[index]); index += 1) end = index;
-  return ENTRY_ID.test(entries[end].uuid) ? entries[end].uuid : null;
+// A message the person wrote starts a turn; a tool's result, a task's notice
+// and Claude's own notes are recorded as theirs but do not.
+function personWrote(row) {
+  if (row.type !== "user" || row.isMeta === true) return false;
+  const content = row.message?.content;
+  const text = typeof content === "string" ? content
+    : Array.isArray(content) ? content.filter(part => part?.type === "text").map(part => part.text || "").join("") : "";
+  return !!text.trim() && !/^\s*<(task-notification|local-command-)/.test(text);
 }
 
-function claudeForkPoint(nativeSessionId, messageId, cwd, { configDir = claudeConfigDir() } = {}) {
+// The branch points of a transcript read entry by entry: each reply's message
+// id to the last entry of the turn it was last seen in, as far as read.
+function createForkPoints() {
+  const turns = new Map();
+  let turn = { end: null };
+  return {
+    record(row) {
+      if (!row || typeof row.uuid !== "string" || row.type !== "user" && row.type !== "assistant") return;
+      if (personWrote(row)) { turn = { end: null }; return; }
+      turn.end = row.uuid;
+      const id = row.type === "assistant" ? row.message?.id : null;
+      if (typeof id === "string" && id) turns.set(id, turn);
+    },
+    get(messageId) {
+      const end = typeof messageId === "string" && messageId ? turns.get(messageId)?.end : null;
+      return typeof end === "string" && ENTRY_ID.test(end) ? end : null;
+    },
+  };
+}
+
+function claudeForkPointFromRows(rows, messageId) {
+  const points = createForkPoints();
+  for (const row of Array.isArray(rows) ? rows : []) points.record(row);
+  return points.get(messageId);
+}
+
+// catalog: the Host's history catalog, whose reader streams the transcript
+// and reads on from where it stopped when the same one is asked again.
+// Without one, the transcript is streamed once.
+async function claudeForkPoint(nativeSessionId, messageId, cwd, { configDir = claudeConfigDir(), catalog = null } = {}) {
   const file = claudeTranscriptFile(nativeSessionId, cwd, { configDir });
   if (!file || typeof messageId !== "string" || !messageId) return null;
-  let rows;
-  try {
-    const stat = fs.statSync(file);
-    if (!stat.isFile() || stat.size > MAX_TRANSCRIPT_BYTES) return null;
-    rows = fs.readFileSync(file, "utf8").split("\n").map(line => { try { return JSON.parse(line); } catch { return null; } });
-  } catch { return null; }
-  return claudeForkPointFromRows(rows, messageId);
+  const reader = catalog || require("./native-history-catalog").createNativeHistoryCatalog();
+  try { return await reader.claudeForkPoint(file, messageId); }
+  finally { if (!catalog) await reader.shutdown(); }
 }
 
-module.exports = { claudeConfigDir, claudeTranscriptFile, claudeForkPointFromRows, claudeForkPoint };
+module.exports = { claudeConfigDir, claudeTranscriptFile, createForkPoints, claudeForkPointFromRows, claudeForkPoint };

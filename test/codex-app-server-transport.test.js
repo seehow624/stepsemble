@@ -1000,10 +1000,11 @@ test("Codex native transport rejects authorization races and malformed turn life
   assert.equal(transport.state().failure, "native_turn_mismatch");
 });
 
-test("Codex thread resume restores an active turn and refuses a second turn", async t => {
+test("Codex thread resume restores an active turn; a second message steers it instead of starting a second turn", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);
-  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("resume-receipt") });
+  const authorized = [];
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async (operation, context) => { authorized.push({ operation, context }); return proof("resume-receipt"); } });
   t.after(() => transport.close());
   const initializing = transport.initialize();
   let request = await writes.next();
@@ -1020,6 +1021,54 @@ test("Codex thread resume restores an active turn and refuses a second turn", as
   assert.equal(result.turnId, "turn-active");
   assert.equal(transport.state().state, "turn_running");
   assert.equal((await transport.startTurn([{ type: "text", text: "must not start" }])).code, "native_lifecycle_conflict");
+  // The message goes into the turn under way, named by the turn it expects.
+  assert.equal((await transport.steerTurn([{ type: "text", text: "x" }], { expectedTurnId: "turn-other" })).code, "native_turn_mismatch");
+  const steering = transport.steerTurn([{ type: "text", text: "also check the docs" }], { expectedTurnId: "turn-active", clientUserMessageId: "11111111-2222-4333-8444-555555555555" }, "thread-resume");
+  request = await writes.next();
+  assert.equal(request.method, "turn/steer");
+  assert.deepEqual(request.params, { threadId: "thread-resume", expectedTurnId: "turn-active", input: [{ type: "text", text: "also check the docs" }], clientUserMessageId: "11111111-2222-4333-8444-555555555555" });
+  assert.equal(authorized.at(-1).operation, "turn.steer");
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { turnId: "turn-active" } });
+  const steered = await steering;
+  assert.equal(steered.kind, "steered"); assert.equal(steered.turnId, "turn-active");
+  assert.equal(transport.state().state, "turn_running", "the turn goes on");
+  assert.equal(writes.rows.some(row => row.method === "turn/start"), false);
+});
+
+test("Codex steer: a refused or unknown turn/steer is told apart, and the steered message reports its id", async t => {
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const events = [];
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof("steer-receipt"), onEvent: event => events.push(event) });
+  t.after(() => transport.close());
+  const initializing = transport.initialize();
+  let request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.153.4" } });
+  await initializing; await writes.next();
+  const resumed = transport.resumeThread({ threadId: "thread-steer" });
+  await answerTurns(writes, child, "thread-steer", [{ id: "turn-live", status: "inProgress" }]);
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-steer", status: { type: "active", activeFlags: [] }, turns: [] } } });
+  await answerTurns(writes, child, "thread-steer", [{ id: "turn-live", status: "inProgress" }]);
+  await resumed;
+  // Codex refuses a steer whose turn is no longer the active one.
+  let steering = transport.steerTurn([{ type: "text", text: "late" }], { expectedTurnId: "turn-live" });
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, error: { code: -32600, message: "expected turn is not active" } });
+  assert.equal((await steering).code, "native_steer_rejected");
+  // An older Codex has no turn/steer at all.
+  steering = transport.steerTurn([{ type: "text", text: "old" }], { expectedTurnId: "turn-live" });
+  request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, error: { code: -32600, message: "Invalid request: unknown variant `turn/steer`, expected one of `initialize`" } });
+  assert.equal((await steering).code, "native_method_unsupported");
+  assert.equal(transport.state().failure, null, "neither refusal ends the connection");
+  frame(child, { jsonrpc: "2.0", method: "item/started", params: { threadId: "thread-steer", turnId: "turn-live",
+    item: { id: "item-user", type: "userMessage", clientId: "11111111-2222-4333-8444-555555555555", content: [{ type: "text", text: "late" }] } } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(events.find(event => event.type === "item.started" && event.itemType === "userMessage")?.clientId, "11111111-2222-4333-8444-555555555555");
+  frame(child, { jsonrpc: "2.0", method: "turn/completed", params: { threadId: "thread-steer", turn: { id: "turn-live", status: "completed", items: [] } } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await transport.steerTurn([{ type: "text", text: "after" }], { expectedTurnId: "turn-live" })).code, "native_turn_not_running");
 });
 
 test("Codex thread resume accepts the thread's status and last usage that Codex reports around its answer", async t => {

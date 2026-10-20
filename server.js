@@ -30,7 +30,9 @@ const { piImageInputs } = require("./server/prompt-attachments");
 // ACP agents read a prompt as one stdin line, so theirs is kept smaller.
 const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
 const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
-const { createNativeComposerRoutes } = require("./server/native-composer-routes");
+const { createNativeComposerRoutes, withObservedContext } = require("./server/native-composer-routes");
+const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = require("./server/composer-queue");
+const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver } = require("./server/composer-queue-drivers");
 const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createPiChoice } = require("./server/pi-choice");
@@ -100,7 +102,9 @@ const { createTurnRateStore } = require("./server/turn-rate-store");
 const { createCodexReleaseCheck } = require("./server/codex-release-check");
 const { createCodexAutoUpgrade, createHarnessAutoUpgrade } = require("./server/codex-auto-upgrade");
 const { createAgentReleaseGate } = require("./server/agent-release-gate");
-const { claudeForkPoint: claudeForkPointAt, claudeConfigDir } = require("./server/claude-fork-point");
+const { claudeForkPoint: claudeForkPointAt, claudeConfigDir, claudeTranscriptFile } = require("./server/claude-fork-point");
+const { createClaudeTranscriptUsage, lastObservedContext } = require("./server/claude-transcript-usage");
+const { matchModel, modelTags, contextCapacity } = require("./public/modules/model-presentation");
 const { loadHistoryConfig, createHistoryHost, disabledHistoryHost } = require("./server/history-host");
 const {
   BROWSER_COOKIE,
@@ -2215,6 +2219,7 @@ onEvent: event => {
   // A sub-agent's approval holds up this conversation's turn, so it counts
   // for the conversation (a Goal pauses its clock while it waits).
   hostRates.codex(event); workflowEvents.emit("codex", event.parentThreadId || event.request?.parentThreadId || event.threadId || event.request?.threadId, event);
+  composerQueue.observe("codex", event.threadId, event);
 } });
 if (codexNative.status().configured) void codexNative.refresh();
 // Grok ACP is likewise opt-in. The process is not spawned until a session is
@@ -2282,34 +2287,15 @@ function acpAdapterForAgent(agentId) {
   return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : agentId === "omp" ? ompAcp : null;
 }
 
-// The model a Claude conversation last answered with, read from the end of
-// Claude's own transcript. A conversation from before choices were kept is
-// reopened with it rather than with whatever was chosen last elsewhere.
-function claudeTranscriptModel(nativeSessionId, cwd) {
-  const id = String(nativeSessionId || "");
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(id) || typeof cwd !== "string" || !path.isAbsolute(cwd)) return null;
-  const configDir = process.env.CLAUDE_CONFIG_DIR && path.isAbsolute(process.env.CLAUDE_CONFIG_DIR)
-    ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.HOME || os.homedir(), ".claude");
-  // Claude names a project's folder after its path, every other character a dash.
-  const file = path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
-  let fd;
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    const stat = fs.fstatSync(fd);
-    if (!stat.isFile()) return null;
-    const length = Math.min(stat.size, 512 * 1024);
-    const buffer = Buffer.alloc(length);
-    fs.readSync(fd, buffer, 0, length, stat.size - length);
-    const lines = buffer.toString("utf8").split("\n");
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      const line = lines[index];
-      if (!line.includes('"assistant"') || !line.includes('"model"')) continue;
-      let row; try { row = JSON.parse(line); } catch { continue; }
-      const model = row?.type === "assistant" ? row.message?.model : null;
-      if (typeof model === "string" && model !== "<synthetic>" && /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,255}$/.test(model)) return model;
-    }
-  } catch {} finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch {} } }
-  return null;
+// The last turn a Claude conversation recorded, read from the end of Claude's
+// own transcript: the model it answered with, the level it thought at and the
+// context it had (server/claude-transcript-usage.js). A conversation from
+// before choices were kept is reopened with them rather than with whatever was
+// chosen last elsewhere, and one whose process is gone shows them.
+const claudeTranscripts = createClaudeTranscriptUsage();
+function claudeTranscriptTurn(nativeSessionId, cwd) {
+  const file = claudeTranscriptFile(nativeSessionId, cwd, { configDir: claudeConfigDir(process.env) });
+  return file ? claudeTranscripts.lastTurn(file) : null;
 }
 const claudeStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_CLAUDE_STRUCTURED || "").trim().toLowerCase());
 
@@ -2332,9 +2318,10 @@ function forkRequest(value) {
 }
 const forkFailure = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 
-// The Claude entry a branch ends at (server/claude-fork-point.js).
+// The Claude entry a branch ends at (server/claude-fork-point.js), read
+// through the history catalog's transcript reader.
 function claudeForkPoint(nativeSessionId, messageId, cwd) {
-  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env) });
+  return claudeForkPointAt(nativeSessionId, messageId, cwd, { configDir: claudeConfigDir(process.env), catalog: nativeHistoryCatalog });
 }
 
 // Pi's package, found from its command, for the branch script.
@@ -3133,6 +3120,7 @@ function broadcast(sid, event) {
   trackStreaming(sid, event);
   hostRates.pi(sid, event);
   workflowEvents.emit("pi", sid, event);
+  composerQueue.observe("pi", sid, event);
   s.meta.lastActivityAt = Date.now();
   const data = JSON.stringify(event);
   const packet = { seq: ++s.eventSeq, event, bytes: Buffer.byteLength(data) };
@@ -4016,6 +4004,19 @@ function rpcCommand(sid, cmd) {
 }
 
 // 在 stdout 事件流裡把帶 id 的 response 交給 pending 的 rpcCommand
+
+// Stop. Pi's own queue is emptied first, or Pi would go on with it once
+// stopped; what it held waits in the Host's queue, which pauses.
+async function stopPi(sid) {
+  const session = rpcSessions.get(sid);
+  if (!session || session.exited) return false;
+  composerQueue.pause("pi", sid);
+  if (session.state.pendingMessageCount > 0) {
+    const cleared = await Promise.race([rpcCommand(sid, { type: "clear_queue" }).catch(() => null), new Promise(resolve => setTimeout(resolve, 2000, null))]);
+    if (cleared?.success) composerQueue.reclaim("pi", sid, [...(cleared.data?.steering || []), ...(cleared.data?.followUp || [])]);
+  }
+  return rpcWrite(sid, { type: "abort" });
+}
 
 // 沒有開啟 session 時，設定頁仍需要一份模型目錄；用短命 RPC 讀取，
 // 不送 prompt、不寫對話，收到結果後立即結束。已有 session 則優先復用它。
@@ -5168,7 +5169,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         if (desktopClaude && !(await desktopClaude.forkSupported().catch(() => false))) {
           throw forkFailure("claude_helper_update_required", "Stepsemble's Claude Code helper is updating; try branching again in a moment");
         }
-        const at = claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
+        const at = await claudeForkPoint(fork.sessionId, fork.messageId, nativeAgentDirectory(cwd, "Claude Code"));
         if (!at) throw forkFailure("claude_fork_point_missing", "Claude Code does not have this reply in its record yet");
         claudeFork = { from: fork.sessionId, at, sessionId: crypto.randomUUID() };
       } else {
@@ -5329,9 +5330,11 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       // opened again keeps its own.
       const claudeChoice = !resumeSessionId && body.choice ? body.choice : choiceForSession("claude-code", resumeSessionId);
       // A conversation from before choices were kept has none of its own;
-      // it keeps the model it last answered with.
-      const transcriptModel = resumeSessionId && !agentChoices.session("claude-code", resumeSessionId)?.model
-        ? claudeTranscriptModel(resumeSessionId, sessionCwd) : null;
+      // it keeps the model and level it last answered with.
+      const ownClaudeChoice = resumeSessionId ? agentChoices.session("claude-code", resumeSessionId) || {} : {};
+      const transcriptTurn = resumeSessionId && (!ownClaudeChoice.model || !ownClaudeChoice.effort) ? claudeTranscriptTurn(resumeSessionId, sessionCwd) : null;
+      const transcriptModel = !ownClaudeChoice.model ? transcriptTurn?.model || null : null;
+      const transcriptEffort = !ownClaudeChoice.effort ? transcriptTurn?.effort || null : null;
       let launchedClaude = null;
       const session = await launchClaudeStructuredSession({ desktopClient: desktopClaude,
         onCapacity: () => parkIdleClaudeStructuredSession({ sessions: claudeStructuredSessions, excludeSessionId: resumeSessionId,
@@ -5339,12 +5342,12 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
             && (status.turnEndedAt > 0 || nativeHistoryCatalog.updatedAt("claude-code", id) > 0),
           beforeSuspend: keepClaudeSessionSettings,
         }),
-        onRateEvent: event => { hostRates.claude(localId, event); workflowEvents.emit("claude-code", localId, event); },
+        onRateEvent: event => { hostRates.claude(localId, event); workflowEvents.emit("claude-code", localId, event); composerQueue.observe("claude-code", localId, event); },
         command: claudeStructuredCommand, cwd: sessionCwd, env: { ...process.env, ...claudeOverrides },
         // The desktop helper asks its own Claude CLI the same question.
         allowBypass: desktopClaude ? false : await claudeSupportsBypass(claudeStructuredCommand, { env: { ...process.env, ...claudeOverrides } }),
         initialPermissionMode: resumeSessionId ? agentModes.get("claude-code", resumeSessionId) : null,
-        initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: claudeChoice?.effort || null,
+        initialModel: transcriptModel || claudeChoice?.model || null, initialEffort: transcriptEffort || claudeChoice?.effort || null,
         name: sessionName, permissionPromptTool: claudePermissionPromptTool, sessionId: resumeSessionId,
         fork: claudeFork ? { at: claudeFork.at, sessionId: claudeFork.sessionId } : null,
         onEvent: event => { claudeIdleRelease.note(localId); try { if (event?.sessionId) {
@@ -5703,22 +5706,97 @@ const handleSubagentDetailRoute = require("./server/subagent-detail").createSuba
   detail: require("./server/subagent-detail").createSubagentDetail({ resolve: key => workspaceRegistry.get(key), codex: codexNative, openCode: openCodeNative,
     approvalUnavailable: id => subagentApprovalUnavailable.has(id) }) });
 
-// A Claude conversation whose process was let go, by its local key or Claude's
-// own id: what its next process starts with, and the models Claude listed
-// last with their reasoning levels.
+// The last turn a conversation this Host knows recorded in its transcript.
+function knownClaudeTurn(nativeSessionId) {
+  const row = claudeStructuredKnownSessions.get(nativeSessionId);
+  return row?.cwd ? claudeTranscriptTurn(nativeSessionId, row.cwd) : null;
+}
+// What a conversation ran with last: the catalog's entry for the model its
+// transcript names, or that model with its 1M context.
+function claudeTurnChoice(turn, models, effort = null) {
+  if (!turn) return {};
+  const row = matchModel(models, turn.requestedModel || turn.model, { effort: effort || turn.effort })
+    || matchModel(models, turn.model, { effort: effort || turn.effort });
+  const wide = modelTags(turn.requestedModel).wide && !modelTags(turn.model).wide;
+  return { model: row?.id || turn.model + (wide ? "[1m]" : ""), ...(turn.effort ? { effort: turn.effort } : {}) };
+}
+// The context a live conversation that has not answered since it started was
+// at, from its transcript, as a last observation.
+function claudeObservedContext(nativeSessionId, effort = null) {
+  return lastObservedContext(knownClaudeTurn(nativeSessionId), { models: agentModelCache.get("claude-code").models, effort });
+}
+
+// A Claude conversation whose process was let go or has stopped, by its local
+// key or Claude's own id: what its next process starts with, the models Claude
+// listed last with their reasoning levels, and the context it was at. Its own
+// choice comes first, then what its transcript says it ran with; the agent's
+// last choice elsewhere only for one with neither. The transcript outlives a
+// Host restart, which forgets processes let go.
 function savedClaudeConversation(value) {
   const id = String(value || "").replace(/^claude-code:/, "");
   const released = claudeIdleRelease.released(id);
   const nativeSessionId = released?.nativeSessionId || id;
   if (!released && !claudeStructuredKnownSessions.has(nativeSessionId)) return null;
-  return { nativeSessionId, choice: choiceForSession("claude-code", nativeSessionId),
-    models: agentModelCache.get("claude-code").models,
-    context: released ? () => released.session.contextUsage() : null };
+  const models = agentModelCache.get("claude-code").models;
+  const own = agentChoices.session("claude-code", nativeSessionId) || {};
+  const turn = knownClaudeTurn(nativeSessionId);
+  const choice = { ...(agentChoices.last("claude-code") || {}), ...claudeTurnChoice(turn, models, own.effort), ...own };
+  return { nativeSessionId, choice: Object.keys(choice).length ? choice : null, models,
+    context: () => {
+      const live = released ? released.session.contextUsage() : null;
+      if (live && live.contextTokens !== null) return live;
+      const observed = lastObservedContext(turn, { models, effort: choice.effort });
+      if (!observed) return live;
+      // Measured against the model the next turn runs with, when its entry states a capacity.
+      const next = contextCapacity(matchModel(models, choice.model, { effort: choice.effort }));
+      return withObservedContext({ model: observed.model, contextWindow: next, contextTokens: null }, observed);
+    } };
+}
+// Messages sent while an agent works (server/composer-queue.js). The Host
+// sends them one per turn when a turn ends, with or without a page open.
+const piQueueDriver = createPiQueueDriver({ sessions: rpcSessions, command: rpcCommand, sessionFileOf: rpcSessionFileOf });
+// The workspace entry of a queued conversation, for its Goal and compaction locks.
+function composerQueueEntry(agent, id) {
+  const sids = agent === "pi" ? new Set(piQueueDriver.liveSids(id)) : null;
+  return workspaceRegistry.list().entries.find(row => row.record.agentId === agent && (agent === "pi" ? row.record.file === id || sids.has(row.record.sid)
+    : agent === "codex" ? row.record.nativeThreadId === id || row.record.id === `codex:${id}`
+      : row.record.nativeSessionId === id || row.record.id === `claude-code:${id}`)) || null;
+}
+const composerQueue = createComposerQueue({
+  store: createComposerQueueStore({ file: path.join(CONFIG_DIR, "composer-queue.json") }),
+  drivers: {
+    pi: piQueueDriver,
+    codex: createCodexQueueDriver({ codex: codexNative, ensure: ensureCodexNativeProbe, permissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)) }),
+    "claude-code": createClaudeQueueDriver({ resolveSession: resolveClaudeStructuredSession, send: sendToClaudeStructured,
+      saved: value => savedClaudeConversation(value)?.nativeSessionId || null }),
+  },
+  // A Goal or a compaction holds its conversation; queued messages wait.
+  locked: (agent, id) => { const entry = composerQueueEntry(agent, id); return !!entry && (workflows.locked(entry.key) || compactions.locked(entry.key)); },
+  // Pi's page hears its stream; Codex and Claude pages read the queue with
+  // the state they poll.
+  onChange: (agent, id, queue) => {
+    if (agent !== "pi") return;
+    const frame = sseFrame({ type: "composer_queue", queue: { ...queue, canJump: true } }, null, null);
+    for (const sid of piQueueDriver.liveSids(id)) for (const res of rpcSessions.get(sid)?.clients || []) trySseWrite(res, frame);
+  },
+  log: error => console.warn("[stepsemble] Queued message:", error?.message || error),
+});
+function composerQueueAdmit(agent, ref) {
+  let id;
+  try { id = composerQueue.resolve(agent, ref); } catch { return null; }
+  const entry = composerQueueEntry(agent, id);
+  return entry && workflows.locked(entry.key) ? "queue_goal_running" : null;
+}
+const handleComposerQueueRoute = createComposerQueueRoutes({ queue: composerQueue, readJSON, sendJSON, admit: composerQueueAdmit });
+// The queue as a page shows it, or null where the conversation has none.
+function composerQueueSnapshot(agent, ref) {
+  try { return composerQueue.snapshot(agent, ref); } catch { return null; }
 }
 const handleNativeComposerRoute = createNativeComposerRoutes({
-  codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession,
+  codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession, composerQueue,
   codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
   observeCodex: threadId => codexPersistedObserver.observe(threadId),
+  observeClaude: claudeObservedContext,
   validateDirectory: nativeAgentDirectory, readJSON, sendJSON, gateway: openCodexGateway,
   onModels: (agentId, models) => agentModelCache.record(agentId, models),
   onChoice: (agentId, sessionId, choice) => agentChoices.record(agentId, sessionId, choice),
@@ -6024,6 +6102,9 @@ const server = http.createServer(async (req, res) => {
       // the latest copy after replay makes reconnects deterministic without
       // advancing Last-Event-ID or causing old message events to replay.
       for (const widget of s.widgets.values()) trySseWrite(res, sseFrame(widget, null, null));
+      // The queue is state too: the page shows it as it is now.
+      const queued = composerQueueSnapshot("pi", sid);
+      if (queued) trySseWrite(res, sseFrame({ type: "composer_queue", queue: queued }, null, null));
       if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
       if (s.exited) { cleanup(); try { res.end(); } catch {} return; }
       ping = setInterval(() => { trySseWrite(res, ": ping\n\n"); }, 15000);
@@ -6686,6 +6767,7 @@ const server = http.createServer(async (req, res) => {
       if (await handleSubagentDetailRoute(req, res, url)) return;
       if (await handleHandoffRoute(req, res, url)) return;
       if (await handleNativeComposerRoute(req, res, url)) return;
+      if (await handleComposerQueueRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
       if (await handleHermesAssistantRoute(req, res, url)) return;
       // The model and level last chosen for an agent. Codex applies a choice
@@ -6729,19 +6811,27 @@ const server = http.createServer(async (req, res) => {
           if (!released && !task) { sendJSON(res, 404, { error: "claude_session_unavailable" }); return; }
           const status = released ? { ...released.session.status(), closed: false, state: "waiting", released: true, needsLoad: true }
             : { ...task.nativeStatus, ...claudeIdleRelease.lastProcess(task.nativeSessionId), needsLoad: true };
-          sendJSON(res, 200, p.endsWith("/events") ? { events: released ? since(released.session.events()) : [], status } : { permissions: [], status });
+          sendJSON(res, 200, p.endsWith("/events") ? { events: released ? since(released.session.events()) : [], status, composerQueue: composerQueueSnapshot("claude-code", sessionId) } : { permissions: [], status });
           return;
         }
-        sendJSON(res, 200, p.endsWith("/events") ? { events: since(resolved.session.events()), status: resolved.session.status() }
+        sendJSON(res, 200, p.endsWith("/events") ? { events: since(resolved.session.events()), status: resolved.session.status(), composerQueue: composerQueueSnapshot("claude-code", sessionId) }
           : { permissions: resolved.session.pendingPermissions(), status: resolved.session.status() });
         return;
       }
       if (p === "/api/claude/structured/prompt" && req.method === "POST") {
         try {
           const body = await readJSON(req, PROMPT_ROUTE_BYTES);
-          const result = await sendToClaudeStructured(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
-          sendJSON(res, result?.kind === "reject" ? 409 : 200, result);
-        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed" }); }
+          const text = body?.text || body?.message || "";
+          // A message sent while Claude works waits in the queue for the turn
+          // to end, unless the person sends it into the turn from its chip.
+          if (resolveClaudeStructuredSession(body?.sessionId || "") && await composerQueue.shouldQueue("claude-code", body.sessionId).catch(() => false)) {
+            sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("claude-code", body.sessionId, { text, images: body?.images, deviceId: body?.deviceId }) });
+            return;
+          }
+          const result = await sendToClaudeStructured(body?.sessionId, text, { images: body?.images });
+          if (result?.kind === "sent") composerQueue.noteDirectSend("claude-code", result.nativeSessionId || body?.sessionId);
+          sendJSON(res, result?.kind === "reject" ? 409 : 200, result?.kind === "reject" ? { ...result, error: result.error || result.code } : result);
+        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed", ...(error.code ? { code: error.code } : {}) }); }
         return;
       }
       if (p === "/api/claude/structured/permission" && req.method === "POST") {
@@ -6759,6 +6849,8 @@ const server = http.createServer(async (req, res) => {
           const body = await readJSON(req, 64 * 1024);
           const resolved = resolveClaudeStructuredSession(body?.sessionId || "");
           if (!resolved) { const error = new Error("Claude structured session unavailable"); error.statusCode = 404; error.code = "claude_session_unavailable"; throw error; }
+          // Stop pauses the conversation's queue: nothing more goes in by itself.
+          composerQueue.pause("claude-code", body.sessionId);
           const result = await resolved.session.interrupt();
           sendJSON(res, result.kind === "reject" ? 409 : 200, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_interrupt_failed" }); }
@@ -6947,7 +7039,8 @@ const server = http.createServer(async (req, res) => {
           await ensureCodexNativeProbe();
           const threadId = url.searchParams.get("threadId") || null;
           if (threadId !== null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(threadId)) { sendJSON(res, 400, { error: "invalid_thread_id" }); return; }
-          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(threadId), mutation: codexNative.mutationStatus(threadId), pendingApprovals: codexNative.pendingApprovals(threadId) });
+          sendJSON(res, 200, { adapter: codexNative.status(), capability: codexNative.capability(), native: codexNative.nativeState(threadId), mutation: codexNative.mutationStatus(threadId), pendingApprovals: codexNative.pendingApprovals(threadId),
+            ...(threadId ? { composerQueue: composerQueueSnapshot("codex", threadId) } : {}) });
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "codex_mutation_unavailable" }); }
         return;
       }
@@ -7380,17 +7473,20 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/native-history/session" && req.method === "GET") {
         try {
           const taskId = url.searchParams.get("taskId") || "";
-          let result = await nativeHistoryCatalog.read(taskId);
+          // An older page: the rows before `before`, at most `limit` messages;
+          // tools=0 leaves out Claude's tool calls (a preview of the words).
+          const page = { before: url.searchParams.get("before"), limit: url.searchParams.get("limit"), tools: url.searchParams.get("tools") !== "0" };
+          let result = await nativeHistoryCatalog.read(taskId, page);
           // A Claude branch has no record of its own until its first message:
           // its history is the conversation it comes from, up to the branch.
-          const branch = result?.kind !== "native_history_transcript" && /^claude-history:/.test(taskId)
+          const branch = result?.kind !== "native_history_transcript" && result?.code !== "history_page_invalid" && /^claude-history:/.test(taskId)
             ? claudeStructuredKnownSessions.get(taskId.slice("claude-history:".length)) : null;
           if (branch?.forkedFrom && branch.forkAt) {
-            const origin = await nativeHistoryCatalog.read(`claude-history:${branch.forkedFrom}`, { through: branch.forkAt });
+            const origin = await nativeHistoryCatalog.read(`claude-history:${branch.forkedFrom}`, { through: branch.forkAt, ...page });
             if (origin?.kind === "native_history_transcript") result = { ...origin, sessionId: branch.id, name: branch.name || origin.name, branchOf: branch.forkedFrom };
           }
           if (result?.kind === "native_history_transcript") sendJSON(res, 200, result);
-          else sendJSON(res, result?.code === "history_session_invalid" ? 400 : 404, { error: result?.code || "history_session_unavailable" });
+          else sendJSON(res, ["history_session_invalid", "history_page_invalid"].includes(result?.code) ? 400 : 404, { error: result?.code || "history_session_unavailable" });
         } catch { sendJSON(res, 404, { error: "history_session_unavailable" }); }
         return;
       }
@@ -8337,7 +8433,7 @@ const server = http.createServer(async (req, res) => {
         let ok;
         if (taskId.startsWith("pi:")) {
           const sid = taskId.slice(3);
-          ok = !!sid && rpcWrite(sid, { type: "abort" });
+          ok = !!sid && await stopPi(sid);
         } else if (taskId.startsWith("opencode:")) {
           try { ok = (await hostRates.abortOpenCode(openCodeNative, taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; }
           catch { ok = false; }
@@ -8346,6 +8442,7 @@ const server = http.createServer(async (req, res) => {
         } else if (/^(kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
           try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
         } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
+          composerQueue.pause("claude-code", taskId.slice("claude-code:".length));
           try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.interrupt(); ok = result.kind === "sent"; } catch { ok = false; }
         } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
           try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
@@ -8416,19 +8513,28 @@ const server = http.createServer(async (req, res) => {
         if (message.length > 1_000_000) { sendJSON(res, 413, { error: "message too large" }); return; }
         const s = rpcSessions.get(body.sid);
         if (!s) { sendJSON(res, 404, { error: "no such rpc session" }); return; }
+        // A message sent while Pi works waits in the Host's queue and goes as
+        // the next turn. A slash command keeps Pi's own handling: an
+        // extension command runs at once even while Pi works.
+        if (!message.trimStart().startsWith("/") && await composerQueue.shouldQueue("pi", body.sid).catch(() => false)) {
+          try { sendJSON(res, 200, { queued: true, ...composerQueue.add("pi", body.sid, { text: message, images: body.images, deviceId: body.deviceId }) }); }
+          catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "queue_unavailable", code: error.code || "queue_unavailable" }); }
+          return;
+        }
         const cmd = { type: "prompt", message };
         // 圖片附件：[{type:"image", data:base64, mimeType}]，張數與總大小依 Pi 的預算
         const images = piImageInputs(body.images);
         if (images.length) cmd.images = images;
         if (s.state.isStreaming) cmd.streamingBehavior = "followUp"; // streaming 中自動排隊
         const ok = rpcWrite(body.sid, cmd);
+        if (ok && !s.state.isStreaming) composerQueue.noteDirectSend("pi", body.sid);
         sendJSON(res, ok ? 200 : 409, ok ? { queued: s.state.isStreaming } : { error: "process gone" });
         return;
       }
 
       if (p === "/api/abort" && req.method === "POST") {
         const body = await readJSON(req);
-        sendJSON(res, rpcWrite(body.sid, { type: "abort" }) ? 200 : 404, {});
+        sendJSON(res, await stopPi(body.sid) ? 200 : 404, {});
         return;
       }
 

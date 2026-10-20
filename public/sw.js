@@ -73,6 +73,7 @@ const SHELL = [
   "/modules/client-sdk.js?v=3.9.33",
   "/modules/native-dialogs.js?v=3.9.33",
   "/modules/composer-ime.js?v=3.9.33",
+  "/modules/composer-queue.js?v=3.9.33",
   "/app.js?v=3.9.33",
   "/manifest.webmanifest?v=3.9.33",
   "/stepsemble-glyph.png",

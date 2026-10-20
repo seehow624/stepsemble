@@ -53,6 +53,107 @@
     return value >= 1e6 ? (Math.round(value / 1e5) / 10) + "M" : Math.round(value / 1000) + "k";
   }
 
+  // Reasoning levels from least to most. Agents list theirs in either order
+  // (Grok from Extra high down to Low), so a list is ranked by this one.
+  const LEVEL_ORDER = Object.freeze(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+  const NO_LEVEL = new Set(["off", "none"]);
+  const AUTO_LEVEL = new Set(["auto", "default"]);
+  const LEVEL_NAMES = Object.freeze({ xhigh: "Extra high" });
+  // Magpie names a model with the level it runs at ("claude-opus-5-5:xhigh"),
+  // and Claude marks its 1M context models "[1m]".
+  const EFFORT_SUFFIX = /:(none|off|minimal|low|medium|high|xhigh|max|ultra|auto)$/i;
+  const OPENCODEX_ALIAS = /^(?:claude-ocx|ocx-claude)2?-[^/]+?--(.+)$/i;
+  const VENDOR_ID = /^[A-Za-z0-9][A-Za-z0-9._~-]*\/[^/\s]+$/;
+
+  /** A level as the model button and its menu name it: "Extra high", "Max". */
+  function levelName(level) {
+    const value = String(level || "").trim().toLowerCase();
+    return LEVEL_NAMES[value] || value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  /** A model id without its route, level or tags: "claude/claude-opus-5-5:xhigh[1m]" and "claude-opus-5-5" are one model. */
+  function modelKey(value) {
+    let text = String(value || "").trim().toLowerCase().replace(/\[[^\]]*\]/g, "").replace(EFFORT_SUFFIX, "");
+    const alias = OPENCODEX_ALIAS.exec(text);
+    if (alias) text = alias[1];
+    return text.slice(text.lastIndexOf("/") + 1).trim();
+  }
+
+  /** What a model id says beside the model: a 1M context, and the level it runs at. */
+  function modelTags(value) {
+    const text = String(value || "").trim();
+    const effort = EFFORT_SUFFIX.exec(text.replace(/\[[^\]]*\]/g, ""));
+    return { wide: /\[1m\]/i.test(text), effort: effort ? effort[1].toLowerCase() : null };
+  }
+
+  const rowNames = row => [row.id, row.resolvedModel, row.model].filter(name => typeof name === "string" && name.trim());
+  function rowTags(row) {
+    const tags = rowNames(row).map(modelTags);
+    return { wide: tags.some(tag => tag.wide), effort: tags.find(tag => tag.effort)?.effort || null };
+  }
+
+  /**
+   * The catalog row an agent's report names. Agents name a running model in
+   * full or bare ("claude-opus-5-5"), while a list names it by an alias whose
+   * resolvedModel can carry a route, a level and tags. With several rows for
+   * one model, the one whose level is the conversation's own wins.
+   * @returns the row, or null when none is that model
+   */
+  function matchModel(rows, value, { effort = null } = {}) {
+    const list = (Array.isArray(rows) ? rows : []).filter(row => row && typeof row === "object");
+    const id = String((value && typeof value === "object" ? value.id : value) || "").trim();
+    if (!id || !list.length) return null;
+    const exact = list.find(row => row.id === id);
+    if (exact) return exact;
+    const key = modelKey(id);
+    if (!key) return null;
+    const resolved = list.filter(row => row.resolvedModel === id);
+    const candidates = resolved.length ? resolved : list.filter(row => rowNames(row).some(name => modelKey(name) === key));
+    if (candidates.length < 2) return candidates[0] || null;
+    const wanted = String(effort || "").trim().toLowerCase(), named = modelTags(id);
+    const score = row => {
+      const tags = rowTags(row);
+      return (named.effort && tags.effort === named.effort ? 8 : 0) + (wanted && tags.effort === wanted ? 4 : 0) + (tags.wide === named.wide ? 2 : 0);
+    };
+    return candidates.reduce((best, row) => score(row) > score(best) ? row : best);
+  }
+
+  /** A model's context capacity: the one it states, else 1M when its name or description says so. */
+  function contextCapacity(model) {
+    const row = model && typeof model === "object" ? model : { id: String(model || "") };
+    const stated = Number(row.contextWindow ?? row.context_window);
+    if (Number.isFinite(stated) && stated > 0) return stated;
+    const names = [row.id, row.resolvedModel, row.model, row.name, row.displayName].map(name => String(name || ""));
+    if (names.some(name => /\[1m\]/i.test(name) || /\(1M context\)/i.test(name)) || /\b1M context\b/i.test(String(row.description || ""))) return 1_000_000;
+    return null;
+  }
+
+  /**
+   * The model button's thinking indicator: four bars lit by the level's place
+   * in the model's own list. The list's top level lights all four and a mark
+   * of its own; the others count up from one bar, so Claude's Low to Max is
+   * 1, 2, 3, 4 and 4 with the mark. More than four below the top share the
+   * lowest bar, keeping the levels people switch between apart.
+   * @returns {{ state: "level"|"off"|"auto"|"none", bars: number, top: boolean }}
+   */
+  function effortBars(level, levels = []) {
+    const value = String(level || "").trim().toLowerCase();
+    if (!value) return { state: "none", bars: 0, top: false };
+    if (NO_LEVEL.has(value)) return { state: "off", bars: 0, top: false };
+    if (AUTO_LEVEL.has(value)) return { state: "auto", bars: 0, top: false };
+    let list = [...new Set((Array.isArray(levels) ? levels : []).map(item => String(item?.value ?? item ?? "").trim().toLowerCase())
+      .filter(item => item && !NO_LEVEL.has(item) && !AUTO_LEVEL.has(item)))];
+    if (list.every(item => LEVEL_ORDER.includes(item))) list.sort((a, b) => LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b));
+    // A level outside the model's list is placed on the whole scale, which
+    // tops out at Max unless the level is Codex's Ultra.
+    if (!list.includes(value)) list = LEVEL_ORDER.includes(value) ? LEVEL_ORDER.filter(item => item !== "ultra" || value === "ultra") : [];
+    const index = list.indexOf(value);
+    if (index < 0) return { state: "level", bars: 2, top: false };
+    if (index === list.length - 1) return { state: "level", bars: 4, top: true };
+    const below = list.length - 1;
+    return { state: "level", bars: below <= 4 ? index + 1 : Math.max(1, 4 - (below - 1 - index)), top: false };
+  }
+
   /**
    * @param model a model row from any agent ({ id, name, provider, description, ... })
    * @param agent the agent whose list it is ("claude-code", "codex", "pi", ...)
@@ -64,9 +165,20 @@
     const id = String(row.id || row.modelID || row.model || "").trim();
     const description = String(row.description || "");
     let name = String(row.name || row.displayName || id).trim();
-    let route = "", vendor = "", wide = /\[1m\]$/i.test(id);
+    const resolved = String(row.resolvedModel || "").trim();
+    let route = "", vendor = "", wide = [id, resolved, name].some(text => /\[1m\]$/i.test(text))
+      || (agentId === "claude-code" && /\b1M context\b/i.test(description));
     const notes = [];
     let match;
+    // Claude Code names a model Magpie routes by Magpie's id, with the level
+    // it runs at: "opus" is "claude/claude-opus-5-5:xhigh[1m]". The level
+    // tells such rows apart, so it is noted beside the provider.
+    const preset = modelTags(resolved || id).effort;
+    if (agentId === "claude-code" && VENDOR_ID.test((resolved || id).replace(/\[[^\]]*\]$/, ""))) {
+      route = "Magpie";
+      vendor = (resolved || id).slice(0, (resolved || id).indexOf("/"));
+      if (preset) notes.push(levelName(preset));
+    }
     // Grok lists OpenCodex models as "OCX anthropic/claude-opus-5-5".
     if ((match = /^OCX\s+(.+)$/i.exec(name))) { route = "OpenCodex"; name = match[1]; vendor = "native"; }
     // Codex describes models routed through OpenCodex.
@@ -89,6 +201,8 @@
     else if ((match = /^([^/:]*\s[^/:]*)\/(?:([^:/]+):\s+)?(.+)$/.exec(name))) { route = providerName(match[1]); if (match[2]) vendor = match[2]; name = match[3]; }
     // "anthropic/claude-sonnet-5": a vendor and its model.
     if ((match = /^([A-Za-z0-9][A-Za-z0-9._~-]*)\/(.+)$/.exec(name))) { vendor = match[1].replace(/^~/, ""); name = match[2]; }
+    // A Magpie id's level and 1M tag describe the run, not the model.
+    if (route === "Magpie") name = name.replace(/\[1m\]$/i, () => { wide = true; return ""; }).replace(EFFORT_SUFFIX, "");
     // Brackets: a provider, a 1M context, or a note such as "new" or "$$$$".
     name = name.replace(/\s*\(([^()]*)\)/g, (_, inner) => {
       const text = inner.trim();
@@ -102,7 +216,7 @@
     name = tidy(name);
     // Claude Code names its own models by family ("Opus"); the version is in
     // the description or the full model id.
-    if (agentId === "claude-code" && !route) name = claudeVersionName(description) || claudeVersionName(row.resolvedModel) || claudeVersionName(id) || claudeVersionName(name) || name;
+    if (agentId === "claude-code" && (!route || route === "Magpie")) name = claudeVersionName(description) || claudeVersionName(row.resolvedModel) || claudeVersionName(id) || claudeVersionName(name) || name;
     if (wide && !/(^|\s·\s)1M$/i.test(name)) name = name + " · 1M";
     // The provider: the route and the vendor behind it, without the agent's own id.
     const listed = String(row.providerID || row.provider || "").trim();
@@ -123,5 +237,5 @@
     return [shown.provider, ...shown.notes, context ? context + " ctx" : ""].filter(Boolean).join(" · ");
   }
 
-  return { present, detailLine, providerName, claudeVersionName, contextText };
+  return { present, detailLine, providerName, claudeVersionName, contextText, levelName, modelKey, modelTags, matchModel, contextCapacity, effortBars, LEVEL_ORDER };
 });

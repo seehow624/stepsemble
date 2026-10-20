@@ -36,7 +36,7 @@ const emptyHistoryPage = () => ({ data: [], nextCursor: null, backwardsCursor: n
 const MAX_THREAD_ID = 256;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
-const MUTATION_OPERATIONS = new Set(["thread.start", "thread.resume", "thread.compact", "turn.start", "turn.interrupt", "approval.resolve"]);
+const MUTATION_OPERATIONS = new Set(["thread.start", "thread.resume", "thread.compact", "turn.start", "turn.steer", "turn.interrupt", "approval.resolve"]);
 const MAX_MUTATION_ROWS = 256;
 const MAX_MODEL_ID = 256;
 const MAX_REASONING_EFFORT = 128;
@@ -755,7 +755,7 @@ function createCodexNativeHistoryAdapter({
     // succeeded.  The transport currently exposes that boundary as
     // `written`, so keep it explicitly awaiting confirmation.
     else if (result?.kind === "written") row.state = "awaiting_confirmation";
-    else if (["started", "resumed", "completed", "cancelled"].includes(result?.kind)) {
+    else if (["started", "steered", "resumed", "completed", "cancelled"].includes(result?.kind)) {
       row.state = "succeeded";
       row.evidence = { kind: "native_ack", reference: cleanText(evidenceReference || `${row.operationId}:${result.kind}`, 256) };
     } else if (result?.kind === "reject") row.state = "uncertain";
@@ -1232,6 +1232,22 @@ function createCodexNativeHistoryAdapter({
     return result;
   }
 
+  // A message added to the turn under way; Codex takes it only into the turn
+  // the caller read as active.
+  async function steerTurn(expectedThreadId, input, { expectedTurnId, clientUserMessageId = null } = {}) {
+    requireMutation();
+    if (!validThreadId(expectedThreadId)) return { kind: "reject", code: "native_thread_mismatch" };
+    const normalizedInput = Array.isArray(input) && input.length ? normalizeTurnInput(input) : null;
+    if (!normalizedInput) throw new CodexNativeHistoryError("invalid_turn_input", "Codex turn input is invalid", 400);
+    if (typeof transport?.steerTurn !== "function") return { kind: "reject", code: "native_method_unsupported" };
+    if (typeof transport?.state === "function" && transport.state().threadId !== expectedThreadId) return { kind: "reject", code: "native_thread_mismatch" };
+    let result;
+    try { result = await transport.steerTurn(normalizedInput, { expectedTurnId, clientUserMessageId }, expectedThreadId); }
+    catch (error) { retireBrokenTransport(error); throw error; }
+    settleMutation(result?.dispatch, result, result?.turnId || "turn-steered");
+    return result;
+  }
+
   async function compactThread(expectedThreadId) {
     requireMutation();
     if (!validThreadId(expectedThreadId) || typeof transport?.state === "function" && transport.state().threadId !== expectedThreadId) return { kind: "reject", code: "native_thread_mismatch" };
@@ -1327,6 +1343,7 @@ function createCodexNativeHistoryAdapter({
     changeThreadGoal,
     forkThread,
     startTurn,
+    steerTurn,
     compactThread,
     interruptTurn,
     respondApproval,
