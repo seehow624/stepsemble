@@ -302,7 +302,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   readClaudeCache = () => claudeCache(home, now()), readCodexSignIn = () => codexSignIn(home, env),
   readSignIn = providerId => storedSignIn(home, providerId),
   readProviderQuotas = () => configuredProviderQuotas({ home, fetchImpl, readSignIn }),
-  readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null, now = Date.now }) {
+  readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null,
+  readMagpie = async () => [], now = Date.now }) {
   let cached = null, expires = 0;
   const readClaudeIdentity = createClaudeIdentityReader({ fetchImpl, now });
   function providerRow(provider, settled) {
@@ -328,7 +329,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   }
   // Where each service's allowance comes from. Sources are tried in this order
   // unless Settings prefers one for a service; a source that is off is never read.
-  const DEFAULT_ORDER = ["agents", "pi", "opencodex", "codexbar"];
+  const DEFAULT_ORDER = ["agents", "pi", "magpie", "opencodex", "codexbar"];
   const SERVICE_LABELS = { codex: "Codex", claude: "Claude", "opencode-go": "OpenCode Go", "opencode-free": "OpenCode Zen", minimax: "MiniMax", "minimax-cn": "MiniMax (China)" };
   const OPENCODEX_SERVICES = { anthropic: "claude", openai: "codex" };
   function sourceOrder(service, config) {
@@ -371,13 +372,26 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     let config;
     try { config = normalizeQuotaConfig(await readConfig()); } catch { config = normalizeQuotaConfig(null); }
     const on = id => config.sources[id] !== false;
-    const readings = { agents: new Map(), pi: new Map(), opencodex: new Map(), codexbar: new Map() };
+    const readings = { agents: new Map(), pi: new Map(), magpie: new Map(), opencodex: new Map(), codexbar: new Map() };
     const labels = new Map();
-    const [probed, borrowed, bar] = await Promise.allSettled([
+    const [probed, borrowed, bar, magpie] = await Promise.allSettled([
       on("pi") ? Promise.resolve().then(readProviderQuotas) : [],
       on("opencodex") ? Promise.resolve().then(readOpenCodex) : [],
       on("codexbar") ? Promise.resolve().then(readCodexBar) : null,
+      on("magpie") ? Promise.resolve().then(readMagpie) : [],
     ]);
+    // Magpie reads the subscriptions it is signed in to, and says when.
+    for (const report of magpie.status === "fulfilled" && Array.isArray(magpie.value) ? magpie.value : []) {
+      const service = typeof report?.service === "string" ? report.service : "";
+      const windows = currentWindows((report?.windows || [])
+        .map(w => windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, null, w.windowDurationMins, null))
+        .filter(Boolean), now());
+      if (!service || !windows.length) continue;
+      const readAt = Number.isFinite(report.readAt) ? report.readAt : null;
+      readings.magpie.set(service, { windows, observedAt: readAt !== null && now() - readAt > USAGE_TTL_MS ? readAt : null,
+        sampledAt: readAt ?? now(), source: "magpie", accountKey: report.accountKey || null });
+      if (!labels.has(service)) labels.set(service, report.label || service);
+    }
     for (const row of probed.status === "fulfilled" && Array.isArray(probed.value) ? probed.value : []) {
       const service = Array.isArray(row?.ids) && typeof row.ids[0] === "string" ? row.ids[0] : null;
       if (!service || !row.windows?.length) continue;

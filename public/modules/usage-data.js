@@ -5,9 +5,11 @@
   if (root) root.StepsembleUsageData = api;
 })(typeof window !== "undefined" ? window : null, () => {
   "use strict";
-  const providerAliases = { "openai-codex": "openai", google: "gemini", "z-ai": "z_ai", zai: "z_ai", zhipu: "z_ai", "zhipu-ai": "z_ai", "minimax-cn": "minimax" };
+  // Magpie names the Claude and ChatGPT subscriptions after their agents ("claude/…", "codex/…").
+  const providerAliases = { "openai-codex": "openai", google: "gemini", "z-ai": "z_ai", zai: "z_ai", zhipu: "z_ai", "zhipu-ai": "z_ai", "minimax-cn": "minimax",
+    claude: "anthropic", codex: "openai" };
   const canonicalProvider = provider => Object.hasOwn(providerAliases, provider) ? providerAliases[provider] : provider;
-  const routers = new Set(["opencodex", "opencode-go", "opencode", "openrouter", "antigravity"]);
+  const routers = new Set(["opencodex", "magpie", "opencode-go", "opencode", "openrouter", "antigravity"]);
   const vendors = new Set(["openai", "anthropic", "minimax", "z_ai", "deepseek", "gemini", "xai"]);
   // The recorded provider can identify a router or an API-compatible connection,
   // rather than the model's vendor. Share the same identity for prices and groups.

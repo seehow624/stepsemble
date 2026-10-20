@@ -292,16 +292,23 @@ function existingGatewaySettingsPath(env = process.env) {
   } catch { return null; }
 }
 
+// A gateway's own models: OpenCodex's reversible Claude aliases, or Magpie's
+// "provider/model" ids. Claude's own models carry neither.
+function gatewayAlias(id, gateway) {
+  return gateway === "magpie" ? id.includes("/") : /^(?:claude-ocx|ocx-claude)2?-/i.test(id);
+}
+
 function gatewayModelOptions(env = process.env) {
   if (!env?.ANTHROPIC_BASE_URL) return [];
   const home = typeof env.HOME === "string" && path.isAbsolute(env.HOME) ? env.HOME : os.homedir();
   let value = null;
   try { value = JSON.parse(fs.readFileSync(gatewayCatalogPath(home), "utf8")); } catch {}
   const rows = value?.baseUrl === env.ANTHROPIC_BASE_URL && Array.isArray(value?.models) ? value.models : [];
+  const gateway = value?.gateway === "magpie" ? "magpie" : "opencodex";
   const options = rows.map(row => {
     if (!row || typeof row !== "object") return null;
     const id = modelId(row.id);
-    if (!id || !/^(?:claude-ocx|ocx-claude)2?-/i.test(id)) return null;
+    if (!id || !gatewayAlias(id, gateway)) return null;
     const contextWindow = positiveFinite(row.contextWindow);
     const supportedEffortLevels = Array.isArray(row.supportedEffortLevels)
       ? row.supportedEffortLevels.map(level => String(level).toLowerCase()).filter(level => ["low", "medium", "high", "xhigh", "max"].includes(level))
@@ -309,12 +316,12 @@ function gatewayModelOptions(env = process.env) {
     return {
       id,
       name: safeText(row.name || id, 256) || id,
-      description: safeText(row.description || "OpenCodex gateway", 512),
+      description: safeText(row.description || (gateway === "magpie" ? "Magpie gateway" : "OpenCodex gateway"), 512),
       contextWindow,
       supportsEffort: row.supportsEffort === true || supportedEffortLevels.length > 0,
       supportedEffortLevels: [...new Set(supportedEffortLevels)],
       reasoning: row.supportsEffort === true || supportedEffortLevels.length > 0,
-      gateway: "opencodex",
+      gateway,
     };
   }).filter(Boolean);
   if (value?.baseUrl === env.ANTHROPIC_BASE_URL && Array.isArray(value?.models)) return options.slice(0, MAX_MODELS);
@@ -762,13 +769,14 @@ function createClaudeStructuredSession({
         .slice(0, MAX_MODELS).map(normalizeModelInfo).filter(Boolean);
       const gatewayModels = gatewayModelOptions(env);
       const gatewayById = new Map(gatewayModels.map(model => [model.id, model]));
-      let authoritative = false;
+      let authoritative = false, catalogGateway = "opencodex";
       try {
         const home = env.HOME || os.homedir();
         const catalog = JSON.parse(fs.readFileSync(gatewayCatalogPath(home), "utf8"));
         authoritative = !!env.ANTHROPIC_BASE_URL && catalog.baseUrl === env.ANTHROPIC_BASE_URL && Array.isArray(catalog.models);
+        if (catalog.gateway === "magpie") catalogGateway = "magpie";
       } catch {}
-      const enrichedNativeModels = nativeModels.filter(model => !authoritative || !/^(?:claude-ocx|ocx-claude)2?-/i.test(model.id) || gatewayById.has(model.id)).map(model => {
+      const enrichedNativeModels = nativeModels.filter(model => !authoritative || !gatewayAlias(model.id, catalogGateway) || gatewayById.has(model.id)).map(model => {
         const gateway = gatewayById.get(model.id);
         if (!gateway) return model;
         return {
@@ -782,7 +790,7 @@ function createClaudeStructuredSession({
           supportedEffortLevels: gateway.supportedEffortLevels,
           supportsEffort: gateway.supportsEffort,
           reasoning: gateway.reasoning,
-          gateway: "opencodex",
+          gateway: gateway.gateway,
         };
       });
       const seen = new Set(enrichedNativeModels.map(model => model.id));

@@ -109,11 +109,11 @@ async function listQuotaSources(options = {}) {
 // ---- Which quota sources are used ----
 // Agents: each agent's own sign-in on this host (Codex, Claude Code).
 // Pi: the accounts and API keys signed in through Pi.
-// OpenCodex and CodexBar: local services that read limits themselves.
+// Magpie, OpenCodex and CodexBar: local services that read limits themselves.
 // CodexBar starts off: its CLI can read browser cookies and the keychain, so
 // it runs only after someone turns it on.
-const QUOTA_SOURCE_IDS = Object.freeze(["agents", "pi", "opencodex", "codexbar"]);
-const DEFAULT_SOURCES = Object.freeze({ agents: true, pi: true, opencodex: true, codexbar: false });
+const QUOTA_SOURCE_IDS = Object.freeze(["agents", "pi", "magpie", "opencodex", "codexbar"]);
+const DEFAULT_SOURCES = Object.freeze({ agents: true, pi: true, magpie: true, opencodex: true, codexbar: false });
 const QUOTA_CONFIG_FILE = "quota-sources.json";
 const SERVICE_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
