@@ -100,7 +100,7 @@ html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambien
 html[data-look="bold"] #workspace-main, html[data-look="bold"] #workspace-stage { background: transparent; }
 @media (min-width: 761px) {
   html[data-look="bold"] #workspace-sidebar { margin: 10px 0 10px 10px; padding: 14px 12px 12px; border: 0; border-radius: var(--bold-radius-panel);
-    background: var(--bold-glass);
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--milk) 14%, var(--bold-glass)), var(--bold-glass) 40%);
     box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-panel-shadow); }
   html[data-look="bold"] #workspace-tree { inset: max(10px, env(safe-area-inset-top)) 10px 10px; }
   html[data-look="bold"] .workspace-branch { padding: 0 5px; }
@@ -134,13 +134,15 @@ html[data-look="bold"] .workspace-row-action:active { transform: scale(.9); }
    at rest its padding keeps the first row clear of the fade. */
 html[data-look="bold"] #workspace-projects { padding-top: 12px; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px); mask-image: linear-gradient(to bottom, transparent, #000 14px); }
 html[data-look="bold"] .workspace-search-row { position: relative; z-index: 1; margin-bottom: -10px; }
-html[data-look="bold"] :is(.workspace-session, .workspace-automation) { border-radius: var(--radius-pill); padding-left: 8px;
+html[data-look="bold"] :is(.workspace-session, .workspace-automation) { min-height: 50px; gap: 10px; border-radius: var(--radius-pill); padding-left: 8px;
   transition: background-color .18s ease, box-shadow .18s ease, transform .14s var(--bold-spring); }
 html[data-look="bold"] :is(.workspace-session, .workspace-automation):hover { background: var(--bold-hover); }
 html[data-look="bold"] :is(.workspace-session, .workspace-automation):active { transform: scale(.975); background: var(--bold-press-fill); }
 html[data-look="bold"] .workspace-session[data-open=true] { border-color: var(--bold-select-rim); background: var(--bold-select);
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 4px 14px -8px color-mix(in srgb, var(--accent) 45%, transparent); }
+html[data-look="bold"] .workspace-session strong { font-size: .86rem; font-weight: 620; letter-spacing: -.006em; }
 html[data-look="bold"] .workspace-session[data-open=true] strong { font-weight: 700; }
+html[data-look="bold"] body.compact :is(.workspace-session, .workspace-automation) { min-height: 44px; }
 html[data-look="bold"] :is(#workspace-projects, #workspace-assistant-list) :is(.workspace-session-menu, .workspace-project-add, .workspace-section-add, .workspace-project-menu, .workspace-machine-menu) { border-radius: 50%; }
 html[data-look="bold"] .workspace-session-row:hover .workspace-session-menu, html[data-look="bold"] .workspace-session-menu:hover { background: var(--bold-hover); }
 html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle) { border-radius: 12px; }
@@ -163,7 +165,7 @@ html[data-look="bold"] .workspace-tabs { position: relative; z-index: 3; min-hei
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 .5px 0 var(--bold-hairline), 0 12px 22px -16px var(--bold-bar-shadow); }
 html[data-look="bold"] .workspace-split .workspace-pane[data-focused=true] .workspace-tabs { box-shadow: inset 0 1px 0 var(--glass-edge), 0 .5px 0 var(--bold-hairline), 0 12px 22px -16px var(--bold-bar-shadow); }
 html[data-look="bold"] .workspace-tab > .btn { border-radius: 12px; }
-html[data-look="bold"] .workspace-tab-title { font-size: var(--text-md); font-weight: 700; letter-spacing: -.012em; }
+html[data-look="bold"] .workspace-tab-title { font-size: .92rem; font-weight: 700; letter-spacing: -.014em; }
 html[data-look="bold"] .workspace-tab .agent-logo { flex-basis: 26px; width: 26px; height: 26px; border-radius: 8px; }
 html[data-look="bold"] :is(.workspace-strip-button, .workspace-pane-menu) { border-radius: 50%; transition: background-color .15s ease, transform .14s var(--bold-spring); }
 html[data-look="bold"] :is(.workspace-strip-button, .workspace-pane-menu):hover, html[data-look="bold"] .workspace-pane-menu[aria-expanded=true] { background: var(--bold-hover); }
