@@ -2165,7 +2165,7 @@ function agentHubText(key, vars = {}) {
     taskStoppedToast: "Agent task stopped",
     taskStopFailed: "Could not stop agent task",
     taskReadOnly: "This native history is read-only.",
-    historyPartial: "Some very large records are omitted; the source file was not changed.",
+    historyPartial: "Some very large records are shortened or left out; the source file was not changed.",
     taskNoOutput: "No output yet",
     taskLastActivity: "Updated {value}",
     reconnectingNote: "Reconnecting to the supervisor…",
@@ -2859,8 +2859,9 @@ function appendNativeHistoryTool(tool, agentId, container = el.messages) {
 
 // An agent's history into `container`: its messages, each tool call before
 // the message at its `after` index. Yields now and then so a long history
-// does not hold the page; stops when `current()` turns false.
-async function renderNativeHistory(result, agentId, container, current, { forkFor = null } = {}) {
+// does not hold the page; stops when `current()` turns false. dates: the
+// date separators of a page drawn apart from the one on screen.
+async function renderNativeHistory(result, agentId, container, current, { forkFor = null, dates = null } = {}) {
   const tools = Array.isArray(result?.tools) ? result.tools : [];
   let toolIndex = 0, sliceStarted = performance.now();
   const toolsBefore = index => {
@@ -2876,11 +2877,94 @@ async function renderNativeHistory(result, agentId, container, current, { forkFo
       sliceStarted = performance.now();
     }
     toolsBefore(index);
-    maybeDateSeparator(message.ts || message.timestamp, container);
+    maybeDateSeparator(message.ts || message.timestamp, container, dates);
     appendNativeHistoryMessage(message, agentId, container, { fork: typeof forkFor === "function" ? forkFor(message) : null });
   }
   toolsBefore(Infinity);
   return current();
+}
+
+// A long Claude Code or Codex history comes a page at a time, newest first;
+// the page before starts at row `before`.
+const NATIVE_HISTORY_PAGE = 300;
+function nativeHistoryPath(taskId, before = null) {
+  return `/api/native-history/session?taskId=${encodeURIComponent(taskId)}&limit=${NATIVE_HISTORY_PAGE}${before === null ? "" : `&before=${before}`}`;
+}
+
+function showNativeHistoryNote(partial) {
+  const note = el.taskReplayNote;
+  if (!note) return;
+  if (partial) note.removeAttribute("data-i18n-key");
+  else note.dataset.i18nKey = "agentHub.taskReadOnly";
+  note.textContent = partial ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
+  note.classList.remove("hidden");
+}
+
+// The newest page is drawn; earlier ones come from the control at the top.
+// reload: draws the history again from its newest page.
+function trackNativeHistoryPages(connection, result, { taskId, agentId, forkFor = null, reload }) {
+  const before = Number.isSafeInteger(result?.before) && result.before > 0 ? result.before : null;
+  connection.nativeHistoryPages = { taskId, agentId, forkFor, reload, before, version: typeof result?.sourceVersion === "string" ? result.sourceVersion : null,
+    loading: false, error: null, button: connection.nativeHistoryPages?.button || null };
+  showNativeHistoryOlderButton(connection);
+}
+
+function showNativeHistoryOlderButton(connection) {
+  const state = connection?.nativeHistoryPages;
+  if (!state) return;
+  if (rpc !== connection || state.before === null || !state.version) { state.button?.remove(); return; }
+  if (!state.button) {
+    state.button = document.createElement("button");
+    state.button.type = "button";
+    state.button.className = "history-load-button";
+    state.button.addEventListener("click", () => void loadOlderNativeHistory(connection));
+  }
+  const button = state.button, labelKey = state.loading ? "runtime.historyLoading" : state.error ? "runtime.historyRetry" : "runtime.historyOlder";
+  button.dataset.i18nKey = labelKey;
+  button.textContent = tKey(labelKey);
+  button.disabled = state.loading;
+  button.setAttribute("aria-busy", String(state.loading));
+  if (state.error) button.dataset.autoLoadPaused = "1"; else delete button.dataset.autoLoadPaused;
+  if (el.messages.firstChild !== button) el.messages.prepend(button);
+}
+
+async function loadOlderNativeHistory(connection) {
+  const state = connection?.nativeHistoryPages;
+  if (rpc !== connection || !state || state.loading || state.before === null) return;
+  const current = () => rpc === connection && connection.nativeHistoryPages === state;
+  state.loading = true; state.error = null; showNativeHistoryOlderButton(connection);
+  try {
+    const result = await api(nativeHistoryPath(state.taskId, state.before));
+    if (!current()) return;
+    // A page joins the one on screen only where that one starts. A transcript
+    // read again from its start numbers its rows anew: draw it again instead.
+    if (!Array.isArray(result?.messages) || result.end !== state.before || result.sourceVersion !== state.version
+      || result.before !== null && !(Number.isSafeInteger(result.before) && result.before >= 0 && result.before < state.before)) {
+      state.loading = false;
+      await state.reload?.();
+      return;
+    }
+    const staging = document.createElement("div"), dates = { last: null };
+    if (!await renderNativeHistory(result, state.agentId, staging, current, { forkFor: state.forkFor, dates })) return;
+    // The page on screen already says the date this one ends on.
+    const junction = el.messages.querySelector(".date-sep");
+    if (dates.last && junction?.dataset.date === dates.last) junction.remove();
+    const oldHeight = el.messages.scrollHeight, oldTop = el.messages.scrollTop;
+    const fragment = document.createDocumentFragment();
+    while (staging.firstChild) fragment.appendChild(staging.firstChild);
+    el.messages.insertBefore(fragment, state.button?.parentNode === el.messages ? state.button.nextSibling : el.messages.firstChild);
+    state.before = result.before;
+    if (result.truncated && connection.nativeHistoryReadonly) showNativeHistoryNote(true);
+    layoutWorkLog({ keepScroll: true });
+    el.messages.scrollTop = el.messages.scrollHeight - oldHeight + oldTop;
+    updateScrollBottomButton();
+  } catch (error) {
+    if (!current()) return;
+    state.error = String(error?.message || "history unavailable").slice(0, 128);
+    toast(tKey("runtime.historyFailed", { detail: state.error }), true);
+  } finally {
+    if (current()) { state.loading = false; showNativeHistoryOlderButton(connection); }
+  }
 }
 
 async function openNativeHistoryTask(task, generationOverride = null) {
@@ -2911,7 +2995,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
   const connection = rpc;
   syncGenericInputState();
   try {
-    const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
+    const result = await api(nativeHistoryPath(taskId));
     if (rpc !== connection || generation !== viewGeneration) return;
     if (!Array.isArray(result?.messages)) throw new Error("history_session_invalid");
     const staging = document.createElement("div");
@@ -2919,13 +3003,8 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     el.messages.appendChild(fragment);
-    const note = el.taskReplayNote;
-    if (note) {
-      if (result.truncated) note.removeAttribute("data-i18n-key");
-      else note.dataset.i18nKey = "agentHub.taskReadOnly";
-      note.textContent = result.truncated ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
-      note.classList.remove("hidden");
-    }
+    trackNativeHistoryPages(connection, result, { taskId, agentId, reload: () => openNativeHistoryTask(task) });
+    showNativeHistoryNote(result.truncated === true);
     keepSessionUsageAtEnd(); scrollBottom(true);
     connection.nativeLoading = false; connection.connectionLost = false;
     applyGenericTaskSnapshot({ id: taskId, taskId, agentId, status: "history", nativeHistoryReadonly: true, readOnly: true,
@@ -7005,15 +7084,15 @@ async function loadClaudeNativeHistory(connection, { replace = false } = {}) {
   if (!connection?.claudeHistoryCandidate || !replace && connection.claudeHistoryLoaded || !connection.nativeSessionId) return false;
   const taskId = `claude-history:${connection.nativeSessionId}`;
   try {
-    const result = await api(`/api/native-history/session?taskId=${encodeURIComponent(taskId)}`);
+    const result = await api(nativeHistoryPath(taskId));
     if (rpc !== connection || !Array.isArray(result?.messages) || !result.messages.length) {
       connection.claudeHistoryLoadState = "empty";
       if (rpc === connection) el.messages.dataset.claudeHistory = "empty";
       return false;
     }
     const staging = document.createElement("div");
-    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection,
-      { forkFor: message => message?.role === "assistant" ? claudeReplyFork(connection, message.id) : null })) return false;
+    const forkFor = message => message?.role === "assistant" ? claudeReplyFork(connection, message.id) : null;
+    if (!await renderNativeHistory(result, "claude-code", staging, () => rpc === connection, { forkFor })) return false;
     const fragment = document.createDocumentFragment();
     while (staging.firstChild) fragment.appendChild(staging.firstChild);
     // Drawn again in place: what the page drew live gives way to the
@@ -7023,6 +7102,7 @@ async function loadClaudeNativeHistory(connection, { replace = false } = {}) {
       resetStructuredTranscriptPresentation(connection);
       connection.claudeReplyNode = null; connection.claudeReplyMessageId = null; connection.claudeOutputStart = null;
     } else el.messages.appendChild(fragment);
+    trackNativeHistoryPages(connection, result, { taskId, agentId: "claude-code", forkFor, reload: () => loadClaudeNativeHistory(connection, { replace: true }) });
     connection.claudeHistoryLoaded = true;
     // Claude's messages this history shows, including those that only called
     // a tool, which a live view then does not draw again.
@@ -14857,14 +14937,16 @@ function attachAcpReplyActions(connection, { live = false } = {}) {
 let _lastMsgDate = null; let lastUserText = "";
 let runFailureRendered = false;
 let lastRunFailure = null;
-function maybeDateSeparator(ts, container = el.messages) {
+// dates: the last date of a page drawn apart, in place of the conversation's.
+function maybeDateSeparator(ts, container = el.messages, dates = null) {
   if (!ts) return;
   const d = new Date(ts);
   const key = d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate();
-  if (_lastMsgDate === key) return;
-  _lastMsgDate = key;
+  if ((dates ? dates.last : _lastMsgDate) === key) return;
+  if (dates) dates.last = key; else _lastMsgDate = key;
   const div = document.createElement("div");
   div.className = "date-sep";
+  div.dataset.date = key;
   div.textContent = `${d.getMonth() + 1}/${d.getDate()}`;
   container.appendChild(div);
   if (container === el.messages) keepSessionUsageAtEnd();

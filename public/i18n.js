@@ -5140,17 +5140,17 @@
     AGENT_HUB_TRANSLATIONS[id]["agentHub.taskObservedReadOnly"] = observedReadOnly;
   }
   const AGENT_HISTORY_PARTIAL_TRANSLATIONS = {
-    en: "Some very large records are omitted; the source file was not changed.",
-    "zh-Hant": "部分過大的紀錄未顯示；原始檔案沒有被修改。",
-    "zh-Hans": "部分过大的记录未显示；原始文件没有被修改。",
-    ja: "大きすぎる一部の記録は省略されています。元のファイルは変更されていません。",
-    ko: "너무 큰 일부 기록은 생략되었습니다. 원본 파일은 변경되지 않았습니다.",
-    tr: "Çok büyük bazı kayıtlar atlandı; kaynak dosya değiştirilmedi.",
-    fr: "Certains enregistrements très volumineux sont omis ; le fichier source n’a pas été modifié.",
-    de: "Einige sehr große Einträge wurden ausgelassen; die Quelldatei wurde nicht geändert.",
-    es: "Se omiten algunos registros muy grandes; el archivo de origen no se modificó.",
-    "pt-BR": "Alguns registros muito grandes foram omitidos; o arquivo de origem não foi alterado.",
-    it: "Alcuni record molto grandi sono omessi; il file sorgente non è stato modificato.",
+    en: "Some very large records are shortened or left out; the source file was not changed.",
+    "zh-Hant": "部分過大的紀錄已截短或未顯示；原始檔案沒有被修改。",
+    "zh-Hans": "部分过大的记录已截短或未显示；原始文件没有被修改。",
+    ja: "大きすぎる一部の記録は短縮または省略されています。元のファイルは変更されていません。",
+    ko: "너무 큰 일부 기록은 줄이거나 생략했습니다. 원본 파일은 변경되지 않았습니다.",
+    tr: "Çok büyük bazı kayıtlar kısaltıldı veya atlandı; kaynak dosya değiştirilmedi.",
+    fr: "Certains enregistrements très volumineux sont raccourcis ou omis ; le fichier source n’a pas été modifié.",
+    de: "Einige sehr große Einträge wurden gekürzt oder ausgelassen; die Quelldatei wurde nicht geändert.",
+    es: "Algunos registros muy grandes se acortan u omiten; el archivo de origen no se modificó.",
+    "pt-BR": "Alguns registros muito grandes foram encurtados ou omitidos; o arquivo de origem não foi alterado.",
+    it: "Alcuni record molto grandi sono abbreviati o omessi; il file sorgente non è stato modificato.",
   };
   for (const [id, value] of Object.entries(AGENT_HISTORY_PARTIAL_TRANSLATIONS)) AGENT_HUB_TRANSLATIONS[id]["agentHub.historyPartial"] = value;
   const CLAUDE_STOPPED_TRANSLATIONS = {
