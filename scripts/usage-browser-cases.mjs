@@ -43,7 +43,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       stage = "open overview";
       await page.goto(fixture.origin + "/workspace.html?host=mini");
       await page.locator("#workspace-host option[value=mini]").waitFor({ state: "attached" });
-      const entry = page.locator(".workspace-limits-strip"); await entry.click();
+      const entry = page.locator(".workspace-limits-strip");
       const panel = page.locator(".usage-panel[open]"), metric = key => panel.locator(`[data-metric=${key}] > strong`);
       const limitsTab = panel.locator("[data-overview-tab=limits]"), usageTab = panel.locator("[data-overview-tab=usage]");
       const readyLimits = () => page.waitForFunction(() => {
@@ -53,10 +53,41 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
         const panel = document.querySelector(".usage-panel[open]"); return panel && !panel.hasAttribute("aria-busy") && !!panel.querySelector(".usage-metric");
       });
       const tokens = async () => Number((await metric("tokens").innerText()).replace(/[^0-9]/g, ""));
-      stage = "shared limits entry and lazy usage";
-      await readyLimits(); assert.equal(await panel.getAttribute("data-tab"), "limits");
+      // The capsule opens the limits as a sheet grown out of it over the list;
+      // Usage details opens the full panel.
+      const sheet = page.locator(".usage-sheet[data-state=open]"), sheetGone = () => page.locator(".usage-sheet").waitFor({ state: "detached" });
+      const readySheet = () => page.waitForFunction(() => {
+        const sheet = document.querySelector(".usage-sheet[data-state=open]"); return !!sheet && !sheet.hasAttribute("aria-busy") && !!sheet.querySelector(".usage-quotas");
+      });
+      const openLimits = async () => { await entry.click(); await readySheet(); };
+      const openPanel = async () => { await openLimits(); await sheet.locator(".usage-sheet-more").click(); await ready(); await limitsTab.click(); await readyLimits(); };
+      stage = "limits sheet";
+      await openLimits();
       assert.equal(await page.locator("#workspace-analytics").count(), 0, "the sidebar has only one entry");
       assert.equal(analyticsRequests.length, 0, "opening limits does not scan usage histories");
+      assert.equal(await sheet.locator(".usage-quota-card").count(), 2);
+      assert.equal(await sheet.locator(".usage-quota-card").filter({ hasText: "Codex" }).getByRole("progressbar").getAttribute("aria-valuenow"), "72");
+      const [sheetBox, capsuleBox, sidebarBox, listBox] = await Promise.all([sheet, page.locator("#workspace-usage"), page.locator("#workspace-sidebar"), page.locator("#workspace-projects")].map(item => item.boundingBox()));
+      assert.ok(Math.abs(sheetBox.y + sheetBox.height - capsuleBox.y - capsuleBox.height) <= 1 && sheetBox.x >= sidebarBox.x && sheetBox.x + sheetBox.width <= sidebarBox.x + sidebarBox.width
+        && sheetBox.y >= listBox.y && sheetBox.height > capsuleBox.height, "it rises from the capsule and stays over the list " + JSON.stringify({ sheetBox, capsuleBox, listBox }));
+      assert.equal(await sheet.locator(".usage-close").count(), 0, "no close button");
+      assert.equal(await entry.getAttribute("aria-expanded"), "true");
+      await sheet.getByRole("button", { name: mobile ? "重新整理" : "Refresh", exact: true }).click(); await readySheet();
+      assert.ok(quotaRequests.some(url => new URL(url).searchParams.get("fresh") === "1"), "refresh reads fresh limits");
+      stage = "the sheet goes when left";
+      await page.mouse.click(sidebarBox.x + 4, sidebarBox.y + 4); await sheetGone();
+      assert.equal(await entry.getAttribute("aria-expanded"), "false");
+      await openLimits(); await page.keyboard.press("Escape"); await sheetGone();
+      assert.equal(await entry.evaluate(el => el === document.activeElement), true, "Escape returns to the capsule");
+      await openLimits();
+      const head = await sheet.locator(".usage-sheet-head").boundingBox();
+      await page.mouse.move(head.x + 40, head.y + 10); await page.mouse.down(); await page.mouse.move(head.x + 40, head.y + 320, { steps: 8 }); await page.mouse.up(); await sheetGone();
+      await openLimits(); await page.mouse.move(sidebarBox.x + 60, (listBox.y + sheetBox.y) / 2); await page.mouse.wheel(0, 200); await sheetGone();
+      assert.equal(analyticsRequests.length, 0);
+      stage = "usage details";
+      await openLimits(); await sheet.locator(".usage-sheet-more").click(); await ready(); await sheetGone();
+      assert.equal(await panel.getAttribute("data-tab"), "usage");
+      await limitsTab.click(); await readyLimits();
       assert.equal(await panel.locator(".usage-quota-card").count(), 2);
       const codexQuota = panel.locator(".usage-quota-card").filter({ hasText: "Codex" });
       assert.equal(await codexQuota.getByRole("progressbar").getAttribute("aria-valuenow"), "72");
@@ -64,9 +95,10 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       const place = async () => { const { x, y, width } = await panel.boundingBox(); return { x, y, width }; };
       const host = panel.locator(".usage-controls select"), geometry = async () => ({ panel: await place(), header: await panel.locator(".usage-header").boundingBox(), top: await panel.locator(".usage-top").boundingBox() });
       const beforeTab = await geometry();
+      const analyticsBefore = analyticsRequests.length, quotaBefore = quotaRequests.length;
       await panel.getByRole("button", { name: mobile ? "重新整理" : "Refresh", exact: true }).click(); await readyLimits();
-      assert.ok(quotaRequests.some(url => new URL(url).searchParams.get("fresh") === "1"), "refresh reads fresh limits");
-      assert.equal(analyticsRequests.length, 0);
+      assert.ok(quotaRequests.slice(quotaBefore).some(url => new URL(url).searchParams.get("fresh") === "1"), "refresh reads fresh limits");
+      assert.equal(analyticsRequests.length, analyticsBefore, "refreshing limits reads no usage");
       await host.selectOption("mbp"); await readyLimits();
       assert.equal(await codexQuota.getByRole("progressbar").getAttribute("aria-valuenow"), "38");
       assert.equal(await page.locator("#workspace-host").inputValue(), "mbp", "panel Host selection updates the Workspace");
@@ -196,15 +228,15 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(analyticsRequests.length, requestsAtClose, "closing stops the analytics refresh timer");
       // With one list for every computer there is no Workspace switch: the
       // panel's own choice is the default it opens on next time.
-      await entry.click(); await readyLimits(); await host.selectOption("mbp"); await readyLimits();
+      await openPanel(); await host.selectOption("mbp"); await readyLimits();
       await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" });
-      await entry.click(); await readyLimits();
+      await openPanel();
       assert.equal(await page.locator(".usage-controls select").inputValue(), "mbp", "opens on the computer chosen last");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab")));
       await panel.waitFor({ state: "detached" }); assert.equal(await page.locator("#workspace-host").inputValue(), "mbp");
       stage = "quota sources follow the Host";
-      await entry.click(); await readyLimits(); await panel.locator(".usage-quota-sources").click();
-      await panel.waitFor({ state: "detached" }); const settings = page.locator("iframe.workspace-settings-frame"); await settings.waitFor();
+      await openLimits(); await sheet.locator(".usage-quota-sources").click();
+      await sheetGone(); const settings = page.locator("iframe.workspace-settings-frame"); await settings.waitFor();
       assert.equal(new URL(await settings.getAttribute("src")).searchParams.get("host"), "mbp");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settings.waitFor({ state: "detached" });
       stage = "usage remains accessible without quota";
@@ -218,12 +250,12 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
         return { text: text?.textContent, size: text && parseFloat(getComputedStyle(text).fontSize), dot: !!dot && dot.offsetWidth > 0 };
       });
       assert.ok(quiet.text && quiet.size <= 12.5 && quiet.dot, JSON.stringify(quiet));
-      await entry.click(); await readyLimits();
-      assert.equal(await panel.locator(".usage-quota-card").count(), 0);
-      await usageTab.click(); await ready(); assert.ok(await tokens() > 0, "unavailable subscription limits do not block recorded usage");
+      await openLimits();
+      assert.equal(await sheet.locator(".usage-quota-card").count(), 0);
+      await sheet.locator(".usage-sheet-more").click(); await ready(); assert.ok(await tokens() > 0, "unavailable subscription limits do not block recorded usage");
       await page.keyboard.press("Escape"); await panel.waitFor({ state: "detached" }); await context.unroute("**/api/workspace/usage*");
       stage = "return to original conversation";
-      await entry.click(); await readyLimits(); await usageTab.click(); await ready();
+      await openLimits(); await sheet.locator(".usage-sheet-more").click(); await ready();
       await panel.getByRole("tab", { name: mobile ? "Session" : "Sessions", exact: true }).click();
       stage = "unregistered native history";
       const beforeNative = Number(await metric("calls").innerText());
@@ -253,7 +285,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal((await opened).status(), 200, "the original Host opens its registered conversation");
       assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(modelRequests, []);
       console.log(JSON.stringify({ case: "Usage overview " + (mobile ? "phone zh-Hant" : "desktop"), result: "passed", authenticated: true,
-        realParsing: true, machineHistory: true, nativeSessionFilter: true, sharedLimits: true, lazyUsage: true, hostSync: true, fixedPanel: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
+        realParsing: true, machineHistory: true, nativeSessionFilter: true, limitsSheet: true, sharedLimits: true, lazyUsage: true, hostSync: true, fixedPanel: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
     } catch (error) { throw new Error(`Usage overview ${mobile ? "phone" : "desktop"} at ${stage}: ${error.message}`, { cause: error }); }
     finally { await context.close(); await fixture.close(); }
   }

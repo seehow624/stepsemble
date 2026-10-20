@@ -303,12 +303,15 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
         const rows = await ui.evaluate(() => [...document.querySelectorAll("#messages .wl-row")].filter(node => node.offsetParent).map(node => Math.round(node.getBoundingClientRect().height)));
         assert.ok(rows.length && rows.every(height => height >= 36), `${viewport.width}: work rows ${rows}`);
         await backToList(page, ui);
-        // The filters of the Schedules panel, even a short one such as "All";
-        // it opens from the menu of the list's Automations.
+        // The filters of Schedules, even a short one such as "All"; they open
+        // in a pane from the menu of the list's Automations.
         await page.locator('[data-section="automations"] .workspace-project-menu').click();
         await page.getByRole("menuitem", { name: "Schedules", exact: true }).click();
-        await page.locator(".wf-filters .btn").first().waitFor();
-        const filters = await page.evaluate(() => [...document.querySelectorAll(".wf-filters .btn")].filter(node => node.offsetParent).map(node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; }));
+        const schedules = page.locator('iframe.workspace-frame[src*="/schedules.html"]');
+        await schedules.waitFor({ state: "attached" });
+        const pane = await (await schedules.elementHandle()).contentFrame();
+        await pane.locator(".wf-filters .btn").first().waitFor();
+        const filters = await pane.evaluate(() => [...document.querySelectorAll(".wf-filters .btn")].filter(node => node.offsetParent).map(node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; }));
         assert.deepEqual(filters.filter(size => size.width < 44 || size.height < 40), [], `${viewport.width}: Schedules filters ${JSON.stringify(filters)}`);
       }
       assert.deepEqual(errors, []);

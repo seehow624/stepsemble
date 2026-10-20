@@ -11,8 +11,10 @@ test("adding images shows a small, quiet confirmation with a correct plural", ()
   const quiet = app.slice(app.indexOf("function quietToast"), app.indexOf("function quietToast") + 900);
   assert.match(quiet, /className = "toast quiet"/);
   assert.match(quiet, /setAttribute\("aria-hidden", "true"\)/, "the icon is decoration only");
-  const rule = css.match(/\.toast\.quiet \{([^}]*)\}/)?.[1] || "";
-  assert.ok(Number(rule.match(/font-size:\s*([\d.]+)px/)?.[1]) < 14, "smaller than an ordinary toast");
+  // Sizes are type-scale tokens in rem; at the default text size 1rem is 16px.
+  const px = rule => { const size = rule.match(/font-size:\s*var\((--[\w-]+)\)/)?.[1]; return Number(css.match(new RegExp(`${size}:\\s*([\\d.]+)rem`))?.[1]) * 16; };
+  const quietSize = px(css.match(/\.toast\.quiet \{([^}]*)\}/)?.[1] || ""), ordinarySize = px(css.match(/\.toast \{([^}]*)\}/)?.[1] || "");
+  assert.ok(quietSize < 14 && quietSize < ordinarySize, "smaller than an ordinary toast");
 });
 
 test("the image confirmation is translated in every locale", () => {

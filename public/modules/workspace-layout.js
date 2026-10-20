@@ -26,6 +26,8 @@
       ref.assistant = assistantRoute(raw.assistant);
       if (typeof raw.avatar === "string" && /^[a-z][a-z0-9-]{0,31}$/.test(raw.avatar)) ref.avatar = raw.avatar;
     }
+    // A Schedules tab shows its computer's schedules page, not a session.
+    else if (raw.schedules === true) ref.schedules = true;
     return ref;
   }
   const pane = () => ({ type: "pane", id: id(), tabs: [], active: null });

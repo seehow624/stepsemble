@@ -12738,13 +12738,13 @@ async function openModelSheet({ preserveSearch = false } = {}) {
   // Re-use a cached list for this session. Keeping the previous rows in place
   // avoids a blank sheet/reflow while a host adapter refreshes its catalog.
   if (!availableModels.length) {
-    el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:13.5px">讀取中…</p>';
+    el.modelList.innerHTML = '<p style="padding:12px 4px;color:var(--pine-soft);font-size:var(--text-md)">讀取中…</p>';
   }
   const setUnavailable = (message) => {
     if (!stillCurrent()) return;
     el.modelList.innerHTML = "";
     const empty = document.createElement("p");
-    empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:13.5px";
+    empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:var(--text-md)";
     empty.textContent = message;
     el.modelList.appendChild(empty);
   };
@@ -12880,7 +12880,7 @@ function renderModelList(currentId, currentProvider = null) {
     // Build the node instead of interpolating: the copy is translated at
     // runtime and must never be parsed as markup.
     const empty = document.createElement("p");
-    empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:13.5px";
+    empty.style.cssText = "padding:12px 4px;color:var(--pine-soft);font-size:var(--text-md)";
     empty.textContent = tKey(query ? "runtime.noMatchingModels" : "runtime.noVisibleModels");
     el.modelList.appendChild(empty);
     return;

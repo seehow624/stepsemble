@@ -18,7 +18,6 @@ let fullDiskAccessSettings = URL(string: "x-apple.systempreferences:com.apple.pr
 enum Text {
     static let tables: [String: [String: String]] = [
         "en": [
-            "menuBarUsage": "Menu Bar Usage",
             "closeTab": "Close Tab",
             "quit": "Quit Stepsemble",
             "running": "Stepsemble {version} is running on this Mac.",
@@ -69,7 +68,6 @@ enum Text {
             "cancel": "Cancel",
         ],
         "zh-Hant": [
-            "menuBarUsage": "選單列用量",
             "closeTab": "關閉分頁",
             "quit": "結束 Stepsemble",
             "running": "Stepsemble {version} 正在這台 Mac 上運行。",
@@ -120,7 +118,6 @@ enum Text {
             "cancel": "取消",
         ],
         "zh-Hans": [
-            "menuBarUsage": "菜单栏用量",
             "closeTab": "关闭标签页",
             "quit": "退出 Stepsemble",
             "running": "Stepsemble {version} 正在这台 Mac 上运行。",
@@ -171,7 +168,6 @@ enum Text {
             "cancel": "取消",
         ],
         "ja": [
-            "menuBarUsage": "メニューバーの使用状況",
             "closeTab": "タブを閉じる",
             "quit": "Stepsemble を終了",
             "running": "Stepsemble {version} はこの Mac で動作しています。",
@@ -222,7 +218,6 @@ enum Text {
             "cancel": "キャンセル",
         ],
         "ko": [
-            "menuBarUsage": "메뉴 막대 사용량",
             "closeTab": "탭 닫기",
             "quit": "Stepsemble 종료",
             "running": "Stepsemble {version}이(가) 이 Mac에서 실행 중입니다.",
@@ -273,7 +268,6 @@ enum Text {
             "cancel": "취소",
         ],
         "tr": [
-            "menuBarUsage": "Menü Çubuğu Kullanımı",
             "closeTab": "Sekmeyi Kapat",
             "quit": "Stepsemble'dan çık",
             "running": "Stepsemble {version} bu Mac'te çalışıyor.",
@@ -324,7 +318,6 @@ enum Text {
             "cancel": "Vazgeç",
         ],
         "fr": [
-            "menuBarUsage": "Utilisation dans la barre des menus",
             "closeTab": "Fermer l’onglet",
             "quit": "Quitter Stepsemble",
             "running": "Stepsemble {version} fonctionne sur ce Mac.",
@@ -375,7 +368,6 @@ enum Text {
             "cancel": "Annuler",
         ],
         "de": [
-            "menuBarUsage": "Nutzung in der Menüleiste",
             "closeTab": "Tab schließen",
             "quit": "Stepsemble beenden",
             "running": "Stepsemble {version} läuft auf diesem Mac.",
@@ -426,7 +418,6 @@ enum Text {
             "cancel": "Abbrechen",
         ],
         "es": [
-            "menuBarUsage": "Uso en la barra de menús",
             "closeTab": "Cerrar pestaña",
             "quit": "Salir de Stepsemble",
             "running": "Stepsemble {version} se está ejecutando en este Mac.",
@@ -477,7 +468,6 @@ enum Text {
             "cancel": "Cancelar",
         ],
         "pt-BR": [
-            "menuBarUsage": "Uso na barra de menus",
             "closeTab": "Fechar aba",
             "quit": "Encerrar o Stepsemble",
             "running": "O Stepsemble {version} está em execução neste Mac.",
@@ -528,7 +518,6 @@ enum Text {
             "cancel": "Cancelar",
         ],
         "it": [
-            "menuBarUsage": "Utilizzo nella barra dei menu",
             "closeTab": "Chiudi scheda",
             "quit": "Esci da Stepsemble",
             "running": "Stepsemble {version} è in esecuzione su questo Mac.",
@@ -1538,7 +1527,6 @@ final class AppController: NSObject, NSApplicationDelegate {
     private let processPool = WKProcessPool()
     private lazy var relay = MessageRelay(self)
     private lazy var access = AccessPanel(showWorkspace: { [weak self] in self?.showWorkspace() })
-    private lazy var menuBar = MenuBarPanel(open: { [weak self] host, agent in self?.openUsage(host: host, agent: agent) })
     private lazy var notifications = NativeNotifications(open: { [weak self] notice in self?.openNotice(notice) }, visible: { [weak self] host, key in
         NSApp.isActive && self?.windows.contains(where: { $0.window.isVisible && $0.window.occlusionState.contains(.visible) && $0.visibleSessions.contains("\(host):\(key)") }) == true
     })
@@ -1560,7 +1548,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         launched = true
         notifications.start()
-        menuBar.start()
         // The first time, the app asks for the places macOS protects.
         let shownKey = "folderAccessShown"
         if startsHost && (askForAccess || !UserDefaults.standard.bool(forKey: shownKey)) {
@@ -1570,12 +1557,6 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { menuBar.stop() }
-
-    @objc func showMenuBarUsage(_ sender: Any?) {
-        // Let the main menu finish tracking before anchoring the popover.
-        DispatchQueue.main.async { [weak self] in self?.menuBar.toggle(sender) }
-    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { showWorkspace() }
@@ -1690,19 +1671,6 @@ final class AppController: NSObject, NSApplicationDelegate {
         access.show(ask: false)
     }
 
-    private func openUsage(host: String, agent: String) {
-        if let workspace = windows.first(where: { !$0.isPopup && $0.webView.url?.path == "/workspace.html" }) {
-            let body: [String: String] = ["type": "stepsemble-open-usage", "host": host, "agent": agent]
-            if let data = try? JSONSerialization.data(withJSONObject: body), let json = String(data: data, encoding: .utf8) {
-                workspace.webView.evaluateJavaScript("window.postMessage(\(json),location.origin)", completionHandler: nil)
-                workspace.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-                return
-            }
-        }
-        var path = URLComponents(); path.path = "/workspace.html"
-        path.queryItems = [URLQueryItem(name: "usageTab", value: "usage"), URLQueryItem(name: "host", value: host), URLQueryItem(name: "usageAgent", value: agent)]
-        newWindow(path: path.string ?? "/workspace.html"); NSApp.activate(ignoringOtherApps: true)
-    }
 
     private func buildMenu() {
         func item(_ title: String, _ action: Selector?, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command, target: AnyObject? = nil) -> NSMenuItem {
@@ -1744,8 +1712,6 @@ final class AppController: NSObject, NSApplicationDelegate {
             item(Text.t("selectAll"), #selector(NSText.selectAll(_:)), "a"),
         ]))
         main.addItem(menu(Text.t("view"), [
-            item(Text.t("menuBarUsage"), #selector(showMenuBarUsage(_:)), "u", [.command, .shift], target: self),
-            .separator(),
             item(Text.t("reload"), #selector(WorkspaceWindow.reloadPage(_:)), "r"),
             .separator(),
             item(Text.t("actualSize"), #selector(WorkspaceWindow.actualSize(_:)), "0"),

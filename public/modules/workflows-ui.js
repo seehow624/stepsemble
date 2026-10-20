@@ -124,7 +124,10 @@
     }
     return null;
   }
-  function create({ api, context, openConversation, onChanged = () => {} }) {
+  // The panel fills mount, a Workspace pane's page for one computer. back
+  // leaves the pane on a phone; while visible() is false the panel stops
+  // asking the Host.
+  function create({ api, context, openConversation, onChanged = () => {}, mount, back = null, visible = () => true }) {
     const doc = root.document;
     const el = (tag, text = "", cls = "") => { const node = doc.createElement(tag); node.className = cls; node.textContent = text; return node; };
     function button(label, fn, cls = "", key = "") {
@@ -133,7 +136,7 @@
       return node;
     }
     const icon = text => { const node = el("span", text, "wf-icon"); node.setAttribute("aria-hidden", "true"); return node; };
-    let modal = null, timer = null, clock = null, epoch = 0, revision = 0, contextValue = null, data = null;
+    let panel = null, timer = null, clock = null, epoch = 0, revision = 0, contextValue = null, data = null;
     // A Goal runs inside its conversation; this panel holds schedules.
     const view = "schedules";
     let filter = "all", query = "", selected = null, historyId = null, editing = false, pending = false;
@@ -146,8 +149,7 @@
     const liveTime = row => elapsed(row, received.get(row.id) || Date.now(), connected ? Date.now() : frozenAt);
     function close() {
       epoch++; revision++; root.clearTimeout(timer); root.clearInterval(clock);
-      modal?.close(); modal?.remove(); modal = null; shell = null; editing = false; pending = false;
-      root.dispatchEvent(new root.Event("stepsemble-workflow-panel"));
+      panel?.replaceChildren(); panel = null; shell = null; editing = false; pending = false;
     }
     function error(message = "") {
       errorText = message;
@@ -158,9 +160,8 @@
       const key = container.contains(doc.activeElement) ? doc.activeElement?.dataset.focus : null;
       return () => { if (key) [...container.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === key)?.focus({ preventScroll: true }); };
     }
-    function showConversation(row) {
-      const target = contextValue.target; close(); openConversation(row.entry, row.title, target);
-    }
+    // The conversation opens in the Workspace; Schedules stay in their pane.
+    function showConversation(row) { openConversation(row.entry, row.title, contextValue.target); }
     function merge(row) {
       const collection = row.schedule ? data.schedules : data.runs;
       const index = collection.findIndex(item => item.id === row.id);
@@ -174,17 +175,17 @@
       const token = epoch, target = contextValue.target; pending = true; revision++; error(""); updateButtons();
       try {
         const changed = await call({ id: row.id, action: name }, target);
-        if (token !== epoch || !modal) return;
+        if (token !== epoch || !panel) return;
         revision++;
         if (name === "delete") data.schedules = data.schedules.filter(item => item.id !== row.id);
         else if (changed?.id) merge(changed);
         onChanged(); render(true); await refresh();
       } catch (e) { if (token === epoch) error(e.message || t("refreshError")); }
-      finally { if (token === epoch && modal) {
+      finally { if (token === epoch && panel) {
         pending = false; updateButtons();
         if (focused && doc.activeElement === doc.body) {
           const successor = name === "pause" ? "resume" : name === "resume" ? "pause" : "conversation";
-          const controls = [...modal.querySelectorAll("[data-focus]")];
+          const controls = [...panel.querySelectorAll("[data-focus]")];
           const next = [successor,name,"conversation"].map(key => controls.find(node => node.dataset.focus === row.id + ":" + key && !node.disabled)).find(Boolean);
           if (next) next.focus({ preventScroll:true });
           else if (current()?.id === row.id) (root.matchMedia?.("(max-width:700px)").matches ? shell.detail.querySelector(".wf-mobile-back") : [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + row.id))?.focus({ preventScroll:true });
@@ -192,8 +193,8 @@
       } }
     }
     function updateButtons() {
-      if (!modal) return;
-      for (const node of modal.querySelectorAll("[data-mutation]")) node.disabled = pending || data?.available === false || !loaded || node.dataset.running === "true";
+      if (!panel) return;
+      for (const node of panel.querySelectorAll("[data-mutation]")) node.disabled = pending || data?.available === false || !loaded || node.dataset.running === "true";
     }
     function mutateButton(row, name, label = name, cls = "") {
       const node = button(t(label), () => action(row, name), cls, row.id + ":" + name); node.dataset.mutation = ""; return node;
@@ -214,28 +215,27 @@
       box.title = row.cwd; return box;
     }
     function buildShell() {
-      modal.dataset.screen = "list"; modal.setAttribute("aria-label", t(view));
-      const header = el("header", "", "wf-header"), identity = el("div", "", "wf-brand");
-      const logo = el("span", "", "workspace-logo"); logo.setAttribute("aria-hidden", "true");
-      identity.append(logo, el("strong", "Stepsemble"));
-      const host = el("span", contextValue.hostName, "wf-host");
-      // On a phone the + alone stays beside ×; the word shows where there is room.
-      const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";
-      const addLabel = el("span", "", "wf-add-label"); add.append(el("span", "+", "wf-add-mark"), addLabel);
-      const dismiss = button("×", close, "ghost wf-close", "close"); dismiss.setAttribute("aria-label", t("close"));
-      header.append(identity, host, add, dismiss);
-      const heading = el("div", "", "wf-heading"), headingCopy = el("div"), title = el("h1"), subtitle = el("p"); headingCopy.append(title, subtitle);
-      heading.append(headingCopy);
+      panel.dataset.screen = "list"; panel.setAttribute("aria-label", t(view));
+      // The pane's title bar names Schedules and their computer; a phone has
+      // none, so this head does, with Back to the Workspace's list.
+      const header = el("header", "", "wf-header wf-pane-head"), copy = el("div"), title = el("h1");
+      copy.append(title, el("small", contextValue.hostName, "wf-caption"));
+      const leave = back && button("", back, "wf-back", "pane-back");
+      if (leave) header.append(leave);
+      header.append(copy);
       const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
-      const body = el("div", "", "wf-body"), rail = el("section", "", "wf-rail"), search = el("input", "", "wf-search");
+      const body = el("div", "", "wf-body"), rail = el("section", "", "wf-rail"), tools = el("div", "", "wf-tools"), search = el("input", "", "wf-search");
       search.type = "search"; search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
       search.oninput = () => { query = search.value; selected = null; render(); };
+      // A narrow rail keeps the + alone beside the search; the word shows where there is room.
+      const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";
+      const addLabel = el("span", "", "wf-add-label"); add.append(el("span", "+", "wf-add-mark"), addLabel);
+      tools.append(search, add);
       const filters = el("nav", "", "wf-filters"), list = el("ul", "", "wf-list");
-      rail.append(search, filters, list); const detail = el("section", "", "wf-detail"); detail.setAttribute("aria-label", t("selectTask"));
+      rail.append(tools, filters, list); const detail = el("section", "", "wf-detail"); detail.setAttribute("aria-label", t("selectTask"));
       body.append(rail, detail);
-      const note = el("footer", t(data?.keepsAwake ? "hostNoteAwake" : "hostNote"), "wf-note wf-footer");
-      modal.replaceChildren(header, heading, errorBox, body, note);
-      shell = { header, add, addLabel, title, subtitle, error: errorBox, search, filters, list, detail };
+      panel.replaceChildren(header, errorBox, body);
+      shell = { header, back: leave, add, addLabel, title, error: errorBox, search, filters, list, detail };
       listSignature = ""; detailSignature = ""; error(errorText); render(true);
     }
     function matches(row) {
@@ -256,15 +256,14 @@
       return node;
     }
     function render(force = false) {
-      if (!modal || editing || !shell?.list) return;
-      shell.title.textContent = t(view); shell.subtitle.textContent = t("scheduleHint");
+      if (!panel || editing || !shell?.list) return;
+      shell.title.textContent = t(view); shell.back?.setAttribute("aria-label", t("back"));
       shell.addLabel.textContent = t("new");
       shell.add.setAttribute("aria-label", t("newSchedule"));
       // Nothing to inspect yet: one column, and the empty state's own New.
-      const none = !rows().length; shell.add.hidden = none; modal.dataset.empty = String(none);
+      const none = !rows().length; shell.add.hidden = none; panel.dataset.empty = String(none);
       shell.search.placeholder = t("filter"); shell.search.setAttribute("aria-label", t("filter"));
-      modal.querySelector(".wf-footer").textContent = t(data?.keepsAwake ? "hostNoteAwake" : "hostNote");
-      modal.setAttribute("aria-label", t(view));
+      panel.setAttribute("aria-label", t(view));
       const filterKeys = ["all","enabled","paused","finished"];
       if (force) {
         const restore = rememberFocus(shell.filters); shell.filters.replaceChildren();
@@ -288,7 +287,7 @@
         }
         for (const row of visible) {
           const li = el("li"), item = button("", () => {
-            selected = row.id; historyId = null; modal.dataset.screen = "detail"; render();
+            selected = row.id; historyId = null; panel.dataset.screen = "detail"; render();
             if (root.matchMedia?.("(max-width:700px)").matches) shell.detail.querySelector(".wf-mobile-back")?.focus();
           }, "wf-item", "row:" + row.id);
           item.setAttribute("aria-current", String(row.id === selected)); item.dataset.state = row.status || scheduleState(row);
@@ -313,7 +312,7 @@
         const expanded = new Set([...shell.detail.querySelectorAll("details[open]")].map(node => node.dataset.key));
         shell.detail.replaceChildren();
         if (row) {
-          const back = button("", () => { modal.dataset.screen = "list"; [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + selected)?.focus(); }, "wf-back wf-mobile-back", "detail-back");
+          const back = button("", () => { panel.dataset.screen = "list"; [...shell.list.querySelectorAll("[data-focus]")].find(node => node.dataset.focus === "row:" + selected)?.focus(); }, "wf-back wf-mobile-back", "detail-back");
           back.setAttribute("aria-label", t("back"));
           shell.detail.append(back, scheduleDetail(row, related));
         } else shell.detail.append(empty(t(loaded ? "selectTask" : "loading"), "", "◷"));
@@ -391,37 +390,37 @@
       node.append(mutateButton(row,"delete","remove","ghost wf-delete"));return node;
     }
     function updateClock() {
-      if (!modal || editing) return;
+      if (!panel || editing) return;
       const runMap=new Map((data?.runs||[]).map(row=>[row.id,row]));
-      for(const node of modal.querySelectorAll("[data-clock]")){const row=runMap.get(node.dataset.clock);if(row)node.textContent=duration(liveTime(row));}
-      for(const node of modal.querySelectorAll("[data-budget]")){const row=runMap.get(node.dataset.budget);if(row)node.textContent=`${duration(liveTime(row))} / ${duration(row.limits.minutes*60000)}`;}
-      for(const node of modal.querySelectorAll("[data-meter]")){const row=runMap.get(node.dataset.meter);if(row)node.style.width=Math.min(100,liveTime(row)/(row.limits.minutes*600)) + "%";}
-      for(const node of modal.querySelectorAll("[data-next]"))node.textContent=relative(Number(node.dataset.next));
+      for(const node of panel.querySelectorAll("[data-clock]")){const row=runMap.get(node.dataset.clock);if(row)node.textContent=duration(liveTime(row));}
+      for(const node of panel.querySelectorAll("[data-budget]")){const row=runMap.get(node.dataset.budget);if(row)node.textContent=`${duration(liveTime(row))} / ${duration(row.limits.minutes*60000)}`;}
+      for(const node of panel.querySelectorAll("[data-meter]")){const row=runMap.get(node.dataset.meter);if(row)node.style.width=Math.min(100,liveTime(row)/(row.limits.minutes*600)) + "%";}
+      for(const node of panel.querySelectorAll("[data-next]"))node.textContent=relative(Number(node.dataset.next));
     }
     async function refresh() {
       const token=epoch, version=revision, target=contextValue.target;
       try {
-        const next=await call(undefined,target);if(token!==epoch||version!==revision||!modal||editing)return;
+        const next=await call(undefined,target);if(token!==epoch||version!==revision||!panel||editing)return;
         data={...next,runs:next.runs||[],schedules:next.schedules||[]};loaded=true;connected=next.available!==false;
         const now=Date.now();frozenAt=now;for(const row of data.runs)received.set(row.id,now);
         error(next.available===false?t("unavailable"):"");render();
-      }catch(e){if(token===epoch&&version===revision&&modal){if(connected)frozenAt=Date.now();connected=false;error(e.message||t("refreshError"));updateClock();}}
+      }catch(e){if(token===epoch&&version===revision&&panel){if(connected)frozenAt=Date.now();connected=false;error(e.message||t("refreshError"));updateClock();}}
     }
-    function poll() {root.clearTimeout(timer);if(!modal||editing)return;timer=root.setTimeout(async()=>{await refresh();poll();},4000);}
+    function poll() {root.clearTimeout(timer);if(!panel||editing)return;timer=root.setTimeout(async()=>{if(visible())await refresh();poll();},4000);}
     function field(parent,key,type,value,options) {
       const box=el("label","","wf-field"),input=el(options?"select":type==="textarea"?"textarea":"input");box.append(el("span",t(key)));
       if(options)for(const [val,label]of options){const option=el("option",label);option.value=val;input.append(option);}
       else if(type!=="textarea")input.type=type;
       input.name=key;input.value=value??"";input.required=true;box.append(input);parent.append(box);return input;
     }
-    async function form(row=null) {
+    async function form(row=null,focus=true) {
       if(pending)return;
       editing=true;revision++;root.clearTimeout(timer);const token=++epoch, target=contextValue.target;
-      modal.dataset.screen="editor";
-      modal.setAttribute("aria-label",t(row?"edit":"newSchedule"));
+      panel.dataset.screen="editor";
+      panel.setAttribute("aria-label",t(row?"edit":"newSchedule"));
       const header=el("header","","wf-header wf-editor-header"),copy=el("div");copy.append(el("small",contextValue.hostName,"wf-caption"),el("h1",t(row?"edit":"newSchedule")));
       const back=button("",()=>{if(token!==epoch)return;epoch++;editing=false;pending=false;buildShell();void refresh();poll();focusNew();},"wf-back","editor-back");back.setAttribute("aria-label",t("back"));
-      const dismiss=button("×",close,"ghost wf-close");dismiss.setAttribute("aria-label",t("close"));header.append(back,copy,dismiss);
+      header.append(back,copy);
       const f=el("form","","wf-form"),layout=el("div","","wf-editor-layout"),main=el("section","","wf-editor-main"),settings=el("aside","","wf-editor-settings");layout.append(main,settings);f.append(layout);
       // Open invalid advanced fields before native validation tries to focus them.
       f.noValidate=true;
@@ -480,7 +479,7 @@
       const footer=el("div","","wf-editor-footer"),errorBox=el("p","","wf-error");errorBox.setAttribute("role","alert");errorBox.hidden=true;
       const submit=el("button",t("save"),"btn primary");submit.type="submit";submit.disabled=true;
       const retry=button(t("retry"),()=>void loadCatalogs(),"ghost");retry.hidden=true;
-      footer.append(errorBox,el("p",t(data?.keepsAwake?"hostNoteAwake":"hostNote"),"wf-muted"),retry,submit);f.append(footer);modal.replaceChildren(header,f);shell={error:errorBox};error("");(row?back:prompt).focus();
+      footer.append(errorBox,el("p",t(data?.keepsAwake?"hostNoteAwake":"hostNote"),"wf-muted"),retry,submit);f.append(footer);panel.replaceChildren(header,f);shell={error:errorBox};error("");if(focus)(row?back:prompt).focus();
       let id=requestId(), catalogReady=false, sending=false;f.addEventListener("input",()=>{if(!sending)id=requestId();});
       function selectedTarget(){return targets.find(entry=>entry.key===targetConversation.value);}
       function ready(){submit.disabled=sending||!catalogReady||data?.available===false||(conversationMode.value==="existing"?!targetsAvailable||!selectedTarget():!agent.value||!cwd.value);}
@@ -513,7 +512,7 @@
         const wanted=keep?{choice:model.value?{...JSON.parse(model.value),...(reasoning.value?{effort:reasoning.value}:{})}:null,permission:permission.value||null}:{choice:own?.choice||null,permission:own?.permission||null};
         let result={models:[],modes:[]};
         if(agentId){try{result=await api(`/api/workflows/options?agentId=${encodeURIComponent(agentId)}&cwd=${encodeURIComponent(cwd.value||"")}`,undefined,target)||result;}catch{result={models:[],modes:[],modelsUnavailable:true};}}
-        if(ticket!==optionsTicket||token!==epoch||!modal||!editing)return;
+        if(ticket!==optionsTicket||token!==epoch||!panel||!editing)return;
         catalog=(Array.isArray(result.models)?result.models:[]).filter(item=>item?.choice?.model);
         const modes=(Array.isArray(result.modes)?result.modes:[]).filter(mode=>mode?.id);
         // A pinned choice the catalog no longer lists stays selectable.
@@ -527,18 +526,18 @@
       model.addEventListener("change",()=>syncReasoning());agent.addEventListener("change",()=>void loadOptions());cwd.addEventListener("change",()=>void loadOptions(true));
       async function loadAgents(){
         try{
-          const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!modal||!editing)return;
+          const catalog=await api("/api/agents",undefined,target);if(token!==epoch||!panel||!editing)return;
           const keep=catalogReady,wanted=agent.value||row?.agentId;
           agent.replaceChildren();for(const item of catalog.connectors||[])if(item.installed&&AGENTS.includes(item.id)){const option=el("option",item.label||agentName(item.id));option.value=item.id;agent.append(option);}
           agent.value=wanted||agent.options[0]?.value||"";catalogReady=true;
           error(targetsError||(conversationMode.value==="existing"?(!selectedTarget()?t("targetUnavailable"):""):!agent.value?t("noAgents"):!cwd.value?t("noProjects"):""));syncTarget();await loadOptions(keep);
-        }catch(e){if(token===epoch&&modal&&editing){error(e.message);retry.hidden=false;}}
+        }catch(e){if(token===epoch&&panel&&editing){error(e.message);retry.hidden=false;}}
       }
       async function loadTargets(){
         const wanted=targetsTicket?targetConversation.value:row?.targetEntry||"",ticket=++targetsTicket;
         targetsAvailable=false;syncTarget();let available=null,failure=null;
         try{available=await api("/api/workflows/targets",undefined,target);}catch(e){failure=e;}
-        if(ticket!==targetsTicket||token!==epoch||!modal||!editing)return;
+        if(ticket!==targetsTicket||token!==epoch||!panel||!editing)return;
         const previousError=targetsError;
         // Old Hosts keep their original new-conversation editor. A failed
         // target lookup never selects New or clears a saved binding for them.
@@ -569,27 +568,37 @@
         sending=true;pending=true;submit.textContent=t("requestPending");ready();error("");
         const fields=[...f.querySelectorAll("input,select,textarea,button")],disabled=fields.map(field=>field.disabled);fields.forEach(field=>field.disabled=true);
         try{
-          const created=await call(input,target);if(token!==epoch||!modal)return;
+          const created=await call(input,target);if(token!==epoch||!panel)return;
           revision++;onChanged();if(created?.id)merge(created);loaded=true;connected=true;selected=created.id;filter="all";query="";editing=false;pending=false;
-          buildShell();modal.dataset.screen="detail";await refresh();if(token!==epoch||!modal)return;poll();
+          buildShell();panel.dataset.screen="detail";await refresh();if(token!==epoch||!panel)return;poll();
           shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();
         }catch(e){if(token===epoch){error(e.message);sending=false;pending=false;fields.forEach((field,i)=>field.disabled=disabled[i]);submit.textContent=t("save");ready();}}
       };
       syncTarget();await loadCatalogs();
     }
-    // The Workspace's Automations open the panel on one schedule, or on a new one.
-    async function open(target=null,{select=null,create=false}={}) {
+    // The Workspace's Automations open the panel on one schedule, or on a new
+    // one; without focus, as when a pane is restored, the keyboard stays put.
+    async function open(target=null,{select=null,create=false,focus=true}={}) {
       close();const token=++epoch;const resolved=await context(target);if(token!==epoch)return;
       contextValue=resolved;filter="all";query="";selected=null;historyId=null;loaded=false;connected=false;errorText="";received.clear();
-      data={runs:[],schedules:[]};modal=el("dialog","","wf-panel");modal.setAttribute("data-i18n-ignore","");doc.body.append(modal);modal.showModal();buildShell();
-      root.dispatchEvent(new root.Event("stepsemble-workflow-panel"));modal.addEventListener("cancel",event=>{event.preventDefault();close();});
-      clock=root.setInterval(updateClock,1000);await refresh();if(token!==epoch||!modal)return;
-      if(create){form();return;}
-      if(select&&rows().some(row=>row.id===select)){selected=select;historyId=null;modal.dataset.screen="detail";render();
-        shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();poll();return;}
-      focusNew();poll();
+      data={runs:[],schedules:[]};panel=mount;buildShell();
+      clock=root.setInterval(updateClock,1000);await refresh();if(token!==epoch||!panel)return;
+      reveal({select,create,focus});
     }
-    return {open,close};
+    // Asked again while open, the panel keeps what it has read and shows the
+    // schedule or the form at once; an editor's unsent draft gives way, as Back would.
+    function show(options={}) {
+      if(!panel||!loaded)return open(contextValue?.target??null,options);
+      epoch++;revision++;root.clearTimeout(timer);editing=false;pending=false;filter="all";query="";
+      buildShell();void refresh();reveal(options);
+    }
+    function reveal({select=null,create=false,focus=true}) {
+      if(create){void form(null,focus);return;}
+      if(select&&rows().some(row=>row.id===select)){selected=select;historyId=null;panel.dataset.screen="detail";render();
+        if(focus)shell.detail.querySelector(root.matchMedia?.("(max-width:700px)").matches?".wf-mobile-back":".wf-actions button")?.focus();poll();return;}
+      if(focus)focusNew();poll();
+    }
+    return {open,show,close};
   }
   function mountConversation(options) { return root.StepsembleGoalComposer?.mount(options) || null; }
   return { create, mountConversation, label:t, duration, elapsed, scheduleState, scheduleLabel, validate };

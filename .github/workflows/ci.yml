@@ -49,9 +49,6 @@ jobs:
       - name: Validate Linux installer
         if: runner.os == 'Linux'
         run: bash -n install-linux.sh
-      - name: Test native menu bar activity without WebKit
-        if: runner.os == 'macOS'
-        run: npm run test:native:menubar
       - name: Validate Windows installer
         if: runner.os == 'Windows'
         shell: pwsh

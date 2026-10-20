@@ -283,6 +283,17 @@ function createMagpieGatewayService({
     return status();
   }
 
+  // The models picked for Claude Code on Magpie's Agents page: those taken out
+  // of its list (hiddenModels), or only those ticked (pickedModels). The list
+  // Stepsemble writes for its Claude conversations follows the same choice.
+  function claudeVisibility() {
+    const value = readJson(path.join(appHome, ".config", "magpie", "settings.json"));
+    const list = field => Array.isArray(value?.[field]?.claude) ? value[field].claude.filter(id => typeof id === "string").slice(0, 2048) : null;
+    const picked = list("pickedModels"), hidden = list("hiddenModels") || [];
+    return { shown: id => picked ? picked.includes(id) : !hidden.includes(id),
+      signature: crypto.createHash("sha256").update(JSON.stringify([picked, hidden])).digest("hex").slice(0, 16) };
+  }
+
   // Claude Code lists a gateway's models from ~/.claude/cache/gateway-models.json,
   // which it does not refresh itself on a subscription launch, so it is
   // written before each launch, as for OpenCodex. Claude's own models come
@@ -292,11 +303,12 @@ function createMagpieGatewayService({
     if (!claudeState().here) return null;
     const snapshot = await catalog();
     if (!snapshot || !claudeState().here) return null;
-    const previous = readJson(gatewayCatalogPath(appHome));
-    if (previous?.gateway === "magpie" && previous.baseUrl === origin && previous.fetchedAt === snapshot.checkedAt && previous.stale === snapshot.stale) {
+    const previous = readJson(gatewayCatalogPath(appHome)), visibility = claudeVisibility();
+    if (previous?.gateway === "magpie" && previous.baseUrl === origin && previous.fetchedAt === snapshot.checkedAt && previous.stale === snapshot.stale
+      && previous.visibility === visibility.signature) {
       return { source: "magpie", checkedAt: snapshot.checkedAt, stale: snapshot.stale, catalogCount: previous.models?.length || 0 };
     }
-    const models = snapshot.rows.filter(row => row.provider !== "claude").slice(0, 512).map(row => ({
+    const models = snapshot.rows.filter(row => row.provider !== "claude" && visibility.shown(row.id)).slice(0, 512).map(row => ({
       id: row.id,
       name: row.name,
       description: "Magpie gateway" + (row.providerName ? " · " + row.providerName : ""),
@@ -314,7 +326,7 @@ function createMagpieGatewayService({
         behavesAs: model.contextWindow !== null && model.contextWindow >= 1000000 ? "claude-sonnet-5[1m]" : "claude-sonnet-5",
       })) } }) + "\n");
       writeFileAtomic(gatewayCatalogPath(appHome), JSON.stringify({ version: 1, gateway: "magpie", baseUrl: origin,
-        fetchedAt: snapshot.checkedAt, stale: snapshot.stale, models }) + "\n");
+        fetchedAt: snapshot.checkedAt, stale: snapshot.stale, visibility: visibility.signature, models }) + "\n");
     } catch { return null; }
     return { source: "magpie", checkedAt: snapshot.checkedAt, stale: snapshot.stale, catalogCount: models.length };
   }
