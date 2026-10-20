@@ -3,19 +3,18 @@
 // Local, read-only history catalog for harnesses that keep their own native
 // transcripts on disk.  This module intentionally does not use a provider SDK
 // or launch a provider process: it only reads the two well-known transcript
-// roots, with bounded discovery and a stable-file check for the transcript the
-// user explicitly opens.
+// roots, with bounded discovery, and streams the transcript the user
+// explicitly opens.
 
 const fs = require("node:fs");
 const fsp = fs.promises;
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const MAX_PROJECT_DEPTH = 4;
 const MAX_FILES_PER_PROVIDER = 4096;
 const MAX_METADATA_BYTES = 192 * 1024 * 1024;
-const MAX_TRANSCRIPT_BYTES = 32 * 1024 * 1024;
-const MAX_PARTIAL_WINDOW_BYTES = 4 * 1024 * 1024;
 const MAX_METADATA_READ_BYTES = 96 * 1024;
 // A single Codex record can contain a large pasted prompt or tool result. It
 // is still bounded independently from the whole file; oversized records are
@@ -33,10 +32,21 @@ const MAX_TOOL_FIELD_TEXT = 4 * 1024;
 const MAX_TOOL_OUTPUT_TEXT = 32 * 1024;
 const MAX_TOTAL_TOOL_BYTES = 8 * 1024 * 1024;
 // Pictures the person sent, shown beside their message. Past this budget a
-// picture is counted and shown as one the page cannot display.
+// picture goes to the page before; one message's pictures past it are counted
+// and shown as ones the page cannot display.
 const MAX_IMAGE_URL_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+// A transcript is read as a stream of lines and keeps only what it shows. One
+// page of it is the newest rows within the page budgets; older rows come with
+// `before`. Past the retained budget the oldest rows are let go of and read
+// from the file again when asked for.
+const DEFAULT_LIMITS = Object.freeze({
+  pageMessages: MAX_MESSAGES, pageMessageBytes: MAX_TOTAL_MESSAGE_BYTES, pageTools: MAX_TOOLS, pageToolBytes: MAX_TOTAL_TOOL_BYTES,
+  pageImageBytes: MAX_TOTAL_IMAGE_BYTES, retainedBytes: 48 * 1024 * 1024, cacheBytes: 128 * 1024 * 1024, cacheEntries: 8,
+  lineBytes: MAX_LINE_BYTES, chunkBytes: 1024 * 1024,
+});
+const FINGERPRINT_BYTES = 64;
 const MAX_TITLE = 160;
 const REFRESH_MS = 15_000;
 const REFRESH_DEADLINE_MS = 4_000;
@@ -136,62 +146,51 @@ async function readHeadTail(filename, stat) {
   finally { try { await handle?.close(); } catch {} }
 }
 
-async function readStableFile(filename) {
-  let handle;
-  try {
-    handle = await fsp.open(filename, fs.constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-    const before = await handle.stat({ bigint: true });
-    if (!safeStat(before, { allowLarge: true }) || before.size < 1n) {
-      return { kind: "source_unavailable", code: "source_missing" };
-    }
-    if (before.size > BigInt(Number.MAX_SAFE_INTEGER)) return { kind: "source_unavailable", code: "source_too_large" };
-    const size = Number(before.size);
-    const same = stat => stat.dev === before.dev && stat.ino === before.ino && stat.size === before.size
-      && stat.mtimeNs === before.mtimeNs && stat.ctimeNs === before.ctimeNs && stat.nlink === before.nlink
-      && stat.uid === before.uid && stat.mode === before.mode;
-    const readRange = async (offset, length) => {
-      const bytes = Buffer.alloc(length);
-      let cursor = 0;
-      while (cursor < length) {
-        const count = Math.min(64 * 1024, length - cursor);
-        const result = await handle.read(bytes, cursor, count, offset + cursor);
-        if (result.bytesRead !== count) throw new Error("source_changed");
-        cursor += count;
+// The whole lines of `handle` from `state.offset` up to `size`, each given to
+// `state.transcript` as it is read: one chunk and one line in memory at a time.
+// `state.offset` moves only past whole lines, so a line still being written is
+// read again next time; a line past the limit is let go of up to its end.
+async function scanLines(handle, state, size, limits) {
+  const transcript = state.transcript;
+  const chunk = Buffer.allocUnsafe(Math.max(4096, limits.chunkBytes));
+  const take = line => {
+    const bytes = line.length && line[line.length - 1] === 0x0d ? line.subarray(0, -1) : line;
+    if (!bytes.length) return true;
+    let row = null;
+    try { row = JSON.parse(bytes.toString("utf8")); } catch {}
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    transcript.record(row);
+    return true;
+  };
+  let position = state.offset, parts = [], partBytes = 0;
+  while (position < size && !transcript.done) {
+    const { bytesRead } = await handle.read(chunk, 0, Math.min(chunk.length, size - position), position);
+    if (!bytesRead) break;
+    const view = chunk.subarray(0, bytesRead);
+    let start = 0;
+    while (start < bytesRead && !transcript.done) {
+      const lf = view.indexOf(0x0a, start);
+      if (state.skipping) {
+        if (lf < 0) { start = bytesRead; state.offset = position + bytesRead; continue; }
+        state.skipping = false; start = lf + 1; state.offset = position + start; continue;
       }
-      return bytes;
-    };
-    if (size > MAX_TRANSCRIPT_BYTES) {
-      // Very old Codex sessions can contain enormous pasted/tool records or
-      // grow into gigabytes. Read two bounded windows instead of allocating a
-      // buffer proportional to the file. The caller marks this transcript as
-      // partial and keeps the vendor file untouched.
-      const window = Math.min(MAX_PARTIAL_WINDOW_BYTES, size);
-      const tailOffset = size - window;
-      const readWindowPass = async () => [await readRange(0, window), await readRange(tailOffset, window)];
-      const first = await readWindowPass();
-      const middle = await handle.stat({ bigint: true });
-      const second = await readWindowPass();
-      const after = await handle.stat({ bigint: true });
-      if (!same(middle) || !same(after) || !first[0].equals(second[0]) || !first[1].equals(second[1])) {
-        return { kind: "source_unavailable", code: "source_changed" };
+      const piece = view.subarray(start, lf < 0 ? bytesRead : lf);
+      if (partBytes + piece.length > limits.lineBytes) {
+        transcript.omit(); parts = []; partBytes = 0;
+        if (lf < 0) { state.skipping = true; start = bytesRead; state.offset = position + bytesRead; continue; }
+        start = lf + 1; state.offset = position + start; continue;
       }
-      return { kind: "source_chunks", chunks: [
-        { bytes: first[0], skipTrailingPartial: true },
-        { bytes: first[1], skipLeadingPartial: true },
-      ], truncated: true, sourceSize: size };
+      if (lf < 0) { parts.push(Buffer.from(piece)); partBytes += piece.length; start = bytesRead; continue; }
+      const line = parts.length ? Buffer.concat([...parts, piece]) : piece;
+      parts = []; partBytes = 0;
+      if (!take(line)) transcript.omit();
+      start = lf + 1; state.offset = position + start;
     }
-    const readPass = async () => {
-      return readRange(0, size);
-    };
-    const first = await readPass();
-    const middle = await handle.stat({ bigint: true });
-    const second = await readPass();
-    const after = await handle.stat({ bigint: true });
-    if (!same(middle) || !same(after) || !first.equals(second)) return { kind: "source_unavailable", code: "source_changed" };
-    return { kind: "source_bytes", bytes: first };
-  } catch (error) {
-    return { kind: "source_unavailable", code: error?.message === "source_changed" ? "source_changed" : "source_io_error" };
-  } finally { try { await handle?.close(); } catch {} }
+    position += bytesRead;
+  }
+  // The last line has no line end yet. A whole record is taken; a part of one
+  // waits for the rest.
+  if (parts.length && position >= size && !transcript.done && take(Buffer.concat(parts))) state.offset = size;
 }
 
 async function walkJsonl(root, { maxDepth = MAX_PROJECT_DEPTH, maxFiles = MAX_FILES_PER_PROVIDER, allowLarge = false } = {}) {
@@ -276,9 +275,8 @@ function usefulHistoryTitle(value) {
   return title;
 }
 
-function extractClaudeMeta(records, fallbackId, stat, filename) {
+function extractClaudeMeta(records, id, stat, filename) {
   const first = records.find(row => row.type === "user" && claudeRecordText(row));
-  const id = records.find(row => validUuid(row.sessionId))?.sessionId || fallbackId;
   const cwd = text(records.find(row => typeof row.cwd === "string")?.cwd, 4096);
   const times = records.map(row => timestamp(row.timestamp)).filter(Boolean);
   const updatedAt = Math.max(statMilliseconds(stat), ...times, 0);
@@ -363,159 +361,237 @@ function claudeToolOutput(content) {
     : part?.type === "text" ? part.text || "" : part?.type === "image" ? "[image]" : "").filter(Boolean).join("\n"), MAX_TOOL_OUTPUT_TEXT);
 }
 
-// Claude's conversation as the person saw it: what they wrote, Claude's
-// replies, and each tool call with its result as a tool row. Claude stores a
-// tool's result, a background task's notice and the notes it adds for itself
-// as records of the person; none of those is shown as something they wrote.
-// messages holds the text; tools holds the calls, each placed before the
-// message at index `after`.
-function claudeMessages(records) {
-  const messages = [], tools = [], calls = new Map();
-  let totalBytes = 0, toolBytes = 0, imageBytes = 0;
-  let truncated = false;
-  const push = (role, raw, row, pictures = null) => {
-    const remaining = MAX_TOTAL_MESSAGE_BYTES - totalBytes;
-    if (remaining <= 0) { truncated = true; return false; }
-    const value = raw ? boundedText(raw, Math.min(MAX_MESSAGE_TEXT, remaining)) : "";
-    if (!value && !pictures?.images) return true;
-    if (value.length < raw.length) truncated = true;
+// The pictures of one record the person sent; one past its own limit is
+// counted without its data.
+function claudePictures(content) {
+  const parts = (Array.isArray(content) ? content : []).filter(part => part?.type === "image");
+  const imageAttachments = [];
+  let bytes = 0, dropped = false;
+  for (const part of parts) {
+    const source = part.source && typeof part.source === "object" ? part.source : {};
+    const type = String(source.media_type || "").toLowerCase();
+    if (source.type !== "base64" || !IMAGE_TYPES.has(type) || typeof source.data !== "string") continue;
+    const url = `data:${type};base64,${source.data}`;
+    if (url.length > MAX_IMAGE_URL_BYTES) { dropped = true; continue; }
+    bytes += url.length;
+    imageAttachments.push({ data: url, mimeType: type });
+  }
+  return parts.length ? { images: parts.length, imageAttachments, bytes, dropped } : null;
+}
+
+// One transcript as it is read, record by record: its rows (messages, and
+// Claude's tool calls, each shown before the message after it) numbered from
+// the start of the file, and what the composer shows about its last turn.
+// Claude stores a tool's result, a background task's notice and the notes it
+// adds for itself as records of the person; none of those is shown as
+// something they wrote. keepBelow: only rows before it are kept (an older
+// page read again from the file). through: a Claude entry id the transcript
+// ends with.
+function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infinity, through = null } = {}) {
+  const claude = provider === "claude-code";
+  let rows = [], head = 0, first = 0, total = 0, retained = 0, omittedRecords = 0, done = false, found = through === null;
+  const calls = new Map(), seen = new Set(), omittedAt = [];
+  const composer = { model: null, effort: null, contextTokens: null, contextWindow: null, observedAt: null };
+  const evict = () => {
+    while (retained > limits.retainedBytes && rows.length - head > 1) {
+      const old = rows[head]; rows[head++] = null; first++; retained -= old.size;
+      if (old.tool?.id && calls.get(old.tool.id) === old) calls.delete(old.tool.id);
+    }
+    if (head > 1024 && head * 2 > rows.length) { rows = rows.slice(head); head = 0; }
+  };
+  const add = entry => {
+    if (total++ >= keepBelow) return null;
+    rows.push(entry); retained += entry.size; evict();
+    return entry;
+  };
+  const message = (role, raw, row, sent = null) => {
+    const value = raw ? boundedText(raw, MAX_MESSAGE_TEXT) : "";
+    if (!value && !sent?.images) return;
+    const ts = timestamp(row.timestamp);
     // An assistant message's id lets a live view skip what this history
     // already shows.
-    messages.push({ role, text: value, timestamp: timestamp(row.timestamp), ts: timestamp(row.timestamp), model: text(row.message?.model, 128) || undefined,
+    const item = claude ? { role, text: value, timestamp: ts, ts, model: text(row.message?.model, 128) || undefined,
       id: role === "assistant" ? text(row.message?.id, 256) || undefined : undefined,
-      ...(pictures?.images ? { images: pictures.images, imageAttachments: pictures.imageAttachments } : {}) });
-    totalBytes += Buffer.byteLength(value);
-    if (messages.length >= MAX_MESSAGES) { truncated = true; return false; }
-    return true;
+      ...(sent?.images ? { images: sent.images, imageAttachments: sent.imageAttachments } : {}) } : { role, text: value, timestamp: ts, ts };
+    const bytes = Buffer.byteLength(value), imageBytes = sent?.bytes || 0;
+    add({ message: item, bytes, imageBytes, size: bytes + imageBytes, cut: value.length < raw.length || sent?.dropped === true });
   };
-  const pictures = content => {
-    const parts = (Array.isArray(content) ? content : []).filter(part => part?.type === "image");
-    const imageAttachments = [];
-    for (const part of parts) {
-      const source = part.source && typeof part.source === "object" ? part.source : {};
-      const type = String(source.media_type || "").toLowerCase();
-      if (source.type !== "base64" || !IMAGE_TYPES.has(type) || typeof source.data !== "string") continue;
-      const url = `data:${type};base64,${source.data}`;
-      if (url.length > MAX_IMAGE_URL_BYTES || imageBytes + url.length > MAX_TOTAL_IMAGE_BYTES) continue;
-      imageBytes += url.length;
-      imageAttachments.push({ data: url, mimeType: type });
+  const toolBytes = tool => Buffer.byteLength(JSON.stringify(tool.input)) + Buffer.byteLength(tool.output);
+  const observeClaude = row => {
+    const model = text(row.message?.model, 128);
+    if (!model || model === "<synthetic>" || row.isSidechain === true) return;
+    composer.model = model;
+    // Claude Code names the 1M-token context of a model with a [1m] suffix.
+    composer.contextWindow = /\[1m\]$/i.test(String(row.requestedModel || model)) ? 1_000_000 : null;
+    const effort = text(row.perTurnEffort || row.effort, 32).toLowerCase();
+    if (effort) composer.effort = effort;
+    const usage = row.message?.usage;
+    const used = usage && typeof usage === "object" ? ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"]
+      .reduce((sum, key) => sum + (Number.isSafeInteger(usage[key]) && usage[key] > 0 ? usage[key] : 0), 0) : 0;
+    if (used > 0) composer.contextTokens = used;
+    composer.observedAt = timestamp(row.timestamp) ?? composer.observedAt;
+  };
+  const observeCodex = row => {
+    const payload = row.payload;
+    if (!payload || typeof payload !== "object") return;
+    if (row.type === "turn_context") {
+      const model = text(payload.model, 128), effort = text(payload.effort, 32).toLowerCase();
+      if (model) composer.model = model;
+      if (effort) composer.effort = effort;
+      if (model || effort) composer.observedAt = timestamp(row.timestamp) ?? composer.observedAt;
+    } else if (row.type === "event_msg" && payload.type === "token_count" && payload.info && typeof payload.info === "object") {
+      const used = payload.info.last_token_usage?.total_tokens, window = payload.info.model_context_window;
+      if (Number.isSafeInteger(used) && used > 0) composer.contextTokens = used;
+      if (Number.isSafeInteger(window) && window > 0) composer.contextWindow = window;
+      composer.observedAt = timestamp(row.timestamp) ?? composer.observedAt;
     }
-    return parts.length ? { images: parts.length, imageAttachments } : null;
   };
-  for (const row of records) {
-    if (!row || !["user", "assistant"].includes(row.type)) continue;
+  const claudeRecord = row => {
+    if (!["user", "assistant"].includes(row.type)) return;
+    if (row.type === "assistant") observeClaude(row);
     const content = row.message?.content ?? row.content ?? row.text;
     for (const part of Array.isArray(content) ? content : []) {
       if (part?.type === "tool_use" && row.type === "assistant") {
-        if (tools.length >= MAX_TOOLS || toolBytes >= MAX_TOTAL_TOOL_BYTES) { truncated = true; continue; }
         const tool = { id: text(part.id, 256) || undefined, name: text(part.name, 128) || "tool", input: claudeToolInput(part.input),
-          output: "", isError: false, after: messages.length, ts: timestamp(row.timestamp),
-          messageId: text(row.message?.id, 256) || undefined };
-        toolBytes += Buffer.byteLength(JSON.stringify(tool.input));
-        tools.push(tool);
-        if (tool.id) calls.set(tool.id, tool);
+          output: "", isError: false, ts: timestamp(row.timestamp), messageId: text(row.message?.id, 256) || undefined };
+        const bytes = toolBytes(tool), entry = add({ tool, bytes, size: bytes });
+        if (entry && tool.id) calls.set(tool.id, entry);
       } else if (part?.type === "tool_result" && row.type === "user") {
-        const tool = calls.get(text(part.tool_use_id, 256));
-        if (!tool) continue;
-        tool.output = claudeToolOutput(part.content);
-        tool.isError = part.is_error === true;
-        tool.endedAt = timestamp(row.timestamp);
-        toolBytes += Buffer.byteLength(tool.output);
+        const entry = calls.get(text(part.tool_use_id, 256));
+        if (!entry) continue;
+        entry.tool.output = claudeToolOutput(part.content);
+        entry.tool.isError = part.is_error === true;
+        entry.tool.endedAt = timestamp(row.timestamp);
+        const bytes = toolBytes(entry.tool);
+        retained += bytes - entry.size; entry.bytes = entry.size = bytes; evict();
       }
     }
-    if (row.isMeta === true) continue;
+    if (row.isMeta === true) return;
     const raw = claudeProse(content);
-    const sent = row.type === "user" ? pictures(content) : null;
-    if (!raw && !sent) continue;
-    let ok = true;
+    const sent = row.type === "user" ? claudePictures(content) : null;
+    if (!raw && !sent) return;
     // Claude's placeholder for a turn that was cut off, added when the
     // conversation is resumed; its other notes, such as an API error, stay.
-    if (row.type === "assistant" && row.message?.model === "<synthetic>" && raw === "No response requested.") continue;
-    if (row.type === "assistant") ok = push("assistant", raw, row);
-    else if (/^<task-notification>/.test(raw)) continue;
-    else if (claudeCommand(raw)) ok = push("user", claudeCommand(raw), row);
-    else if (claudeCommandOutput(raw) !== null) { const output = claudeCommandOutput(raw); if (output) ok = push("assistant", output, row); }
-    else ok = push("user", raw, row, sent);
-    if (!ok) break;
+    if (row.type === "assistant" && row.message?.model === "<synthetic>" && raw === "No response requested.") return;
+    if (row.type === "assistant") message("assistant", raw, row);
+    else if (/^<task-notification>/.test(raw)) return;
+    else if (claudeCommand(raw)) message("user", claudeCommand(raw), row);
+    else if (claudeCommandOutput(raw) !== null) { const output = claudeCommandOutput(raw); if (output) message("assistant", output, row); }
+    else message("user", raw, row, sent);
+  };
+  const codexRecord = row => {
+    observeCodex(row);
+    const payload = row.payload || row;
+    if (!payload || typeof payload !== "object") return;
+    let role = payload.role;
+    if (!role && row.type === "event_msg") role = payload.type === "user_message" ? "user" : payload.type === "agent_message" ? "assistant" : "";
+    if (!["user", "assistant"].includes(role)) return;
+    const raw = codexRecordText(payload);
+    if (!raw) return;
+    // Codex records a message both as an event and as a response item.
+    const key = crypto.createHash("sha1").update(`${role}:${raw.slice(0, 2048)}`).digest("base64");
+    if (seen.has(key)) return;
+    seen.add(key);
+    message(role, raw, row);
+  };
+  // The newest rows before `before` within the page budgets, never fewer
+  // than one. A page whose rows were let go of says so (needsRange) and is
+  // read again from the file.
+  function page({ before = null, limit = null } = {}) {
+    const end = Math.min(before === null ? total : before, total, keepBelow);
+    if (end > 0 && end <= first) return { needsRange: true, end };
+    const most = Math.max(1, Math.min(limits.pageMessages, Number.isSafeInteger(limit) ? limit : limits.pageMessages));
+    let start = end, messages = 0, tools = 0, textBytes = 0, toolBytesUsed = 0, imageBytes = 0, cut = false;
+    const trimmed = new Map();
+    for (let index = end - 1; index >= first; index--) {
+      const entry = rows[head + index - first], empty = start === end;
+      if (entry.message) {
+        if (messages >= most || !empty && (textBytes + entry.bytes > limits.pageMessageBytes || imageBytes + entry.imageBytes > limits.pageImageBytes)) break;
+        if (imageBytes + entry.imageBytes > limits.pageImageBytes) {
+          // One message's own pictures past the budget: those that fit.
+          const kept = [];
+          for (const image of entry.message.imageAttachments) if (imageBytes + image.data.length <= limits.pageImageBytes) { kept.push(image); imageBytes += image.data.length; }
+          trimmed.set(entry, { ...entry.message, imageAttachments: kept }); cut = true;
+        } else imageBytes += entry.imageBytes;
+        messages++; textBytes += entry.bytes;
+      } else {
+        if (!empty && (tools >= limits.pageTools || toolBytesUsed + entry.bytes > limits.pageToolBytes)) break;
+        tools++; toolBytesUsed += entry.bytes;
+      }
+      if (entry.cut) cut = true;
+      start = index;
+    }
+    const pageMessages = [], pageTools = [];
+    for (let index = start; index < end; index++) {
+      const entry = rows[head + index - first];
+      if (entry.message) pageMessages.push(trimmed.get(entry) || entry.message);
+      else pageTools.push({ ...entry.tool, after: pageMessages.length });
+    }
+    // A line left out sits before the row numbered with it; past the last row
+    // it belongs to the newest page.
+    const omitted = omittedRecords > omittedAt.length || omittedAt.some(at => at >= start && (at < end || at === total && end === total));
+    return { messages: pageMessages, ...(claude ? { tools: pageTools } : {}), before: start > 0 ? start : null, end, truncated: cut || omitted };
   }
-  Object.defineProperty(messages, "truncated", { value: truncated, enumerable: false });
-  Object.defineProperty(messages, "tools", { value: tools.filter(tool => tool.after <= messages.length), enumerable: false });
-  return messages;
+  return {
+    record(row) {
+      if (done || !row || typeof row !== "object") return;
+      if (claude) claudeRecord(row); else codexRecord(row);
+      if (through !== null && row.uuid === through) { found = true; done = true; }
+    },
+    omit() { omittedRecords++; if (omittedAt.length < 10_000) omittedAt.push(total); },
+    page,
+    composer: () => ({ ...composer }),
+    get done() { return done; }, get found() { return found; },
+    get retained() { return retained; }, get omittedRecords() { return omittedRecords; },
+  };
+}
+
+// The newest page of whole records as one list, with its tool calls, whether
+// it is partial and where the page before it starts.
+function pageList(page) {
+  const list = page.messages;
+  Object.defineProperty(list, "truncated", { value: page.truncated || page.before !== null, enumerable: false });
+  if (page.tools) Object.defineProperty(list, "tools", { value: page.tools, enumerable: false });
+  Object.defineProperty(list, "before", { value: page.before, enumerable: false });
+  return list;
+}
+
+function claudeMessages(records) {
+  const transcript = createTranscript("claude-code");
+  for (const row of records) transcript.record(row);
+  return pageList(transcript.page());
 }
 
 function codexMessages(records) {
-  const messages = [], seen = new Set();
-  let totalBytes = 0;
-  let truncated = false;
-  for (const row of records) {
-    const payload = row?.payload || row;
-    if (!payload || typeof payload !== "object") continue;
-    let role = payload.role;
-    if (!role && row.type === "event_msg") role = payload.type === "user_message" ? "user" : payload.type === "agent_message" ? "assistant" : "";
-    if (!["user", "assistant"].includes(role)) continue;
-    const raw = codexRecordText(payload);
-    if (!raw) continue;
-    const key = `${role}:${raw.slice(0, 2048)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const remaining = MAX_TOTAL_MESSAGE_BYTES - totalBytes;
-    if (remaining <= 0) { truncated = true; break; }
-    const value = boundedText(raw, Math.min(MAX_MESSAGE_TEXT, remaining));
-    if (!value) continue;
-    if (value.length < raw.length) truncated = true;
-    messages.push({ role, text: value, timestamp: timestamp(row.timestamp), ts: timestamp(row.timestamp) });
-    totalBytes += Buffer.byteLength(value);
-    if (messages.length >= MAX_MESSAGES) { truncated = true; break; }
-  }
-  Object.defineProperty(messages, "truncated", { value: truncated, enumerable: false });
-  return messages;
+  const transcript = createTranscript("codex");
+  for (const row of records) transcript.record(row);
+  return pageList(transcript.page());
 }
 
-function recordsFromChunks(chunks) {
+// A whole transcript already in memory, as the Claude release check reads it.
+function recordsFromBytes(bytes) {
   const records = [];
-  let seen = 0;
-  let omittedRecords = 0;
+  let seen = 0, omittedRecords = 0, start = 0;
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  for (const descriptor of chunks) {
-    const bytes = descriptor?.bytes;
-    if (!Buffer.isBuffer(bytes) || bytes.length === 0) continue;
-    let start = 0;
-    let lineIndex = 0;
-    while (start < bytes.length) {
-      const lf = bytes.indexOf(0x0a, start);
-      const hasLf = lf >= 0;
-      const end = hasLf ? lf : bytes.length;
-      let line = bytes.subarray(start, end);
-      if (line.length && line[line.length - 1] === 0x0d) line = line.subarray(0, line.length - 1);
-      // A partial window may start in the middle of a JSONL record, and its
-      // head may end in the middle of another one. Do not reinterpret either
-      // fragment as malformed native data.
-      const leadingPartial = descriptor.skipLeadingPartial === true && lineIndex === 0;
-      const trailingPartial = descriptor.skipTrailingPartial === true && !hasLf;
-      if (!leadingPartial && !trailingPartial && line.length) {
-        seen++;
-        if (seen > MAX_RECORDS) return { kind: "source_unavailable", code: "source_too_many_records" };
-        if (line.length > MAX_LINE_BYTES) {
-          omittedRecords++;
-        } else {
-          let source;
-          try { source = decoder.decode(line); }
-          catch { return { kind: "source_unavailable", code: "source_invalid_encoding" }; }
-          const row = parseJsonLine(source);
-          if (!row) return { kind: "source_unavailable", code: "source_invalid_json" };
-          records.push(row);
-        }
+  while (Buffer.isBuffer(bytes) && start < bytes.length) {
+    const lf = bytes.indexOf(0x0a, start), end = lf >= 0 ? lf : bytes.length;
+    let line = bytes.subarray(start, end);
+    if (line.length && line[line.length - 1] === 0x0d) line = line.subarray(0, line.length - 1);
+    if (line.length) {
+      if (++seen > MAX_RECORDS) return { kind: "source_unavailable", code: "source_too_many_records" };
+      if (line.length > MAX_LINE_BYTES) omittedRecords++;
+      else {
+        let source;
+        try { source = decoder.decode(line); }
+        catch { return { kind: "source_unavailable", code: "source_invalid_encoding" }; }
+        const row = parseJsonLine(source);
+        if (!row) return { kind: "source_unavailable", code: "source_invalid_json" };
+        records.push(row);
       }
-      if (!hasLf) break;
-      start = end + 1;
-      lineIndex++;
     }
+    start = end + 1;
   }
   return { kind: "source_records", records, omittedRecords };
-}
-
-function recordsFromBytes(bytes) {
-  return recordsFromChunks([{ bytes }]);
 }
 
 function taskFromMeta(meta) {
@@ -534,17 +610,24 @@ async function mapLimit(items, limit, fn) {
   return output;
 }
 
-function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("node:os").homedir(), claudeRoot, codexRoot, clock = () => Date.now() } = {}) {
+// limits: DEFAULT_LIMITS to change (tests). onParse: told of each pass over a
+// transcript file, { from, to } in bytes.
+function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("node:os").homedir(), claudeRoot, codexRoot, clock = () => Date.now(),
+  limits: limitOverrides = {}, onParse = null } = {}) {
   const base = normalizedRoot(home, require("node:os").homedir());
   const roots = Object.freeze({
     claude: normalizedRoot(claudeRoot, path.join(base || "", ".claude", "projects")),
     codex: normalizedRoot(codexRoot, path.join(base || "", ".codex")),
   });
+  const limits = Object.freeze({ ...DEFAULT_LIMITS, ...limitOverrides });
   let entries = new Map();
   let flight = null;
   let lastRefresh = 0;
   let closed = false;
   let lastError = null;
+  // Transcripts already read, by the file's device and inode, oldest use
+  // first: one read again is read on from where the last read stopped.
+  const transcripts = new Map();
 
   async function readHistoryTitles() {
     const result = new Map();
@@ -559,12 +642,16 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     return result;
   }
 
+  // A Claude conversation is <project>/<uuid>.jsonl, named by its id. A
+  // subagent's transcript (<uuid>/subagents/agent-*.jsonl, or a sidechain
+  // beside the conversations) carries its parent's sessionId and never
+  // stands in for the conversation.
   async function inspectClaude(candidate) {
+    const id = path.basename(candidate.filename, ".jsonl");
+    if (!validUuid(id) || path.dirname(path.dirname(candidate.filename)) !== roots.claude) return null;
     const records = await readHeadTail(candidate.filename, candidate.stat);
-    const idFromName = path.basename(candidate.filename, ".jsonl");
-    const fallbackId = validUuid(idFromName) ? idFromName : null;
-    if (!fallbackId && !records.some(row => validUuid(row.sessionId))) return null;
-    return extractClaudeMeta(records, fallbackId, candidate.stat, candidate.filename);
+    if (records.find(row => row.type === "user" || row.type === "assistant")?.isSidechain === true) return null;
+    return extractClaudeMeta(records, id, candidate.stat, candidate.filename);
   }
 
   async function inspectCodex(candidate, historyTitles) {
@@ -589,7 +676,7 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
           roots.codex && path.join(roots.codex, "archived_sessions"),
         ].filter(Boolean);
         const [claudeFiles, codexFileGroups, historyTitles] = await Promise.all([
-          walkJsonl(roots.claude, { allowLarge: true }), Promise.all(codexSessionRoots.map(root => walkJsonl(root, { maxDepth: 5, allowLarge: true }))), readHistoryTitles(),
+          walkJsonl(roots.claude, { maxDepth: 1, allowLarge: true }), Promise.all(codexSessionRoots.map(root => walkJsonl(root, { maxDepth: 5, allowLarge: true }))), readHistoryTitles(),
         ]);
         const codexFiles = codexFileGroups.flat();
         const [claudeMeta, codexMeta] = await Promise.all([
@@ -638,14 +725,92 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
     return [...entries.values()].map(taskFromMeta).sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0) || a.id.localeCompare(b.id));
   }
 
+  function resetTranscript(entry) {
+    entry.state = { transcript: createTranscript(entry.provider, limits), offset: 0, skipping: false };
+    entry.head = entry.tail = null; entry.generation += 1;
+  }
+
+  // The bytes already read are still the file's: its start and the end of
+  // the last line read are what they were.
+  async function unchangedPrefix(entry, handle) {
+    for (const [at, bytes] of [[0, entry.head], [entry.state.offset - (entry.tail?.length || 0), entry.tail]]) {
+      if (!bytes?.length) continue;
+      const now = Buffer.alloc(bytes.length);
+      if ((await handle.read(now, 0, bytes.length, at)).bytesRead !== bytes.length || !now.equals(bytes)) return false;
+    }
+    return true;
+  }
+
+  // Reads what was added to the file since the last read. A live conversation
+  // appends while it is read: what was read is a whole prefix of the file, and
+  // one more pass takes what came meanwhile. A file that shrank or changed in
+  // place is read again from its start.
+  async function syncTranscript(entry, handle) {
+    for (let attempt = 0; ; attempt++) {
+      const before = await handle.stat({ bigint: true });
+      if (!safeStat(before, { allowLarge: true }) || `${before.dev}:${before.ino}` !== entry.key) return "source_changed";
+      const size = Number(before.size);
+      if (size < entry.state.offset || !await unchangedPrefix(entry, handle)) resetTranscript(entry);
+      const from = entry.state.offset;
+      if (size > from) {
+        onParse?.({ from, to: size });
+        await scanLines(handle, entry.state, size, limits);
+        const end = entry.state.offset, length = Math.min(FINGERPRINT_BYTES, end);
+        if (!entry.head?.length && length) { entry.head = Buffer.alloc(length); await handle.read(entry.head, 0, length, 0); }
+        entry.tail = Buffer.alloc(length); if (length) await handle.read(entry.tail, 0, length, end - length);
+      }
+      const after = await handle.stat({ bigint: true });
+      if (after.size === before.size && after.mtimeNs === before.mtimeNs) return null;
+      if (attempt > 0) return after.size >= before.size ? null : "source_changed";
+    }
+  }
+
+  function transcriptFor(key, provider) {
+    let entry = transcripts.get(key);
+    if (entry?.provider !== provider) { entry = { key, provider, generation: 0, flight: null }; resetTranscript(entry); }
+    transcripts.delete(key); transcripts.set(key, entry);
+    return entry;
+  }
+
+  function trimTranscripts(keep) {
+    let bytes = 0;
+    for (const entry of transcripts.values()) bytes += entry.state.transcript.retained;
+    for (const [key, entry] of transcripts) {
+      if (transcripts.size <= limits.cacheEntries && bytes <= limits.cacheBytes) break;
+      if (entry === keep || entry.flight) continue;
+      transcripts.delete(key); bytes -= entry.state.transcript.retained;
+    }
+  }
+
+  // One pass over the file that is not kept: a branch's history, or an older
+  // page of a transcript whose oldest rows were let go of.
+  async function scanOnce(handle, provider, size, options) {
+    const state = { transcript: createTranscript(provider, limits, options), offset: 0, skipping: false };
+    onParse?.({ from: 0, to: size, once: true });
+    await scanLines(handle, state, size, limits);
+    return state.transcript;
+  }
+
+  const pageNumber = value => {
+    if (value === null || value === undefined || value === "") return null;
+    if (Number.isSafeInteger(value) && value >= 0) return value;
+    return typeof value === "string" && /^\d{1,15}$/.test(value) ? Number(value) : NaN;
+  };
+
   // through: a Claude entry id; the transcript is read up to and including
   // it (a branch's history before the branch has a record of its own).
-  async function read(taskId, { through = null } = {}) {
+  // before, limit: the page that ends before row `before`, of at most `limit`
+  // messages; the newest page without them. `sourceVersion` changes when the
+  // file is read again from its start, and row numbers with it.
+  async function read(taskId, { through = null, before = null, limit = null } = {}) {
     await ensureFresh();
     const raw = String(taskId || "");
     const match = /^(claude-history|codex-history):([a-f0-9-]{36})$/i.exec(raw);
     if (!match) return { kind: "source_unavailable", code: "history_session_invalid" };
+    const page = { before: pageNumber(before), limit: pageNumber(limit) };
+    if (Number.isNaN(page.before) || Number.isNaN(page.limit) || page.limit === 0) return { kind: "source_unavailable", code: "history_page_invalid" };
     const provider = match[1] === "claude-history" ? "claude-code" : "codex";
+    if (through !== null && provider !== "claude-code") return { kind: "source_unavailable", code: "history_session_unavailable" };
     const key = `${provider}:${match[2]}`;
     let meta = entries.get(key);
     if (!meta && Number(clock()) - lastRefresh >= MISS_REFRESH_MS) {
@@ -653,28 +818,43 @@ function createNativeHistoryCatalog({ home = process.env.PI_HOME || require("nod
       meta = entries.get(key);
     }
     if (!meta || !contained(roots[provider === "claude-code" ? "claude" : "codex"], meta.filename)) return { kind: "source_unavailable", code: "history_session_unavailable" };
-    const stable = await readStableFile(meta.filename);
-    if (stable.kind !== "source_bytes" && stable.kind !== "source_chunks") return stable;
-    const parsed = stable.kind === "source_chunks"
-      ? recordsFromChunks(stable.chunks)
-      : recordsFromBytes(stable.bytes);
-    if (parsed.kind !== "source_records") return parsed;
-    let records = parsed.records;
-    if (through !== null) {
-      const end = provider === "claude-code" ? records.findIndex(row => row?.uuid === through) : -1;
-      if (end < 0) return { kind: "source_unavailable", code: "history_session_unavailable" };
-      records = records.slice(0, end + 1);
-    }
-    const messages = provider === "claude-code" ? claudeMessages(records) : codexMessages(records);
-    const partial = stable.truncated === true || parsed.omittedRecords > 0 || messages.truncated === true;
-    return { kind: "native_history_transcript", agentId: provider, sessionId: meta.sessionId, cwd: meta.cwd || "", name: meta.title || taskFromMeta(meta).name,
-      messages, ...(Array.isArray(messages.tools) ? { tools: messages.tools } : {}), hasMore: partial, truncated: partial, omittedRecords: parsed.omittedRecords || 0,
-      source: "native_readonly", readOnly: true, updatedAt: meta.updatedAt || null };
+    let handle;
+    try {
+      handle = await fsp.open(meta.filename, fs.constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+      const stat = await handle.stat({ bigint: true });
+      if (!safeStat(stat, { allowLarge: true }) || stat.size < 1n) return { kind: "source_unavailable", code: "source_missing" };
+      if (stat.size > BigInt(Number.MAX_SAFE_INTEGER)) return { kind: "source_unavailable", code: "source_too_large" };
+      const fileKey = `${stat.dev}:${stat.ino}`;
+      let transcript, size, version;
+      if (through !== null) {
+        size = Number(stat.size);
+        transcript = await scanOnce(handle, provider, size, { through });
+        if (!transcript.found) return { kind: "source_unavailable", code: "history_session_unavailable" };
+        version = `${fileKey}:${transcripts.get(fileKey)?.generation || 0}:${through}`;
+      } else {
+        const entry = transcriptFor(fileKey, provider);
+        if (!entry.flight) entry.flight = syncTranscript(entry, handle).finally(() => { entry.flight = null; });
+        const failure = await entry.flight;
+        if (failure) return { kind: "source_unavailable", code: failure };
+        trimTranscripts(entry);
+        ({ transcript } = entry.state); size = entry.state.offset;
+        version = `${fileKey}:${entry.generation}`;
+      }
+      let rows = transcript.page(page);
+      if (rows.needsRange) rows = (await scanOnce(handle, provider, size, { through, keepBelow: rows.end })).page(page);
+      return { kind: "native_history_transcript", agentId: provider, sessionId: meta.sessionId, cwd: meta.cwd || "", name: meta.title || taskFromMeta(meta).name,
+        messages: rows.messages, ...(rows.tools ? { tools: rows.tools } : {}), hasMore: rows.before !== null, before: rows.before, end: rows.end,
+        sourceVersion: crypto.createHash("sha256").update(version).digest("hex").slice(0, 24), truncated: rows.truncated,
+        omittedRecords: transcript.omittedRecords, composer: transcript.composer(),
+        source: "native_readonly", readOnly: true, updatedAt: meta.updatedAt || null };
+    } catch { return { kind: "source_unavailable", code: "source_io_error" }; }
+    finally { try { await handle?.close(); } catch {} }
   }
 
   function status() { return { enabled: POSIX, state: closed ? "closed" : "ready", lastRefresh: lastRefresh || null, entries: entries.size, lastError, refreshing: !!flight }; }
-  async function shutdown() { closed = true; entries = new Map(); await flight?.catch?.(() => {}); return { cleanupConfirmed: true }; }
+  async function shutdown() { closed = true; entries = new Map(); transcripts.clear(); await flight?.catch?.(() => {}); return { cleanupConfirmed: true }; }
   return Object.freeze({ refresh, listTasks, read, status, shutdown, updatedAt });
 }
 
-module.exports = { createNativeHistoryCatalog, recordsFromBytes, claudeMessages, codexMessages, taskFromMeta, LIMITS: Object.freeze({ MAX_FILES_PER_PROVIDER, MAX_TRANSCRIPT_BYTES, MAX_MESSAGES }) };
+module.exports = { createNativeHistoryCatalog, createTranscript, recordsFromBytes, claudeMessages, codexMessages, taskFromMeta,
+  LIMITS: Object.freeze({ MAX_FILES_PER_PROVIDER, MAX_MESSAGES, ...DEFAULT_LIMITS }) };
