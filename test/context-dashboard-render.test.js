@@ -60,6 +60,9 @@ function renderHarness({ unknown = "Unknown", unavailable = "Unavailable", notRe
   const translationArgs = [];
   const sandbox = vm.createContext({
     el,
+    // The conversation shown; one whose agent never reports context hides the ring.
+    rpc: null,
+    agentConnectorLabel: id => ({ antigravity: "Google Antigravity" })[id] || id,
     CONTEXT_RING_CIRCUMFERENCE: 2 * Math.PI * 15.5,
     finiteNonNegative: contextUtils.finiteNonNegative,
     positiveFinite: contextUtils.positiveFinite,
@@ -94,6 +97,7 @@ function renderHarness({ unknown = "Unknown", unavailable = "Unavailable", notRe
       composerModelContextWindow = modelCapacity;
     };
     globalThis.__renderContextDashboard = renderContextDashboard;
+    globalThis.__setRpc = connection => { globalThis.rpc = connection; };
   `, sandbox);
   return {
     ...sandbox,
@@ -101,6 +105,7 @@ function renderHarness({ unknown = "Unknown", unavailable = "Unavailable", notRe
     translationCalls,
     translationArgs,
     setContext: sandbox.__setContext,
+    setRpc: sandbox.__setRpc,
     render: sandbox.__renderContextDashboard,
   };
 }
@@ -156,11 +161,14 @@ test("last-observed context is marked approximate while live context stays compa
   assert.doesNotMatch(h.el.contextInlinePercent.textContent, /^~/);
 });
 
+// The ring shows a dash beside an empty ring while nothing is known; the
+// localized word is what the control is called.
 test("unknown and unavailable context are localized and never rendered as zero", () => {
   const h = renderHarness({ unknown: "未知" });
   h.setContext(null, "awaiting");
   h.render();
-  assert.equal(h.el.contextInlinePercent.textContent, "未知");
+  assert.equal(h.el.contextInlinePercent.textContent, "—");
+  assert.equal(h.el.contextInfo.getAttribute("aria-label"), "Context: 未知");
   assert.notEqual(h.el.contextInlinePercent.textContent, "0%");
   assert.equal(h.el.contextProgress.getAttribute("aria-valuenow"), undefined);
   assert.equal(h.el.contextDashboard.dataset.contextState, "unknown");
@@ -172,15 +180,30 @@ test("unknown and unavailable context are localized and never rendered as zero",
   assert.equal(h.el.contextInlinePercent.textContent, "45%");
   h.setContext(fullStats(), "unavailable");
   h.render();
-  assert.equal(h.el.contextInlinePercent.textContent, "未知");
+  assert.equal(h.el.contextInlinePercent.textContent, "—");
+  assert.equal(h.el.contextInfo.getAttribute("aria-label"), "Context: 未知");
   assert.notEqual(h.el.contextInlinePercent.textContent, "45%");
   assert.equal(h.el.contextProgress.getAttribute("aria-valuenow"), undefined);
   assert.equal(h.el.contextDashboardStatus.textContent, "Unavailable");
 
-  h.setContext({ ...fullStats({ percent: null }), source: "last_observed", stale: true, observedAt: "2026-09-16T04:00:00.000Z" }, "ready");
+  h.setContext({ ...fullStats({ tokens: null, percent: null }), source: "last_observed", stale: true, observedAt: "2026-09-16T04:00:00.000Z" }, "ready");
   h.render();
-  assert.equal(h.el.contextInlinePercent.textContent, "未知");
-  assert.notEqual(h.el.contextInlinePercent.textContent, "~未知");
+  assert.equal(h.el.contextInlinePercent.textContent, "—");
+  assert.equal(h.el.contextInfo.getAttribute("aria-label"), "Context: 未知");
+});
+
+test("an agent that never reports its context has no ring, and says so", () => {
+  const h = renderHarness();
+  h.setRpc({ generic: true, nativeAntigravityStructured: true, agentId: "antigravity", agentLabel: "Google Antigravity" });
+  h.setContext(null, "awaiting");
+  h.render();
+  assert.equal(h.el.contextDashboard.dataset.contextState, "unsupported");
+  assert.equal(h.el.contextDashboard.title, "contextDashboard.notSupported");
+  assert.equal(h.translationArgs.findLast(call => call.key === "contextDashboard.notSupported").vars.agent, "Google Antigravity");
+  // An agent that reports it shows the empty ring until it has.
+  h.setRpc({ generic: true, nativeClaudeStructured: true });
+  h.render();
+  assert.equal(h.el.contextDashboard.dataset.contextState, "unknown");
 });
 
 test("a model mismatch cannot leak the newly selected model's capacity", () => {
@@ -193,22 +216,38 @@ test("a model mismatch cannot leak the newly selected model's capacity", () => {
   }, "ready", 200_000);
   h.render();
   assert.equal(h.el.contextCapacity.textContent, "—");
-  assert.equal(h.el.contextInlinePercent.textContent, "Unknown");
+  assert.equal(h.el.contextInlinePercent.textContent, "—");
+  assert.equal(h.el.contextInfo.getAttribute("aria-label"), "Context: Unknown");
   assert.equal(h.el.contextDashboardStatus.textContent, "Model changed");
 });
 
+// Without an agent's own percentage, the current context's tokens over the
+// capacity the agent or its model states give it; the cumulative totals never do.
 test("rendering never derives a percentage from cumulative token totals", () => {
   const h = renderHarness({ unknown: "Unknown" });
   h.setContext({
     // This is intentionally a cumulative/session total, not current context.
     tokens: { input: 45_000, output: 55_000, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
-    contextUsage: { tokens: 45_000, contextWindow: 100_000, percent: null },
+    contextUsage: { tokens: null, contextWindow: 100_000, percent: null },
     contextCapacity: 100_000,
   }, "ready");
   h.render();
-  assert.equal(h.el.contextInlinePercent.textContent, "Unknown");
+  assert.equal(h.el.contextInlinePercent.textContent, "—");
   assert.equal(h.el.contextPercent.textContent, "—");
   assert.equal(h.el.contextProgress.getAttribute("aria-valuenow"), undefined);
+
+  h.setContext({
+    tokens: { input: 45_000, output: 55_000, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
+    contextUsage: { tokens: 45_000, contextWindow: null, percent: null },
+    contextCapacity: null,
+  }, "ready", 100_000);
+  h.render();
+  assert.equal(h.el.contextInlinePercent.textContent, "45%");
+  assert.equal(h.el.contextProgress.getAttribute("aria-valuenow"), "45");
+  // The agent's own percentage wins over the derived one.
+  h.setContext({ ...fullStats({ tokens: 45_000, capacity: 100_000, percent: 40 }) }, "ready");
+  h.render();
+  assert.equal(h.el.contextInlinePercent.textContent, "40%");
 });
 
 function nativeContextHarness() {
@@ -257,11 +296,15 @@ function nativeContextHarness() {
     const contextDashboardIdentity = () => ({ sid: rpc?.sid || null, generation: viewGeneration, base: apiBase });
     ${appSource.slice(start, end)}
     globalThis.__syncNativeContext = syncNativeContext;
+    globalThis.__applyNativeContextStats = applyNativeContextStats;
+    globalThis.__setNativeRpc = connection => { globalThis.rpc = connection; };
     globalThis.__nativeContextPath = nativeContextPath;
     globalThis.__contextSnapshot = () => ({ contextStats, contextStatsState });
   `, sandbox);
   return { ...render, ...sandbox, connection, calls,
     sync: sandbox.__syncNativeContext,
+    apply: sandbox.__applyNativeContextStats,
+    setNativeRpc: sandbox.__setNativeRpc,
     nativePath: sandbox.__nativeContextPath,
     snapshot: sandbox.__contextSnapshot,
   };
@@ -278,6 +321,20 @@ test("read-only Codex native context uses the safe context GET without mutation 
   assert.equal(h.calls[0].options.method, undefined, "context read must use the default GET");
   assert.deepEqual(h.connection, before, "read-only context observation must not mutate the Codex connection");
   assert.equal(h.snapshot().contextStats.contextUsage.percent, 45);
+});
+
+// A stopped Claude's reading names the model it last ran with; the button
+// keeps the model its next turn runs with.
+test("a last observed context never replaces the model the next turn runs with", () => {
+  const h = nativeContextHarness();
+  const opus = { id: "opus", resolvedModel: "claude/claude-opus-5-5:xhigh[1m]", contextWindow: 1_000_000 };
+  const connection = { sid: "claude-code:stopped", nativeClaudeStructured: true, nativeSessionId: "stopped", claudeModel: opus, claudeModelSelected: false };
+  h.setNativeRpc(connection);
+  h.apply({ model: "claude-fable-5-1[1m]", contextWindow: 1_000_000, contextTokens: 911_433, contextPercent: 91.1433,
+    source: "last_observed", observedAt: "2026-10-18T21:50:05.292Z", stale: true }, connection);
+  assert.equal(connection.claudeModel, opus);
+  assert.equal(h.snapshot().contextStats.source, "last_observed");
+  assert.equal(h.snapshot().contextStats.contextUsage.percent, 91.1433);
 });
 
 function openCodeCatalogHarness() {

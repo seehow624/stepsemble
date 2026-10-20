@@ -275,6 +275,11 @@ const draftWrites = new Map();
 const pendingDraftSends = new Map();
 let composerModelName = "";
 let composerReasoningLevel = "off";
+// The thinking bars beside the model: the model's own levels they scale a
+// level against, why there is no level to show, and the level "auto" runs at.
+let composerReasoningLevels = [];
+let composerReasoningNote = "";
+let composerReasoningEffective = "";
 let modelCatalog = [];
 let modelCatalogSources = new Map();
 let configuredProviders = [];
@@ -2928,6 +2933,7 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     }
     keepSessionUsageAtEnd(); scrollBottom(true);
     connection.nativeLoading = false; connection.connectionLost = false;
+    applyHistoryComposer(connection, result.composer, agentId);
     applyGenericTaskSnapshot({ id: taskId, taskId, agentId, status: "history", nativeHistoryReadonly: true, readOnly: true,
       name, cwd, startedAt: normalizedTimestampMs(task.startedAt), lastActivityAt: normalizedTimestampMs(task.lastActivityAt) });
     syncGenericInputState();
@@ -2936,6 +2942,31 @@ async function openNativeHistoryTask(task, generationOverride = null) {
     connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
     toast(tKey("runtime.historyFailed", { detail: String(error?.message || "history unavailable").slice(0, 128) }), true);
   }
+}
+
+// What a read-only history's agent last ran with, when the Host read it from
+// the transcript ({ model, effort, contextTokens, contextWindow, observedAt },
+// each may be null): the model and its level as a label, and the context as a
+// last observation.
+function applyHistoryComposer(connection, composer, agentId) {
+  if (rpc !== connection || !composer || typeof composer !== "object" || Array.isArray(composer)) return;
+  const text = value => typeof value === "string" && value.trim() ? value.trim().slice(0, 256) : null;
+  const model = text(composer.model), effort = (text(composer.effort) || "").toLowerCase();
+  const row = model ? (agentId === "claude-code" ? normalizeClaudeModel(model) : normalizeCodexModel(model)) : null;
+  const observedAt = typeof composer.observedAt === "number" && Number.isFinite(composer.observedAt) ? new Date(composer.observedAt).toISOString()
+    : typeof composer.observedAt === "string" && Number.isFinite(Date.parse(composer.observedAt)) ? composer.observedAt : null;
+  const tokens = finiteNonNegative(composer.contextTokens), capacity = positiveFinite(composer.contextWindow) ?? modelPresentation?.contextCapacity(row) ?? null;
+  connection.historyComposer = { model, effort, observed: tokens !== null };
+  composerModelContextWindow = capacity;
+  updateComposerSummary(row ? modelTitle(row, connection) : "", effort,
+    { levels: agentId === "codex" ? CODEX_EFFORTS.filter(level => level !== "off") : THINKING_LEVEL_ORDER, note: "", effective: "" });
+  if (tokens !== null) {
+    contextStats = normalizeNativeContextStats({ model, contextTokens: tokens, contextWindow: capacity, contextPercent: null,
+      source: "last_observed", observedAt, stale: true }, { inputIncludesCache: agentId === "codex" });
+    contextStatsState = "ready";
+  }
+  syncComposerModelControl(connection);
+  renderContextDashboard();
 }
 
 el.agentHubToggle?.addEventListener("click", toggleAgentHub);
@@ -7215,16 +7246,27 @@ async function syncClaudeStructuredModelCatalog(connection = rpc, { force = fals
   const { models, current: currentModel } = claudeCatalogFrom(result);
   connection.claudeModels = models;
   connection.claudeModelsLoaded = true;
-  const current = claudeModelFromCatalog(models, currentModel)
+  applyClaudeEffortReport(connection, result);
+  const current = claudeModelFromCatalog(models, currentModel, { effort: connection.claudeEffort, current: connection.claudeModel })
     || null;
   if (current && !connection.claudeModelSelected) {
     connection.claudeModel = current;
     composerModelContextWindow = positiveFinite(current.contextWindow);
     updateComposerSummary(modelTitle(current, connection), undefined);
+    // The model's capacity gives a reading Claude made without one its percentage.
+    renderContextDashboard();
   }
-  connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
   syncNativeThinkingSelect(connection);
   return models;
+}
+
+// The level Claude reports it runs at: a level, or "auto" with the level its
+// settings name for that when Claude reports one.
+function applyClaudeEffortReport(connection, result) {
+  const reported = String(result?.currentEffort || "").toLowerCase();
+  if (reported) connection.claudeEffort = reported;
+  else connection.claudeEffort = String(connection.claudeEffort || "").toLowerCase() || null;
+  connection.claudeEffectiveEffort = reported === "auto" ? String(result?.effectiveEffort || "").toLowerCase() || null : null;
 }
 
 async function openClaudeStructuredTask(task, generationOverride = null) {
@@ -7265,7 +7307,7 @@ async function openClaudeStructuredTask(task, generationOverride = null) {
   rpc = { sid: `claude-code:${nativeSessionId}`, generic: true, nativeClaudeStructured: true, nativeSessionId, nativeLoading: true,
     claudeNeedsLoad: task.deferred === true, claudeStartedAt: null,
     connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
-    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null, claudeEffort: "auto",
+    genericInputEchoes: [], claudeEventIndex: 0, claudeOutputStart: null, claudeEffort: null, claudeEffectiveEffort: null,
     // Native Claude transcript discovery is independent from the live
     // adapter lifecycle. A newly opened session may still be labelled
     // `waiting` while its JSONL transcript already contains prior turns.
@@ -8140,14 +8182,17 @@ function applyNativeContextStats(response, connection = rpc) {
   const hasExplicitModel = isCodex
     ? connection.codexModelSelected === true
     : connection.claudeModelSelected === true;
-  if (normalized.model !== null && !hasExplicitModel) {
+  // A last observation names the model the conversation ran with then; the
+  // one its next turn runs with is its model list's.
+  if (normalized.model !== null && !hasExplicitModel && normalized.source !== "last_observed") {
     // A context response only names the model. The catalog entry for the same
     // model carries its display name and reasoning levels, so use that; the
     // bare name used to replace it and hide the level beside the model.
     const observed = isCodex ? normalizeCodexModel(normalized.model) : null;
     const model = isCodex
-      ? observed && (Array.isArray(connection.codexModels) && connection.codexModels.find(row => row?.id === observed.id) || observed)
-      : claudeModelFromCatalog(connection.claudeModels, normalized.model);
+      ? observed && (Array.isArray(connection.codexModels) && connection.codexModels.find(row => row?.id === observed.id)
+        || (connection.codexModel?.id === observed.id ? connection.codexModel : observed))
+      : claudeModelFromCatalog(connection.claudeModels, normalized.model, { effort: connection.claudeEffort, current: connection.claudeModel });
     if (model) {
       if (isCodex) connection.codexModel = model;
       else connection.claudeModel = model;
@@ -8222,12 +8267,17 @@ function renderContextDashboard() {
     : positiveFinite(contextUsage?.contextWindow)
       ?? positiveFinite(contextStats?.contextCapacity)
       ?? modelCapacity;
-  // Pi's contextUsage.percent is authoritative. Do not derive this from the
-  // cumulative token totals: those totals survive compaction and count work
-  // which is no longer in the current prompt context.
-  const percent = finiteNonNegative(contextUsage?.percent);
+  // An agent's own percentage (Pi's contextUsage.percent) is authoritative.
+  // Without one, it is the current context's tokens over the capacity the
+  // agent or its model states; never the cumulative token totals, which
+  // survive compaction and count work no longer in the current context.
+  const percent = finiteNonNegative(contextUsage?.percent)
+    ?? (used !== null && capacity !== null ? Math.min(100, (used / capacity) * 100) : null);
   const lastObserved = statsForValues?.source === "last_observed" && statsForValues?.stale === true;
   const visiblePercent = percent === null ? tKey("contextDashboard.unknown") : `${lastObserved ? "~" : ""}${formatPercent(percent)}`;
+  // An agent that never reports its context has no gauge; one that has not
+  // yet shows an empty ring and a dash.
+  const unsupported = contextReportUnsupported(rpc);
   const cacheHitPercent = computeCacheHitRate(usage);
   // Most OpenAI-compatible providers never report cache writes (their caching
   // is automatic and surfaced only as cache hits). Show an em dash instead of
@@ -8240,11 +8290,13 @@ function renderContextDashboard() {
   setValue(el.contextUsed, formatTokenCount(used));
   setValue(el.contextCapacity, formatTokenCount(capacity));
   setValue(el.contextPercent, percent === null ? "—" : visiblePercent);
-  setValue(el.contextInlinePercent, visiblePercent);
+  setValue(el.contextInlinePercent, percent === null ? "—" : visiblePercent);
   if (el.contextInfo) {
     el.contextInfo.setAttribute("aria-label", `${tKey("contextDashboard.context")}: ${visiblePercent}`);
     el.contextInfo.title = `${tKey("contextDashboard.context")}: ${visiblePercent} · ${tKey("contextDashboard.details")}`;
   }
+  if (unsupported) el.contextDashboard.title = unsupported;
+  else el.contextDashboard.removeAttribute?.("title");
   setValue(el.contextInput, formatTokenCount(usage.input));
   setValue(el.contextOutput, formatTokenCount(usage.output));
   setValue(el.contextCacheHit, formatTokenCount(usage.cacheRead));
@@ -8261,7 +8313,7 @@ function renderContextDashboard() {
       ? "" : tKey("contextDashboard.cacheWriteNone");
   }
 
-  const progressState = percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
+  const progressState = unsupported !== null ? "unsupported" : percent === null ? "unknown" : percent > 90 ? "critical" : percent > 70 ? "warning" : "normal";
   el.contextDashboard.dataset.contextState = progressState;
   if (el.contextProgress) {
     el.contextProgress.setAttribute("aria-valuetext", visiblePercent);
@@ -8275,7 +8327,7 @@ function renderContextDashboard() {
     }
   }
 
-  const summary = tKey("contextDashboard.summary", {
+  const summary = unsupported || tKey("contextDashboard.summary", {
     used: formatTokenCount(used), capacity: formatTokenCount(capacity), percent: visiblePercent,
     input: formatTokenCount(usage.input), output: formatTokenCount(usage.output),
     cacheHit: formatTokenCount(usage.cacheRead), cacheHitPercent: formatPercent(cacheHitPercent),
@@ -8299,6 +8351,17 @@ function renderContextDashboard() {
     el.contextDashboardStatus.textContent = status;
     el.contextDashboardStatus.classList.toggle("hidden", !status);
   }
+}
+
+// Why a conversation has no context gauge, or null when it has one. Google
+// Antigravity and an agent run in a terminal never report their context; a
+// read-only history shows one only when its transcript gave the Host one.
+function contextReportUnsupported(connection) {
+  if (!connection || !connection.generic) return null;
+  if (connection.nativeCodex || connection.nativeCodexMutation || connection.nativeClaudeStructured || connection.nativeOpenCode
+    || connection.nativeAcp || connection.nativeGrokAcp) return null;
+  if (connection.nativeHistoryReadonly) return connection.historyComposer?.observed ? null : "";
+  return tKey("contextDashboard.notSupported", { agent: connection.agentLabel || agentConnectorLabel(connection.agentId) || "" });
 }
 
 /** Fetch exact current-context and cumulative session stats, without polling. */
@@ -11321,8 +11384,9 @@ function setStreaming(on) {
   // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
   // endpoint and Codex applies the selected model on its next prompt. Other
   // connectors have no safe model route, and read-only history must not offer
-  // to change anything.
-  el.btnModel?.classList.toggle("hidden", !connectorAllowsLiveControls(rpc));
+  // to change anything. The thinking bars ripple while the agent works.
+  syncComposerModelControl(rpc);
+  el.btnModel?.classList.toggle("is-working", !!on && !!rpc);
   // Attachments follow the connector's wire format, not the Pi/generic split:
   // OpenCode, Claude Code and the ACP agents all carry image content blocks.
   syncComposerAdd();
@@ -11345,9 +11409,21 @@ function setStreaming(on) {
   syncApprovalControl();
 }
 
+// The model button: a control where the model can be changed, and a plain
+// label where a read-only history names the model it last ran with.
+function syncComposerModelControl(connection = rpc) {
+  if (!el.btnModel) return;
+  const live = connectorAllowsLiveControls(connection);
+  const observed = !live && !!connection?.historyComposer?.model;
+  el.btnModel.classList.toggle("hidden", !live && !observed);
+  el.btnModel.classList.toggle("is-static", observed);
+  if (observed) el.btnModel.setAttribute("aria-disabled", "true");
+  else el.btnModel.removeAttribute("aria-disabled");
+}
+
 // ---- 送出 / 中止 ----
 el.btnSend.addEventListener("click", sendCurrent);
-el.btnModel.addEventListener("click", openModelSheet);
+el.btnModel.addEventListener("click", () => { if (el.btnModel.getAttribute("aria-disabled") !== "true") void openModelSheet(); });
 let conversationGoal = null;
 let agentCompaction = null;
 let subagentTracker = null, subagentPanel = null;
@@ -11996,6 +12072,9 @@ function resetComposerSummary() {
   el.approvalControl?.classList.add("hidden");
   composerModelName = "";
   composerReasoningLevel = "off";
+  composerReasoningLevels = [];
+  composerReasoningNote = "";
+  composerReasoningEffective = "";
   availableModels = [];
   modelSheetCurrentId = null;
   modelSheetCurrentProvider = null;
@@ -12009,41 +12088,55 @@ function resetComposerSummary() {
   resetContextDashboard();
   updateComposerSummary();
 }
-function updateComposerSummary(modelName, thinkingLevel) {
+// reasoning: { levels, note, effective } — the model's own levels, why it has
+// none to show, and the level an "auto" runs at; each kept until changed.
+function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
   if (modelName !== undefined) composerModelName = String(modelName || "");
   // An empty level is the explicit "this model has no thinking control"
   // signal, so it must clear the chip instead of leaving the level the
   // previously selected model was using on screen.
   if (thinkingLevel !== undefined) composerReasoningLevel = String(thinkingLevel || "");
+  if (reasoning?.levels !== undefined) composerReasoningLevels = Array.isArray(reasoning.levels) ? reasoning.levels.map(String) : [];
+  if (reasoning?.note !== undefined) composerReasoningNote = String(reasoning.note || "");
+  if (reasoning?.effective !== undefined) composerReasoningEffective = String(reasoning.effective || "");
   // Until the agent names its model, the chip invites a choice; it never
   // shows a "default" that hides which model will answer.
   const model = composerModelName || (window.stepsembleI18n?.t("Choose model") || "Choose model");
-  // Codex and Claude have no "off" or "auto" level to show: an unknown level
-  // is left out rather than shown as a default.
-  const levelLabel = !composerReasoningLevel ? ""
-    : (rpc?.nativeCodexMutation || rpc?.nativeClaudeStructured) && ["off", "auto"].includes(composerReasoningLevel) ? "" : composerReasoningLevel;
-  const summary = levelLabel ? `${model} · ${levelLabel}` : model;
-  // The chip is fixed-width: the model name truncates with an ellipsis while
-  // the trailing thinking level always stays fully visible.
+  const level = composerReasoningLevel.toLowerCase();
+  // The level as four bars: how many are lit is the level's place in the
+  // model's own list. "Auto" lights the level it runs at when reported, and
+  // otherwise shows its own look; no level shows flat bars that say why.
+  const shown = modelPresentation?.effortBars(level, composerReasoningLevels) || { state: level ? "level" : "none", bars: 0 };
+  const effective = shown.state === "auto" && composerReasoningEffective
+    ? modelPresentation?.effortBars(composerReasoningEffective, composerReasoningLevels) : null;
+  const words = shown.state === "none" ? ""
+    : shown.state === "auto" ? reasoningLevelText("auto") + (effective?.state === "level" ? " · " + reasoningLevelText(composerReasoningEffective) : "")
+      : reasoningLevelText(level);
+  const note = words ? tKey("runtime.thinkingTooltip", { level: words }) : composerReasoningNote || tKey("runtime.thinkingNotReported");
   if (el.composerModelNameText) {
     el.composerModelNameText.textContent = model;
     el.composerModelNameText.title = model;
   }
-  if (el.composerModelLevelText) {
-    el.composerModelLevelText.textContent = levelLabel ? reasoningLevelText(levelLabel) : "";
-    el.composerModelLevelText.classList.toggle("hidden", !levelLabel);
+  const indicator = el.composerModelLevelText;
+  if (indicator) {
+    const state = effective?.state === "level" ? "level" : shown.state;
+    const bars = effective?.state === "level" ? effective.bars : shown.bars;
+    indicator.dataset.state = state;
+    indicator.dataset.bars = String(bars);
+    indicator.dataset.level = words;
+    indicator.title = note;
+    indicator.querySelectorAll?.(".composer-effort-bar").forEach((bar, index) => bar.classList.toggle("on", index < bars));
+    // The bars belong to a model; none show before one is known.
+    indicator.classList.toggle("hidden", !composerModelName);
   }
   if (el.btnModel) {
-    const label = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
-    el.btnModel.title = label;
-    el.btnModel.setAttribute("aria-label", `${label}: ${summary}`);
+    el.btnModel.title = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
+    el.btnModel.setAttribute("aria-label", words ? tKey("runtime.modelThinking", { model, level: words }) : `${model}. ${note}`);
   }
 }
 // Levels read the way Codex shows them beside the model: "Medium", "Max".
 function reasoningLevelText(level) {
-  const value = String(level || "");
-  if (value === "xhigh") return "Extra high";
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  return modelPresentation?.levelName(level) || String(level || "");
 }
 // The Host keeps the model and level last chosen for an agent, so its next
 // conversation starts with them, on every device.
@@ -12064,7 +12157,9 @@ function applyComposerState(data) {
     }
   }
   el.thinkingSelect.value = level;
-  updateComposerSummary(modelName, level);
+  // Pi's levels for this model once Pi has listed them; its whole list until then.
+  const key = model ? `${model.provider || ""}/${model.id || ""}` : "";
+  updateComposerSummary(modelName, level, { levels: thinkingLevelsForModel.get(key) || PI_THINKING_LEVELS, note: "", effective: "" });
   renderContextDashboard();
   void syncThinkingLevelSupport(model, level);
 }
@@ -12079,6 +12174,7 @@ let defaultThinkingSelectOptions = null;
 
 const CODEX_EFFORTS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const THINKING_LEVEL_ORDER = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+const PI_THINKING_LEVELS = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function captureDefaultThinkingSelectOptions() {
   if (!el.thinkingSelect || defaultThinkingSelectOptions) return;
@@ -12137,10 +12233,11 @@ function syncNativeThinkingSelect(connection = rpc) {
   if (!select) return;
   captureDefaultThinkingSelectOptions();
   setThinkingHint("");
-  // OpenCode takes no thinking level from Stepsemble, so it offers none.
+  // OpenCode takes no thinking level from Stepsemble, so it offers none; the
+  // bars say so rather than vanish.
   if (connection?.nativeOpenCode) {
     setThinkingControlVisibility(true); select.disabled = true;
-    if (rpc === connection) updateComposerSummary(undefined, "");
+    if (rpc === connection) updateComposerSummary(undefined, "", { levels: [], note: tKey("runtime.thinkingNotOffered", { agent: "OpenCode" }), effective: "" });
     return;
   }
   if (connection?.nativeClaudeStructured) {
@@ -12148,7 +12245,10 @@ function syncNativeThinkingSelect(connection = rpc) {
     const advertised = Array.isArray(model?.supportedEffortLevels)
       ? model.supportedEffortLevels.map(level => String(level).trim().toLowerCase()).filter(level => THINKING_LEVEL_ORDER.includes(level))
       : [];
-    const supportsEffort = model?.supportsEffort === true || advertised.length > 0;
+    // A model's list entry says whether it has levels, also by leaving them
+    // out; a bare name Claude reported says nothing about them.
+    const declared = !!model && model.effortDeclared !== false;
+    const supportsEffort = model?.supportsEffort === true || advertised.length > 0 || !declared;
     if (!supportsEffort) {
       // A model without a thinking level (Claude's Haiku): no level to pick,
       // and the hint says why.
@@ -12158,7 +12258,7 @@ function syncNativeThinkingSelect(connection = rpc) {
       select.title = tKey("runtime.thinkingUnsupported");
       setThinkingHint(tKey("runtime.thinkingUnsupported"));
       // The chip must not keep showing the level of a different model.
-      updateComposerSummary(undefined, "");
+      updateComposerSummary(undefined, "", { levels: [], note: tKey("runtime.thinkingUnsupported"), effective: "" });
       return;
     }
     setThinkingControlVisibility(false);
@@ -12166,25 +12266,33 @@ function syncNativeThinkingSelect(connection = rpc) {
     select.removeAttribute("title");
     const levels = [...new Set(advertised.length ? advertised : [...THINKING_LEVEL_ORDER])];
     const choices = new Set(levels);
-    // Claude reports the level it runs with; one it has not reported yet is
-    // shown as unknown rather than as a default.
-    connection.claudeEffort = [connection.claudeEffort, model.defaultEffort]
-      .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || null;
-    setSelectOptions(select, [...(connection.claudeEffort ? [] : [{ value: "", label: "—", disabled: true }]),
+    // Claude reports the level it runs with, or "auto" when it chooses; one
+    // it has not reported yet is shown as unknown rather than as a default.
+    const auto = String(connection.claudeEffort || "").toLowerCase() === "auto";
+    connection.claudeEffort = [connection.claudeEffort, model?.defaultEffort]
+      .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || (auto ? "auto" : null);
+    const current = choices.has(connection.claudeEffort) ? connection.claudeEffort : "";
+    const effective = auto && choices.has(connection.claudeEffectiveEffort) ? connection.claudeEffectiveEffort : "";
+    setSelectOptions(select, [...(current ? [] : [{ value: "", label: auto ? reasoningLevelText("auto") + (effective ? " · " + reasoningLevelText(effective) : "") : "—", disabled: true }]),
       ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
-    select.value = connection.claudeEffort || "";
-    updateComposerSummary(undefined, connection.claudeEffort || "");
+    select.value = current;
+    updateComposerSummary(undefined, connection.claudeEffort || "", { levels, note: "", effective });
     return;
   }
   // An ACP agent lists its own reasoning levels (Grok: Extra high to Low);
   // one that lists none has no level to choose.
   if (connection?.nativeAcp || connection?.nativeGrokAcp) {
     const thought = acpThoughtOption(connection.acpConfigOptions);
-    if (!thought) { setThinkingControlVisibility(true); select.disabled = true; return; }
+    if (!thought) {
+      setThinkingControlVisibility(true); select.disabled = true;
+      if (rpc === connection) updateComposerSummary(undefined, "", { levels: [], note: tKey("runtime.thinkingNotOffered", { agent: agentConnectorLabel(acpAgentOf(connection)) }), effective: "" });
+      return;
+    }
     setThinkingControlVisibility(false);
     setSelectOptions(select, thought.options.map(choice => ({ value: choice.value, label: choice.name || reasoningLevelText(choice.value) })));
     select.value = String(thought.currentValue || "");
     select.disabled = false;
+    if (rpc === connection) updateComposerSummary(undefined, String(thought.currentValue || ""), { levels: thought.options.map(choice => choice.value), note: "", effective: "" });
     return;
   }
   setThinkingControlVisibility(false);
@@ -12212,7 +12320,7 @@ function syncNativeThinkingSelect(connection = rpc) {
   setSelectOptions(select, [...(next ? [] : [{ value: "", label: "—", disabled: true }]), ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
   select.value = next || "";
   select.disabled = false;
-  updateComposerSummary(undefined, next || "");
+  updateComposerSummary(undefined, next || "", { levels, note: "", effective: "" });
 }
 
 function updateThinkingSelectOptions() {
@@ -12240,6 +12348,8 @@ async function syncThinkingLevelSupport(model, reportedLevel) {
     updateThinkingSelectOptions();
     if (reportedLevel) el.thinkingSelect.value = reportedLevel;
   }
+  // The bars scale against this model's own levels.
+  if (composerModelKey === key && thinkingLevelsForModel.has(key)) updateComposerSummary(undefined, undefined, { levels: thinkingLevelsForModel.get(key) });
 }
 async function syncComposerState(expectedSid = rpc?.sid) {
   if (!expectedSid || !rpc || rpc.sid !== expectedSid) return;
@@ -12534,7 +12644,8 @@ function normalizeCodexModel(model) {
 function normalizeClaudeModel(model) {
   if (typeof model === "string") {
     const id = model.trim();
-    return id ? { id, name: id, provider: "claude-code", contextWindow: null, reasoning: false } : null;
+    // A bare name says nothing of the model's levels; that is not "none".
+    return id ? { id, name: id, provider: "claude-code", contextWindow: modelPresentation?.contextCapacity({ id }) ?? null, reasoning: false, effortDeclared: false } : null;
   }
   if (!model || typeof model !== "object") return null;
   const id = String(model.id || model.model || model.slug || model.name || "").trim();
@@ -12551,12 +12662,15 @@ function normalizeClaudeModel(model) {
     reasoning: model.reasoning === true || model.supportsReasoning === true || model.supportsEffort === true || supportedEffortLevels.length > 0,
     supportsEffort: model.supportsEffort === true || supportedEffortLevels.length > 0,
     supportedEffortLevels: [...new Set(supportedEffortLevels)],
+    // Claude's list leaves the levels out for a model without any (Haiku).
+    effortDeclared: model.effortDeclared !== false,
     supportsAutoMode: model.supportsAutoMode === true,
     defaultEffort: String(model.defaultEffort || model.default_effort || "").trim().toLowerCase() || null,
     // Claude's catalog gives no capacity; its "[1m]" aliases are the 1M
-    // context models ("opus[1m]", "Opus (1M context)"). Claude's own usage
-    // report replaces this once a turn has run.
-    contextWindow: positiveFinite(model.contextWindow ?? model.context_window)
+    // context models ("opus[1m]", "Opus (1M context)", a gateway's
+    // "claude/claude-opus-5-5:xhigh[1m]"). Claude's own usage report
+    // replaces this once a turn has run.
+    contextWindow: modelPresentation?.contextCapacity(model) ?? positiveFinite(model.contextWindow ?? model.context_window)
       ?? (/\[1m\]$/i.test(id) || /\b1M context\b/i.test(String(model.name || model.displayName || "")) ? 1_000_000 : null),
   };
 }
@@ -12564,22 +12678,19 @@ function normalizeClaudeModel(model) {
 // Native Claude controls acknowledge a model switch with only its wire id.
 // Reattach the already-fetched catalog row so gateway aliases keep their
 // context capacity and reasoning metadata immediately after switching.
-function claudeModelFromCatalog(models, value) {
+// Claude names a running model in full or bare ("claude-opus-5-5"), its list
+// by an alias ("opus") whose resolvedModel can carry a gateway's route and
+// level; with several aliases for one model, the one at the conversation's
+// level wins. A name that matches no row never replaces the row already
+// shown for that model (`current`): the bare name has no levels or capacity.
+function claudeModelFromCatalog(models, value, { effort = null, current = null } = {}) {
   const normalized = normalizeClaudeModel(value);
   if (!normalized) return null;
-  // Claude names a running model in full ("claude-opus-5-5[1m]"); its list
-  // names the same model "opus[1m]", with the full name as resolvedModel.
-  const rows = Array.isArray(models) ? models : [];
-  const base = id => String(id || "").replace(/\[[^\]]*\]$/, "");
-  const wide = id => /\[1m\]$/i.test(String(id || ""));
-  const row = rows.find(candidate => candidate?.id === normalized.id)
-    || rows.find(candidate => candidate?.resolvedModel === normalized.id)
-    || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id) && wide(candidate.id) === wide(normalized.id))
-    // Claude's transcript and usage name the model bare ("claude-opus-5-5"),
-    // also when it runs with 1M context.
-    || rows.find(candidate => candidate?.resolvedModel && base(candidate.resolvedModel) === base(normalized.id))
-    || rows.find(candidate => base(candidate?.id) === base(normalized.id));
-  return row || normalized;
+  const row = modelPresentation?.matchModel(Array.isArray(models) ? models : [], normalized.id, { effort });
+  if (row) return row;
+  const key = modelPresentation?.modelKey;
+  if (current && key && [current.id, current.resolvedModel].some(name => name && key(name) === key(normalized.id))) return current;
+  return normalized;
 }
 
 // Claude's list without its "default" entry, which an older Host still sends
@@ -12686,6 +12797,7 @@ function acpAgentOf(connection) { return connection?.nativeGrokAcp ? "grok-build
 // Which agent a conversation runs, for naming its models.
 function connectionAgentId(connection = rpc) {
   if (!connection) return "";
+  if (connection.nativeHistoryProvider) return connection.nativeHistoryProvider;
   if (connection.nativeCodexMutation || connection.nativeCodex) return "codex";
   if (connection.nativeClaudeStructured) return "claude-code";
   if (connection.nativeOpenCode) return "opencode";
@@ -12774,15 +12886,16 @@ async function openModelSheet({ preserveSearch = false } = {}) {
       availableModels = catalog.models;
       connection.claudeModels = availableModels;
       connection.claudeModelsLoaded = true;
+      applyClaudeEffortReport(connection, result);
       if (!connection.claudeModelSelected) {
-        const current = claudeModelFromCatalog(availableModels, catalog.current);
+        const current = claudeModelFromCatalog(availableModels, catalog.current, { effort: connection.claudeEffort, current: connection.claudeModel });
         if (current) {
           connection.claudeModel = current;
           composerModelContextWindow = positiveFinite(current.contextWindow);
           updateComposerSummary(modelTitle(current, connection), undefined);
+          renderContextDashboard();
         }
       }
-      connection.claudeEffort = String(result?.currentEffort || connection.claudeEffort || "").toLowerCase() || null;
       syncNativeThinkingSelect(connection);
       const current = connection.claudeModel || normalizeClaudeModel(catalog.current);
       renderModelList(current?.id || null, "claude-code");
@@ -12934,11 +13047,11 @@ function renderModelList(currentId, currentProvider = null) {
           if (result?.accepted === false || result?.kind === "reject" || result?.success === false) {
             throw new Error(result.error || result.code || "Claude rejected the model switch");
           }
-          const selected = claudeModelFromCatalog(connection.claudeModels, result?.model) || model;
+          const selected = claudeModelFromCatalog(connection.claudeModels, result?.model, { effort: result?.effort, current: model }) || model;
           connection.claudeModel = selected;
           connection.claudeModelSelected = true;
           // Claude reports the level it runs with on the new model.
-          if (typeof result?.effort === "string" && result.effort) connection.claudeEffort = result.effort.toLowerCase();
+          if (typeof result?.effort === "string" && result.effort) { connection.claudeEffort = result.effort.toLowerCase(); connection.claudeEffectiveEffort = null; }
           // A model ACK invalidates the previous model's context capacity. The
           // follow-up adapter readback owns the new value (which may remain
           // unknown). Keep a catalog capacity when it is available, while
