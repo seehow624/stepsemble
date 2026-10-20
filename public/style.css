@@ -6794,3 +6794,37 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
   #view-chat .composer-model-control::after { content: ""; position: absolute; inset: -4px 0; }
 }
 
+
+/* ==========================================================================
+   v3.10 ui-round3 — the message box's look. Surface, text, the attach menu
+   and Send/Stop only: no markup or behaviour, and the model, reasoning and
+   context indicators keep their own rules above. Layout and behaviour
+   changes to the composer belong outside this block.
+   ========================================================================== */
+#view-chat .composer {
+  border: 1px solid var(--card-border);
+  background: var(--milk);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 1px 2px rgba(0, 0, 0, .04), 0 12px 32px -14px rgba(0, 0, 0, .22);
+  transition: border-color .15s ease, box-shadow .2s ease;
+}
+#view-chat .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 38%, var(--field-border)); }
+#view-chat .composer-wrap textarea { padding: 10px 6px 8px; line-height: 1.45; caret-color: var(--accent); box-shadow: none; }
+#view-chat .composer-wrap textarea:is(:focus, :focus-visible) { outline: none; box-shadow: none; }
+#view-chat .composer-wrap textarea::placeholder { color: var(--pine-soft); }
+#view-chat .composer-toolbar .composer-icon-btn { color: var(--pine-soft); }
+@media (hover: hover) { #view-chat .composer-toolbar .composer-icon-btn:hover { background: var(--control-fill-hover); color: var(--ink); } }
+#view-chat .composer-toolbar .composer-icon-btn:active { background: var(--control-fill-press); color: var(--ink); transform: scale(.92); }
+#view-chat .composer-add-menu { border: .5px solid var(--card-border); background: color-mix(in srgb, var(--milk) 84%, transparent); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: inset 0 .5px 0 var(--glass-edge), 0 16px 40px rgba(0, 0, 0, .24); }
+#view-chat .composer-add-item:hover, #view-chat .composer-add-item:focus-visible { background: var(--control-fill-hover); }
+#view-chat .composer-add-item:active { background: var(--control-fill-press); }
+/* Send is the one filled control in the box; it settles under the finger. */
+#view-chat .composer-send { transition: opacity .15s ease, transform .12s var(--oc-spring), background-color .15s ease; }
+#view-chat .composer-send:active:not(:disabled) { transform: scale(.9); }
+#view-chat .composer-send.composer-stop { background: var(--control-fill-hover); color: var(--ink); box-shadow: none; }
+@media (hover: hover) { #view-chat .composer-send.composer-stop:hover { background: var(--control-fill-press); } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  #view-chat .composer-add-menu { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  #view-chat .composer { border-color: var(--ink); }
+}
