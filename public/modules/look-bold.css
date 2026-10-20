@@ -6,7 +6,6 @@
 
 html[data-look="bold"] {
   --bold-spring: cubic-bezier(.32, .72, 0, 1);
-  --bold-out: cubic-bezier(.2, .8, .2, 1);
   --bold-radius-panel: 28px;
   --bold-radius-card: 20px;
   --bold-radius-pane: 24px;
@@ -67,17 +66,20 @@ html[data-look="bold"][data-theme="dark"] {
 @keyframes bold-materialize { from { opacity: 0; transform: scale(.94); filter: blur(6px); } }
 @keyframes bold-rise { from { opacity: 0; transform: translateY(28px) scale(.98); filter: blur(4px); } }
 @keyframes bold-fade { from { opacity: 0; } }
+/* The toast is centred with a translate, which its entrance keeps. */
+@keyframes bold-toast { from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.94); filter: blur(6px); } }
 
 /* ---------- Controls ---------- */
 /* Buttons are pills that settle under the finger the moment it lands. */
 html[data-look="bold"] .btn:is(.primary, .ghost, .danger) { border-radius: var(--radius-pill); transition: transform .14s var(--bold-spring), background-color .18s ease, color .18s ease, box-shadow .18s ease; }
 html[data-look="bold"] .btn.primary { background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 84%, var(--paper)), var(--accent) 70%); color: var(--paper);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), inset 0 -1px 0 rgba(0, 0, 0, .12), 0 8px 18px -10px color-mix(in srgb, var(--accent) 75%, transparent); }
-html[data-look="bold"] .btn.ghost:not(.icon-btn, .workspace-icon-btn, .goal-chip-close) { background: color-mix(in srgb, var(--milk) 45%, var(--control-fill)); box-shadow: inset 0 .5px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"][data-theme="dark"] .btn.primary { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -1px 0 rgba(0, 0, 0, .12), 0 8px 18px -10px rgba(0, 0, 0, .8); }
+html[data-look="bold"] .btn.ghost:not(.icon-btn, .workspace-icon-btn, .goal-chip-close, .session-ref-close) { background: color-mix(in srgb, var(--milk) 45%, var(--control-fill)); box-shadow: inset 0 .5px 0 var(--glass-edge), var(--bold-outline); }
 html[data-look="bold"] .btn.danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 8px 18px -10px color-mix(in srgb, var(--err) 70%, transparent); }
 @media (hover: hover) {
   html[data-look="bold"] .btn.primary:hover { background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 76%, var(--paper)), color-mix(in srgb, var(--accent) 92%, var(--paper))); }
-  html[data-look="bold"] .btn.ghost:not(.icon-btn, .workspace-icon-btn, .goal-chip-close):hover { background: color-mix(in srgb, var(--milk) 30%, var(--control-fill-hover)); }
+  html[data-look="bold"] .btn.ghost:not(.icon-btn, .workspace-icon-btn, .goal-chip-close, .session-ref-close):hover { background: color-mix(in srgb, var(--milk) 30%, var(--control-fill-hover)); }
 }
 html[data-look="bold"] .btn:is(.primary, .ghost, .danger):active:not(:disabled) { transform: scale(.96); transition-duration: .08s; }
 html[data-look="bold"] .btn.icon-btn, html[data-look="bold"] .icon-button-small { border-radius: 50%; box-shadow: none; }
@@ -182,6 +184,8 @@ html[data-look="bold"] .workspace-tip { border: 0; border-radius: 14px; backgrou
 html[data-look="bold"] dialog { border: 0; border-radius: var(--bold-radius-panel); background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
   box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--sheet-shadow); }
 html[data-look="bold"] dialog[open] { animation: bold-materialize .32s var(--bold-spring); }
+/* A phone's dialogs are sheets: they rise from the bottom edge. */
+@media (max-width: 760px) { html[data-look="bold"] #workspace-dialog[open] { border-radius: var(--bold-radius-panel) var(--bold-radius-panel) 0 0; animation: bold-rise .34s var(--bold-spring); } }
 html[data-look="bold"] dialog::backdrop { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 html[data-look="bold"] dialog header { background: transparent; }
 html[data-look="bold"] dialog h2 { font-size: 1.2rem; font-weight: 720; letter-spacing: -.02em; }
@@ -189,7 +193,7 @@ html[data-look="bold"] .workspace-history-row { border: 0; border-radius: 18px; 
 html[data-look="bold"] #workspace-dialog-body .workspace-history-row .btn, html[data-look="bold"] #workspace-dialog-body .workspace-folder-new { border-radius: var(--radius-pill); }
 html[data-look="bold"] .workspace-folder-list { border: 0; border-radius: 18px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
 html[data-look="bold"] .workspace-folder-path-row { border-radius: var(--radius-pill); }
-html[data-look="bold"] #workspace-toast { border-radius: var(--radius-pill); box-shadow: var(--bold-float-shadow); animation: bold-materialize .26s var(--bold-spring); }
+html[data-look="bold"] #workspace-toast { border-radius: var(--radius-pill); box-shadow: var(--bold-float-shadow); animation: bold-toast .3s var(--bold-spring); }
 html[data-look="bold"] .workspace-settings-layer { background: var(--bold-ambient); background-color: var(--paper); }
 html[data-look="bold"] .workspace-settings-frame { background: transparent; }
 
@@ -392,9 +396,9 @@ html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transitio
 /* Without transparency, solid surfaces; with more contrast, defined edges. */
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   html[data-look="bold"] { --bold-glass: var(--milk); --bold-glass-card: var(--milk); --bold-glass-menu: var(--milk); --bold-ambient: var(--paper); }
-  html[data-look="bold"] :is(#workspace-sidebar, .workspace-tabs, .workspace-menu, .workspace-tip, dialog, .sheet, .sheet-layer, dialog::backdrop, #view-chat .composer, #view-chat .chat-topbar, #scroll-bottom-btn,
-    #view-settings .topbar, #view-settings .settings-content-title, .settings-group, .settings-nav-list, .settings-host-card, #view-chat :is(.native-run-toggle, .goal-chip, .subagent-bubble, .task-progress-toggle, .native-run-detail, .goal-panel, .subagent-list, .task-progress-panel, .cq-chip, .composer-add-menu, .approval-menu, .context-popover, .slash-menu)) {
-    -webkit-backdrop-filter: none; backdrop-filter: none; }
+  html[data-look="bold"] :is(.workspace-menu, .workspace-tip, dialog, .sheet, .sheet-layer, #view-chat .chat-topbar, #scroll-bottom-btn, #view-settings .settings-content-title,
+    #view-chat :is(.native-run-detail, .goal-panel, .subagent-list, .task-progress-panel, .composer-add-menu, .approval-menu, .context-popover, .slash-menu, .session-summary)),
+  html[data-look="bold"] dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
   html[data-look="bold"].workspace-mobile-pane #view-chat .chat-topbar, html[data-look="bold"] #view-settings .topbar, html[data-look="bold"] #view-settings .settings-content-title { background: var(--paper); }
   html[data-look="bold"] #view-chat .composer { background: var(--milk); }
 }
