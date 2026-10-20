@@ -52,6 +52,12 @@ function history(row) {
   if (historyFile) fs.appendFileSync(historyFile, JSON.stringify({ ...row, sessionId, cwd: process.cwd(), timestamp: new Date().toISOString() }) + "\n");
 }
 out({ type: "system", session_id: sessionId, uuid: "system-fixture" });
+// A message with "[slow]" starts a turn that runs for FIXTURE_CLAUDE_TURN_MS.
+// A message sent meanwhile is held, as Claude holds one with priority "next",
+// and taken at the turn's next step; one that names itself (uuid) has its fate
+// reported as command_lifecycle frames.
+let turn = null, lifecycleSeq = 0;
+const lifecycle = (uuid, state) => { if (uuid) out({ type: "command_lifecycle", command_uuid: uuid, state, uuid: `lifecycle-fixture-${++lifecycleSeq}`, session_id: sessionId }); };
 if (process.env.DESKTOP_STRUCTURED_EXIT_IMMEDIATELY === "1") process.exit(0);
 rl.on("line", line => {
   let value;
@@ -80,6 +86,12 @@ rl.on("line", line => {
       }
     } else if (request.subtype === "interrupt") {
       out({ type: "control_response", response: { subtype: "success", request_id: value.request_id, response: {} } });
+      if (turn) {
+        clearTimeout(turn.timer);
+        for (const uuid of turn.joined) lifecycle(uuid, "cancelled");
+        turn = null;
+        out({ type: "result", subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_streaming", session_id: sessionId, result: "" });
+      }
     }
     return;
   }
@@ -88,6 +100,30 @@ rl.on("line", line => {
   const text = content.filter(part => part?.type === "text").map(part => part.text).join("");
   if (text.includes("approve")) {
     out({ type: "control_request", request_id: "perm-fixture", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "printf fixture" }, description: "fixture" } });
+  }
+  const uuid = typeof value.uuid === "string" ? value.uuid : null;
+  if (streaming && turn) {
+    lifecycle(uuid, "queued");
+    setTimeout(() => {
+      if (!turn) return;
+      lifecycle(uuid, "started");
+      if (uuid) turn.joined.push(uuid);
+      history({ type: "user", message: { role: "user", content: text } });
+      out({ type: "assistant", session_id: sessionId, message: { id: "msg_fixture_" + (++replies), type: "message", role: "assistant", model: "claude-sonnet-5", content: [{ type: "text", text: `fixture:${text}` }], usage: { input_tokens: 12, output_tokens: 3 } } });
+    }, 300);
+    return;
+  }
+  lifecycle(uuid, "queued"); lifecycle(uuid, "started");
+  if (streaming && text.includes("[slow]")) {
+    history({ type: "user", message: { role: "user", content: text } });
+    out({ type: "system", subtype: "init", session_id: sessionId, model: "claude-sonnet-5" });
+    out({ type: "assistant", session_id: sessionId, message: { id: "msg_fixture_" + (++replies), type: "message", role: "assistant", model: "claude-sonnet-5", content: [{ type: "text", text: `fixture:${text}` }], usage: { input_tokens: 12, output_tokens: 3 } } });
+    turn = { joined: uuid ? [uuid] : [], timer: setTimeout(() => {
+      const ended = turn; turn = null;
+      out({ type: "result", subtype: "success", session_id: sessionId, modelUsage: { "claude-sonnet-5": { contextWindow: 200000, inputTokens: 12, outputTokens: 3 } }, result: "fixture:done" });
+      for (const joined of ended.joined) lifecycle(joined, "completed");
+    }, Number(process.env.FIXTURE_CLAUDE_TURN_MS) || 5000) };
+    return;
   }
   if (streaming) {
     const id = "msg_fixture_" + (++replies), reply = `fixture:${text}`;
@@ -104,6 +140,7 @@ rl.on("line", line => {
     event({ type: "content_block_stop", index: 0 });
     event({ type: "message_stop" });
     out({ type: "result", subtype: "success", session_id: sessionId, modelUsage: { "claude-sonnet-5": { contextWindow: 200000, inputTokens: 12, outputTokens: 3 } }, result: reply });
+    lifecycle(uuid, "completed");
     return;
   }
   out({ type: "assistant", session_id: sessionId, message: { model: "sonnet", usage: { input_tokens: 12, output_tokens: 3 }, content: [{ type: "text", text: `fixture:${text}` }] } });

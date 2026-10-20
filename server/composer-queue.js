@@ -68,6 +68,10 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
   const directory = file ? path.join(path.dirname(file), `${path.basename(file, ".json")}-messages`) : null;
   const conversations = new Map();
   const memory = new Map();
+  // One sequence for every conversation, from the clock: a page can tell an
+  // older snapshot from a newer one, also across an emptied queue or a restart.
+  let sequence = 0;
+  const nextRevision = () => (sequence = Math.max(sequence + 1, Math.floor(Number(now()) || 0)));
 
   function payloadFile(itemId) { return path.join(directory, `${itemId}.json`); }
   function writePayload(itemId, value) {
@@ -150,7 +154,8 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
       let paused = row.paused === true, pauseReason = PAUSES.has(row.pauseReason) ? row.pauseReason : null;
       if (!paused && items.some(item => item.state === "queued")) { paused = true; pauseReason = "restart"; changed = true; }
       if (!items.length && !paused) { changed = true; continue; }
-      conversations.set(keyOf(row.agent, row.id), { agent: row.agent, id: row.id, revision: (Number(row.revision) || 0) + 1,
+      sequence = Math.max(sequence, Number.isSafeInteger(row.revision) ? row.revision : 0);
+      conversations.set(keyOf(row.agent, row.id), { agent: row.agent, id: row.id, revision: nextRevision(),
         paused, pauseReason: paused ? pauseReason || "stopped" : null, items, recent: [] });
     }
     if (directory) {
@@ -173,15 +178,12 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
         for (const [other, entry] of conversations) if (!entry.items.length && !entry.paused) conversations.delete(other);
         if (conversations.size >= MAX_CONVERSATIONS) fail("queue_full", 429);
       }
-      value = { agent, id, revision: 0, paused: false, pauseReason: null, items: [], recent: [] };
+      value = { agent, id, revision: nextRevision(), paused: false, pauseReason: null, items: [], recent: [] };
       conversations.set(key, value);
     }
     return value || null;
   }
-  function touch(conversation) {
-    conversation.revision += 1;
-    if (!conversation.items.length && !conversation.paused && !conversation.recent.length) conversations.delete(keyOf(conversation.agent, conversation.id));
-  }
+  function touch(conversation) { conversation.revision = nextRevision(); }
   function itemOf(conversation, itemId, revision) {
     const item = conversation?.items.find(row => row.id === itemId);
     if (!item) fail("queue_item_missing", 404);
@@ -200,7 +202,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
   function snapshot(agent, id) {
     const conversation = validConversation(agent, id) ? row(agent, id) : null;
     if (conversation) trimRecent(conversation);
-    return { agent, id, revision: conversation?.revision || 0, paused: !!conversation?.paused, pauseReason: conversation?.pauseReason || null,
+    return { agent, id, revision: conversation?.revision || sequence, paused: !!conversation?.paused, pauseReason: conversation?.pauseReason || null,
       items: (conversation?.items || []).map(publicItem), recent: (conversation?.recent || []).map(row => ({ ...row })) };
   }
   function retire(conversation, item, outcome) {
@@ -231,7 +233,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
         imageCount: images.length, digest: digest(text), model: cleanChoice(input.model), effort: cleanChoice(input.effort), createdAt: at, updatedAt: at,
         deviceId: typeof input.deviceId === "string" && DEVICE.test(input.deviceId) ? input.deviceId : null, error: null };
       try { writePayload(item.id, { text, images }); }
-      catch { if (!conversation.items.length && !conversation.paused) conversations.delete(keyOf(agent, id)); fail("queue_unavailable", 503); }
+      catch { fail("queue_unavailable", 503); }
       conversation.items.push(item);
       touch(conversation);
       if (!save()) {

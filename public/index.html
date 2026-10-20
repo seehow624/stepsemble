@@ -255,6 +255,11 @@
         <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg>
       </button>
     </section>
+    <div id="composer-queue" class="composer-queue" role="group" aria-label="Queued messages" hidden data-i18n-ignore>
+      <div class="cq-head" hidden><span class="cq-head-text"></span><button class="cq-resume" type="button">Resume</button></div>
+      <ol class="cq-list"></ol>
+      <p class="cq-live sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    </div>
     <footer class="composer">
       <p id="agent-input-note" class="agent-input-note hidden" role="status" aria-live="polite"></p>
       <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="Jump to latest" aria-label="Jump to latest">
@@ -1126,6 +1131,7 @@
 <script src="/modules/notifications.js?v=3.9.33"></script>
 <script src="/modules/native-dialogs.js?v=3.9.33"></script>
 <script src="/modules/composer-ime.js?v=3.9.33"></script>
+<script src="/modules/composer-queue.js?v=3.9.33"></script>
 <script src="/modules/workflow-text.js?v=3.9.33"></script>
 <script src="/modules/goal-composer.js?v=3.9.33"></script>
 <script src="/modules/session-reference-i18n.js?v=3.9.33"></script><script src="/modules/session-reference.js?v=3.9.33"></script><script src="/modules/subagent-i18n.js?v=3.9.33"></script><script src="/modules/subagents.js?v=3.9.33"></script><script src="/modules/subagent-panel.js?v=3.9.33"></script><script src="/modules/session-summary.js?v=3.9.33"></script><script src="/modules/compaction-i18n.js?v=3.9.33"></script><script src="/modules/agent-compaction.js?v=3.9.33"></script>

@@ -11,6 +11,8 @@ const refuse = (cmd, error) => emit({ type: "response", command: cmd.type, id: c
 const sessionArg = process.argv.indexOf("--session");
 const sessionFile = sessionArg > 0 ? process.argv[sessionArg + 1]
   : path.join(process.env.HOME || "", ".pi", "agent", "sessions", "synthetic-queue", `${Date.now()}_${process.pid}.jsonl`);
+const nameArg = process.argv.indexOf("--name");
+let sessionName = nameArg > 0 ? process.argv[nameArg + 1] : undefined;
 let running = false, written = sessionArg > 0;
 const steering = [], followUp = [], log = [];
 // A turn the test lets run for this long ends by itself; 0 waits for the test.
@@ -29,20 +31,29 @@ function user(text) {
   emit({ type: "message_start", message: { role: "user", content: content(text) } });
   emit({ type: "message_end", message: { role: "user", content: content(text) } });
 }
+let answering = "";
+function answer(text) {
+  answering = `Working on: ${text}`;
+  emit({ type: "message_start", message: { role: "assistant", content: [] } });
+  emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: answering } });
+}
 function start(text) {
   running = true;
   emit({ type: "agent_start" });
   user(text);
-  emit({ type: "message_start", message: { role: "assistant", content: [] } });
-  emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: `Working on: ${text}` } });
+  answer(text);
   if (autoFinishMs > 0) { clearTimeout(autoTimer); autoTimer = setTimeout(() => finish(), autoFinishMs); }
 }
-// Pi delivers a steering message after the current tool calls, before its next model call.
+// Pi delivers a steering message after the current tool calls, before its
+// next model call: the reply so far ends, the message follows, and the next
+// reply answers it.
 function step() {
   if (!steering.length) return;
   const text = steering.shift();
   queueUpdate();
+  emit({ type: "message_end", message: { role: "assistant", content: content(answering), stopReason: "toolUse" } });
   user(text);
+  answer(text);
 }
 function finish(outcome = "completed") {
   clearTimeout(autoTimer);
@@ -59,7 +70,8 @@ function finish(outcome = "completed") {
 require("node:readline").createInterface({ input: process.stdin }).on("line", line => {
   const cmd = JSON.parse(line);
   switch (cmd.type) {
-    case "get_state": reply(cmd, { isStreaming: running, isCompacting: false, sessionFile, pendingMessageCount: steering.length + followUp.length }); return;
+    case "get_state": reply(cmd, { isStreaming: running, isCompacting: false, sessionFile, pendingMessageCount: steering.length + followUp.length, ...(sessionName ? { sessionName } : {}) }); return;
+    case "set_session_name": sessionName = cmd.name; reply(cmd); return;
     case "prompt":
       if (running && !cmd.streamingBehavior) { refuse(cmd, "Agent is already streaming; specify streamingBehavior"); return; }
       if (running) { (cmd.streamingBehavior === "steer" ? steering : followUp).push(cmd.message); queueUpdate(); reply(cmd, { disposition: "queued" }); return; }
