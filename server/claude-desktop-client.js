@@ -39,7 +39,7 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
         res.on("end", () => {
           let value; try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { reject(failure("desktop_required", sent)); return; }
           if (res.statusCode !== 200) {
-            const codes = ["invalid_request", "stale_intent", "active_tasks", "other_auth", "login_unavailable", "service_closed", "claude_login_active", "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_launch_uncertain", "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed",
+            const codes = ["invalid_request", "stale_intent", "active_tasks", "other_auth", "login_unavailable", "service_closed", "claude_login_active", "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_gateway_unavailable", "desktop_launch_uncertain", "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed",
               "auth_run_active", "run_not_found", "run_ended", "secret_required", "action_unsupported"];
             reject(failure(codes.includes(value.code) ? value.code : "desktop_required", value.uncertain === true)); return;
           }

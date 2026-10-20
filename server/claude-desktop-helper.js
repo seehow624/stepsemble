@@ -22,7 +22,7 @@ const PINNED_VERSION = 1;
 // process only while it works (docs/session-idle-release.md), so the limit
 // counts working conversations, not opened ones.
 const CAPACITY_VERSION = 1;
-const { claudeSessionEnvOverrides } = require("./claude-session-routing");
+const { claudeSessionEnvOverrides, claudeGatewayReadiness, readClaudeSessionRouting } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
   FRAME_TYPES,
@@ -55,7 +55,7 @@ function alive(pid) { if (!Number.isSafeInteger(pid) || pid < 2) return false; t
 
 async function createDesktopHelper({ home, configDir, claudeCommand, roots, env = process.env,
   contextCheck = desktopContext, authFactory = createClaudeAuthService, launch = launchAgentSupervisor,
-  spawnImpl = spawn, now = Date.now, ticketTtlMs = 60000 } = {}) {
+  spawnImpl = spawn, now = Date.now, ticketTtlMs = 60000, fetchImpl = globalThis.fetch } = {}) {
   if (!await contextCheck()) throw failure("desktop_required");
   if (!path.isAbsolute(home) || !path.isAbsolute(configDir) || !path.isAbsolute(claudeCommand)
     || !Array.isArray(roots) || !roots.length || roots.length > 16 || roots.some(root => !path.isAbsolute(root))) throw failure("desktop_configuration");
@@ -124,6 +124,20 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     }
   }
   function unavailable() { return { credential: { state: "desktop_recovery_required", checkedAt: null, liveVerified: false }, canStart: false, blockedReason: null, login: null }; }
+  const launchRouting = () => JSON.stringify(readClaudeSessionRouting(home));
+  function checkLaunchRouting(expected) { if (launchRouting() !== expected) throw failure("stale_intent"); }
+  async function requireLaunchAuthentication() {
+    const routing = launchRouting();
+    const gateway = await claudeGatewayReadiness(home, { fetchImpl });
+    if (gateway) {
+      if (!gateway.ready) throw failure("desktop_gateway_unavailable");
+    } else {
+      const credential = await auth.status();
+      if (!["detected", "other_auth"].includes(credential?.credential?.state)) throw failure("desktop_sign_in_required");
+    }
+    checkLaunchRouting(routing);
+    return routing;
+  }
   async function validatedTask(value) {
     if (!exact(value, ["id", "name", "cwd", "startedAt"]) || !UUID.test(value.id) || typeof value.name !== "string" || !value.name.trim()
       || value.name.length > 120 || /[\u0000-\u001f\u007f]/.test(value.name) || typeof value.cwd !== "string" || value.cwd.length > 4096
@@ -262,6 +276,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   }
   async function spawnStructured(record, head = Buffer.alloc(0)) {
     if (closed) throw failure("service_closed");
+    checkLaunchRouting(record.routing);
     // Stepsemble's Claude gateway switch (claude-gateway.json) applies to the
     // sessions launched from this desktop helper too, mirroring the direct
     // spawn path in server.js.
@@ -274,6 +289,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
         fork: record.request.fork || null, settingsPath: existingGatewaySettingsPath(taskEnv) });
     } catch { throw failure("desktop_structured_unavailable"); }
     if (closed) throw failure("service_closed");
+    checkLaunchRouting(record.routing);
     let child;
     try {
       child = spawnImpl(command, args, { cwd: record.request.cwd, env: taskEnv, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
@@ -392,9 +408,8 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       if (tickets.size >= 32 || state.launches.length >= 32) throw failure("desktop_capacity");
       const task = await validatedTask(body);
       await requireNewTask(task.id);
-      const credential = await auth.status();
-      if (!["detected", "other_auth"].includes(credential.credential.state)) throw failure("desktop_sign_in_required");
-      const ticket = crypto.randomUUID(); tickets.set(ticket, { task, expires: now() + ticketTtlMs });
+      const routing = await requireLaunchAuthentication();
+      const ticket = crypto.randomUUID(); tickets.set(ticket, { task, routing, expires: now() + ticketTtlMs });
       return { ticket, instance };
     }
     if (op === "structured/prepare") {
@@ -402,10 +417,9 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       for (const [ticket, item] of structuredTickets) if (item.expires <= now()) structuredTickets.delete(ticket);
       if (structuredTickets.size >= MAX_STRUCTURED_TICKETS || structuredChildren.size + structuredLaunching >= MAX_STRUCTURED_CHILDREN) throw failure("desktop_capacity");
       const request = await validatedStructured(body);
-      const credential = await auth.status();
-      if (!credential?.credential || !["detected", "other_auth"].includes(credential.credential.state)) throw failure("desktop_sign_in_required");
+      const routing = await requireLaunchAuthentication();
       const ticket = crypto.randomUUID();
-      structuredTickets.set(ticket, { request, expires: now() + STRUCTURED_TICKET_TTL_MS });
+      structuredTickets.set(ticket, { request, routing, expires: now() + STRUCTURED_TICKET_TTL_MS });
       return { ticket, instance, structuredStreamVersion: STRUCTURED_STREAM_VERSION };
     }
     if (op === "task/launch") {
@@ -422,9 +436,18 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
         await requireNewTask(task.id);
         task.agentId = "claude-code"; task.supervisorSocket = supervisorSocketPath(configDir, task.id); task.supervisorMeta = supervisorMetadataPath(configDir, task.id);
         const command = await fs.realpath(claudeCommand), ptyRuntime = resolvePtyRuntime({ env: taskEnv });
+        checkLaunchRouting(item.routing);
+        const launchEnv = { ...taskEnv, ...claudeSessionEnvOverrides(home) };
         const row = { id: task.id, pid: null }; state.launches.push(row); await save();
+        // A changed route is a known pre-launch rejection, not an uncertain
+        // launch. Remove its pending record so it cannot poison recovery.
+        if (closed || launchRouting() !== item.routing) {
+          state.launches = state.launches.filter(value => value !== row);
+          await save();
+          throw failure(closed ? "service_closed" : "stale_intent");
+        }
         let launched;
-        try { if (closed) throw failure("service_closed"); launched = await launch({ task, appHome: home, command, ptyRuntime, env: taskEnv }); }
+        try { launched = await launch({ task, appHome: home, command, ptyRuntime, env: launchEnv }); }
         catch { recoveryRequired = true; throw failure("desktop_launch_uncertain", true); }
         row.pid = launched.pid; await save();
         return launched;
@@ -472,7 +495,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     throw failure("invalid_request");
   }
   const errors = new Set(["invalid_request", "stale_intent", "active_tasks", "other_auth", "login_unavailable", "service_closed", "claude_login_active",
-    "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_launch_uncertain",
+    "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_gateway_unavailable", "desktop_launch_uncertain",
     "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed",
     "auth_run_active", "run_not_found", "run_ended", "secret_required", "action_unsupported"]);
   let inFlight = 0;
@@ -522,7 +545,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     structuredLaunching++;
     structuredConnections.add(socket);
     const record = {
-      id: crypto.randomUUID(), request: item.request, socket, child: null, pid: null,
+      id: crypto.randomUUID(), request: item.request, routing: item.routing, socket, child: null, pid: null,
       closed: false, finishing: false, terminating: false, outputQueuedBytes: 0,
       outputChain: Promise.resolve(), closedPromise: null, resolveClosed: null,
     };
@@ -533,7 +556,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       structuredConnections.delete(socket);
       structuredChildren.delete(record.id);
       if (record.upgraded || error?.uncertain) { try { socket.destroy(); } catch {} return; }
-      if (!socket.destroyed) failUpgrade(409, ["desktop_structured_unavailable", "desktop_structured_launch_uncertain"].includes(error?.code) ? error.code : "desktop_structured_unavailable");
+      if (!socket.destroyed) failUpgrade(409, ["desktop_structured_unavailable", "desktop_structured_launch_uncertain", "stale_intent"].includes(error?.code) ? error.code : "desktop_structured_unavailable");
     }).finally(() => {
       structuredLaunches.delete(launchPromise);
       structuredLaunching = Math.max(0, structuredLaunching - 1);
