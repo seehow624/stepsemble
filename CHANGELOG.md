@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.33
+
+- Open the limits from the sidebar as a sheet of the same liquid glass, rising out of the limits capsule over the list. It has no close button: pull it down, scroll or click anywhere else, or press Escape, and it sinks back into the capsule. Usage details open the full Limits & usage panel.
+- Open Schedules as a tab in a pane, one per computer, instead of a modal. New schedule, a schedule chosen in the sidebar and Open conversation all work from there, and the tab stays across a reload; on a phone it fills the screen with a Back button.
+- Use one type scale and one radius scale across the interface. Text that was sized in pixels now follows the Text size setting too.
+- The Mac app no longer shows the limits and the cat in the menu bar; tools such as Magpie show them there. Hosts keep serving the menu bar page for older Mac apps.
+- List only the models picked for Claude Code in Magpie in a Claude conversation routed through Magpie.
+
 ## 3.9.32
 
 - Support Magpie, a local gateway that lets Codex, Claude Code and Pi use models from any provider. Codex's and Claude Code's settings pages show whether each goes through Magpie, with a switch that runs Magpie's own command for Codex and one that routes the Claude Code conversations Stepsemble starts through Magpie.
