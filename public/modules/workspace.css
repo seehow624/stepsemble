@@ -49,11 +49,12 @@ small { color: var(--pine-soft); }
   flex: 0 0 30px;
 }
 .workspace-identity strong { overflow: hidden; font-size: var(--text-2xl); font-weight: 720; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-icon-btn { width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: var(--radius-md); font-size: 1rem; }
+.workspace-icon-btn { width: 38px; min-width: 38px; height: 38px; min-height: 38px; padding: 0; border-radius: var(--radius-md); background: transparent; font-size: 1rem; }
 .workspace-icon-btn svg { display: block; width: 19px; height: 19px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.workspace-icon-btn:hover { background: var(--bubble-user); }
+@media (hover: hover) { .workspace-icon-btn:hover { background: var(--control-fill-hover); } }
+.workspace-icon-btn:active { background: var(--control-fill-press); }
 /* The brand row's Refresh and Settings are bare icons, as the pane title bar's are. */
-.workspace-brand-row .workspace-icon-btn { border-color: transparent; color: var(--pine-soft); }
+.workspace-brand-row .workspace-icon-btn { border-color: transparent; background: transparent; color: var(--pine-soft); }
 .workspace-brand-row .workspace-icon-btn:hover, .workspace-brand-row .workspace-icon-btn:focus-visible { color: var(--ink); }
 @keyframes workspace-turn { to { transform: rotate(360deg); } }
 #workspace-refresh[data-busy=true] svg { animation: workspace-turn .7s linear infinite; }
@@ -68,13 +69,15 @@ small { color: var(--pine-soft); }
   display: block;
   min-width: 0;
   height: 50px;
-  border: .5px solid var(--line);
+  border: .5px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--milk);
-  transition: background .15s ease;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  transition: background-color .15s ease;
 }
-.workspace-host-card:hover { background: var(--bubble-user); }
-.workspace-host-card:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+@media (hover: hover) { .workspace-host-card:hover { background: color-mix(in srgb, var(--ink) 4%, var(--card-bg)); } }
+.workspace-host-card:active { background: color-mix(in srgb, var(--ink) 7%, var(--card-bg)); }
+.workspace-host-card:has(select:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 #workspace-host, #workspace-assistant-machine {
   width: 100%;
   max-width: none;
@@ -90,7 +93,7 @@ small { color: var(--pine-soft); }
   text-overflow: ellipsis;
   cursor: pointer;
 }
-#workspace-host:focus, #workspace-assistant-machine:focus { outline: 0; }
+#workspace-host:is(:focus, :focus-visible), #workspace-assistant-machine:is(:focus, :focus-visible) { outline: 0; box-shadow: none; }
 .workspace-host-icon {
   position: absolute;
   left: 9px;
@@ -125,46 +128,56 @@ small { color: var(--pine-soft); }
 
 .workspace-search-row { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
 .workspace-search-row .workspace-search-wrap { min-width: 0; flex: 1 1 auto; }
+/* Beside the search field, its two actions are filled squares of the same
+   height: the secondary button's fill, without its words. */
 .workspace-row-action {
   display: grid;
   place-items: center;
-  flex: 0 0 43px;
-  width: 43px;
-  height: 43px;
+  flex: 0 0 var(--control-h);
+  width: var(--control-h);
+  height: var(--control-h);
+  min-height: 0;
   padding: 0;
-  border: .5px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--milk);
+  border: 0;
+  border-radius: var(--control-radius);
+  background: var(--control-fill);
   color: var(--ink);
+  transition: background-color .15s ease, transform .12s var(--oc-spring);
 }
-.workspace-row-action:hover, .workspace-row-action:focus-visible { background: var(--bubble-user); outline: 0; }
+@media (hover: hover) { .workspace-row-action:hover { background: var(--control-fill-hover); } }
+.workspace-row-action:active { background: var(--control-fill-press); transform: scale(.94); }
+.workspace-row-action:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .workspace-row-action svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .workspace-search-wrap {
-  min-height: 43px;
+  min-height: var(--control-h);
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 12px;
-  border: .5px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--milk);
+  gap: 8px;
+  padding: 0 6px 0 12px;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: var(--search-fill);
   color: var(--pine-soft);
+  cursor: text;
+  transition: background-color .15s ease, box-shadow .15s ease;
 }
-.workspace-search-wrap:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+@media (hover: hover) { .workspace-search-wrap:hover:not(:focus-within) { background: var(--control-fill-hover); } }
+.workspace-search-wrap:focus-within { background: var(--field-bg); outline: 2px solid var(--focus-ring); outline-offset: -1px; box-shadow: 0 0 0 4px var(--focus-halo); }
 .workspace-search-wrap > svg { flex: 0 0 16px; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 #workspace-search, #workspace-assistant-search {
   width: 100%;
   min-width: 0;
-  min-height: 41px;
+  min-height: var(--control-h);
   padding: 0;
   border: 0;
   border-radius: 0;
   outline: 0;
   background: transparent;
+  box-shadow: none;
   font-size: var(--text-sm);
 }
-#workspace-search:focus, #workspace-assistant-search:focus { outline: 0; }
+#workspace-search:is(:focus, :focus-visible), #workspace-assistant-search:is(:focus, :focus-visible) { outline: 0; box-shadow: none; }
 
 /* The list runs to the sidebar's bottom edge, under the glass footer; its
    last row scrolls clear above the glass. */
@@ -244,7 +257,8 @@ small { color: var(--pine-soft); }
 #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-assistant-list .workspace-project-add { width: 28px; min-width: 28px; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--pine-soft); font-size: var(--text-xl); }
 #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-assistant-list .workspace-project-add { display: grid; place-items: center; }
 :is(.workspace-project-add, .workspace-section-add) svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-:is(.workspace-project, .workspace-list-section) > header .btn:hover { background: var(--bubble-user); color: var(--ink); }
+:is(.workspace-project, .workspace-list-section) > header .btn:hover { background: var(--control-fill-hover); color: var(--ink); }
+:is(.workspace-project, .workspace-list-section) > header :is(.workspace-project-add, .workspace-section-add, .workspace-project-menu):active { background: var(--control-fill-press); transform: scale(.92); }
 .workspace-project-sessions > small, #workspace-projects > p { display: block; padding: 7px 9px 7px 27px; color: var(--pine-soft); font-size: var(--text-2xs); }
 /* An automation's row looks like a session's but is not one: code that looks
    for sessions does not find it. */
@@ -288,30 +302,7 @@ small { color: var(--pine-soft); }
    list as a pane of liquid glass: the sessions scroll on behind it, blurred
    and tinted by it, light catches its top edge, and a soft fade below it
    keeps what passes behind quiet. */
-:root {
-  --glass-tint: color-mix(in srgb, var(--milk) 42%, transparent);
-  --glass-edge: rgba(255, 255, 255, .8);
-  --glass-rim: rgba(255, 255, 255, .55);
-  --glass-shine: rgba(255, 255, 255, .5);
-  --glass-shadow: 0 12px 32px -10px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .06);
-  --glass-fade: color-mix(in srgb, var(--paper) 68%, transparent);
-}
-[data-theme="dark"] {
-  --glass-tint: color-mix(in srgb, var(--milk) 46%, transparent);
-  --glass-edge: rgba(255, 255, 255, .16);
-  --glass-rim: rgba(255, 255, 255, .12);
-  --glass-shine: rgba(255, 255, 255, .1);
-  --glass-shadow: 0 14px 34px -10px rgba(0, 0, 0, .62), 0 2px 6px rgba(0, 0, 0, .3);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --glass-tint: color-mix(in srgb, var(--milk) 46%, transparent);
-    --glass-edge: rgba(255, 255, 255, .16);
-    --glass-rim: rgba(255, 255, 255, .12);
-    --glass-shine: rgba(255, 255, 255, .1);
-    --glass-shadow: 0 14px 34px -10px rgba(0, 0, 0, .62), 0 2px 6px rgba(0, 0, 0, .3);
-  }
-}
+/* The glass tokens live with the other surface tokens in style.css. */
 #workspace-sidebar footer { position: absolute; z-index: 2; left: 12px; right: 12px; bottom: var(--sidebar-bottom); display: grid; padding: 0 2px; pointer-events: none; }
 #workspace-sidebar footer::before {
   content: "";
@@ -531,10 +522,13 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   display: grid;
   gap: 1px;
   padding: 5px;
-  border: .5px solid var(--line);
+  border: .5px solid var(--card-border);
   border-radius: var(--radius-md);
-  background: var(--milk);
-  box-shadow: 0 12px 32px rgb(0 0 0 / .22);
+  /* A menu is a light material over the panes: they show through, blurred. */
+  background: color-mix(in srgb, var(--milk) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: inset 0 .5px 0 var(--glass-edge), 0 12px 32px rgb(0 0 0 / .22);
 }
 .workspace-menu-item {
   min-height: 34px;
@@ -548,7 +542,11 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   text-align: left;
   white-space: normal;
 }
-.workspace-menu-item:hover, .workspace-menu-item:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-menu-item:hover, .workspace-menu-item:focus-visible { background: var(--control-fill-hover); outline: 0; }
+.workspace-menu-item:active { background: var(--control-fill-press); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .workspace-menu { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line); }
+}
 .workspace-menu-separator { height: .5px; margin: 4px 8px; background: var(--line); }
 .workspace-slot { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: auto auto; place-content: center; padding: 16px; color: var(--pine-soft); text-align: center; font-size: var(--text-sm); }
 /* The pane's empty state carries the same approved artwork as the conversation
@@ -571,12 +569,14 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
 .workspace-drop[data-edge=reference] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .workspace-drop[data-edge=reference]::after { content: attr(data-label); position: absolute; left: 50%; bottom: 28px; max-width: calc(100% - 32px); padding: 6px 14px; overflow: hidden; border-radius: var(--radius-pill); background: var(--accent); color: var(--milk); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; transform: translateX(-50%); }
 
-dialog { width: min(720px, 94vw); max-height: 88dvh; margin: auto; padding: 20px; border: .5px solid var(--line); border-radius: var(--radius-xl); background: var(--milk); color: var(--ink); }
+dialog { width: min(720px, 94vw); max-height: 88dvh; margin: auto; padding: 20px; border: .5px solid var(--card-border); border-radius: var(--radius-2xl); background: var(--milk); color: var(--ink); box-shadow: var(--sheet-shadow); }
 dialog::backdrop { background: var(--sheet-bg); }
-dialog header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding-bottom: 6px; background: var(--milk); }
-dialog h2 { flex: 1; font-size: var(--text-2xl); font-weight: 650; }
-dialog header .btn, dialog header .btn.ghost { min-width: 34px; min-height: 34px; padding: 0; border: 0; border-color: transparent; background: transparent; color: var(--pine-soft); font-size: 1.1rem; }
-dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--bubble-user); color: var(--ink); }
+dialog header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding-bottom: 8px; background: var(--milk); }
+dialog h2 { flex: 1; font-size: var(--title-sm); font-weight: 650; letter-spacing: -.01em; }
+/* Close is a small round button on the control fill, as on Apple's sheets. */
+dialog header .btn, dialog header .btn.ghost { width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; border-color: transparent; border-radius: 50%; background: var(--control-fill); color: var(--pine-soft); font-size: 1.1rem; line-height: 1; }
+dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--control-fill-hover); color: var(--ink); }
+dialog header .btn:active { background: var(--control-fill-press); transform: scale(.92); }
 #workspace-dialog-body { display: grid; gap: 10px; }
 #workspace-dialog-body p { color: var(--pine-soft); font-size: var(--text-sm); }
 .workspace-history-reader { justify-self: start; color: var(--ink); font-size: var(--text-sm); font-weight: 600; text-decoration: none; }
@@ -599,10 +599,10 @@ dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--b
 .workspace-rename-fields { display: flex; gap: 8px; min-width: 0; }
 .workspace-rename-fields input { flex: 1 1 auto; min-width: 0; }
 .workspace-rename-fields .btn { flex: none; }
-#workspace-dialog-body .workspace-new-session-create { min-height: 44px; margin-left: auto; padding: 0 18px; justify-content: center; }
+#workspace-dialog-body .workspace-new-session-create { min-height: var(--control-h); margin-left: auto; padding: 0 18px; justify-content: center; }
 .workspace-new-session-worktree { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--pine-soft); font-size: var(--text-sm); cursor: pointer; }
 .workspace-new-session-worktree[hidden] { display: none; }
-.workspace-new-session-worktree input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.workspace-new-session-worktree input { width: 16px; height: 16px; margin: 0; }
 .workspace-signin { display: grid; gap: 10px; padding-top: 4px; border-top: .5px solid var(--line); }
 .workspace-signin[hidden] { display: none; }
 #workspace-dialog-body .workspace-signin .btn { justify-self: start; min-height: 38px; padding: 0 18px; justify-content: center; }
@@ -624,39 +624,44 @@ dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--b
 #workspace-dialog.workspace-project-dialog[open] { display: flex; flex-direction: column; width: min(620px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 32px)); padding: 0; overflow: hidden; }
 .workspace-project-dialog > header { flex: 0 0 auto; padding: 20px 24px 10px; }
 .workspace-project-dialog > header h2 { font-size: var(--title-sm); letter-spacing: -.02em; }
-.workspace-project-dialog > header .btn { border: .5px solid var(--line); border-radius: var(--radius-sm); }
 #workspace-dialog.workspace-project-dialog #workspace-dialog-body { min-height: 0; display: flex; flex-direction: column; gap: 0; padding: 0 24px 20px; overflow: hidden; }
 .workspace-folder-label { margin: 6px 0 7px; color: var(--pine-soft); font-size: var(--text-2xs); font-weight: 680; }
-.workspace-folder-path-row { min-width: 0; display: flex; align-items: stretch; min-height: 44px; overflow: hidden; border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--milk); }
-.workspace-folder-path-row:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-#workspace-dialog-body .workspace-folder-nav { width: 34px; min-width: 34px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-right: .5px solid var(--line); border-radius: 0; }
+/* The path row is one field: back, forward and up inside its frame. */
+.workspace-folder-path-row { min-width: 0; display: flex; align-items: stretch; min-height: var(--control-h); overflow: hidden; border: 1px solid var(--field-border); border-radius: var(--control-radius); background: var(--field-bg); transition: border-color .15s ease, box-shadow .15s ease; }
+@media (hover: hover) { .workspace-folder-path-row:hover:not(:focus-within) { border-color: var(--field-border-hover); } }
+.workspace-folder-path-row:focus-within { outline: 2px solid var(--focus-ring); outline-offset: -1px; box-shadow: 0 0 0 4px var(--focus-halo); }
+#workspace-dialog-body .workspace-folder-nav { width: 34px; min-width: 34px; min-height: calc(var(--control-h) - 2px); display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-right: .5px solid var(--line); border-radius: 0; color: var(--pine-soft); }
 #workspace-dialog-body .workspace-folder-nav svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-#workspace-dialog-body .workspace-folder-nav:hover:not(:disabled) { background: var(--bubble-user); }
-#workspace-folder-path { min-width: 0; flex: 1; height: 42px; padding: 0 12px; border: 0; border-radius: 0; outline: 0; background: transparent; font: var(--text-xs) var(--mono); }
-#workspace-folder-path:focus { outline: 0; }
-#workspace-dialog-body .workspace-folder-go { min-width: 46px; min-height: 42px; display: flex; align-items: center; justify-content: center; padding: 0 10px; border: 0; border-left: .5px solid var(--line); border-radius: 0; font-size: var(--text-2xs); text-align: center; }
-#workspace-dialog-body .workspace-folder-go:hover:not(:disabled) { background: var(--bubble-user); }
+#workspace-dialog-body .workspace-folder-nav:hover:not(:disabled) { background: var(--control-fill); color: var(--ink); }
+#workspace-dialog-body .workspace-folder-nav:active:not(:disabled) { background: var(--control-fill-hover); transform: none; }
+#workspace-folder-path { min-width: 0; flex: 1; height: calc(var(--control-h) - 2px); min-height: 0; padding: 0 12px; border: 0; border-radius: 0; outline: 0; background: transparent; box-shadow: none; font: var(--text-xs) var(--mono); }
+#workspace-folder-path:is(:focus, :focus-visible) { outline: 0; box-shadow: none; }
+#workspace-dialog-body .workspace-folder-go { min-width: 46px; min-height: calc(var(--control-h) - 2px); display: flex; align-items: center; justify-content: center; padding: 0 12px; border: 0; border-left: .5px solid var(--line); border-radius: 0; font-size: var(--text-xs); font-weight: 590; text-align: center; }
+#workspace-dialog-body .workspace-folder-go:hover:not(:disabled) { background: var(--control-fill); }
+#workspace-dialog-body .workspace-folder-go:active:not(:disabled) { background: var(--control-fill-hover); transform: none; }
 #workspace-dialog-body .workspace-folder-nav:disabled { opacity: .4; cursor: default; }
 #workspace-dialog-body .workspace-folder-go:disabled { opacity: .4; cursor: default; }
 .workspace-folder-browse-head { display: flex; align-items: center; gap: 12px; margin: 20px 0 9px; }
 .workspace-folder-browse-head strong { flex: 1; color: var(--pine-soft); font-size: var(--text-xs); font-weight: 670; }
-.workspace-folder-browse-head input { width: min(220px, 52%); min-height: 36px; padding: 6px 10px; font-size: var(--text-xs); }
+.workspace-folder-browse-head input { width: min(240px, 52%); min-height: var(--control-h-sm); padding-top: 0; padding-bottom: 0; border-radius: var(--control-radius-sm); font-size: var(--text-sm); }
 /* New folder: a compact button beside the filter, and a row at the top of the
    list where the name is typed. */
-#workspace-dialog-body .workspace-folder-new { flex: none; min-height: 36px; display: flex; align-items: center; gap: 5px; padding: 0 11px; font-size: var(--text-xs); white-space: nowrap; }
+#workspace-dialog-body .workspace-folder-new { flex: none; min-height: var(--control-h-sm); display: flex; align-items: center; gap: 5px; padding: 0 12px; border-radius: var(--control-radius-sm); background: var(--control-fill); color: var(--accent); font-size: var(--text-sm); font-weight: 590; white-space: nowrap; }
 #workspace-dialog-body .workspace-folder-new svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-#workspace-dialog-body .workspace-folder-new:hover:not(:disabled) { background: var(--bubble-user); }
+#workspace-dialog-body .workspace-folder-new:hover:not(:disabled) { background: var(--control-fill-hover); }
+#workspace-dialog-body .workspace-folder-new:active:not(:disabled) { background: var(--control-fill-press); }
 #workspace-dialog-body .workspace-folder-new:disabled { opacity: .4; cursor: default; }
 .workspace-folder-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 12px 9px 14px; border-bottom: .5px solid var(--line); background: var(--bubble-user); }
-#workspace-dialog-body .workspace-folder-create input { min-width: 0; flex: 1 1 140px; min-height: 34px; padding: 5px 10px; font-size: var(--text-sm); }
-#workspace-dialog-body .workspace-folder-create .btn { flex: none; min-height: 34px; padding: 0 12px; font-size: var(--text-xs); }
+#workspace-dialog-body .workspace-folder-create input { min-width: 0; flex: 1 1 140px; min-height: var(--control-h-sm); padding: 4px 10px; border-radius: var(--control-radius-sm); font-size: var(--text-sm); }
+#workspace-dialog-body .workspace-folder-create .btn { flex: none; min-height: var(--control-h-sm); padding: 0 12px; border-radius: var(--control-radius-sm); font-size: var(--text-xs); }
 #workspace-dialog-body .workspace-folder-create .btn:disabled { opacity: .45; cursor: default; }
 #workspace-dialog-body .workspace-folder-create-error { flex: 1 1 100%; margin: 0; color: var(--err-ink); font-size: var(--text-2xs); line-height: 1.4; }
 #workspace-dialog-body .workspace-folder-create-error[hidden] { display: none; }
-.workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--paper); overscroll-behavior: contain; }
+.workspace-folder-list { min-height: 86px; max-height: min(340px, 42dvh); overflow: auto; border: .5px solid var(--card-border); border-radius: var(--radius-md); background: var(--paper); overscroll-behavior: contain; }
 #workspace-dialog-body .workspace-folder-row { width: 100%; min-height: 46px; display: flex; align-items: center; gap: 11px; padding: 0 14px; border: 0; border-radius: 0; font-size: var(--text-sm); text-align: left; }
 .workspace-folder-row + .workspace-folder-row { border-top: .5px solid var(--line) !important; }
-.workspace-folder-row:hover, .workspace-folder-row:focus-visible { background: var(--bubble-user); outline: 0; }
+.workspace-folder-row:hover, .workspace-folder-row:focus-visible { background: var(--control-fill); outline: 0; }
+#workspace-dialog-body .workspace-folder-row:active { background: var(--control-fill-hover); transform: none; }
 .workspace-folder-icon { position: relative; width: 17px; height: 13px; flex: 0 0 17px; margin-top: 3px; border: 1.5px solid var(--pine-soft); border-radius: var(--radius-2xs); }
 .workspace-folder-icon::before { content: ""; position: absolute; top: -5px; left: -1.5px; width: 8px; height: 4px; border: 1.5px solid var(--pine-soft); border-bottom: 0; border-radius: var(--radius-2xs) var(--radius-2xs) 0 0; }
 .workspace-folder-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -669,20 +674,25 @@ dialog header .btn:hover, dialog header .btn:focus-visible { background: var(--b
 #workspace-dialog-body .workspace-folder-runtime-label { margin: 0; padding: 0 14px 5px; color: var(--pine-soft); font-size: var(--text-2xs); }
 #workspace-dialog-body .workspace-folder-runtime { display: block; margin: 0 14px 14px; padding: 6px 9px; border-radius: var(--radius-sm); background: var(--bubble-user); font-size: var(--text-2xs); line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
 .workspace-folder-problem-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 14px 14px; }
-#workspace-dialog-body .workspace-folder-problem-actions .btn { min-height: 34px; padding: 0 12px; justify-content: center; background: var(--milk); font-size: var(--text-xs); }
+#workspace-dialog-body .workspace-folder-problem-actions .btn { min-height: var(--control-h-sm); padding: 0 12px; justify-content: center; border-radius: var(--control-radius-sm); background: var(--control-fill); font-size: var(--text-xs); }
 #workspace-dialog-body .workspace-folder-problem-actions .btn:disabled { opacity: .45; cursor: default; }
 .workspace-folder-footer { display: flex; align-items: center; gap: 18px; margin-top: 16px; padding-top: 16px; border-top: .5px solid var(--line); }
 .workspace-folder-footer small { min-width: 0; flex: 1; font-size: var(--text-2xs); line-height: 1.4; }
-#workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: 42px; padding: 0 17px; font-size: var(--text-xs); text-align: center; }
+#workspace-dialog-body .workspace-folder-add { flex: 0 0 auto; min-height: var(--control-h); padding: 0 18px; font-size: var(--text-sm); text-align: center; }
 #workspace-dialog-body .workspace-folder-add:disabled { opacity: .42; cursor: default; }
 .workspace-history-filter { display: flex; align-items: center; gap: 9px; min-height: 36px; color: var(--pine-soft); font-size: var(--text-sm); cursor: pointer; }
 .workspace-history-filter[hidden] { display: none; }
-.workspace-history-filter input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
-.workspace-history-row { display: flex; align-items: center; gap: 8px; padding: 12px; border: .5px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
+.workspace-history-filter input { width: 18px; height: 18px; margin: 0; flex: none; }
+.workspace-history-row { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 14px; border: .5px solid var(--card-border); border-radius: var(--radius-lg); background: var(--paper); }
 .workspace-history-row div { min-width: 0; flex: 1; }
 .workspace-history-row strong { display: block; overflow-wrap: anywhere; font-size: var(--text-md); font-weight: 550; }
 .workspace-history-row small { display: block; overflow-wrap: anywhere; font-size: var(--text-2xs); }
 .workspace-history-row .btn { flex-shrink: 0; min-width: 0; }
+/* A history row's View and Add are compact secondary buttons. */
+#workspace-dialog-body .workspace-history-row .btn { min-height: var(--control-h-sm); padding: 0 12px; justify-content: center; border-radius: var(--control-radius-sm); background: var(--control-fill); color: var(--accent); font-size: var(--text-sm); font-weight: 590; transition: background-color .15s ease, transform .12s var(--oc-spring); }
+@media (hover: hover) { #workspace-dialog-body .workspace-history-row .btn:hover:not(:disabled) { background: var(--control-fill-hover); } }
+#workspace-dialog-body .workspace-history-row .btn:active:not(:disabled) { background: var(--control-fill-press); }
+#workspace-dialog-body .workspace-history-row .btn:disabled { opacity: .5; }
 #workspace-toast { position: fixed; z-index: 100; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); left: 50%; max-width: 90vw; padding: 10px 18px; transform: translateX(-50%); border-radius: var(--radius-pill); background: var(--ink); color: var(--paper); font-size: var(--text-sm); }
 /* Settings open over the Workspace in the same window, below its toasts.
    Like a pane, the frame starts below the status bar. */
@@ -825,3 +835,6 @@ body.compact .workspace-session strong { font-size: var(--text-sm); }
 }
 /* One list for every computer leaves nothing to switch. */
 body.workspace-merged .workspace-host-block { display: none; }
+@media (forced-colors: active) {
+  .workspace-search-wrap, .workspace-row-action, dialog header .btn { border: 1px solid ButtonText; }
+}
