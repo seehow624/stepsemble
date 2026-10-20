@@ -276,7 +276,7 @@ button { font: inherit; color: inherit; }
 /* A destructive action in a quiet button says so in red. */
 .btn.ghost.danger-text:active { background: color-mix(in srgb, var(--err) 14%, transparent); }
 /* Icon buttons are bare glyphs with a soft fill under the pointer. */
-.btn.icon-btn { width: 44px; padding: 0; border: 0; border-radius: var(--control-radius); background: transparent; color: var(--ink); font-size: 20px; box-shadow: none; }
+.btn.icon-btn { width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: var(--control-radius); background: transparent; color: var(--ink); font-size: 20px; box-shadow: none; }
 @media (hover: hover) { .btn.icon-btn:hover { background: var(--control-fill-hover); } }
 .btn.icon-btn:active { background: var(--control-fill-press); transform: scale(.94); }
 
@@ -1037,6 +1037,14 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .toggle input:disabled { cursor: not-allowed; }
 .toggle input:disabled + .toggle-track { opacity: .45; }
+/* Forced colours draw no fills: the switch keeps an outline and a solid knob
+   in the system's colours. */
+@media (forced-colors: active) {
+  .toggle-track { forced-color-adjust: none; border: 1px solid CanvasText; background: Canvas; }
+  .toggle-track::after { top: 1px; left: 1px; background: CanvasText; box-shadow: none; }
+  .toggle input:checked + .toggle-track { background: Highlight; border-color: Highlight; }
+  .toggle input:checked + .toggle-track::after { background: HighlightText; }
+}
 .settings-button-row { width: 100%; text-align: left; background: none; border: none;
   border-bottom: 0.5px solid var(--line); cursor: pointer; padding: 12px 0; }
 .settings-button-row span:first-child strong { display: block; font-weight: 590; font-size: var(--text-lg); }
@@ -6793,7 +6801,6 @@ html.workspace-mobile-pane #view-chat .session-summary, html:not(.workspace-embe
   #view-chat .composer-model-control { overflow: visible; }
   #view-chat .composer-model-control::after { content: ""; position: absolute; inset: -4px 0; }
 }
-
 
 /* ==========================================================================
    v3.10 ui-round3 — the message box's look. Surface, text, the attach menu
