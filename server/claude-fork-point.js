@@ -7,8 +7,10 @@
 // Shared by the Host and scripts/check-native-claude-release.mjs, which
 // checks that a new Claude Code still writes a transcript this can read.
 
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const readline = require("node:readline");
 
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
 const ENTRY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -60,15 +62,26 @@ function claudeForkPointFromRows(rows, messageId) {
   return points.get(messageId);
 }
 
+// The transcript read once, line by line, without the catalog.
+async function streamedForkPoint(file, messageId) {
+  const points = createForkPoints();
+  try {
+    if (!(await fs.promises.stat(file)).isFile()) return null;
+    const lines = readline.createInterface({ input: fs.createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
+    for await (const line of lines) { if (!line.trim()) continue; let row = null; try { row = JSON.parse(line); } catch {} points.record(row); }
+  } catch { return null; }
+  return points.get(messageId);
+}
+
 // catalog: the Host's history catalog, whose reader streams the transcript
-// and reads on from where it stopped when the same one is asked again.
-// Without one, the transcript is streamed once.
+// and reads on from where it stopped when the same one is asked again. It
+// reads only on macOS and Linux; elsewhere, or without one, the transcript is
+// streamed once here.
 async function claudeForkPoint(nativeSessionId, messageId, cwd, { configDir = claudeConfigDir(), catalog = null } = {}) {
   const file = claudeTranscriptFile(nativeSessionId, cwd, { configDir });
   if (!file || typeof messageId !== "string" || !messageId) return null;
-  const reader = catalog || require("./native-history-catalog").createNativeHistoryCatalog();
-  try { return await reader.claudeForkPoint(file, messageId); }
-  finally { if (!catalog) await reader.shutdown(); }
+  if (catalog && (process.platform === "darwin" || process.platform === "linux")) return catalog.claudeForkPoint(file, messageId);
+  return streamedForkPoint(file, messageId);
 }
 
 module.exports = { claudeConfigDir, claudeTranscriptFile, createForkPoints, claudeForkPointFromRows, claudeForkPoint };
