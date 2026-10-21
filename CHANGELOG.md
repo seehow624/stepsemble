@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.39
+
+- See how long a Claude Code request really took. Work is timed from your message until Claude has no background work left — subagents, background commands, monitors — so the turns Claude starts when a background task reports belong to the same request, under one "Worked for". While it waits, the header keeps counting and says which background tasks it is waiting on, the conversation still shows as working, and the completion notice comes once, at the end.
+- Set the thinking level on the message box itself: a line along its top edge, longer and brighter for deeper thinking, that you drag, tap or step with the keyboard. It replaces the bars beside the model.
+- The row under the message box sits on one centre line, and the model is plain text without a box.
+- In Bold, your messages are white text on a colour, never a white bubble: a deep blue in the monochrome themes, the theme's own colour elsewhere, always at least 4.5:1.
+
 ## 3.9.38
 
 - Read what each step did. A step says what it was for — a Claude Code command's own description, the command a Codex step ran, the file it edited or read, what it searched for — and a group says its first step and how many more, instead of "Ran a command".
