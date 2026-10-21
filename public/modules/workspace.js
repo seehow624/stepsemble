@@ -1338,7 +1338,7 @@
   function providerLogo(name) {
     const value = String(name || "").toLowerCase();
     const logo = node("span", "", "workspace-provider-logo");
-    logo.dataset.logo = value.includes("codex") || value.includes("openai") ? "openai"
+    logo.dataset.logo = value.includes("codex") ? "codex" : value.includes("openai") ? "openai"
       : value.includes("claude") ? "claude"
       : value.includes("opencode") ? "opencode"
       : value.includes("minimax") ? "minimax"
