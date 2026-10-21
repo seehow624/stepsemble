@@ -480,6 +480,162 @@
     return raw;
   }
 
+  // ---- Step labels: each row says what its step did ----------------------
+  // Claude Code and OpenCode describe each command ("Check deploy status");
+  // Codex does not, so its row shows the command, shortened. Edits, reads
+  // and searches name their file or pattern. `t` is the caller's locale
+  // lookup; the generic phrase ("Ran a command") is only the fallback.
+
+  function workBaseName(value) {
+    const path = String(value ?? "").trim().replace(/[\\/]+$/, "");
+    return path.split(/[\\/]/).filter(Boolean).pop() || path;
+  }
+
+  function workOneLine(value, limit = 240) {
+    const text = String(value ?? "").replace(/\s+/g, " ").trim();
+    return text.length > limit ? text.slice(0, limit - 1).trimEnd() + "…" : text;
+  }
+
+  function workCapitalize(text, locale = "en") {
+    return text ? text.charAt(0).toLocaleUpperCase(locale) + text.slice(1) : "";
+  }
+
+  // The commands of a shell line, split at && || ; and line breaks outside
+  // quotes, brackets and here-documents. Display-only; nothing is evaluated.
+  function workCommandList(value) {
+    const lines = String(value ?? "").split(/\r?\n/), kept = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      kept.push(lines[index]);
+      const heredoc = /<<-?\s*(['"]?)([A-Za-z_][\w.-]*)\1/.exec(lines[index]);
+      if (heredoc) while (index + 1 < lines.length && lines[++index].trim() !== heredoc[2]);
+    }
+    const text = kept.join("\n"), commands = [];
+    let current = "", quote = "", depth = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      const character = text[index], next = text[index + 1];
+      if (quote) {
+        current += character;
+        if (character === "\\" && quote !== "'" && next !== undefined) { current += next; index += 1; }
+        else if (character === quote) quote = "";
+        continue;
+      }
+      if (character === "\\" && next !== undefined) { current += character + next; index += 1; continue; }
+      if (character === "'" || character === '"' || character === "`") { quote = character; current += character; continue; }
+      if (character === "(" || character === "{") depth += 1;
+      else if ((character === ")" || character === "}") && depth > 0) depth -= 1;
+      if (!depth && (character === ";" || character === "\n" || ((character === "&" || character === "|") && next === character))) {
+        commands.push(current); current = "";
+        if (character === "&" || character === "|") index += 1;
+        continue;
+      }
+      current += character;
+    }
+    commands.push(current);
+    return commands.map(command => command.trim()).filter(Boolean);
+  }
+
+  // The first command that does the work: a leading `cd …`, `export …` or
+  // `source …` is set-up. Trailing noise (2>&1, | tail -20) goes, paths
+  // inside the conversation's folder are shown relative to it, and " …"
+  // says more commands follow.
+  const WORK_SETUP_COMMAND = /^(?:cd|pushd|popd|export|unset|set|source|\.|true|:)(?:\s|$)/;
+  function workShortCommand(value, cwd = "") {
+    let raw = value;
+    if (Array.isArray(raw)) raw = raw.length === 3 && /(?:^|\/)(?:ba|z|da|k)?sh$/.test(String(raw[0])) && /^-l?c$/.test(String(raw[1])) ? raw[2] : raw.join(" ");
+    const commands = workCommandList(workDisplayCommand(raw));
+    const first = commands.findIndex(command => !WORK_SETUP_COMMAND.test(command));
+    const index = first < 0 ? 0 : first;
+    let command = String(commands[index] || "")
+      .replace(/\s+\d?>\s*(?:&[12]|\/dev\/null)/g, "")
+      .replace(/\s*\|\s*(?:head|tail)(?:\s+-n)?(?:\s+-?\d+)?\s*$/, "");
+    const root = String(cwd || "").replace(/[\\/]+$/, "");
+    if (root.length > 1) command = command.split(root + "/").join("");
+    command = workOneLine(command, 200);
+    return command && index < commands.length - 1 ? command + " …" : command;
+  }
+
+  function workUrlHost(value) {
+    const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#\s]*@)?([^/?#:\s]+)/i.exec(String(value ?? "").trim());
+    return match ? match[1].toLowerCase().replace(/^www\./, "") : "";
+  }
+
+  function workMoreText(label, more, t) {
+    return more > 0 ? t(more === 1 ? "work.more.one" : "work.more.many", { label, count: more }) : label;
+  }
+
+  /**
+   * What one step did, as a row label: { category, text, code, more,
+   * generic }. `code` is the part of `text` that is a command, for the code
+   * face; `more` counts the other files of a multi-file edit.
+   */
+  function workStepLabel(name, args, { running = false, t = key => key, cwd = "", locale = "en" } = {}) {
+    const value = args && typeof args === "object" && !Array.isArray(args) ? args : typeof args === "string" ? { value: args } : {};
+    const category = workCategory(name, value);
+    const state = running ? "active" : "done";
+    const done = (text, extra = {}) => ({ category, text: workMoreText(workOneLine(text, 400), extra.more || 0, t), base: workOneLine(text, 400), code: "", more: 0, generic: false, ...extra });
+    const item = (key, target, extra) => done(t(`work.item.${key}.${state}`, { target }), extra);
+    const generic = () => done(workCapitalize(t(`work.part.${category}.one`, { count: 1 }), locale), { generic: true });
+    const quoted = text => t("work.quote", { text: workOneLine(text, 160) });
+    const string = (...values) => { const found = values.find(item => typeof item === "string" && item.trim()); return found ? found.trim() : ""; };
+    const file = workBaseName(string(value.path, value.file_path, value.filePath, value.file, value.filename, value.target_file, value.notebook_path, value.absolute_path));
+    if (category === "run") {
+      const description = workOneLine(string(value.description), 240);
+      if (description) return done(description);
+      const source = Array.isArray(value.command) ? value.command : string(value.command, value.cmd, value.script, value.value);
+      const command = workShortCommand(source, cwd);
+      return command ? item("run", command, { code: command }) : generic();
+    }
+    if (category === "edit") {
+      const names = [...new Set(toolEditChanges(name, value).map(change => workBaseName(change.path)).filter(Boolean))];
+      if (!names.length && file) names.push(file);
+      // "files" is the transcript's stand-in for a change that named none.
+      if (!names.length || (names.length === 1 && names[0] === "files" && !Array.isArray(value.changes))) return generic();
+      return item("edit", names[0], { more: names.length - 1 });
+    }
+    if (category === "read" || category === "image") return file ? item(category, file) : generic();
+    if (category === "search") {
+      const pattern = string(value.pattern, value.query, value.regex, value.glob, value.q, value.search);
+      if (pattern) return item("search", quoted(pattern));
+      return file ? item("list", file) : generic();
+    }
+    if (category === "web") {
+      const host = workUrlHost(string(value.url, value.uri, value.href, value.value));
+      if (host) return item("fetch", host);
+      const query = string(value.query, value.q, value.search_query, value.searchQuery);
+      return query ? item("web", quoted(query)) : generic();
+    }
+    if (category === "agent") {
+      const task = workOneLine(string(value.description, value.prompt, value.task, value.message), 160);
+      return task ? item("agent", task) : generic();
+    }
+    if (category === "plan" || category === "context" || category === "wait") return item(category, "");
+    const summary = workOneLine(string(value.description, value.title, value.summary), 240);
+    if (summary) return done(summary);
+    const tool = String(name || "").trim().replace(/^mcp__[^_]+(?:_[^_]+)*?__/, "");
+    if (!tool || tool === "tool") return generic();
+    const target = workOneLine(Object.values(value).find(item => typeof item === "string" && item.trim()) || "", 80);
+    return done(t(`work.item.tool.${state}`, { name: tool, target: target ? " " + target : "" }));
+  }
+
+  /**
+   * One label for a run of steps: what the first telling step did and how
+   * many more there were ("Check deploy status +2 more"). Pictures shown in
+   * the run count as steps; a run of thinking alone is "Thought".
+   */
+  const WORK_QUIET_CATEGORIES = new Set(["plan", "context", "wait"]);
+  function workGroupLabel(steps, { t = key => key, cwd = "", locale = "en", images = 0, thinking = 0 } = {}) {
+    const list = (Array.isArray(steps) ? steps : []).filter(step => step && typeof step === "object");
+    const pictures = count(images);
+    if (!list.length) {
+      if (pictures) return { category: "image", text: workCapitalize(t(`work.part.image.${pictures === 1 ? "one" : "many"}`, { count: pictures }), locale), base: "", code: "", more: 0, generic: true };
+      return { category: thinking ? "think" : "tool", text: t(thinking ? "work.thought" : "work.worked"), base: "", code: "", more: 0, generic: true };
+    }
+    const lead = list.find(step => !WORK_QUIET_CATEGORIES.has(workCategory(step.name, step.args))) || list[0];
+    const label = workStepLabel(lead.name, lead.args, { t, cwd, locale });
+    const more = label.more + list.length - 1 + pictures;
+    return { ...label, text: workMoreText(label.base, more, t), more };
+  }
+
   // Duration parts for "Worked for 19m 44s"; the caller localizes the units.
   function workDurationParts(ms) {
     const duration = Math.max(0, Number(ms) || 0);
@@ -517,6 +673,7 @@
     stripAnsi, parseTaskProgressLines, extractTaskPlan,
     runElapsedText, compactRelativeTime, normalizeTimestampMs,
     lineDiffStats, unifiedDiffStats, applyPatchStats, toolEditChanges, isEditToolName, workCategory, workDisplayCommand, workDurationParts,
+    workCommandList, workShortCommand, workStepLabel, workGroupLabel,
     localFileReference,
   });
   global.piHarborSessionUtils = global.stepsembleSessionUtils;
