@@ -145,8 +145,11 @@ export async function runWebStabilityBrowserCases(browser) {
       stage = "earlier messages by scrolling";
       // Reading back to the top loads the next page without the button, and
       // keeps the place; one approach loads one page.
+      // The wheel's budget is the distance to the top, not a fixed count: the
+      // page is as tall as its type and the chosen interface style make it.
       await pane.locator("#messages").hover();
-      for (let i = 0; i < 40 && await pane.locator("#messages .msg").count() === 600; i++) { await page.mouse.wheel(0, -3000); await pane.waitForTimeout(100); }
+      const wheels = Math.ceil(await pane.locator("#messages").evaluate(node => node.scrollTop) / 3000) + 10;
+      for (let i = 0; i < wheels && await pane.locator("#messages .msg").count() === 600; i++) { await page.mouse.wheel(0, -3000); await pane.waitForTimeout(100); }
       await pane.waitForFunction(() => document.querySelectorAll("#messages .msg").length === 900);
       const scrolled = await pane.locator("#messages").evaluate(node => node.scrollTop);
       assert.ok(scrolled > 600, "the earlier page kept the reading position");

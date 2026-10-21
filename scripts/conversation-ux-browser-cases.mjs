@@ -670,10 +670,16 @@ export async function runSessionSummaryBrowserCases(browser, { screenshots } = {
       await codex.waitForFunction(() => typeof subagentTracker !== "undefined" && document.querySelectorAll("#messages .tool-card").length > 0);
       await codex.evaluate(() => subagentTracker.codex([{ type: "collabAgentToolCall", id: "summary-spawn", tool: "spawnAgent", receiverThreadIds: ["summary-child"],
         prompt: "Check the links", agentsStates: { "summary-child": { status: "completed", message: "All links work" } } }], "summary-turn"));
+      // A reply's long link, as a shared Drive file has, must not widen the panel.
+      const longLink = "https://drive.google.com/file/d/1D1RTi3qi3jyLdMBzQ7aYmYkkOKAlXrig0123456789abcdefghij/view?usp=sharing";
+      await codex.evaluate(href => { const reply = document.createElement("div"); reply.className = "msg assistant"; const link = document.createElement("a"); link.href = href; link.textContent = href; reply.append(link); document.querySelector("#messages").append(reply); }, longLink);
       if (viewport.mobile) await codex.locator("#btn-summary").click();
       else await page.locator(".workspace-summary-button").click();
       const panel = codex.locator(".session-summary");
       await panel.waitFor();
+      await panel.locator(".session-summary-link").first().waitFor();
+      const fits = await panel.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      assert.ok(fits.scroll <= fits.client + 1, "a long link ends in an ellipsis instead of letting the summary scroll sideways " + JSON.stringify(fits));
       await panel.getByText("Tidy the release notes", { exact: true }).waitFor();
       const sections = await panel.locator(".session-summary-section h3").allTextContents();
       assert.deepEqual(sections, ["Goals", "Subagents", "Outputs", "Sources"]);

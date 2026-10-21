@@ -29,6 +29,7 @@ import { runWorkspaceMachinesBrowserCases } from "./workspace-machines-browser-c
 import { runWorkspaceSchedulesBrowserCases } from "./workspace-schedules-browser-cases.mjs";
 import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases.mjs";
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
+import { runInterfaceStyleBrowserCases } from "./interface-style-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
 import { runAssistantBrowserCases } from "./assistant-browser-cases.mjs";
 import { runAssistantMobileBrowserCases } from "./assistant-mobile-browser-cases.mjs";
@@ -207,6 +208,7 @@ try {
     await runWorkspaceSchedulesBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
+    await runInterfaceStyleBrowserCases(browser);
   }
   else if (suite === "assistant") {
     await runAssistantBrowserCases(browser);
