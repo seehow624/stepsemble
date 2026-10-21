@@ -94,19 +94,20 @@ html[data-look="bold"] input[type="search"]:focus { background-color: var(--fiel
 /* Switches glow a little when on. */
 html[data-look="bold"] .toggle input:checked + .toggle-track { box-shadow: inset 0 1px 1px rgba(0, 0, 0, .12), 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
 
-/* ---------- Workspace: a floating glass sidebar over a quiet backdrop ---------- */
+/* ---------- Workspace: the sidebar sits on the backdrop ---------- */
 html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambient); }
 html[data-look="bold"] #workspace-main, html[data-look="bold"] #workspace-stage { background: transparent; }
 @media (min-width: 761px) {
-  html[data-look="bold"] #workspace-sidebar { margin: 10px 0 10px 10px; padding: 14px 12px 12px; border: 0; border-radius: var(--bold-radius-panel);
-    background: linear-gradient(to bottom, color-mix(in srgb, var(--milk) 14%, var(--bold-glass)), var(--bold-glass) 40%);
-    box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-panel-shadow); }
+  /* No panel: the list lies straight on the backdrop (true black in dark),
+     set apart from the lifted panes by space alone. */
+  html[data-look="bold"] #workspace-sidebar { padding: 14px 10px 12px 14px; border: 0; background: transparent; }
+  html[data-look="bold"] #workspace-sidebar footer { right: 8px; }
   html[data-look="bold"] #workspace-tree { inset: max(10px, env(safe-area-inset-top)) 10px 10px; }
   html[data-look="bold"] .workspace-branch { padding: 0 5px; }
-  /* In the Mac app the window's buttons sit inside the panel's corner, on
-     the brand row's centre line; the panes' bars stay level with them. */
-  html[data-look="bold"][data-mac-window=chromeless] #workspace-sidebar { margin: 8px 0 8px 8px; padding-top: max(0px, calc(var(--mac-controls-center) - 23px)); }
-  html[data-look="bold"][data-mac-window=chromeless] .workspace-brand-row { min-height: 30px; padding-left: max(6px, calc(var(--mac-controls-end) - 6px)); }
+  /* In the Mac app the window's buttons sit at the top left, on the brand
+     row's centre line; the panes' bars stay level with them. */
+  html[data-look="bold"][data-mac-window=chromeless] #workspace-sidebar { padding-top: max(0px, calc(var(--mac-controls-center) - 15px)); }
+  html[data-look="bold"][data-mac-window=chromeless] .workspace-brand-row { min-height: 30px; padding-left: max(6px, var(--mac-controls-end)); }
   html[data-look="bold"][data-mac-window=chromeless] .workspace-identity strong { font-size: var(--text-xl); }
   html[data-look="bold"][data-mac-window=chromeless] #workspace-tree { inset: max(2px, calc(var(--mac-controls-center) - 21px)) 8px 8px; }
 }
@@ -145,12 +146,16 @@ html[data-look="bold"] body.compact :is(.workspace-session, .workspace-automatio
 html[data-look="bold"] :is(#workspace-projects, #workspace-assistant-list) :is(.workspace-session-menu, .workspace-project-add, .workspace-section-add, .workspace-project-menu, .workspace-machine-menu) { border-radius: 50%; }
 html[data-look="bold"] .workspace-session-row:hover .workspace-session-menu, html[data-look="bold"] .workspace-session-menu:hover { background: var(--bold-hover); }
 html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle) { border-radius: 12px; }
-html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle):is(:hover, :focus-visible) { background: var(--bold-hover); }
+/* A header answers the pointer by brightening, without a box behind it. */
+html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle):is(:hover, :focus-visible) { background: transparent; }
+html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle) :is(strong, small, .workspace-project-chevron) { transition: color .15s ease; }
+html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle):is(:hover, :focus-visible) :is(strong, small, .workspace-project-chevron) { color: var(--ink); }
+html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle):focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
 html[data-look="bold"] .workspace-session-more { border-radius: var(--radius-pill); }
 html[data-look="bold"] .workspace-session-more:hover { background: var(--bold-hover); }
 html[data-look="bold"] .workspace-automation-icon { border-radius: 9px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
-/* What passes behind the capsule settles into the panel's own tint. */
-html[data-look="bold"] #workspace-sidebar footer::before { background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--milk) 55%, transparent)); }
+/* What passes behind the capsule settles into the backdrop. */
+html[data-look="bold"] #workspace-sidebar footer::before { background: linear-gradient(to bottom, transparent, var(--bold-ambient) 70%); }
 
 /* ---------- Panes ---------- */
 html[data-look="bold"] .workspace-pane { border: 0; border-radius: var(--bold-radius-pane); background: var(--paper); box-shadow: var(--bold-outline), var(--bold-panel-shadow); }
@@ -253,13 +258,15 @@ html[data-look="bold"] #view-chat .msg.user .bubble .md-body :not(pre) > code { 
 html[data-look="bold"] #view-chat .msg.user .bubble .md-body { font-size: 1rem; line-height: 1.55; }
 html[data-look="bold"] #view-chat .msg .role-tag { letter-spacing: .01em; }
 
-/* Work under a reply reads as quiet glass chips. */
-html[data-look="bold"] #view-chat .wl-row { width: auto; max-width: 100%; margin: 4px 0; padding: 7px 14px 7px 11px; border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--milk) 55%, var(--control-fill)); box-shadow: inset 0 .5px 0 var(--glass-edge), var(--bold-outline); transition: background-color .15s ease, transform .14s var(--bold-spring); }
-html[data-look="bold"] #view-chat .wl-row:hover { background: color-mix(in srgb, var(--milk) 40%, var(--control-fill-hover)); }
-html[data-look="bold"] #view-chat .wl-row:active { transform: scale(.98); }
-html[data-look="bold"] #view-chat .activity-group { border: 0; border-radius: 18px; background: color-mix(in srgb, var(--ink) 3%, transparent); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
-html[data-look="bold"] #view-chat .tool-card { overflow: hidden; border: 0; border-radius: 16px; background: color-mix(in srgb, var(--milk) 70%, transparent); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
+/* Work under a reply reads as quiet lines: an icon, what the step did and a
+   chevron, with nothing drawn behind them. The pointer brightens a line;
+   only a step's output, once opened, keeps a surface. */
+html[data-look="bold"] #view-chat .wl-row { margin: 2px 0; transition: color .15s ease, opacity .12s ease; }
+html[data-look="bold"] #view-chat .wl-row:active { opacity: .7; }
+html[data-look="bold"] #view-chat .activity-group.wl-seg { border: 0; background: transparent; box-shadow: none; }
+html[data-look="bold"] #view-chat .activity-group:not(.wl-seg) { border: 0; border-radius: 18px; background: color-mix(in srgb, var(--ink) 3%, transparent); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
+html[data-look="bold"] #view-chat .tool-card { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+html[data-look="bold"] #view-chat .tool-card > summary:hover :is(.tool-name, .tool-ico, .tool-chevron) { color: var(--ink); }
 html[data-look="bold"] #view-chat .thinking-toggle { border-radius: var(--radius-pill); }
 
 /* On a phone the title row floats over the conversation as glass; the
@@ -405,11 +412,14 @@ html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transitio
 }
 @media (prefers-contrast: more) {
   html[data-look="bold"] { --bold-outline: 0 0 0 1px var(--line); --bold-hairline: var(--line); }
-  html[data-look="bold"] :is(#workspace-sidebar, .workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card) { outline: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); outline-offset: -1px; }
+  html[data-look="bold"] :is(.workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card) { outline: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); outline-offset: -1px; }
+  /* The sidebar has no frame; one edge keeps it apart. */
+  html[data-look="bold"] #workspace-sidebar { border-right: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); }
   html[data-look="bold"] .workspace-session[data-open=true] { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
 }
 @media (forced-colors: active) {
-  html[data-look="bold"] :is(#workspace-sidebar, .workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card, .workspace-search-wrap, input[type="search"]) { border: 1px solid CanvasText; box-shadow: none; }
+  html[data-look="bold"] :is(.workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card, .workspace-search-wrap, input[type="search"]) { border: 1px solid CanvasText; box-shadow: none; }
+  html[data-look="bold"] #workspace-sidebar { border-right: 1px solid CanvasText; }
   html[data-look="bold"] #view-chat .msg.user .bubble { border: 1px solid CanvasText; }
   html[data-look="bold"] .settings-nav-icon { forced-color-adjust: none; }
   html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle)::before { display: none; }
@@ -469,3 +479,20 @@ html[data-look="bold"] .thinking-control.is-empty { padding: 4px 16px 12px; }
 }
 html[data-look="bold"].reduced-motion .thinking-control.is-dragging .effort-knob { transform: none; }
 @media (prefers-reduced-motion: reduce) { html[data-look="bold"] .thinking-control.is-dragging .effort-knob { transform: none; } }
+
+/* ---------- The conversation's summary ---------- */
+/* A compact glass card in the pane's corner, the weight of the app's menus,
+   legible over true black; its icon reads pressed while it is open. */
+html[data-look="bold"] #view-chat .session-summary { border: 0; border-radius: var(--bold-radius-menu); background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); animation-timing-function: var(--bold-spring); }
+html[data-look="bold"] :is(.session-summary-toggle, .session-summary-row, .session-summary-changes) { border-radius: 10px; }
+@media (hover: hover) { html[data-look="bold"] :is(.session-summary-toggle, a.session-summary-row, button.session-summary-row, .session-summary-changes):hover { background: var(--bold-hover); } }
+html[data-look="bold"] :is(.session-summary-toggle, a.session-summary-row, button.session-summary-row, .session-summary-changes):focus-visible { background: var(--bold-hover); }
+html[data-look="bold"] :is(a, button).session-summary-row { transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] :is(a, button).session-summary-row:active { background: var(--bold-press-fill); transform: scale(.98); }
+html[data-look="bold"] .session-summary-lead { border-radius: 8px; background: var(--bold-field); }
+html[data-look="bold"] .session-summary-lead:is([data-kind="preview"], [data-kind="share"], [data-kind="app"]) { background: var(--bold-select); box-shadow: inset 0 0 0 .5px var(--bold-select-rim); }
+html[data-look="bold"] :is(.workspace-summary-button, #btn-summary)[aria-expanded="true"] { background: var(--bold-press-fill); color: var(--ink); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { html[data-look="bold"] #view-chat .session-summary { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@media (prefers-contrast: more) { html[data-look="bold"] #view-chat .session-summary { outline: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); outline-offset: -1px; } }
+@media (forced-colors: active) { html[data-look="bold"] #view-chat .session-summary { border: 1px solid CanvasText; background: Canvas; box-shadow: none; } }

@@ -136,6 +136,8 @@ test("pages that scroll up and down cannot be dragged sideways on an iPhone", ()
   assert.match(css, /\n\.settings-scroll \{[^}]*overflow: hidden auto;/);
   assert.match(css, /#view-chat \.session-summary \{[^}]*overflow: hidden auto;/);
   assert.match(css, /\.session-summary-list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(css, /\n\.session-summary-row \{[^}]*grid-template-columns: 24px minmax\(0, 1fr\);[^}]*min-width: 0;/, "a summary row is no wider than its list");
+  assert.match(css, /\n\.session-summary-text \{[^}]*min-width: 0;/);
 });
 
 test("the workspace shell sizes the brand mark without replacing its artwork", () => {

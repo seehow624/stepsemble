@@ -1,7 +1,8 @@
 // CI Playwright case for the Interface style setting, on the native-composer
 // preview (synthetic agents only; no account or model):
 //   - Bold is the default: the Workspace, an open conversation and Settings
-//     carry html[data-look=bold] and the Bold layer's shapes;
+//     carry html[data-look=bold] and the Bold layer's shapes; the sidebar
+//     has no frame and a step row is a plain line that says what it did;
 //   - choosing Classic in Settings → Appearance turns all three to Classic
 //     at once, without reloading the Workspace or the conversation;
 //   - choosing Bold again brings it back the same way, and it is saved.
@@ -28,13 +29,35 @@ export async function runInterfaceStyleBrowserCases(browser) {
       stage = "a conversation opens in Bold";
       const pane = await openFromSidebar(page, "Codex composer fixture");
       await pane.locator("#view-chat .composer").waitFor();
-      const shellLook = () => page.evaluate(() => ({ look: document.documentElement.dataset.look, sidebar: getComputedStyle(document.getElementById("workspace-sidebar")).borderTopLeftRadius, mark: window.__styleMark || 0 }));
+      const shellLook = () => page.evaluate(() => {
+        const sidebar = getComputedStyle(document.getElementById("workspace-sidebar"));
+        return { look: document.documentElement.dataset.look, search: getComputedStyle(document.querySelector(".workspace-search-wrap")).borderTopLeftRadius, mark: window.__styleMark || 0,
+          frame: { radius: sidebar.borderTopLeftRadius, shadow: sidebar.boxShadow, border: [sidebar.borderTopWidth, sidebar.borderRightWidth, sidebar.borderBottomWidth, sidebar.borderLeftWidth].join(" "),
+            background: sidebar.backgroundColor, image: sidebar.backgroundImage, margin: sidebar.marginLeft } };
+      });
       const paneLook = () => pane.evaluate(() => ({ look: document.documentElement.dataset.look, composer: getComputedStyle(document.querySelector("#view-chat .composer")).borderTopLeftRadius, mark: window.__styleMark || 0 }));
       const bold = { shell: await shellLook(), pane: await paneLook() };
       assert.equal(bold.shell.look, "bold", "Bold is the default in the Workspace");
       assert.equal(bold.pane.look, "bold", "and in a conversation");
       assert.ok(parseFloat(bold.pane.composer) >= 24, "the message box is the Bold capsule " + JSON.stringify(bold));
-      if (!viewport.mobile) assert.ok(parseFloat(bold.shell.sidebar) > 0, "the sidebar floats as a Bold panel " + JSON.stringify(bold));
+      assert.ok(parseFloat(bold.shell.search) >= 20, "the sidebar's search is the Bold pill " + JSON.stringify(bold));
+      assert.deepEqual(bold.shell.frame, { radius: "0px", shadow: "none", border: "0px 0px 0px 0px", background: "rgba(0, 0, 0, 0)", image: "none", margin: "0px" },
+        "the sidebar lies on the backdrop with no frame");
+
+      stage = "a step row is a plain line that says what it did";
+      await pane.waitForFunction(() => document.querySelector("#messages .wl-row:not(.wl-hide)"), null, { timeout: 20_000 });
+      const step = await pane.evaluate(() => {
+        const row = document.querySelector("#messages .wl-row:not(.wl-hide)"), style = getComputedStyle(row);
+        return { text: row.querySelector(".wl-label").textContent, code: row.querySelector(".wl-code")?.textContent || "", background: style.backgroundColor,
+          shadow: style.boxShadow, border: style.borderTopWidth, inside: row.getBoundingClientRect().right <= document.getElementById("messages").getBoundingClientRect().right + .5 };
+      });
+      assert.deepEqual(step, { text: "Ran cat SKILL.md +2 more", code: "cat SKILL.md", background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px", inside: true },
+        "the Codex command is named, in the code face, with nothing drawn behind it");
+      await pane.locator("#messages .wl-row:not(.wl-hide)").first().click();
+      await pane.waitForFunction(() => [...document.querySelectorAll("#messages .tool-card")].some(card => card.offsetParent));
+      const card = await pane.evaluate(() => { const style = getComputedStyle([...document.querySelectorAll("#messages .tool-card")].find(card => card.offsetParent));
+        return { background: style.backgroundColor, shadow: style.boxShadow, radius: style.borderTopLeftRadius }; });
+      assert.deepEqual(card, { background: "rgba(0, 0, 0, 0)", shadow: "none", radius: "0px" }, "an opened run lists its steps as plain lines");
       // A reload would lose these marks.
       await page.evaluate(() => { window.__styleMark = 1; }); await pane.evaluate(() => { window.__styleMark = 1; });
 
@@ -60,8 +83,8 @@ export async function runInterfaceStyleBrowserCases(browser) {
         assert.equal(now.shell.mark, 1, "the Workspace was not reloaded"); assert.equal(now.pane.mark, 1, "the conversation was not reloaded");
         if (value === "classic") {
           assert.notEqual(now.pane.composer, bold.pane.composer, "the conversation drops the Bold layer " + JSON.stringify(now));
-          if (!viewport.mobile) assert.equal(now.shell.sidebar, "0px", "the sidebar is Classic again " + JSON.stringify(now));
-        } else assert.deepEqual({ composer: now.pane.composer, sidebar: now.shell.sidebar }, { composer: bold.pane.composer, sidebar: bold.shell.sidebar }, "Bold is back as it was");
+          assert.notEqual(now.shell.search, bold.shell.search, "the sidebar is Classic again " + JSON.stringify(now));
+        } else assert.deepEqual({ composer: now.pane.composer, search: now.shell.search, frame: now.shell.frame }, { composer: bold.pane.composer, search: bold.shell.search, frame: bold.shell.frame }, "Bold is back as it was");
         assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("stepsemble.settings.v2")).look), value, "the choice is saved");
       }
       assert.deepEqual(errors, []);

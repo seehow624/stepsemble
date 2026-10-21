@@ -511,6 +511,8 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   color: var(--pine-soft);
 }
 .workspace-strip-button:hover, .workspace-strip-button:focus-visible { background: var(--bubble-user); color: var(--ink); outline: 0; }
+.workspace-summary-button[aria-expanded=true] { background: var(--bubble-user); color: var(--ink); }
+@media (forced-colors: active) { .workspace-summary-button[aria-expanded=true] { outline: 2px solid Highlight; } }
 .workspace-strip-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 /* This menu is attached to the document because conversation frames live in a
    later sibling layer; inside a pane it would paint underneath its own frame. */
