@@ -567,18 +567,39 @@
   function dragRegions() {
     const rects = [], add = (left, top, right, bottom) => { if (right - left >= 2 && bottom - top >= 2) rects.push([left, top, right - left, bottom - top].map(Math.round)); };
     const box = element => element.getBoundingClientRect();
+    // A band of the top edge less the controls on it, as rectangles: each
+    // vertical slice between the controls' edges, above and below them.
+    const around = ([left, top, right, bottom], holes) => {
+      const cut = holes.map(r => [Math.max(left, r.left), Math.max(top, r.top), Math.min(right, r.right), Math.min(bottom, r.bottom)])
+        .filter(([l, t, r, b]) => r > l && b > t).sort((a, b) => a[1] - b[1]);
+      const xs = [...new Set([left, right, ...cut.flatMap(([l, , r]) => [l, r])])].sort((a, b) => a - b);
+      for (let i = 1; i < xs.length; i++) {
+        let y = top;
+        for (const [l, t, r, b] of cut) if (l < xs[i] && r > xs[i - 1]) { add(xs[i - 1], y, xs[i], t); y = Math.max(y, b); }
+        add(xs[i - 1], y, xs[i], bottom);
+      }
+    };
+    const shown = element => element.getClientRects().length && getComputedStyle(element).visibility !== "hidden";
     if (settingsLayer) { add(0, 0, innerWidth, parseFloat(getComputedStyle(settingsLayer).paddingTop) || 0); return rects; }
-    const sidebar = $("workspace-sidebar"), name = sidebar.querySelector(".workspace-identity");
-    if (sidebar.getClientRects().length && name) add(box(sidebar).left, 0, box(name).right, box(name.parentElement).bottom);
+    // The sidebar's top, less the Stepsemble name, which is Refresh.
+    const sidebar = $("workspace-sidebar"), row = sidebar.querySelector(".workspace-brand-row");
+    if (sidebar.getClientRects().length && row) {
+      const s = box(sidebar);
+      around([s.left, 0, s.right, box(row).bottom], [...row.querySelectorAll("button")].filter(shown).map(box));
+    }
     if ($("workspace-stage").getClientRects().length) {
       const stage = box($("workspace-stage")), top = box($("workspace-tree")).top;
       add(stage.left, 0, stage.right, top);
-      // The top row's strips: under the window's buttons, and after the tabs.
+      // The top row's strips, all but their controls: a tab's title, its ×
+      // and the strip's buttons. A title is cut to the part the strip shows.
       for (const strip of document.querySelectorAll(".workspace-tabs")) {
         const bar = box(strip), list = strip.querySelector(".workspace-tablist");
         if (!bar.width || bar.top > top + 2) continue;
-        if (strip.firstElementChild && strip.firstElementChild !== list) add(bar.left, bar.top, box(strip.firstElementChild).left, bar.bottom);
-        if (list) { const r = box(list), last = list.lastElementChild; add(Math.max(r.left, last ? box(last).right : r.left), r.top, r.right, r.bottom); }
+        const visible = list ? box(list) : bar;
+        around([bar.left, bar.top, bar.right, bar.bottom], [...strip.querySelectorAll("button, select, input, a[href]")].filter(shown).map(control => {
+          const r = box(control);
+          return list?.contains(control) ? { left: Math.max(r.left, visible.left), top: r.top, right: Math.min(r.right, visible.right), bottom: r.bottom } : r;
+        }));
       }
     }
     const open = document.querySelector("dialog[open]");
@@ -1856,6 +1877,9 @@
     onQuotaUpdated(target, data) { if (target === host) { usageReadAt = Date.now(); renderUsage(data); } },
     onQuotaDisplayChanged() { renderUsage(usageReading); },
     openQuotaSources(target) { selectHost(target); openSettings("quota-sources"); },
+    // Settings live in the limits sheet, beside its Refresh.
+    openSettings: () => openSettings(),
+    settingsLabel: () => t("settings"),
     restoreFocus() { document.querySelector(".workspace-limits-strip")?.focus({ preventScroll: true }); },
     onVisibility() { closeUsageTip(); document.querySelector(".workspace-limits-strip")?.setAttribute("aria-expanded", String(usageUI.isOpen())); reportDragRegions(); notificationPresence(); },
   });
@@ -1907,18 +1931,26 @@
   });
   $("workspace-add").onclick = event => forMachine(event.currentTarget, target => addProject(target));
   $("workspace-history").onclick = event => forMachine(event.currentTarget, target => void history(target));
-  // Refresh reloads the list and the allowances together. The allowances are
-  // read from the providers again; the Host answers repeated clicks within
-  // 15 seconds with the reading it just took.
+  // The Stepsemble name is Refresh: it reloads the list and the allowances
+  // together. The allowances are read from the providers again; the Host
+  // answers repeated clicks within 15 seconds with the reading it just took.
+  let refreshTurn = 0;
   $("workspace-refresh").onclick = async () => {
-    const control = $("workspace-refresh");
+    const control = $("workspace-refresh"), logo = control.querySelector(".workspace-logo");
     if (control.dataset.busy === "true") return;
+    const turn = ++refreshTurn;
     control.dataset.busy = "true"; control.setAttribute("aria-busy", "true");
     const started = performance.now();
     try { await Promise.all([refresh(), refreshUsage({ fresh: true })]); }
     finally {
-      // A fast Host still shows one visible turn, so the click reads as done.
-      setTimeout(() => { delete control.dataset.busy; control.removeAttribute("aria-busy"); }, Math.max(0, 450 - (performance.now() - started)));
+      // The mark turns while it reads, at least once so a fast Host's click
+      // reads as done, and comes to rest upright at the end of a turn.
+      const done = () => { if (turn !== refreshTurn) return; refreshTurn++; delete control.dataset.busy; control.removeAttribute("aria-busy"); };
+      setTimeout(() => {
+        if (!logo.getAnimations().length) { done(); return; }
+        logo.addEventListener("animationiteration", done, { once: true });
+        setTimeout(done, 1000);
+      }, Math.max(0, 450 - (performance.now() - started)));
     }
   };
   $("workspace-search").oninput = () => { assistantUI.setQuery($("workspace-search").value.trim()); renderSidebar(); };
@@ -1931,7 +1963,6 @@
   }
   $("workspace-host").onchange = () => selectHost($("workspace-host").value);
   $("workspace-sidebar-close").onclick = () => { document.body.classList.add("sidebar-hidden"); requestAnimationFrame(layoutFrames); };
-  $("workspace-settings").onclick = () => openSettings();
   window.addEventListener("dragend", dragEnd); window.addEventListener("drop", dragEnd);
   window.addEventListener("storage", event => {
     if (event.key !== null && !/^(stepsemble|piharbor|piweb)\.settings\./.test(event.key)) return;

@@ -168,7 +168,7 @@ test("every selectable design theme defines its own light and dark palette", () 
   const foundation = fs.readFileSync(path.join(root, "public", "modules", "app-foundation.js"), "utf8");
   const registry = foundation.slice(foundation.indexOf("const DESIGN_THEMES"), foundation.indexOf("const DESIGN_THEME_IDS"));
   const ids = Array.from(registry.matchAll(/id: "([a-z-]+)"/g), (match) => match[1]);
-  assert.ok(ids.length >= 9, "theme registry should list every theme");
+  assert.deepEqual(ids, ["warm-paper", "graphite", "ink-ivory"], "theme registry should list every theme");
   const palettes = new Map();
   for (const id of ids) {
     for (const mode of ["dark", "light"]) {
@@ -1004,9 +1004,13 @@ test("localization is English-first with an explicit locale selector and safe fa
   assert.match(i18n, /root\.nodeType !== Node\.ELEMENT_NODE/);
   assert.match(foundation, /locale: "en"/);
   assert.match(foundation, /designTheme: "ink-ivory"/);
-  for (const theme of ["pine-milk", "plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) {
+  for (const theme of ["warm-paper", "graphite", "ink-ivory"]) {
     assert.match(foundation, new RegExp(`id: "${theme}"`));
     assert.match(css, new RegExp(`data-design-theme="${theme}"`));
+  }
+  for (const theme of ["pine-milk", "plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) {
+    assert.doesNotMatch(foundation, new RegExp(`id: "${theme}"`), `${theme} is retired`);
+    assert.doesNotMatch(css, new RegExp(`data-design-theme="${theme}"`), `${theme} has no palette left`);
   }
   assert.match(app, /PROJECT_SESSION_PREVIEW_LIMIT = 3/);
   assert.match(app, /Show more/);

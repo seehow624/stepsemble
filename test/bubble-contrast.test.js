@@ -62,7 +62,7 @@ function bubble(css, theme, mode) {
 test("a person's message keeps 4.5:1 for its white text in every design theme, light and dark", () => {
   const css = read("public/modules/look-bold.css"), palettes = themes();
   const ids = [...read("public/modules/app-foundation.js").matchAll(/\{ id: "([\w-]+)", label:/g)].map(match => match[1]);
-  assert.equal(ids.length, 9, "the nine design themes");
+  assert.deepEqual(ids, ["warm-paper", "graphite", "ink-ivory"], "the three design themes");
   assert.deepEqual(Object.keys(palettes).sort(), [...ids].sort(), "style.css has a palette for each");
   assert.match(css, /--bold-on-bubble:\s*#fff;/, "its text is white");
   assert.match(css, /#view-chat \.msg\.user \.bubble \{[^}]*background: var\(--bold-bubble\); color: var\(--bold-on-bubble\);/);
@@ -80,7 +80,7 @@ test("a person's message keeps 4.5:1 for its white text in every design theme, l
     if (own) assert.ok(hueGap(oklch(color).hue, own.hue) <= 20, `${id} ${mode}: ${color} keeps the theme's hue`);
     else assert.equal(color, blue[mode], `${id} ${mode}: a theme of ink and paper takes the blue`);
   }
-  assert.equal(report.length, 18, report.join("\n"));
+  assert.equal(report.length, 6, report.join("\n"));
 });
 
 test("inside the bubble, code and tables sit in darker wells and links stay underlined", () => {

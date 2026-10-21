@@ -29,10 +29,10 @@ test("the interface style is saved with the appearance preferences, Bold unless 
   assert.equal(foundationWith({ theme: "dark" }).foundation.loadSettings().look, "bold");
   assert.equal(foundationWith({ look: "classic" }).foundation.loadSettings().look, "classic");
   assert.equal(foundationWith({ look: "glass" }).foundation.loadSettings().look, "bold", "an unknown value falls back to Bold");
-  const { foundation, storage } = foundationWith({ designTheme: "pine-milk", look: "bold" });
+  const { foundation, storage } = foundationWith({ designTheme: "warm-paper", look: "bold" });
   foundation.saveSettings({ look: "classic" });
   assert.equal(JSON.parse(storage.getItem("stepsemble.settings.v2")).look, "classic");
-  assert.equal(JSON.parse(storage.getItem("stepsemble.settings.v2")).designTheme, "pine-milk", "the other preferences stay");
+  assert.equal(JSON.parse(storage.getItem("stepsemble.settings.v2")).designTheme, "warm-paper", "the other preferences stay");
 });
 
 test("the Workspace, Schedules and assistant pages read the same interface style", () => {

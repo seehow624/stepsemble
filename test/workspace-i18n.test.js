@@ -25,6 +25,9 @@ test("workspace preferences preserve saved locale/theme, migrate aliases and tol
   assert.equal(I.preferences(storage({ locale: "pt-PT" })).locale, "pt-BR");
   assert.equal(I.preferences(storage({ showTemporarySessions: true })).showTemporarySessions, true);
   assert.equal(I.preferences({ getItem: key => key === "piweb.settings.v1" ? '{"locale":"ja","theme":"light"}' : null }).locale, "ja");
+  assert.deepEqual([...I.designThemes], ["warm-paper", "graphite", "ink-ivory"], "the same three themes as the conversation views");
+  assert.equal(I.preferences(storage({ designTheme: "graphite" })).designTheme, "graphite");
+  assert.equal(I.preferences(storage({ designTheme: "plum-milk" })).designTheme, "ink-ivory", "a retired theme falls back to the default");
 });
 
 test("the workspace saves one preference without dropping the rest of the saved settings", () => {

@@ -54,7 +54,7 @@ test("frontend foundation normalizes preferences and preserves selected device s
       ["stepsemble.selected.v1", "mini"],
       ["stepsemble.settings.v2", JSON.stringify({
         settingsVersion: 1,
-        designTheme: "plum-milk",
+        designTheme: "warm-paper",
         sidebarWidth: 999,
         fontScale: 1,
         projectPins: ["/work", "/work", 4],
@@ -68,7 +68,7 @@ test("frontend foundation normalizes preferences and preserves selected device s
   const { value: foundation } = loadBrowserModule("app-foundation.js", { storage, piI18n });
   const settings = foundation.loadSettings();
   assert.equal(foundation.loadSelected(), "mini");
-  assert.equal(settings.designTheme, "plum-milk");
+  assert.equal(settings.designTheme, "warm-paper");
   assert.equal(settings.sidebarWidth, 440);
   assert.equal(settings.fontScale, 90);
   assert.deepEqual(Array.from(settings.projectPins), ["/work"]);
@@ -80,22 +80,21 @@ test("frontend foundation normalizes preferences and preserves selected device s
   assert.equal(storage.getItem("stepsemble.selected.v1"), "mbp");
 });
 
-test("a saved Pine Milk choice survives and an unset theme falls back to the default", () => {
-  const withChoice = {
-    values: new Map([["stepsemble.settings.v2", JSON.stringify({ designTheme: "pine-milk" })]]),
-    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
-    setItem(key, value) { this.values.set(key, String(value)); },
-  };
-  const withoutChoice = {
-    values: new Map([["stepsemble.settings.v2", JSON.stringify({ compact: true })]]),
-    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
-    setItem(key, value) { this.values.set(key, String(value)); },
-  };
+test("three design themes: a saved one survives, a retired one or none falls back to Ink & Ivory", () => {
   const piI18n = { normalizeLocale() { return "en"; } };
-  const kept = loadBrowserModule("app-foundation.js", { storage: withChoice, piI18n });
-  const defaulted = loadBrowserModule("app-foundation.js", { storage: withoutChoice, piI18n });
-  assert.equal(kept.value.loadSettings().designTheme, "pine-milk");
-  assert.equal(defaulted.value.loadSettings().designTheme, "ink-ivory");
+  const themeAfterLoading = saved => {
+    const storage = {
+      values: new Map([["stepsemble.settings.v2", JSON.stringify(saved)]]),
+      getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+      setItem(key, value) { this.values.set(key, String(value)); },
+    };
+    return loadBrowserModule("app-foundation.js", { storage, piI18n }).value.loadSettings().designTheme;
+  };
+  const { value: foundation } = loadBrowserModule("app-foundation.js", { storage: { getItem: () => null, setItem() {} }, piI18n });
+  assert.deepEqual(Array.from(foundation.DESIGN_THEMES, theme => theme.id), ["warm-paper", "graphite", "ink-ivory"]);
+  for (const kept of ["warm-paper", "graphite", "ink-ivory"]) assert.equal(themeAfterLoading({ designTheme: kept }), kept);
+  for (const retired of ["pine-milk", "plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]) assert.equal(themeAfterLoading({ designTheme: retired }), "ink-ivory", retired);
+  assert.equal(themeAfterLoading({ compact: true }), "ink-ivory");
 });
 
 test("frontend foundation migrates pre-Harbor preferences without renaming user devices", () => {
@@ -119,7 +118,7 @@ test("frontend foundation migrates legacy preferences and keeps a rolling global
   const storage = {
     values: new Map([
       ["piharbor.selected.v1", "harbor-device"],
-      ["piharbor.settings.v2", JSON.stringify({ locale: "ja", designTheme: "ocean-ivory" })],
+      ["piharbor.settings.v2", JSON.stringify({ locale: "ja", designTheme: "graphite" })],
     ]),
     getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
     setItem(key, value) { this.values.set(key, String(value)); },
@@ -127,9 +126,9 @@ test("frontend foundation migrates legacy preferences and keeps a rolling global
   const piI18n = { normalizeLocale(value) { return value === "ja" ? "ja" : "en"; } };
   const { value: foundation, window } = loadBrowserModule("app-foundation.js", { storage, piI18n });
   assert.equal(foundation.loadSelected(), "harbor-device");
-  assert.equal(foundation.loadSettings().designTheme, "ocean-ivory");
+  assert.equal(foundation.loadSettings().designTheme, "graphite");
   assert.equal(storage.getItem("stepsemble.selected.v1"), "harbor-device");
-  assert.equal(JSON.parse(storage.getItem("stepsemble.settings.v2")).designTheme, "ocean-ivory");
+  assert.equal(JSON.parse(storage.getItem("stepsemble.settings.v2")).designTheme, "graphite");
   assert.equal(window.piHarborFoundation, foundation);
   assert.equal(storage.getItem("piharbor.selected.v1"), "harbor-device", "rollback source stays in place");
 });

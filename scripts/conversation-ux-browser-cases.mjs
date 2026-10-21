@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
-import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
+import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady, openFromSidebar, openWorkspaceSettings } from "./workspace-browser-helpers.mjs";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 import { runBackgroundWorkBrowserCases } from "./background-work-browser-cases.mjs";
 
@@ -361,7 +361,7 @@ export async function runStatusColorBrowserCases(browser) {
       const signOut = getComputedStyle(document.querySelector("#btn-logout strong")).color, errInk = getComputedStyle(html).getPropertyValue("--err-ink").trim();
       return { themes: themes.length, failures, signOut: rgb(signOut).join(","), errInk: errInk && rgb(errInk).join(",") };
     });
-    assert.ok(result.themes >= 6, JSON.stringify(result));
+    assert.equal(result.themes, 3, JSON.stringify(result));
     assert.deepEqual(result.failures, [], "status text is too faint in some themes");
     assert.equal(result.signOut, result.errInk, "Sign out uses the readable red");
     assert.deepEqual(errors, []);
@@ -414,7 +414,7 @@ export async function runNarrowSettingsBrowserCases(browser, { screenshots } = {
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
-      await page.locator("#workspace-settings").click(); await page.waitForSelector(".workspace-settings-layer iframe");
+      await openWorkspaceSettings(page);
       let frame;
       await page.waitForFunction(() => { const view = document.querySelector(".workspace-settings-layer iframe")?.contentDocument?.getElementById("view-settings");
         return !!view && !view.classList.contains("hidden") && view.getBoundingClientRect().height > 200; }, null, { timeout: 20_000 });
@@ -1499,13 +1499,12 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       }
 
       stage = "Settings open in the same window";
-      // On a phone the list, with the Settings button, is behind the open conversation.
+      // On a phone the list, with the limits sheet that holds Settings, is behind the open conversation.
       if (viewport.mobile) await backToList(page, ui);
       await ui.evaluate(() => { window.__paneKept = true; });
       const pagesBefore = context.pages().length;
       const settingsLayer = async () => {
-        await page.locator("#workspace-settings").click();
-        await page.waitForSelector(".workspace-settings-layer iframe");
+        await openWorkspaceSettings(page);
         const frame = await (await page.$(".workspace-settings-layer iframe")).contentFrame();
         await frame.waitForFunction(() => {
           const view = document.querySelector("#view-settings");
@@ -1579,6 +1578,28 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
           throw new Error(state + ": " + found);
         };
         await clear("with the list");
+        // The rest of the top edge moves the window: the brand row beside the
+        // Stepsemble name, which is Refresh, and the title bar beside a tab's
+        // title and its ×, which keep their clicks.
+        const moves = await page.evaluate(() => {
+          const rects = window.__dragRegions || [], inside = (x, y) => rects.some(([l, t, w, h]) => x >= l && x <= l + w && y >= t && y <= t + h);
+          const centre = box => inside(box.left + box.width / 2, box.top + box.height / 2);
+          const name = document.getElementById("workspace-refresh").getBoundingClientRect(), sidebar = document.getElementById("workspace-sidebar").getBoundingClientRect();
+          const out = { name: centre(name), besideName: inside((name.right + sidebar.right) / 2, name.top + name.height / 2) };
+          const tab = [...document.querySelectorAll(".workspace-tab")].find(node => node.getBoundingClientRect().width);
+          if (tab) {
+            const whole = tab.getBoundingClientRect(), strip = tab.closest(".workspace-tabs").getBoundingClientRect();
+            const title = tab.firstElementChild.getBoundingClientRect(), close = tab.lastElementChild.getBoundingClientRect();
+            Object.assign(out, { title: centre(title), close: centre(close), room: Math.round(whole.right - close.right),
+              besideClose: inside((close.right + whole.right) / 2, close.top + close.height / 2), aboveTitle: inside(title.left + title.width / 2, (strip.top + title.top) / 2) });
+          }
+          return out;
+        });
+        if (viewport.mobile) assert.deepEqual(moves, { name: false, besideName: true }, JSON.stringify(moves));
+        else {
+          assert.ok(moves.room > 40, "the tab leaves room beside its × " + JSON.stringify(moves));
+          assert.deepEqual({ ...moves, room: true }, { name: false, besideName: true, title: false, close: false, room: true, besideClose: true, aboveTitle: true }, JSON.stringify(moves));
+        }
         if (viewport.mobile) {
           await page.locator(".workspace-session").first().click();
           await page.waitForFunction(() => document.body.classList.contains("sidebar-hidden"));
@@ -1593,8 +1614,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
           await toggle.click();
           await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden"));
         }
-        await page.locator("#workspace-settings").click();
-        await page.waitForSelector(".workspace-settings-layer iframe");
+        await openWorkspaceSettings(page);
         await clear("with Settings open");
         await (await (await page.$(".workspace-settings-layer iframe")).contentFrame()).locator("#btn-settings-back").click();
         await page.waitForFunction(() => !document.querySelector(".workspace-settings-layer"), null, { timeout: 5000 });
