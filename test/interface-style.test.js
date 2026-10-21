@@ -107,9 +107,13 @@ test("the Bold layer touches nothing unless <html> asks for it", () => {
   assert.ok(all.length > 150, "the layer restyles the app " + all.length);
   const loose = all.filter(selector => !selector.startsWith('html[data-look="bold"]'));
   assert.deepEqual(loose, [], "every rule is scoped to html[data-look=\"bold\"]");
-  // The layer leans on the theme's own colours; it defines no palette of its own.
+  // The layer leans on the theme's own colours; it defines no palette of its own,
+  // save true black under a dark conversation that fills a phone.
+  const blackPage = 'html[data-look="bold"][data-theme="dark"].workspace-mobile-pane { --paper: #000; }';
+  assert.ok(css.includes(blackPage), "a dark conversation on a phone is true black");
+  const own = css.replace(blackPage, "");
   for (const token of ["--paper", "--milk", "--ink", "--accent", "--err-ink", "--ok-ink", "--warn-ink"])
-    assert.doesNotMatch(css, new RegExp(`${token}\\s*:`), `${token} is the theme's, not the layer's`);
+    assert.doesNotMatch(own, new RegExp(`${token}\\s*:`), `${token} is the theme's, not the layer's`);
   // Fallbacks the platform asks for are present.
   for (const query of ["prefers-reduced-transparency: reduce", "prefers-contrast: more", "forced-colors: active", "prefers-reduced-motion: reduce"])
     assert.ok(css.includes(query), query);

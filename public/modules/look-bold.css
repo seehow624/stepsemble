@@ -30,10 +30,8 @@ html[data-look="bold"] {
      4.5:1 in the warmer palettes. */
   --bold-bubble: color-mix(in srgb, var(--accent) 84%, var(--ink));
   --bold-on-bubble: var(--paper);
-  --bold-ambient:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
-    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 62%),
-    linear-gradient(to bottom, color-mix(in srgb, var(--paper) 95%, var(--ink)), color-mix(in srgb, var(--paper) 92%, var(--ink)));
+  /* One flat colour behind the panels: no glow in a corner. */
+  --bold-ambient: color-mix(in srgb, var(--paper) 94%, var(--ink));
   /* Category tiles, as on iOS Settings, eased toward the theme's ink. */
   --bold-tile-blue: color-mix(in oklab, #0a7aff 84%, var(--accent));
   --bold-tile-indigo: color-mix(in oklab, #5e5ce6 84%, var(--accent));
@@ -56,11 +54,12 @@ html[data-look="bold"][data-theme="dark"] {
   --bold-press-fill: color-mix(in srgb, var(--ink) 14%, transparent);
   --bold-select: color-mix(in srgb, var(--accent) 17%, color-mix(in srgb, var(--milk) 50%, transparent));
   --bold-bubble: color-mix(in srgb, var(--accent) 90%, var(--milk));
-  --bold-ambient:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 58%),
-    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--gold) 8%, transparent), transparent 60%),
-    linear-gradient(to bottom, color-mix(in srgb, var(--paper) 82%, #000), color-mix(in srgb, var(--paper) 70%, #000));
+  /* Dark is true black, as iOS draws it, up into the status bar. */
+  --bold-ambient: #000;
 }
+/* A conversation that fills a phone sits on the same black; on a desktop the
+   panes stay lifted cards over it. */
+html[data-look="bold"][data-theme="dark"].workspace-mobile-pane { --paper: #000; }
 
 /* ---------- Motion ---------- */
 @keyframes bold-materialize { from { opacity: 0; transform: scale(.94); filter: blur(6px); } }
@@ -96,7 +95,7 @@ html[data-look="bold"] input[type="search"]:focus { background-color: var(--fiel
 html[data-look="bold"] .toggle input:checked + .toggle-track { box-shadow: inset 0 1px 1px rgba(0, 0, 0, .12), 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
 
 /* ---------- Workspace: a floating glass sidebar over a quiet backdrop ---------- */
-html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambient); }
 html[data-look="bold"] #workspace-main, html[data-look="bold"] #workspace-stage { background: transparent; }
 @media (min-width: 761px) {
   html[data-look="bold"] #workspace-sidebar { margin: 10px 0 10px 10px; padding: 14px 12px 12px; border: 0; border-radius: var(--bold-radius-panel);
@@ -196,7 +195,7 @@ html[data-look="bold"] #workspace-dialog-body .workspace-history-row .btn, html[
 html[data-look="bold"] .workspace-folder-list { border: 0; border-radius: 18px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
 html[data-look="bold"] .workspace-folder-path-row { border-radius: var(--radius-pill); }
 html[data-look="bold"] #workspace-toast { border-radius: var(--radius-pill); box-shadow: var(--bold-float-shadow); animation: bold-toast .3s var(--bold-spring); }
-html[data-look="bold"] .workspace-settings-layer { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .workspace-settings-layer { background: var(--bold-ambient); }
 html[data-look="bold"] .workspace-settings-frame { background: transparent; }
 
 html[data-look="bold"] .sheet-layer { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
@@ -312,7 +311,7 @@ html[data-look="bold"] #view-chat .cq-chip { border-color: transparent; border-r
 html[data-look="bold"] #view-chat .cq-btn { border-radius: var(--radius-pill); }
 
 /* ---------- Settings ---------- */
-html[data-look="bold"] :is(#view-settings, #view-model-settings) { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] :is(#view-settings, #view-model-settings) { background: var(--bold-ambient); }
 html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar { border-bottom: 0; background: transparent; box-shadow: none; }
 html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar-title { font-weight: 700; letter-spacing: -.015em; }
 html[data-look="bold"] :is(#view-settings, #view-model-settings) :is(.settings-group, .settings-nav-list, .settings-host-card) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card);
@@ -376,14 +375,14 @@ html[data-look="bold"] #view-chat .session-summary { border-color: transparent; 
   box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); }
 
 /* ---------- Sign-in, the assistant and Schedules ---------- */
-html[data-look="bold"] .overlay { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .overlay { background: var(--bold-ambient); }
 html[data-look="bold"] .login-card .login-mark { box-shadow: 0 18px 36px -16px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .18); }
 html[data-look="bold"] .login-card h1 { font-size: 1.7rem; font-weight: 780; letter-spacing: -.03em; }
 html[data-look="bold"] :is(.login-help, .login-onboarding) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 14px 34px -24px rgba(0, 0, 0, .4); }
 html[data-look="bold"] :is(.login-help-tabs, .model-agent-switch, .assistant-switch) { border: 0; border-radius: var(--radius-pill); background: var(--bold-field); }
 html[data-look="bold"] :is(.login-help-tab, .model-agent-tab, .assistant-switch > *) { border-radius: var(--radius-pill); }
 html[data-look="bold"] :is(.login-help-tab[aria-selected="true"], .model-agent-tab.is-active, .assistant-switch [aria-current="page"]) { box-shadow: 0 1px 3px rgba(0, 0, 0, .14), inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
-html[data-look="bold"] .assistant-page { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .assistant-page { background: var(--bold-ambient); }
 html[data-look="bold"] .assistant-top { border-bottom: 0; background: transparent; }
 html[data-look="bold"] .assistant-page :is(.btn, .assistant-icon-btn) { border-radius: var(--radius-pill); }
 html[data-look="bold"] .assistant-page .assistant-icon-btn { border-radius: 50%; }
