@@ -19,6 +19,8 @@ const { accountKey } = require("./quota-identity");
 
 const DEFAULT_PORT = 3425;
 const EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+// Claude Code's own order of its models.
+const CLAUDE_FAMILIES = Object.freeze(["opus", "fable", "sonnet", "haiku"]);
 const SERVICE_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 // Magpie names a subscription by the agent signed in to it.
 const SERVICE_LABELS = Object.freeze({ claude: "Claude", codex: "Codex", copilot: "GitHub Copilot", gemini: "Gemini", agy: "Antigravity", antigravity: "Antigravity" });
@@ -297,8 +299,10 @@ function createMagpieGatewayService({
   // Claude Code lists a gateway's models from ~/.claude/cache/gateway-models.json,
   // which it does not refresh itself on a subscription launch, so it is
   // written before each launch, as for OpenCodex. Claude's own models come
-  // from the subscription and Claude Code lists them already; Magpie's copies
-  // of them are left out.
+  // first, as Claude Code orders them, and are named as Claude Code's own
+  // settings name them, "claude/claude-opus-5-5[1m]" for the 1M context: the
+  // level is chosen apart, so a slot like "claude/claude-opus-5-5:xhigh[1m]"
+  // is never the only way to reach a model.
   async function refreshClaudeGatewayCache() {
     if (!claudeState().here) return null;
     const snapshot = await catalog();
@@ -308,22 +312,30 @@ function createMagpieGatewayService({
       && previous.visibility === visibility.signature) {
       return { source: "magpie", checkedAt: snapshot.checkedAt, stale: snapshot.stale, catalogCount: previous.models?.length || 0 };
     }
-    const models = snapshot.rows.filter(row => row.provider !== "claude" && visibility.shown(row.id)).slice(0, 512).map(row => ({
-      id: row.id,
-      name: row.name,
-      description: "Magpie gateway" + (row.providerName ? " · " + row.providerName : ""),
-      contextWindow: row.contextWindow,
-      supportsEffort: row.efforts.length > 0,
-      supportedEffortLevels: row.efforts,
-    }));
+    const rank = row => row.provider !== "claude" ? CLAUDE_FAMILIES.length + 1
+      : (index => index < 0 ? CLAUDE_FAMILIES.length : index)(CLAUDE_FAMILIES.findIndex(family => row.id.startsWith("claude/claude-" + family + "-")));
+    const models = snapshot.rows.filter(row => visibility.shown(row.id)).map((row, index) => ({ row, index }))
+      .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index).slice(0, 512).map(({ row }) => {
+        const wide = row.contextWindow !== null && row.contextWindow >= 1000000, own = row.provider === "claude";
+        return {
+          id: own && wide ? row.id + "[1m]" : row.id,
+          magpieId: row.id,
+          name: row.name,
+          description: "Magpie gateway" + (row.providerName ? " · " + row.providerName : ""),
+          contextWindow: row.contextWindow,
+          supportsEffort: row.efforts.length > 0,
+          supportedEffortLevels: row.efforts,
+          // Claude Code uses behavesAs only for its prompt, context and
+          // feature assumptions; the request still names Magpie's model.
+          behavesAs: own ? row.id.slice(row.id.indexOf("/") + 1) : wide ? "claude-sonnet-5[1m]" : "claude-sonnet-5",
+        };
+      });
     try {
+      // Claude Code's own cache holds Magpie's ids as its discovery writes them.
       writeFileAtomic(path.join(appHome, ".claude", "cache", "gateway-models.json"),
-        JSON.stringify({ baseUrl: origin, fetchedAt: snapshot.checkedAt, models: models.map(model => ({ id: model.id, display_name: model.name })) }));
-      // Claude Code uses behavesAs only for its context and feature
-      // assumptions; the request still names Magpie's model.
+        JSON.stringify({ baseUrl: origin, fetchedAt: snapshot.checkedAt, models: models.map(model => ({ id: model.magpieId, display_name: model.name })) }));
       writeFileAtomic(gatewaySettingsPath(appHome), JSON.stringify({ modelPicker: { options: models.map(model => ({
-        model: model.id, label: model.name, description: model.description,
-        behavesAs: model.contextWindow !== null && model.contextWindow >= 1000000 ? "claude-sonnet-5[1m]" : "claude-sonnet-5",
+        model: model.id, label: model.name, description: model.description, behavesAs: model.behavesAs,
       })) } }) + "\n");
       writeFileAtomic(gatewayCatalogPath(appHome), JSON.stringify({ version: 1, gateway: "magpie", baseUrl: origin,
         fetchedAt: snapshot.checkedAt, stale: snapshot.stale, visibility: visibility.signature, models }) + "\n");

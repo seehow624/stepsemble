@@ -40,7 +40,7 @@ function selectStub(levels) {
   return {
     options: levels.map(value => ({ value, textContent: value })),
     value: "off", disabled: false, hidden: false, title: "", rebuilds: 0,
-    replaceChildren(...nodes) { this.rebuilds += 1; this.options = nodes.map(node => ({ value: node.value, textContent: node.textContent, disabled: !!node.disabled })); },
+    replaceChildren(...nodes) { this.rebuilds += 1; this.options = nodes.map(node => ({ value: node.value, textContent: node.textContent, disabled: !!node.disabled, dataset: { ...node.dataset } })); },
     removeAttribute(name) { if (name === "title") this.title = ""; },
   };
 }
@@ -58,7 +58,7 @@ function harness() {
   };
   const context = vm.createContext({
     el,
-    document: { createElement: () => ({ value: "", textContent: "" }), querySelector: () => label },
+    document: { createElement: () => ({ value: "", textContent: "", dataset: {} }), querySelector: () => label },
     window: { stepsembleI18n: { t: key => key } },
     rpc: { nativeClaudeStructured: true },
     modelPresentation: require("../public/modules/model-presentation"),
@@ -76,30 +76,12 @@ function harness() {
   const source = [
     'let defaultThinkingSelectOptions = null;',
     slice("const CODEX_EFFORTS", "\nfunction updateThinkingSelectOptions()"),
-    slice("function modelThinkingBadge(model) {", "\nfunction normalizeOpenCodeModel"),
     'let composerModelName = "";\nlet composerReasoningLevel = "off";\nlet composerReasoningLevels = [];\nlet composerReasoningNote = "";\nlet composerReasoningEffective = "";',
     slice("function updateComposerSummary(", "\nfunction applyComposerState("),
   ].join("\n");
   vm.runInContext(source, context, { filename: "public/app.js" });
   return { el, select, hint, context };
 }
-
-test("model badges report the declared thinking range instead of a fixed level", () => {
-  const { context } = harness();
-  const { modelThinkingBadge } = context;
-  // Claude rows declare real levels, so Opus must not read like Haiku.
-  assert.equal(modelThinkingBadge({ id: "opus", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] }), "low-max");
-  assert.equal(modelThinkingBadge({ id: "glm", supportsEffort: true, supportedEffortLevels: ["low", "high", "max"] }), "low-max");
-  assert.equal(modelThinkingBadge({ id: "narrow", supportsEffort: true, supportedEffortLevels: ["low", "high"] }), "low-high");
-  assert.equal(modelThinkingBadge({ id: "single", supportsEffort: true, supportedEffortLevels: ["high", "high"] }), "high");
-  assert.equal(modelThinkingBadge({ id: "haiku", supportsEffort: false, supportedEffortLevels: [], reasoning: false }), "");
-  assert.equal(modelThinkingBadge({ id: "unknown levels", supportsEffort: true, supportedEffortLevels: ["ultra"] }), "");
-  // Pi rows keep the thinkingLevelMap heuristic.
-  assert.equal(modelThinkingBadge({ id: "pi-max", reasoning: true, thinkingLevelMap: { max: true } }), "max");
-  assert.equal(modelThinkingBadge({ id: "pi-xhigh", reasoning: true, thinkingLevelMap: { xhigh: true } }), "xhigh");
-  assert.equal(modelThinkingBadge({ id: "pi-plain", reasoning: true }), "high");
-  assert.equal(modelThinkingBadge({ id: "pi-off", reasoning: false }), "");
-});
 
 test("a Claude model without thinking levels disables its control and says why", () => {
   const { context, el, hint } = harness();
@@ -305,6 +287,30 @@ test("Claude's auto shows the level it runs at when reported, and its own look o
   assert.equal(el.composerModelLevelText.title, "Thinking: Auto · High");
   assert.equal(el.btnModel.getAttribute("aria-label"), "Opus 5.5 · 1M, thinking: Auto · High");
   assert.equal(el.thinkingSelect.options[0].textContent, "Auto · High");
+  // The level slider reads auto, and the level it runs at, from that entry.
+  assert.deepEqual(el.thinkingSelect.options[0].dataset, { auto: "true", effective: "high" });
+  assert.deepEqual(el.thinkingSelect.options.slice(1).map(option => option.dataset), [{}, {}, {}, {}, {}]);
+});
+
+test("a Magpie alias runs at the level its id names until Claude reports its own", () => {
+  const { context, el } = harness();
+  // Fable here is Magpie's Opus at High; Claude has not said which level it runs at.
+  const connection = { nativeClaudeStructured: true, claudeEffort: null, claudeModel: magpieRows[1] };
+  context.updateComposerSummary("Opus 5.5 · 1M", undefined);
+  context.syncNativeThinkingSelect(connection);
+  assert.equal(connection.claudeEffort, "high");
+  assert.equal(el.thinkingSelect.value, "high");
+  assert.equal(litBars(el.composerModelLevelText), 3);
+  // A level Claude reports wins, and changing it keeps the model.
+  connection.claudeEffort = "max";
+  context.syncNativeThinkingSelect(connection);
+  assert.equal(el.thinkingSelect.value, "max");
+  assert.equal(connection.claudeModel, magpieRows[1]);
+  // Magpie's own id for the model names no level.
+  connection.claudeEffort = null;
+  connection.claudeModel = { id: "claude/claude-opus-5-5[1m]", resolvedModel: "claude/claude-opus-5-5[1m]", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] };
+  context.syncNativeThinkingSelect(connection);
+  assert.equal(el.thinkingSelect.value, "");
 });
 
 test("agents with no level to choose show flat bars that say why", () => {

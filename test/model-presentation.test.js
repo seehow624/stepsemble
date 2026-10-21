@@ -3,23 +3,23 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { present, detailLine, modelKey, modelTags, matchModel, contextCapacity, effortBars, levelName } = require("../public/modules/model-presentation");
+const { present, detailLine, modelGroups, modelKey, modelTags, plainModelId, matchModel, contextCapacity, effortBars, levelName } = require("../public/modules/model-presentation");
 
 // Rows as each agent lists them (Mini, 2026-09-27).
 const rows = (agent, list) => list.map(([row, name, detail]) => ({ agent, row, name, detail }));
 const cases = [
   ...rows("claude-code", [
-    [{ id: "opus[1m]", name: "Opus (1M context)", provider: "claude-code", description: "Opus 5.5 with 1M context · Best for everyday, complex tasks", contextWindow: 1e6 }, "Opus 5.5 · 1M", "Anthropic"],
-    [{ id: "claude-fable-5-1[1m]", name: "Fable", provider: "claude-code", description: "Fable 5.1 · Most capable for your hardest and longest-running tasks", contextWindow: 1e6 }, "Fable 5.1 · 1M", "Anthropic"],
+    [{ id: "opus[1m]", name: "Opus (1M context)", provider: "claude-code", description: "Opus 5.5 with 1M context · Best for everyday, complex tasks", contextWindow: 1e6 }, "Opus 5.5 · 1M", "Anthropic · 1M"],
+    [{ id: "claude-fable-5-1[1m]", name: "Fable", provider: "claude-code", description: "Fable 5.1 · Most capable for your hardest and longest-running tasks", contextWindow: 1e6 }, "Fable 5.1 · 1M", "Anthropic · 1M"],
     [{ id: "sonnet", name: "Sonnet", provider: "claude-code", description: "Sonnet 5 · Efficient for routine tasks" }, "Sonnet 5", "Anthropic"],
-    [{ id: "sonnet[1m]", name: "Sonnet 5 (1M context)", provider: "claude-code", description: "Sonnet 5 for long sessions", contextWindow: 1e6 }, "Sonnet 5 · 1M", "Anthropic"],
+    [{ id: "sonnet[1m]", name: "Sonnet 5 (1M context)", provider: "claude-code", description: "Sonnet 5 for long sessions", contextWindow: 1e6 }, "Sonnet 5 · 1M", "Anthropic · 1M"],
     [{ id: "haiku", name: "Haiku", provider: "claude-code", description: "Haiku 4.5 · Fastest for quick answers" }, "Haiku 4.5", "Anthropic"],
-    [{ id: "claude-opus-5-5[1m]", name: "claude-opus-5-5[1m]", provider: "claude-code" }, "Opus 5.5 · 1M", "Anthropic"],
+    [{ id: "claude-opus-5-5[1m]", name: "claude-opus-5-5[1m]", provider: "claude-code" }, "Opus 5.5 · 1M", "Anthropic · 1M"],
     [{ id: "claude-fable-5-1", name: "claude-fable-5-1 (anthropic)", provider: "claude-code", description: "From gateway" }, "claude-fable-5-1", "OpenCodex · Anthropic"],
-    [{ id: "claude-ocx-native--claude-fable-5-1[1m]", name: "claude-fable-5-1 (anthropic) · 1M", provider: "claude-code", description: "OpenCodex gateway · claude-fable-5-1 (anthropic) · 1M", contextWindow: 1e6 }, "claude-fable-5-1 · 1M", "OpenCodex · Anthropic"],
+    [{ id: "claude-ocx-native--claude-fable-5-1[1m]", name: "claude-fable-5-1 (anthropic) · 1M", provider: "claude-code", description: "OpenCodex gateway · claude-fable-5-1 (anthropic) · 1M", contextWindow: 1e6 }, "claude-fable-5-1 · 1M", "OpenCodex · Anthropic · 1M"],
     [{ id: "claude-ocx-native--gpt-6-astra--fast", name: "gpt-6-astra (native) · Fast", provider: "claude-code", description: "OpenCodex gateway · gpt-6-astra (native) · Fast" }, "gpt-6-astra · Fast", "OpenCodex · ChatGPT"],
     [{ id: "claude-ocx-minimax--MiniMax-M3", name: "MiniMax-M3 (minimax)", provider: "claude-code", description: "OpenCodex gateway · MiniMax-M3 (minimax)" }, "MiniMax-M3", "OpenCodex · MiniMax"],
-    [{ id: "ocx-claude-native--claude-fable-5-1[1m]", name: "claude-fable-5-1 (anthropic) · 1M", provider: "claude-code", description: "OpenCodex gateway", contextWindow: 1e6 }, "claude-fable-5-1 · 1M", "OpenCodex · Anthropic"],
+    [{ id: "ocx-claude-native--claude-fable-5-1[1m]", name: "claude-fable-5-1 (anthropic) · 1M", provider: "claude-code", description: "OpenCodex gateway", contextWindow: 1e6 }, "claude-fable-5-1 · 1M", "OpenCodex · Anthropic · 1M"],
     [{ id: "ocx-claude-native--gpt-6-astra--fast", name: "gpt-6-astra (native) · Fast", provider: "claude-code", description: "OpenCodex gateway" }, "gpt-6-astra · Fast", "OpenCodex · ChatGPT"],
     [{ id: "ocx-claude-minimax--MiniMax-M3", name: "MiniMax-M3 (minimax)", provider: "claude-code", description: "OpenCodex gateway" }, "MiniMax-M3", "OpenCodex · MiniMax"],
   ]),
@@ -44,7 +44,7 @@ const cases = [
     [{ providerID: "openai", modelID: "gpt-6-sol", id: "gpt-6-sol", provider: "openai", name: "GPT-6 Sol" }, "GPT-6 Sol", "OpenAI"],
   ]),
   ...rows("pi", [
-    [{ id: "gpt-6-sol", provider: "openai-codex", name: "GPT-6 Sol", contextWindow: 272000 }, "GPT-6 Sol", "ChatGPT · 272k ctx"],
+    [{ id: "gpt-6-sol", provider: "openai-codex", name: "GPT-6 Sol", contextWindow: 272000 }, "GPT-6 Sol", "ChatGPT · 272k"],
     [{ id: "MiniMax-M3", provider: "minimax", name: "MiniMax-M3" }, "MiniMax-M3", "MiniMax"],
     [{ id: "qwen/qwen3-coder", provider: "openrouter", name: "qwen/qwen3-coder" }, "qwen3-coder", "OpenRouter · Qwen"],
   ]),
@@ -71,7 +71,9 @@ test("the model list and the model button use these names", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   const index = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
   assert.match(index, /modules\/model-presentation\.js\?v=[\d.]+"><\/script>\s*(?:<script[^>]*><\/script>\s*)*<script src="\/app\.js/);
-  assert.match(app, /row\.querySelector\("small"\)\.textContent = modelPresentation\?\.detailLine\(m, agentId\)/);
+  assert.match(app, /row\.querySelector\("small"\)\.textContent = modelPresentation\?\.detailLine\(group\.model, agentId\)/);
+  // One row per model.
+  assert.match(app, /const groups = modelPresentation\?\.modelGroups\(visibleModels, agentId\)/);
   assert.doesNotMatch(app, /\(m\.provider \|\| "\?"\) \+ \(m\.contextWindow/);
 });
 
@@ -97,14 +99,64 @@ const magpieAliases = [
   { id: "minimax/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", resolvedModel: "minimax/MiniMax-M3.1-Flash", description: "Magpie gateway · MiniMax", contextWindow: 1_000_000, gateway: "magpie" },
 ];
 
-test("Claude's Magpie aliases are named with their 1M context, Magpie and the level each runs at", () => {
+test("Claude's Magpie aliases are named with their 1M context and Magpie; the level each runs at is apart", () => {
   assert.deepEqual(magpieAliases.map(row => [present(row, "claude-code").name, detailLine(row, "claude-code")]), [
-    ["Opus 5.5 · 1M", "Magpie · Anthropic · Extra high"],
-    ["Opus 5.5 · 1M", "Magpie · Anthropic · High"],
-    ["Opus 5.5 · 1M", "Magpie · Anthropic · Medium"],
-    ["Haiku 5.5 · 1M", "Magpie · Anthropic · Extra high"],
-    ["MiniMax-M3.1-Flash", "Magpie · MiniMax · 1M ctx"],
+    ["Opus 5.5 · 1M", "Magpie · Anthropic · 1M"],
+    ["Opus 5.5 · 1M", "Magpie · Anthropic · 1M"],
+    ["Opus 5.5 · 1M", "Magpie · Anthropic · 1M"],
+    ["Haiku 5.5 · 1M", "Magpie · Anthropic · 1M"],
+    ["MiniMax-M3.1-Flash", "Magpie · MiniMax · 1M"],
   ]);
+  assert.deepEqual(magpieAliases.map(row => present(row, "claude-code").level), ["xhigh", "high", "medium", "xhigh", null]);
+  // The list names the model; its context is on the second line.
+  assert.deepEqual(magpieAliases.map(row => present(row, "claude-code").base), ["Opus 5.5", "Opus 5.5", "Opus 5.5", "Haiku 5.5", "MiniMax-M3.1-Flash"]);
+});
+
+// Claude's own models as Magpie offers them, in Stepsemble's catalog (Mini, 2026-10-21).
+const magpieOwn = ["opus-5-5", "fable-5-1", "sonnet-5-5", "haiku-5-5"].map(model => ({ id: `claude/claude-${model}[1m]`, name: "Claude " + model,
+  resolvedModel: `claude/claude-${model}[1m]`, description: "Magpie gateway · Claude Code", contextWindow: 1_000_000, gateway: "magpie",
+  supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] }));
+
+test("the model list has one row per model: aliases and levels of one model are one row", () => {
+  // Claude Code lists its four slots, then the gateway's models in the catalog's order.
+  const groups = modelGroups([...magpieAliases.slice(0, 4), ...magpieOwn, magpieAliases[4]], "claude-code");
+  const shown = groups.map(group => [present(group.model, "claude-code").base, detailLine(group.model, "claude-code"), group.id, group.members.map(row => row.id)]);
+  assert.deepEqual(shown, [
+    // The plain id of the model is chosen, not an alias whose id names a level.
+    ["Opus 5.5", "Magpie · Anthropic · 1M", "claude/claude-opus-5-5[1m]", ["opus", "fable", "sonnet", "claude/claude-opus-5-5[1m]"]],
+    ["Fable 5.1", "Magpie · Anthropic · 1M", "claude/claude-fable-5-1[1m]", ["claude/claude-fable-5-1[1m]"]],
+    ["Sonnet 5.5", "Magpie · Anthropic · 1M", "claude/claude-sonnet-5-5[1m]", ["claude/claude-sonnet-5-5[1m]"]],
+    ["Haiku 5.5", "Magpie · Anthropic · 1M", "claude/claude-haiku-5-5[1m]", ["haiku", "claude/claude-haiku-5-5[1m]"]],
+    ["MiniMax-M3.1-Flash", "Magpie · MiniMax · 1M", "minimax/MiniMax-M3.1-Flash", ["minimax/MiniMax-M3.1-Flash"]],
+  ]);
+  // Without Magpie's own row, the alias's model is chosen without its level, "[1m]" kept.
+  const aliasesOnly = modelGroups(magpieAliases, "claude-code");
+  assert.deepEqual(aliasesOnly.map(group => group.id), ["claude/claude-opus-5-5[1m]", "claude/claude-haiku-5-5[1m]", "minimax/MiniMax-M3.1-Flash"]);
+  assert.equal(aliasesOnly[0].members.length, 3);
+  // Another agent's levelled ids are its own wire ids and are sent as listed.
+  assert.deepEqual(modelGroups([{ id: "glm:high", provider: "x" }, { id: "glm:low", provider: "x" }], "pi").map(group => [group.id, group.members.length]), [["glm:high", 2]]);
+});
+
+test("another context size or provider is another row, and Claude's own list keeps its 1M models apart", () => {
+  const own = [{ id: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", description: "Opus 5.5 with 1M context" }, { id: "opus", resolvedModel: "claude-opus-5-5" },
+    { id: "sonnet", resolvedModel: "claude-sonnet-5-5" }];
+  assert.deepEqual(modelGroups(own, "claude-code").map(group => group.id), ["opus[1m]", "opus", "sonnet"]);
+  // Pi: one model from two providers is two rows; a context size of its own splits them too.
+  const pi = [{ id: "glm-5.3-flash", provider: "ollama-cloud" }, { id: "glm-5.3-flash", provider: "opencode-go" },
+    { id: "gpt-6-sol", provider: "openai-codex", contextWindow: 272_000 }, { id: "gpt-6-sol", provider: "openai-codex", contextWindow: 1_000_000 }];
+  assert.deepEqual(modelGroups(pi, "pi").map(group => group.members.length), [1, 1, 1, 1]);
+  // Subscription Opus and Magpie's Opus are reached two ways and stay two rows.
+  const both = modelGroups([{ id: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]" }, magpieOwn[0]], "claude-code");
+  assert.deepEqual(both.map(group => detailLine(group.model, "claude-code")), ["Anthropic · 1M", "Magpie · Anthropic · 1M"]);
+  assert.deepEqual(modelGroups(null), []);
+});
+
+test("a model id without its level keeps its route and tags", () => {
+  assert.equal(plainModelId("claude/claude-opus-5-5:xhigh[1m]"), "claude/claude-opus-5-5[1m]");
+  assert.equal(plainModelId("claude/claude-haiku-5-5:max"), "claude/claude-haiku-5-5");
+  assert.equal(plainModelId("claude-opus-5-5[1m]"), "claude-opus-5-5[1m]");
+  assert.equal(plainModelId("gpt-6.1-sol"), "gpt-6.1-sol");
+  assert.equal(plainModelId(""), "");
 });
 
 test("a model id is compared without its route, level and tags", () => {

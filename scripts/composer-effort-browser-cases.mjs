@@ -13,7 +13,12 @@
 //   - Pi: its level on Pi's list for the model, the ring from Pi's own percent;
 //   - the top level of a list adds a mark over the tallest bar;
 //   - the bars stay on a 390px phone, and ripple while the agent works unless
-//     motion is reduced; the mark stays still.
+//     motion is reduced; the mark stays still;
+//   - the model sheet on Claude through Magpie: three aliases of one model
+//     and one other model are two rows, picked by the model's own id; the
+//     thinking level is a slider that a drag to its end, keys and a tap set,
+//     one change each, with the bars following (1280 with springs, a 390px
+//     phone with a finger and reduced motion).
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -95,14 +100,15 @@ async function nativeCases(browser, width) {
     assert.deepEqual([shown.state, shown.lit, shown.mark, shown.title, shown.shown], ["level", 4, false, "Thinking: Extra high", true], "the bars stay on a phone");
     assert.equal(shown.context, "Context: 13%", "128,581 of the alias's 1M");
     assert.equal(shown.ringShown, true);
-    // The picker keeps the words; each alias says the level it runs at.
+    // The picker keeps the words: the three aliases are one model, and the
+    // slider names the level.
     await ui.locator("#btn-model").click();
     await ui.locator("#model-sheet:not(.hidden) .model-row").first().waitFor();
-    assert.deepEqual(await ui.locator("#model-list .model-row strong").allTextContents(), ["Opus 5.5 · 1M", "Opus 5.5 · 1M", "Opus 5.5 · 1M"]);
-    assert.deepEqual(await ui.locator("#model-list .model-row small").allTextContents(),
-      ["Magpie · Anthropic · Extra high", "Magpie · Anthropic · High", "Magpie · Anthropic · Medium"]);
+    assert.deepEqual(await ui.locator("#model-list .model-row strong").allTextContents(), ["Opus 5.5"]);
+    assert.deepEqual(await ui.locator("#model-list .model-row small").allTextContents(), ["Magpie · Anthropic · 1M"]);
     assert.equal(await ui.locator("#model-list .model-row.active strong").count(), 1);
     assert.equal(await ui.locator("#thinking-select option:checked").textContent(), "Extra high");
+    assert.equal(await ui.locator("#thinking-slider").getAttribute("aria-valuetext"), "Extra high");
     await ui.locator("#model-close").click();
     // The bars ripple while Claude works; reduced motion keeps them still.
     await ui.evaluate(() => setStreaming(true));
@@ -146,6 +152,128 @@ async function nativeCases(browser, width) {
     assert.equal(await ui.locator("#model-sheet").isHidden(), true, "a read-only history offers no model to pick");
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ case: "composer thinking bars and context ring", width, claudeMagpie: true, stoppedClaude: true, readOnlyHistory: true, codex: true, result: "passed" }));
+  } finally { await context.close(); await preview.close(); }
+}
+
+// The model sheet on Claude through Magpie: three slot aliases on one model
+// and one other model are two rows, and the thinking level is a line to drag.
+// Dragging the thumb to the right end picks the strongest level with one
+// change, keys step it, and the bars beside the model follow. A row is picked
+// by the model's own id, without a level, which stays as the slider sets it.
+// The desktop case lets the thumb spring; the phone drags with a finger and
+// reduced motion, so it lands at once.
+async function sliderCase(browser, width) {
+  const preview = await createNativeComposerPreview();
+  const phone = width < 600;
+  const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: phone, hasTouch: phone, serviceWorkers: "block", locale: "en-US",
+    reducedMotion: phone ? "reduce" : "no-preference" });
+  try {
+    await settingsFor(context, { theme: phone ? "dark" : "light", reducedMotion: phone });
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const host = { model: "opus", effort: "xhigh", efforts: [], models: [] };
+    const other = { id: "minimax/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", resolvedModel: "minimax/MiniMax-M3.1-Flash", description: "Magpie gateway · MiniMax",
+      contextWindow: 1_000_000, supportsEffort: true, supportedEffortLevels: LEVELS, gateway: "magpie" };
+    await context.route("**/api/claude/structured/models?**", route => route.fulfill({ json: { models: [...MAGPIE_MODELS, other], currentModel: host.model,
+      currentEffort: host.effort, nativeSessionId: "fixture-claude-session" } }));
+    await context.route("**/api/claude/structured/effort", route => {
+      host.effort = route.request().postDataJSON().effort; host.efforts.push(host.effort);
+      return route.fulfill({ json: { kind: "changed", effort: host.effort } });
+    });
+    await context.route("**/api/claude/structured/model", route => {
+      host.model = route.request().postDataJSON().model; host.models.push(host.model);
+      return route.fulfill({ json: { kind: "changed", model: host.model, effort: host.effort } });
+    });
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+    await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+    const ui = await openFromSidebar(page, "Claude composer fixture");
+    await ui.waitForFunction(() => rpc?.claudeModelsLoaded);
+    await ui.locator("#btn-model").click();
+    await ui.locator("#model-sheet:not(.hidden) .model-row").first().waitFor();
+    // Bold's sheet arrives scaled; measure it once it has.
+    await ui.waitForFunction(() => !document.querySelector("#model-sheet .sheet").getAnimations().length);
+    // Each model once, by its own name; provider and context below.
+    assert.deepEqual(await ui.locator("#model-list .model-row strong").allTextContents(), ["Opus 5.5", "MiniMax-M3.1-Flash"]);
+    assert.deepEqual(await ui.locator("#model-list .model-row small").allTextContents(), ["Magpie · Anthropic · 1M", "Magpie · MiniMax · 1M"]);
+    assert.equal(await ui.locator("#model-list .model-row.active strong").textContent(), "Opus 5.5");
+    assert.equal(await ui.locator(".model-thinking-badge").count(), 0, "the slider shows the levels");
+    const slider = ui.locator("#thinking-slider");
+    const aria = () => slider.evaluate(node => ({ min: node.getAttribute("aria-valuemin"), max: node.getAttribute("aria-valuemax"), now: node.getAttribute("aria-valuenow"),
+      text: node.getAttribute("aria-valuetext"), value: document.getElementById("thinking-value").textContent, select: document.getElementById("thinking-select").value }));
+    assert.equal(await slider.getAttribute("role"), "slider");
+    assert.deepEqual(await aria(), { min: "0", max: "4", now: "3", text: "Extra high", value: "Extra high", select: "xhigh" });
+    assert.deepEqual(await ui.locator("#thinking-select").evaluate(node => { const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+      return { tiny: box.width <= 1 && box.height <= 1, opacity: style.opacity, tab: node.tabIndex, hidden: node.getAttribute("aria-hidden") }; }),
+    { tiny: true, opacity: "0", tab: -1, hidden: "true" }, "the select is only the record");
+    const box = await slider.boundingBox();
+    assert.ok(box.height >= 44, "a 44 px touch target: " + box.height);
+
+    // Drag the thumb past the right end: Max, with one change.
+    const knob = await ui.locator("#thinking-slider .effort-knob").boundingBox(), track = await ui.locator("#thinking-slider .effort-track").boundingBox();
+    const y = knob.y + knob.height / 2, from = knob.x + knob.width / 2 + 3, to = track.x + track.width + 40;
+    if (phone) {
+      // A finger, as iOS and Android send it.
+      const touch = await context.newCDPSession(page);
+      await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: from, y }] });
+      for (let step = 1; step <= 10; step++) await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: from + (to - from) * step / 10, y }] });
+      // The name follows the finger before it lets go.
+      assert.equal((await aria()).value, "Max");
+      assert.deepEqual(host.efforts, [], "nothing is sent while dragging");
+      await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    } else {
+      await page.mouse.move(from, y); await page.mouse.down();
+      await page.mouse.move((from + to) / 2, y, { steps: 6 });
+      assert.deepEqual(host.efforts, [], "nothing is sent while dragging");
+      await page.mouse.move(to, y, { steps: 6 });
+      await ui.waitForTimeout(150);
+      await page.mouse.up();
+    }
+    await ui.waitForFunction(() => document.getElementById("thinking-slider").getAttribute("aria-valuenow") === "4");
+    await ui.waitForTimeout(phone ? 100 : 700);
+    assert.deepEqual(host.efforts, ["max"], "one change for the drag");
+    assert.deepEqual(await aria(), { min: "0", max: "4", now: "4", text: "Max", value: "Max", select: "max" });
+    // The bars' state (their mark fades in and out where motion is allowed).
+    const indicator = () => ui.evaluate(() => { const node = document.querySelector("#composer-model-level");
+      return { lit: node.querySelectorAll(".composer-effort-bar.on").length, top: node.dataset.top === "true", title: node.title }; });
+    let shown = await indicator();
+    assert.deepEqual([shown.lit, shown.top, shown.title], [4, true, "Thinking: Max"], "the bars follow");
+    // The thumb rests on the strong end.
+    const rest = await ui.locator("#thinking-slider .effort-thumb").boundingBox(), end = await ui.locator("#thinking-slider .effort-track").boundingBox();
+    assert.ok(Math.abs(rest.x - (end.x + end.width)) < 1, "the thumb rests at the end " + JSON.stringify({ rest, end }));
+
+    // Keys: each step lands and is sent once; the bars follow once Claude has it.
+    const bars = level => ui.waitForFunction(level => document.querySelector("#composer-model-level").dataset.level === level, level);
+    await slider.focus();
+    await slider.press("ArrowLeft");
+    await bars("Extra high");
+    shown = await indicator();
+    assert.deepEqual([shown.lit, shown.top], [4, false]);
+    await slider.press("Home");
+    await bars("Low");
+    assert.equal((await indicator()).lit, 1);
+    await slider.press("PageUp");
+    await bars("High");
+    await slider.press("End");
+    await bars("Max");
+    assert.deepEqual(host.efforts, ["max", "xhigh", "low", "high", "max"]);
+    assert.equal((await aria()).text, "Max");
+
+    // A tap on the line jumps to the stop under it.
+    const line = await ui.locator("#thinking-slider .effort-track").boundingBox();
+    await page.mouse.click(line.x + line.width * 0.25, line.y + line.height / 2);
+    await bars("Medium");
+    assert.equal(host.efforts.at(-1), "medium");
+
+    // Rows: another model by its own id, then Opus by Magpie's id without a level.
+    await ui.locator("#model-list .model-row", { hasText: "MiniMax-M3.1-Flash" }).click();
+    await ui.waitForFunction(() => document.querySelector("#model-list .model-row.active strong")?.textContent === "MiniMax-M3.1-Flash");
+    await ui.locator("#model-list .model-row", { hasText: "Opus 5.5" }).click();
+    await ui.waitForFunction(() => document.querySelector("#model-list .model-row.active strong")?.textContent === "Opus 5.5");
+    assert.deepEqual(host.models, ["minimax/MiniMax-M3.1-Flash", "claude/claude-opus-5-5[1m]"]);
+    assert.equal(host.efforts.at(-1), "medium", "the level stays as the slider set it");
+    assert.equal((await aria()).select, "medium");
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "model sheet: one row per model and a thinking level slider", width, result: "passed" }));
   } finally { await context.close(); await preview.close(); }
 }
 
@@ -218,6 +346,7 @@ async function piCase(browser, width) {
 
 export async function runComposerEffortBrowserCases(browser) {
   for (const width of [1280, 390]) await nativeCases(browser, width);
+  for (const width of [1280, 390]) await sliderCase(browser, width);
   await rippleCase(browser);
   for (const width of [1280, 390]) await piCase(browser, width);
 }

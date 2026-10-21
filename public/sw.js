@@ -66,6 +66,7 @@ const SHELL = [
   "/modules/output-rate.js?v=3.9.35",
   "/modules/opencode-context.js?v=3.9.35",
   "/modules/model-presentation.js?v=3.9.35",
+  "/modules/effort-slider.js?v=3.9.35",
   "/modules/agent-terminal.js?v=3.9.35",
   "/modules/claude-structured-rendering.js?v=3.9.35",
   "/modules/agent-transcript-presentation.js?v=3.9.35",

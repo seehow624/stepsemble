@@ -966,17 +966,28 @@
       </div>
       <input id="model-search" class="model-search" type="search" autocomplete="off" placeholder="Search models…" aria-label="Search models">
       <div id="model-list"><p style="padding:12px 4px;color:var(--pine-soft);font-size:var(--text-md)">Loading…</p></div>
-      <label class="field-label" for="thinking-select">Thinking level</label>
-      <select id="thinking-select">
-        <option value="off">Off</option>
-        <option value="minimal">Minimal</option>
-        <option value="low">Low</option>
-        <option value="medium">Medium</option>
-        <option value="high">High</option>
-        <option value="xhigh">Extra high</option>
-        <option value="max">Max</option>
-      </select>
-      <p id="thinking-hint" class="field-hint hidden"></p>
+      <div id="thinking-control" class="thinking-control">
+        <div class="thinking-head">
+          <span id="thinking-label" class="field-label">Thinking level</span>
+          <button id="thinking-auto" class="thinking-auto" type="button" aria-pressed="false" hidden data-i18n-key="runtime.thinkingAuto">Auto</button>
+          <span id="thinking-value" class="thinking-value" aria-hidden="true"></span>
+        </div>
+        <div id="thinking-slider" class="effort-slider" role="slider" tabindex="0" aria-labelledby="thinking-label" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+          <div class="effort-track"><div class="effort-fill"></div><div class="effort-ticks"></div><div class="effort-thumb"><span class="effort-knob"></span></div></div>
+        </div>
+        <div class="effort-ends" aria-hidden="true"><span data-i18n-key="runtime.thinkingFaster">Faster</span><span data-i18n-key="runtime.thinkingDeeper">Deeper</span></div>
+        <!-- The record the app reads and writes; the slider above shows it. -->
+        <select id="thinking-select" class="effort-select" tabindex="-1" aria-hidden="true">
+          <option value="off">Off</option>
+          <option value="minimal">Minimal</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="xhigh">Extra high</option>
+          <option value="max">Max</option>
+        </select>
+        <p id="thinking-hint" class="field-hint hidden"></p>
+      </div>
     </div>
   </div>
 
@@ -1130,6 +1141,7 @@
 <script src="/modules/output-rate.js?v=3.9.35"></script>
 <script src="/modules/opencode-context.js?v=3.9.35"></script>
 <script src="/modules/model-presentation.js?v=3.9.35"></script>
+<script src="/modules/effort-slider.js?v=3.9.35"></script>
 <script src="/modules/agent-terminal.js?v=3.9.35"></script>
 <script src="/modules/claude-structured-rendering.js?v=3.9.35"></script>
 <script src="/modules/agent-transcript-presentation.js?v=3.9.35"></script>

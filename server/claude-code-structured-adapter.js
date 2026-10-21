@@ -16,7 +16,7 @@ const { createLineDecoder } = require("./stream-safety");
 const { claudeImageBlocks } = require("./prompt-attachments");
 const { gatewaySettingsPath, gatewayCatalogPath } = require("./claude-session-routing");
 const { createEventWindow } = require("./structured-event-window");
-const { matchModel, contextCapacity } = require("../public/modules/model-presentation");
+const { matchModel, contextCapacity, modelKey, plainModelId } = require("../public/modules/model-presentation");
 
 const CLAUDE_STRUCTURED_VERSION = "claude-cli-stream-json-v1";
 // One line is one event. A tool result can carry an image and a complete
@@ -153,9 +153,10 @@ function normalizeModelInfo(value) {
 
 // Claude names a run with the 1M context "<model>[1m]" in its init event and
 // in the result's modelUsage (which also gives canonicalModel), but its
-// assistant messages carry the bare "<model>". Both are the same model.
+// assistant messages carry the bare "<model>". Both are the same model, as is
+// a gateway's id for it with its route ("claude/claude-opus-5-5[1m]").
 function modelBase(value) { return String(modelId(value) || "").replace(/\[[^\]]*\]$/, ""); }
-function sameModel(a, b) { return !!modelId(a) && !!modelId(b) && modelBase(a) === modelBase(b); }
+function sameModel(a, b) { return !!modelId(a) && !!modelId(b) && (modelBase(a) === modelBase(b) || modelKey(a) === modelKey(b)); }
 // The more specific name of the same model, so "[1m]" is not lost.
 function specificModel(reported, known) {
   const a = modelId(reported), b = modelId(known);
@@ -871,9 +872,15 @@ function createClaudeStructuredSession({
     } catch {}
   }
 
+  // A model picked without the level an alias's id names ("claude/claude-opus-5-5[1m]"
+  // for "opus" at "claude/claude-opus-5-5:xhigh[1m]") is put back as picked.
+  function plainAliasModel(id) {
+    return id && plainModelId(id) === id && availableModels.some(model => typeof model.resolvedModel === "string"
+      && model.resolvedModel !== id && plainModelId(model.resolvedModel) === id) ? id : null;
+  }
   async function applyRememberedChoice() {
-    const model = rememberedModel ? catalogModelId(rememberedModel) : null;
-    if (model && model !== catalogModelId(selectedModel)) {
+    const model = rememberedModel ? plainAliasModel(rememberedModel) || catalogModelId(rememberedModel) : null;
+    if (model && model !== selectedModel && model !== catalogModelId(selectedModel)) {
       try {
         const acknowledged = await requestControl("set_model", { model });
         const response = plain(acknowledged?.response) ? acknowledged.response : {};
