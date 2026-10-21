@@ -1011,17 +1011,93 @@ test("closing a Claude process releases its pending compaction as failure",async
 // Claude Code routed through Magpie lists aliases whose resolved ids carry
 // the route, the level they run at and "[1m]", and names the model it runs
 // bare in its messages (Mini, 2026-10-21).
-function magpieClaude(child, { applied = { model: "claude/claude-opus-5-5[1m]", effort: "high" }, effective = {} } = {}) {
+function magpieClaude(child, { applied = { model: "claude/claude-opus-5-5[1m]", effort: "high" }, effective = {}, own = false, requests = [] } = {}) {
   const alias = (value, level, extra = {}) => ({ value, displayName: `claude/claude-opus-5-5:${level}[1m]`, resolvedModel: `claude/claude-opus-5-5:${level}[1m]`,
     supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], ...extra });
+  // Magpie's own row for the model, as Stepsemble's picker settings add it.
+  const plain = { value: "claude/claude-opus-5-5[1m]", displayName: "Claude Opus 5.5", resolvedModel: "claude/claude-opus-5-5[1m]", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] };
   observeControlWire(child, message => {
     if (message.type !== "control_request") return;
+    requests.push(message.request);
     const reply = response => child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } }) + "\n");
-    if (message.request.subtype === "initialize") reply({ models: [alias("opus", "xhigh", { description: "Custom Opus model (1M context)" }), alias("fable", "high"), alias("sonnet", "medium")] });
+    if (message.request.subtype === "initialize") reply({ models: [alias("opus", "xhigh", { description: "Custom Opus model (1M context)" }), alias("fable", "high"), alias("sonnet", "medium"), ...(own ? [plain] : [])] });
     else if (message.request.subtype === "get_settings") reply({ applied, effective });
     else reply({});
   });
 }
+
+test("Magpie's list keeps its order, also for a model Claude Code leaves out of its own", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-magpie-order-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const configDir = path.join(home, ".config", "stepsemble"), baseUrl = "http://127.0.0.1:3425";
+  fs.mkdirSync(configDir, { recursive: true });
+  const ids = ["claude/claude-opus-5-5[1m]", "claude/claude-fable-5-1[1m]", "claude/claude-sonnet-5-5[1m]", "minimax/MiniMax-M3.1-Flash"];
+  fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, gateway: "magpie", baseUrl,
+    models: ids.map(id => ({ id, name: id, description: "Magpie gateway", contextWindow: 1_000_000, supportsEffort: true, supportedEffortLevels: ["low", "max"] })) }));
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    // Claude Code's slots first, then the picker's rows, without Fable (Mini, 2026-10-21: an account without it).
+    const response = message.request.subtype === "initialize" ? { models: [{ value: "opus", resolvedModel: "claude/claude-opus-5-5:xhigh[1m]" },
+      ...ids.filter(id => !id.includes("fable")).map(value => ({ value, resolvedModel: value })), { value: "claude/claude-haiku-5-5" }] } : {};
+    child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", env: { HOME: home, ANTHROPIC_BASE_URL: baseUrl }, spawnImpl: () => child });
+  t.after(() => session.close());
+  const { models } = await session.models();
+  // Claude Code's own model ids from its gateway discovery are left out; Magpie's list is the one shown.
+  assert.deepEqual(models.map(row => row.id), ["opus", ...ids]);
+  assert.equal(models[1].resolvedModel, ids[0], "a row Claude Code lists keeps what it says of it");
+  assert.deepEqual(models[2].supportedEffortLevels, ["low", "max"]);
+});
+
+test("moving from a Magpie alias to the same model without its level keeps the conversation's context", async t => {
+  const child = childFixture(), requests = [];
+  magpieClaude(child, { own: true, requests, applied: { model: "opus", effort: "xhigh" } });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500 });
+  t.after(() => session.close());
+  assert.equal((await session.models()).currentModel, "opus");
+  child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1", message: { id: "m1", model: "claude-opus-5-5",
+    usage: { input_tokens: 2, cache_read_input_tokens: 200_000, output_tokens: 10 }, content: [] } }) + "\n");
+  child.stdout.write(JSON.stringify({ type: "result", subtype: "success", session_id: "session-1", result: "done" }) + "\n");
+  await new Promise(resolve => setImmediate(resolve));
+  const before = session.contextUsage();
+  assert.equal(before.contextTokens, 200_002);
+  // The same model, by Magpie's own id: Claude is told, and nothing of the context is lost.
+  const moved = await session.setModel("claude/claude-opus-5-5[1m]");
+  assert.equal(moved.model, "claude/claude-opus-5-5[1m]");
+  assert.deepEqual(requests.filter(request => request.subtype === "set_model").map(request => request.model), ["claude/claude-opus-5-5[1m]"]);
+  const after = session.contextUsage();
+  assert.deepEqual([after.contextTokens, after.contextWindow, after.contextPercent], [before.contextTokens, 1_000_000, before.contextPercent]);
+  assert.equal((await session.models()).currentModel, "claude/claude-opus-5-5[1m]");
+  // Another model starts afresh, as before.
+  await session.setModel("claude/claude-haiku-5-5[1m]");
+  assert.equal(session.contextUsage().contextTokens, null);
+});
+
+test("Claude through Magpie keeps the model picked without an alias's level, also once it names the model bare", async t => {
+  const child = childFixture(), requests = [];
+  magpieClaude(child, { own: true, requests });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500 });
+  t.after(() => session.close());
+  // Claude's settings name Magpie's model itself; the list has it.
+  assert.equal((await session.models()).currentModel, "claude/claude-opus-5-5[1m]");
+  child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1", message: { id: "m1", model: "claude-opus-5-5",
+    usage: { input_tokens: 2, cache_read_input_tokens: 1000, output_tokens: 10 }, content: [] } }) + "\n");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await session.models()).currentModel, "claude/claude-opus-5-5[1m]", "not the alias that runs at the same level");
+  assert.equal(session.contextUsage().contextWindow, 1_000_000);
+  // A conversation opened again goes back to the model as picked, even where
+  // the list has only aliases of it, and takes the level picked apart from it.
+  const relaunched = childFixture(), sent = [];
+  magpieClaude(relaunched, { applied: { model: "opus", effort: "xhigh" }, requests: sent });
+  const again = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => relaunched, requestTimeoutMs: 500,
+    initialModel: "claude/claude-opus-5-5[1m]", initialEffort: "low" });
+  t.after(() => again.close());
+  await again.models();
+  assert.deepEqual(sent.filter(request => request.subtype === "set_model").map(request => request.model), ["claude/claude-opus-5-5[1m]"]);
+  assert.deepEqual(sent.filter(request => request.subtype === "apply_flag_settings").map(request => request.settings.effortLevel), ["low"]);
+});
 
 test("Claude through Magpie names the alias at the level it runs, with the 1M capacity before a turn ends", async t => {
   const child = childFixture();

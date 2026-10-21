@@ -16,7 +16,7 @@ const { createLineDecoder } = require("./stream-safety");
 const { claudeImageBlocks } = require("./prompt-attachments");
 const { gatewaySettingsPath, gatewayCatalogPath } = require("./claude-session-routing");
 const { createEventWindow } = require("./structured-event-window");
-const { matchModel, contextCapacity } = require("../public/modules/model-presentation");
+const { matchModel, contextCapacity, modelKey, plainModelId } = require("../public/modules/model-presentation");
 
 const CLAUDE_STRUCTURED_VERSION = "claude-cli-stream-json-v1";
 // One line is one event. A tool result can carry an image and a complete
@@ -153,9 +153,10 @@ function normalizeModelInfo(value) {
 
 // Claude names a run with the 1M context "<model>[1m]" in its init event and
 // in the result's modelUsage (which also gives canonicalModel), but its
-// assistant messages carry the bare "<model>". Both are the same model.
+// assistant messages carry the bare "<model>". Both are the same model, as is
+// a gateway's id for it with its route ("claude/claude-opus-5-5[1m]").
 function modelBase(value) { return String(modelId(value) || "").replace(/\[[^\]]*\]$/, ""); }
-function sameModel(a, b) { return !!modelId(a) && !!modelId(b) && modelBase(a) === modelBase(b); }
+function sameModel(a, b) { return !!modelId(a) && !!modelId(b) && (modelBase(a) === modelBase(b) || modelKey(a) === modelKey(b)); }
 // The more specific name of the same model, so "[1m]" is not lost.
 function specificModel(reported, known) {
   const a = modelId(reported), b = modelId(known);
@@ -801,12 +802,18 @@ function createClaudeStructuredSession({
           gateway: gateway.gateway,
         };
       });
-      const seen = new Set(enrichedNativeModels.map(model => model.id));
-      availableModels = [...enrichedNativeModels, ...gatewayModels.filter(model => {
+      // With the gateway's own list, its models keep that list's order, also
+      // one Claude Code leaves out of its own (a model its account hides).
+      const nativeById = new Map(enrichedNativeModels.map(model => [model.id, model]));
+      const ordered = authoritative
+        ? [...enrichedNativeModels.filter(model => !gatewayById.has(model.id)), ...gatewayModels.map(model => nativeById.get(model.id) || model)]
+        : [...enrichedNativeModels, ...gatewayModels];
+      const seen = new Set();
+      availableModels = ordered.filter(model => {
         if (seen.has(model.id)) return false;
         seen.add(model.id);
         return true;
-      })].filter(model => model.id !== "default").slice(0, MAX_MODELS);
+      }).filter(model => model.id !== "default").slice(0, MAX_MODELS);
       // "default" stands for another entry (Claude's "Default (recommended)"
       // is Opus with 1M context); the list shows that entry by its own name.
   }
@@ -871,9 +878,25 @@ function createClaudeStructuredSession({
     } catch {}
   }
 
+  // A model picked without the level an alias's id names ("claude/claude-opus-5-5[1m]"
+  // for "opus" at "claude/claude-opus-5-5:xhigh[1m]") is put back as picked.
+  function plainAliasModel(id) {
+    return id && plainModelId(id) === id && availableModels.some(model => typeof model.resolvedModel === "string"
+      && model.resolvedModel !== id && plainModelId(model.resolvedModel) === id) ? id : null;
+  }
+  // Another name for the model a conversation runs: a gateway alias and that
+  // model without the alias's level ("opus" at "claude/claude-opus-5-5:xhigh[1m]"
+  // and "claude/claude-opus-5-5[1m]"), or the bare name Claude reports.
+  function sameRun(a, b) {
+    const row = id => availableModels.find(model => model.id === id) || { id };
+    const [first, second] = [row(a), row(b)];
+    if (!a || !b || modelKey(first.resolvedModel || first.id) !== modelKey(second.resolvedModel || second.id)) return false;
+    const [one, other] = [contextCapacity(first), contextCapacity(second)];
+    return one === null || other === null || one === other;
+  }
   async function applyRememberedChoice() {
-    const model = rememberedModel ? catalogModelId(rememberedModel) : null;
-    if (model && model !== catalogModelId(selectedModel)) {
+    const model = rememberedModel ? plainAliasModel(rememberedModel) || catalogModelId(rememberedModel) : null;
+    if (model && model !== selectedModel && model !== catalogModelId(selectedModel)) {
       try {
         const acknowledged = await requestControl("set_model", { model });
         const response = plain(acknowledged?.response) ? acknowledged.response : {};
@@ -1178,8 +1201,10 @@ function createClaudeStructuredSession({
       || requested || null;
     // Never update the selected model before the native success response.
     const changed = previous !== acknowledgedModel;
+    // The same model under another name keeps the conversation's context.
+    const renamed = changed && sameRun(previous, acknowledgedModel);
     selectedModel = acknowledgedModel;
-    if (changed) {
+    if (changed && !renamed) {
       // Capacity and usage belong to the previous model. Keep neither while
       // the newly selected model has not emitted fresh assistant usage.
       haveAssistantUsage = false;
