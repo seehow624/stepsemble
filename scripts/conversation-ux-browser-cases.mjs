@@ -291,16 +291,21 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
-      // The ⋯ and + of every section (Automations' too), project and conversation.
-      await page.locator('#workspace-projects [data-section="automations"] .workspace-project-menu').waitFor();
+      // The ⋯ and + of every section, project and conversation, and those of
+      // the Automations panel beside the search.
+      await page.locator("#workspace-projects .workspace-project-menu").first().waitFor();
       const sizes = await page.evaluate(() => {
         const box = node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; };
         const shown = selector => [...document.querySelectorAll(selector)].filter(node => node.offsetParent);
         return { menus: shown("#workspace-projects .workspace-session-menu, #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-projects .workspace-machine-menu").map(box) };
       });
       assert.ok(sizes.menus.length >= 3, JSON.stringify(sizes));
-      if (viewport.touch) assert.deepEqual(sizes.menus.filter(size => size.width < 40 || size.height < 40), [], `${viewport.width}: ⋯ and + are too small to tap ${JSON.stringify(sizes)}`);
-      else assert.ok(sizes.menus.every(size => size.width <= 32), `a mouse keeps the compact sidebar ${JSON.stringify(sizes)}`);
+      await page.locator("#workspace-automations").click();
+      const panelSizes = await page.locator("#workspace-automations-panel > header .btn").evaluateAll(nodes => nodes.map(node => { const r = node.getBoundingClientRect(); return { width: Math.round(r.width), height: Math.round(r.height) }; }));
+      await page.keyboard.press("Escape");
+      assert.equal(panelSizes.length, 2, JSON.stringify(panelSizes));
+      if (viewport.touch) assert.deepEqual([...sizes.menus, ...panelSizes].filter(size => size.width < 40 || size.height < 40), [], `${viewport.width}: ⋯ and + are too small to tap ${JSON.stringify({ sizes, panelSizes })}`);
+      else assert.ok([...sizes.menus, ...panelSizes].every(size => size.width <= 32), `a mouse keeps the compact sidebar ${JSON.stringify({ sizes, panelSizes })}`);
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `touch-sidebar-${viewport.width}.png`) }); }
       if (viewport.touch) {
         // The work row under each reply, which opens what the agent did.
@@ -310,8 +315,9 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
         assert.ok(rows.length && rows.every(height => height >= 36), `${viewport.width}: work rows ${rows}`);
         await backToList(page, ui);
         // The filters of Schedules, even a short one such as "All"; they open
-        // in a pane from the menu of the list's Automations.
-        await page.locator('[data-section="automations"] .workspace-project-menu').click();
+        // in a pane from the ⋯ of the Automations panel.
+        await page.locator("#workspace-automations").click();
+        await page.locator("#workspace-automations-panel .workspace-project-menu").click();
         await page.getByRole("menuitem", { name: "Schedules", exact: true }).click();
         const schedules = page.locator('iframe.workspace-frame[src*="/schedules.html"]');
         await schedules.waitFor({ state: "attached" });

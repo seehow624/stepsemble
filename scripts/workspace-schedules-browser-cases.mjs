@@ -19,12 +19,16 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
       await context.addInitScript(theme => { if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme, reducedMotion: true })); }, viewport.theme);
       await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
       await page.goto(fixture.origin + "/workspace.html");
-      const automations = page.locator('[data-section="automations"]'), press = locator => viewport.mobile ? locator.tap() : locator.click();
+      const automations = page.locator("#workspace-automations-panel"), press = locator => viewport.mobile ? locator.tap() : locator.click();
+      // Automations open from their button beside the search, each time anew.
+      const openAutomations = async () => { if (!await automations.count()) await press(page.locator("#workspace-automations")); await automations.waitFor(); };
       const frame = page.locator('iframe.workspace-frame[src*="/schedules.html"]'), schedules = page.frameLocator('iframe.workspace-frame[src*="/schedules.html"]');
       const listShown = shown => page.waitForFunction(shown => document.body.classList.contains("sidebar-hidden") !== shown, shown);
+      await openAutomations();
       await automations.locator(".workspace-automation-row").nth(1).waitFor();
       const computer = viewport.mobile ? "Mac Mini" : "MacBook Pro", machine = viewport.mobile ? "mini" : "mbp";
       // The section's Schedules, on one computer: a tab in a pane, not a dialog.
+      await openAutomations();
       await press(automations.locator(".workspace-project-menu"));
       await page.getByRole("menuitem", { name: `Schedules · ${computer}` }).click();
       await schedules.locator(".wf-item").first().waitFor();
@@ -57,6 +61,7 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
         await listShown(true);
       }
       // New schedule: the same tab, at the form, ready to type.
+      await openAutomations();
       await press(automations.locator(".workspace-section-add"));
       await page.getByRole("menuitem", { name: `New schedule · ${computer}` }).click();
       const objective = schedules.locator('textarea[name="objectivePrompt"]');
@@ -88,6 +93,7 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
         await page.evaluate(() => history.back()); await listShown(true);
       }
       // A schedule's row in Automations shows it in the tab already open.
+      await openAutomations();
       await press(automations.locator(".workspace-automation-row", { hasText: computer }).locator(".workspace-automation"));
       await schedules.locator('.wf-panel[data-screen="detail"] .wf-inspector[data-schedule-id="preview-schedule"]').waitFor();
       if (viewport.mobile) {

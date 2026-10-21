@@ -277,10 +277,11 @@ test("the list's sections keep a person's order on this device; a section that a
   const start = source.indexOf("  function sectionsInOrder()"), end = source.indexOf("  // place: -1 or 1", start);
   const make = new Function("machines", "assistantUI", "orderedMachines", "sectionOrder", 'const machineSectionId = target => "machine:" + target;' + source.slice(start, end) + "; return sectionsInOrder();");
   const two = [{ id: "mini" }, { id: "mbp" }], ordered = () => two;
-  assert.deepEqual(make(two, { installed: true }, ordered, []), ["recent", "bots", "automations", "machine:mini", "machine:mbp"], "Recent, the Bots, Automations, then each computer");
-  assert.deepEqual(make(two, { installed: true }, ordered, ["bots", "machine:mbp", "recent"]), ["bots", "automations", "machine:mini", "machine:mbp", "recent"], "a new section follows the one it usually follows");
-  assert.deepEqual(make(two, { installed: false }, ordered, ["machine:mbp", "automations"]), ["recent", "machine:mbp", "automations", "machine:mini"], "Recent comes back at its place before what followed it");
-  assert.deepEqual(make([{ id: "mini" }], { installed: true }, () => [{ id: "mini" }], []), ["bots", "automations", "machine:mini"], "one computer has no Recent");
+  assert.deepEqual(make(two, { installed: true }, ordered, []), ["recent", "bots", "machine:mini", "machine:mbp"], "Recent, the Bots with their groups, then each computer");
+  assert.deepEqual(make(two, { installed: true }, ordered, ["bots", "machine:mbp", "recent"]), ["bots", "machine:mini", "machine:mbp", "recent"], "a new section follows the one it usually follows");
+  assert.deepEqual(make(two, { installed: false }, ordered, ["machine:mbp", "machine:mini"]), ["recent", "machine:mbp", "machine:mini"], "Recent comes back at its place before what followed it");
+  assert.deepEqual(make(two, { installed: true }, ordered, ["automations", "machine:mini", "machine:mbp", "bots"]), ["recent", "machine:mini", "machine:mbp", "bots"], "an order saved with Automations among the sections still reads");
+  assert.deepEqual(make([{ id: "mini" }], { installed: true }, () => [{ id: "mini" }], []), ["bots", "machine:mini"], "one computer has no Recent");
   assert.match(source, /reorderSection\(toggle, section, id\);/, "a section's heading drags it");
   assert.match(source, /decorate: toggle => reorderSection\(toggle, botsBlock, "bots"\)/, "so does the Bots heading");
   const reorder = fs.readFileSync(require.resolve("../public/modules/workspace-reorder.js"), "utf8");

@@ -68,10 +68,38 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
       await luna.waitFor();
       await page.locator("#workspace-projects .workspace-project .workspace-session").first().waitFor();
       assert.equal(await page.locator("#workspace-mode").isVisible(), false, "沒有 Workspace／助理切換");
-      // 例行工作在「自動化」區塊，Bot 一載入就列出；Bots 標題的 ⋯ 有管理 Bots 和移動區塊。
-      const routine = page.locator('[data-section="automations"] .workspace-automation-row[data-automation="routine:default:job-brief"]');
+      // 例行工作在搜尋列旁的「自動化」按鈕裡，Bot 一載入就列出；Bots 標題的 ⋯ 有管理 Bots 和移動區塊。
+      const automations = page.locator("#workspace-automations"), panel = page.locator("#workspace-automations-panel");
+      const routine = panel.locator('.workspace-automation-row[data-automation="routine:default:job-brief"]');
+      assert.equal(await page.locator('#workspace-projects [data-section="automations"]').count(), 0, "自動化不再是列表裡的區塊");
+      await automations.click();
       await routine.waitFor({ timeout: 10_000 });
+      assert.equal(await automations.getAttribute("aria-expanded"), "true");
       assert.match(await routine.innerText(), /Morning brief[\s\S]*Luna/);
+      await page.keyboard.press("Escape");
+      await panel.waitFor({ state: "detached" });
+      assert.equal(await automations.evaluate(node => node === document.activeElement), true, "關閉後焦點回到按鈕");
+      // Bot 與群組是同一張卡：群組在卡裡，Bots 收起時一起收起。
+      assert.equal(await page.locator('#workspace-assistant [data-section="groups"] .workspace-assistant-row[data-room]').count(), 1, "群組在 Bots 卡裡");
+      assert.equal(await page.locator('#workspace-assistant [data-section="groups"] .workspace-project-toggle').count(), 0, "群組沒有自己的收合");
+      const botsToggle = page.locator('#workspace-assistant [data-section="bots"] .workspace-project-toggle');
+      await botsToggle.click();
+      await page.locator('#workspace-assistant [data-section="groups"]').waitFor({ state: "detached" });
+      await botsToggle.click();
+      await page.locator('#workspace-assistant [data-section="groups"] .workspace-assistant-row[data-room]').waitFor();
+      // 搜尋時搜尋框佔滿整列，三個按鈕讓開；離開空白的搜尋就回來，Escape 清空。
+      const searchRow = page.locator(".workspace-search-row");
+      await page.locator("#workspace-search").click();
+      await page.waitForFunction(() => document.querySelector(".workspace-search-row").classList.contains("searching")
+        && [...document.querySelectorAll(".workspace-search-row .workspace-row-action")].every(node => getComputedStyle(node).visibility === "hidden"));
+      const widths = await searchRow.evaluate(row => ({ row: row.getBoundingClientRect().width, search: row.querySelector(".workspace-search-wrap").getBoundingClientRect().width }));
+      assert.ok(widths.search >= widths.row - 1, JSON.stringify(widths));
+      await page.locator("#workspace-search").fill("brief");
+      await page.locator('#workspace-projects [data-section="automations"] .workspace-automation-row[data-automation="routine:default:job-brief"]').waitFor();
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#workspace-search").inputValue(), "");
+      await page.waitForFunction(() => !document.querySelector(".workspace-search-row").classList.contains("searching")
+        && [...document.querySelectorAll(".workspace-search-row .workspace-row-action")].every(node => getComputedStyle(node).visibility === "visible"));
       await page.locator("#workspace-assistant-more").click();
       assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["Manage Bots", "Move down"], "一台電腦時 Bots 在最上面");
       await page.keyboard.press("Escape");
@@ -130,13 +158,17 @@ export async function runAssistantWorkspaceBrowserCases(browser, { screenshots }
       await page.locator('#workspace-assistant .workspace-assistant-row[data-room]').click();
       await page.locator(".workspace-tab-title", { hasText: "Creators" }).waitFor();
       await watched(row => row.clientId === lunaWatch.clientId && row.sessionId === null, "換掉的 Bot 面板仍宣告正在看，手機會收不到推播", watching);
-      await page.locator('[data-section="automations"] .workspace-project-menu').click();
+      await automations.click();
+      await panel.locator(".workspace-project-menu").click();
       await page.getByRole("menuitem", { name: "All routines" }).click();
       await page.locator(".workspace-tab-title", { hasText: "All routines" }).waitFor();
-      // A routine's row opens its Bot's routines.
+      // A routine's row opens its Bot's routines and closes the panel.
+      await automations.click();
       await routine.locator(".workspace-automation").click();
       await page.locator(".workspace-tab-title", { hasText: /Luna/ }).waitFor();
-      await page.locator('[data-section="automations"] .workspace-project-menu').click();
+      await panel.waitFor({ state: "detached" });
+      await automations.click();
+      await panel.locator(".workspace-project-menu").click();
       await page.getByRole("menuitem", { name: "All routines" }).click();
       await page.locator(".workspace-tab-title", { hasText: "All routines" }).waitFor();
       assert.deepEqual(await tabTitles(page), ["All routines"]);

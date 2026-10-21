@@ -156,6 +156,17 @@ html.reduced-motion #workspace-refresh[data-busy=true] .workspace-logo { opacity
 .workspace-row-action:active { background: var(--control-fill-press); transform: scale(.94); }
 .workspace-row-action:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .workspace-row-action svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.workspace-row-action { position: relative; }
+/* An automation that needs attention: a dot on the Automations button. */
+.workspace-row-badge { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--paper); }
+.workspace-row-badge[hidden] { display: none; }
+/* While the search is in use it takes the row: its three buttons step aside
+   and come back once the search is left empty. */
+.workspace-search-row .workspace-row-action { transition: background-color .15s ease, transform .2s var(--oc-spring), opacity .18s ease, flex-basis .24s var(--oc-spring), width .24s var(--oc-spring), margin .24s var(--oc-spring), visibility 0s linear 0s; }
+.workspace-search-row.searching .workspace-row-action { flex-basis: 0; width: 0; margin-left: -8px; opacity: 0; transform: scale(.6); visibility: hidden; pointer-events: none;
+  transition: background-color .15s ease, transform .2s var(--oc-spring), opacity .14s ease, flex-basis .24s var(--oc-spring), width .24s var(--oc-spring), margin .24s var(--oc-spring), visibility 0s linear .24s; }
+html.reduced-motion .workspace-search-row .workspace-row-action { transition: none; }
+@media (prefers-reduced-motion: reduce) { .workspace-search-row .workspace-row-action { transition: none; } }
 
 .workspace-search-wrap {
   min-height: var(--control-h);
@@ -562,6 +573,16 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
   .workspace-menu { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line); }
 }
 .workspace-menu-separator { height: .5px; margin: 4px 8px; background: var(--line); }
+/* Automations, under their button beside the search. */
+.workspace-automations-panel { width: 320px; max-width: calc(100vw - 16px); max-height: min(520px, calc(100dvh - 140px)); grid-template-rows: auto minmax(0, 1fr); gap: 2px; padding: 6px; }
+.workspace-automations-panel > header { display: flex; align-items: center; gap: 2px; min-height: 40px; padding: 0 2px 0 10px; }
+.workspace-automations-panel > header strong { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--text-sm); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-automations-panel > header .btn { display: grid; place-items: center; width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--pine-soft); }
+.workspace-automations-panel > header .btn:hover { background: var(--control-fill-hover); color: var(--ink); }
+.workspace-automations-panel > header svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+@media (pointer: coarse) { .workspace-automations-panel > header .btn { width: 44px; min-width: 44px; height: 44px; min-height: 44px; } }
+.workspace-automations-list { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.workspace-automations-empty { margin: 0; padding: 14px 10px 16px; color: var(--pine-soft); font-size: var(--text-xs); }
 .workspace-slot { position: relative; flex: 1; min-height: 0; display: grid; grid-template-rows: auto auto; place-content: center; padding: 16px; color: var(--pine-soft); text-align: center; font-size: var(--text-sm); }
 /* The pane's empty state carries the same approved artwork as the conversation
    view's, rather than a silhouette of the glyph: the glyph fills the
@@ -794,7 +815,17 @@ body.compact .workspace-session strong { font-size: var(--text-sm); }
    opens as a tab beside the sessions. */
 /* The Bots share the session list; Manage and New Bot sit on their heading. */
 #workspace-assistant[hidden] { display: none; }
-#workspace-projects #workspace-assistant { flex: none; gap: 6px; margin: 0 0 6px; }
+/* The Bots and their groups are one block of the list: one card that moves
+   as one and folds as one, its groups a part under a hairline. */
+#workspace-projects #workspace-assistant { flex: none; gap: 6px; margin: 2px 0 14px; padding: 2px 6px 6px; border-radius: 20px; background: var(--milk);
+  box-shadow: 0 0 0 .5px var(--line), 0 10px 26px -20px rgba(0, 0, 0, .45); }
+#workspace-projects #workspace-assistant .workspace-project { margin-bottom: 0; }
+#workspace-projects #workspace-assistant .workspace-assistant-host { margin: 6px 0 2px; }
+#workspace-projects .workspace-assistant-part { position: relative; margin-top: 4px; padding-top: 2px; }
+#workspace-projects .workspace-assistant-part::before { content: ""; position: absolute; top: 0; left: 10px; right: 10px; height: .5px; background: var(--line); }
+#workspace-projects .workspace-assistant-part > header { min-height: 40px; padding-left: 7px; }
+.workspace-assistant-label { flex: 1 1 auto; }
+#workspace-projects #workspace-assistant .workspace-assistant-note { margin: 0 4px 6px; }
 #workspace-projects #workspace-assistant-list { flex: none; overflow: visible; padding: 0; }
 #workspace-projects .workspace-assistant-host { margin: 0 2px 6px; }
 .workspace-assistant-actions { display: flex; flex: none; gap: 2px; }
