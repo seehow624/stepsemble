@@ -7220,6 +7220,17 @@ function renderClaudeStructuredPermissions(connection, permissions) {
   }
 }
 
+// The background work Claude waits on between turns, as the Host reports it:
+// how much, and the first few by kind and description.
+const CLAUDE_BACKGROUND_KINDS = new Set(["agent", "command", "monitor", "workflow", "wakeup", "task"]);
+function claudeBackgroundWork(value) {
+  const tasks = (Array.isArray(value?.tasks) ? value.tasks : []).slice(0, 8).map(row => ({
+    kind: CLAUDE_BACKGROUND_KINDS.has(row?.kind) ? row.kind : "task",
+    description: String(row?.description || "").replace(/\s+/g, " ").trim().slice(0, 160) }));
+  const count = Number(value?.count), wakeAt = Number(value?.wakeAt);
+  return { count: Number.isSafeInteger(count) && count > 0 ? count : tasks.length, tasks, ...(wakeAt > 0 ? { wakeAt } : {}) };
+}
+
 async function refreshClaudeStructuredSnapshot(connection, { initial = false, restart = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeClaudeStructured) return;
   if (connection.nativeRefreshInFlight) return;
@@ -7279,8 +7290,13 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
     // Claude's own id for the conversation, which it reports after the
     // Host's local key; resuming uses it.
     if (typeof status.nativeSessionId === "string" && status.nativeSessionId) connection.claudeNativeSessionId = status.nativeSessionId;
+    // Between turns, Claude can still be at work on what it was asked: it
+    // waits on background work it started and reports on it in a turn of its own.
+    const waitingOnBackground = !parked && !status.closed && !status.failed && status.state === "waiting" && status.working === true;
     connection.taskStatus = parked ? "waiting" : status.closed ? "stopped" : status.failed ? "failed"
-      : status.state === "running" ? "running" : "waiting";
+      : status.state === "running" || waitingOnBackground ? "running" : "waiting";
+    const background = waitingOnBackground ? claudeBackgroundWork(status.background) : null;
+    if (JSON.stringify(background) !== JSON.stringify(connection.claudeBackground || null)) { connection.claudeBackground = background; scheduleWorkLog("tail"); }
     // A turn Claude ended with an error is shown once, below that turn; the
     // conversation goes on. One from before this view opened is not repeated.
     const turnError = status.turnError;
@@ -7301,7 +7317,7 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
       startedAt: status.turnStartedAt,
       lastActivityAt: status.lastActivityAt,
       endedAt: parked ? status.turnEndedAt || status.lastActivityAt || undefined
-        : status.closed ? (status.lastActivityAt || Date.now()) : status.state !== "running" ? status.turnEndedAt : undefined,
+        : status.closed ? (status.lastActivityAt || Date.now()) : connection.taskStatus !== "running" ? status.turnEndedAt : undefined,
       nativeStatus: status,
       // Said once, below the turn it ended.
       ...(connection.taskStatus === "failed" ? { error: agentHubText("claudeStopped") } : {}),
@@ -9731,7 +9747,9 @@ function workLogRunState() {
   const measured = turnRateCache.key === turnRateKey() && turnRateCache.hostTracked ? turnRateCache.active : null;
   if (running && measured && Date.now() - measured.observedAt < 5000
     && (!pending || pending.whileRunning || measured.startedAt >= pending.at - 2000)) startedAt = measured.startedAt;
-  return { running, startedAt };
+  // What Claude waits on between the turns of one piece of work.
+  const background = running && !(pending && !pending.sawRun) && connection.claudeBackground?.count > 0 ? connection.claudeBackground : null;
+  return { running, startedAt, background };
 }
 function beginPendingTurn(connection) {
   if (!connection) return null;
@@ -10018,7 +10036,23 @@ function turnRateFor(turn, around = null) {
     if ([around?.before, around?.after].some(other => other && Math.abs(other - startedAt) < gap)) continue;
     best = { gap, row };
   }
-  return best ? OutputRate.storedSummary(best.row) : null;
+  if (!best) return null;
+  // Claude takes a turn by itself for each background task it waited on,
+  // shown with the message before it; a Host from before kept each turn as a
+  // run of its own. The runs up to the next message are one piece of work.
+  const limit = around?.after ? around.after - RATE_MATCH_MS : around?.followed ? -Infinity : Infinity;
+  const later = rpc?.nativeClaudeStructured ? turnRateCache.rates.filter(row => row !== best.row
+    && Number(row?.startedAt) > Number(best.row.startedAt) && Number(row?.startedAt) < limit) : [];
+  return later.length ? mergedTurnRate([best.row, ...later]) : OutputRate.storedSummary(best.row);
+}
+function mergedTurnRate(rows) {
+  const parts = rows.map(row => ({ row, summary: OutputRate.storedSummary(row) })).filter(part => part.summary);
+  if (!parts.length) return null;
+  const start = Number(parts[0].row.startedAt);
+  const end = Math.max(...parts.map(({ row, summary }) => Number(row.endedAt) || Number(row.startedAt) + summary.totalMs));
+  return OutputRate.storedSummary({ tokens: parts.reduce((sum, part) => sum + part.summary.tokens, 0),
+    estimated: parts.some(part => part.summary.estimated), totalMs: Math.max(0, end - start),
+    modelMs: parts.reduce((sum, part) => sum + part.summary.modelMs, 0) });
 }
 function turnSettling(turn) {
   if (!settlingRates.size || !turn?.user) return false;
@@ -10191,17 +10225,67 @@ function makeWorkHead() {
   head.dataset.i18nIgnore = "";
   const label = document.createElement("span");
   label.className = "wl-head-label";
+  const wait = document.createElement("span");
+  wait.className = "wl-wait";
   const rate = document.createElement("span");
   rate.className = "wl-rate";
-  head.append(label, workChevron(), rate);
+  head.append(label, wait, workChevron(), rate);
   head.addEventListener("click", () => {
-    if (head.dataset.running === "true" || head.dataset.static === "true") return;
     const state = workLogState.turns.get(head.dataset.key);
+    // While Claude waits on its background work, the line lists that work.
+    if (state && head.dataset.waiting === "true") { state.waitOpen = !state.waitOpen; layoutWorkLogAround(head); return; }
+    if (head.dataset.running === "true" || head.dataset.static === "true") return;
     if (!state) return;
     state.expanded = !state.expanded;
     layoutWorkLogAround(head);
   });
   return head;
+}
+function makeWorkWaitList() {
+  const list = document.createElement("ul");
+  list.className = "wl-own wl-wait-list";
+  list.dataset.i18nIgnore = "";
+  return list;
+}
+function workWaitTime(at) {
+  try { return new Date(at).toLocaleTimeString(document.documentElement.lang || undefined, { hour: "numeric", minute: "2-digit" }); }
+  catch { return new Date(at).toLocaleTimeString(); }
+}
+// "· waiting on 2 background tasks", or the time a scheduled check-in is due.
+function workWaitText(background) {
+  const tasks = background.count - background.tasks.filter(task => task.kind === "wakeup").length;
+  if (tasks <= 0 && background.wakeAt) return "· " + tKey("work.background.wakeup", { time: workWaitTime(background.wakeAt) });
+  return "· " + tKey(background.count === 1 ? "work.background.one" : "work.background.many", { count: background.count });
+}
+function workWaitLines(background) {
+  const lines = background.tasks.map(task => {
+    const kind = tKey("work.background.kind." + task.kind);
+    const detail = task.kind === "wakeup" && background.wakeAt
+      ? [task.description, workWaitTime(background.wakeAt)].filter(Boolean).join(" · ") : task.description;
+    return { kind, detail };
+  });
+  const hidden = background.count - background.tasks.length;
+  if (hidden > 0) lines.push({ kind: "", detail: tKey("work.background.more", { count: hidden }) });
+  return lines;
+}
+function updateWorkWait(head, list, background, open) {
+  const wait = head.querySelector(".wl-wait");
+  const text = background ? workWaitText(background) : "";
+  if (wait && wait.textContent !== text) wait.textContent = text;
+  const lines = background ? workWaitLines(background) : [];
+  const title = lines.map(line => [line.kind, line.detail].filter(Boolean).join(": ")).join("\n");
+  if (head.title !== title) head.title = title;
+  if (!list) return;
+  list.hidden = !open;
+  const signature = JSON.stringify(lines);
+  if (list.dataset.signature === signature) return;
+  list.dataset.signature = signature;
+  list.replaceChildren(...lines.map(line => {
+    const item = document.createElement("li");
+    if (line.kind) { const kind = document.createElement("span"); kind.className = "wl-wait-kind"; kind.textContent = line.kind; item.append(kind, " "); }
+    item.append(line.detail || "");
+    return item;
+  }));
 }
 function makeWorkRow() {
   const row = document.createElement("button");
@@ -10361,7 +10445,7 @@ function workSetHidden(block, hide) {
   wrapper.appendChild(block.node);
 }
 
-function layoutWorkTurn(turn, key, { running = false, startedAt = null, around = null } = {}) {
+function layoutWorkTurn(turn, key, { running = false, startedAt = null, background = null, around = null } = {}) {
   let state = workLogState.turns.get(key);
   if (!state) { state = { expanded: false }; workLogState.turns.set(key, state); }
   const shells = turn.nodes.filter(node => node.classList.contains("msg") && directMessageBubble(node));
@@ -10391,6 +10475,9 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, around =
   const rateDisplay = summaryRateDisplay(rateSummary);
   const showHead = shells.length > 0 && (running || foldable || !!rateDisplay || !running && turnSettling(turn));
   const collapsed = !running && foldable && state.expanded !== true;
+  // Claude waits between turns on background work it started; the line says
+  // so and opens a list of that work.
+  const waiting = running && background?.count > 0 ? background : null;
 
   if (showHead) {
     const head = take("wl-head", makeWorkHead);
@@ -10406,11 +10493,18 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, around =
     const fixed = !running && !foldable;
     head.dataset.static = String(fixed);
     head.classList.toggle("wl-static", fixed);
-    if (running || fixed) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
+    head.dataset.waiting = String(!!waiting);
+    head.classList.toggle("wl-waiting", !!waiting);
+    if (!waiting) state.waitOpen = false;
+    if (waiting) { head.setAttribute("aria-expanded", String(state.waitOpen === true)); head.tabIndex = 0; }
+    else if (running || fixed) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
     else { head.setAttribute("aria-expanded", String(!collapsed)); head.tabIndex = 0; }
     const label = head.querySelector(".wl-head-label");
     const text = workHeadText(running, duration);
     if (label.textContent !== text) label.textContent = text;
+    const waitList = waiting ? take("wl-wait-list", makeWorkWaitList) : null;
+    if (waitList && head.nextSibling !== waitList) head.after(waitList);
+    updateWorkWait(head, waitList, waiting, state.waitOpen === true);
     setWorkHeadRate(head, running ? liveRateDisplay() : rateDisplay);
   }
 
@@ -10458,7 +10552,7 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, around =
     workSetHidden(block, collapsed && index !== finalIndex && (block.kind === "text" || block.kind === "divider"));
   }
 
-  if (running && !liveCard && shells.length && !blocks.some(block => block.kind === "pulse"
+  if (running && !waiting && !liveCard && shells.length && !blocks.some(block => block.kind === "pulse"
     || block.kind === "notice" && block.node.matches?.(".agent-approval-card"))) {
     const pulse = take("wl-pulse", makeWorkPulse);
     const bubble = directMessageBubble(shells[shells.length - 1]);
@@ -10524,8 +10618,8 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
     const start = turn.user || turn.nodes[0];
     const include = (!from && !tail) || (tail && last) || (!!from && (turn.user === from || turn.nodes.includes(from)
       || !!start && !!(from.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING)));
-    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt,
-      around: { before: starts[index - 1] || 0, after: starts[index + 1] || 0 } });
+    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt, background: last ? run.background : null,
+      around: { before: starts[index - 1] || 0, after: starts[index + 1] || 0, followed: !last } });
   });
   syncWorkPlaceholder(lastTurn, run);
   syncWorkLogClock();

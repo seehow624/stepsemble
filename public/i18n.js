@@ -5699,6 +5699,17 @@
     "work.worked": ["Worked","工作过程","工作過程","作業内容","작업 내용","Çalışma adımları","Travail effectué","Arbeitsschritte","Trabajo realizado","Trabalho realizado","Lavoro svolto"],
     "work.workedFor": ["Worked for {time}","工作了 {time}","工作了 {time}","{time} 作業しました","{time} 동안 작업함","{time} çalıştı","A travaillé {time}","{time} gearbeitet","Trabajó durante {time}","Trabalhou por {time}","Ha lavorato per {time}"],
     "work.working": ["Working","工作中","工作中","作業中","작업 중","Çalışıyor","En cours","Arbeitet","Trabajando","Trabalhando","Al lavoro"],
+    // While Claude waits between turns on the background work it started.
+    "work.background.one": ["waiting on {count} background task","等待 {count} 个后台任务","等待 {count} 個背景任務","バックグラウンドタスク {count} 件を待機中","백그라운드 작업 {count}개 대기 중","{count} arka plan görevi bekleniyor","en attente de {count} tâche en arrière-plan","wartet auf {count} Hintergrundaufgabe","esperando {count} tarea en segundo plano","aguardando {count} tarefa em segundo plano","in attesa di {count} attività in background"],
+    "work.background.many": ["waiting on {count} background tasks","等待 {count} 个后台任务","等待 {count} 個背景任務","バックグラウンドタスク {count} 件を待機中","백그라운드 작업 {count}개 대기 중","{count} arka plan görevi bekleniyor","en attente de {count} tâches en arrière-plan","wartet auf {count} Hintergrundaufgaben","esperando {count} tareas en segundo plano","aguardando {count} tarefas em segundo plano","in attesa di {count} attività in background"],
+    "work.background.wakeup": ["checks back at {time}","将于 {time} 再查看","將於 {time} 再查看","{time} に再確認","{time}에 다시 확인","{time} saatinde tekrar bakacak","revient vérifier à {time}","prüft um {time} erneut","volverá a comprobar a las {time}","volta a verificar às {time}","ricontrolla alle {time}"],
+    "work.background.more": ["{count} more","还有 {count} 个","還有 {count} 個","ほか {count} 件","외 {count}개","{count} tane daha","{count} de plus","{count} weitere","{count} más","mais {count}","altri {count}"],
+    "work.background.kind.agent": ["Subagent","子代理","子代理","サブエージェント","서브에이전트","Alt ajan","Sous-agent","Sub-Agent","Subagente","Subagente","Subagente"],
+    "work.background.kind.command": ["Command","命令","命令","コマンド","명령","Komut","Commande","Befehl","Comando","Comando","Comando"],
+    "work.background.kind.monitor": ["Monitor","监视","監看","モニター","모니터","İzleyici","Surveillance","Überwachung","Monitor","Monitor","Monitor"],
+    "work.background.kind.workflow": ["Workflow","工作流","工作流程","ワークフロー","워크플로","İş akışı","Workflow","Workflow","Flujo de trabajo","Fluxo de trabalho","Workflow"],
+    "work.background.kind.wakeup": ["Check-in","定时查看","定時查看","定期確認","예약된 확인","Planlı kontrol","Vérification prévue","Geplante Prüfung","Revisión programada","Verificação agendada","Controllo programmato"],
+    "work.background.kind.task": ["Task","任务","任務","タスク","작업","Görev","Tâche","Aufgabe","Tarea","Tarefa","Attività"],
     "work.workingFor": ["Working for {time}","正在工作 {time}","正在工作 {time}","作業中 · {time}","작업 중 · {time}","{time} süredir çalışıyor","En cours depuis {time}","Arbeitet seit {time}","Trabajando durante {time}","Trabalhando há {time}","Al lavoro da {time}"],
   };
   for (const [key, values] of Object.entries(WORK_LOG_KEYED)) {

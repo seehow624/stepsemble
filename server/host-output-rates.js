@@ -53,11 +53,20 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     if (count > 0) run.lastEmissionAt = now();
     sample(run, count);
   }
+  const counted = run => [...run.counts.values()].reduce((sum, n) => sum + n, 0);
   function count(run, id, value) {
     if (!run || !(Number(value) >= 0)) return;
     if (Number(value) > (run.counts.get(String(id)) || 0)) run.lastEmissionAt = now();
     run.counts.set(String(id), Math.max(run.counts.get(String(id)) || 0, Number(value)));
-    Rate.reportTotal(run.meter, [...run.counts.values()].reduce((sum, n) => sum + n, 0));
+    Rate.reportTotal(run.meter, (run.banked || 0) + counted(run) - (run.bankedCounts || 0));
+  }
+  // A Claude run can span several turns (one per background task it waits
+  // on); each turn's result reports that turn's own total.
+  function bank(run, turnTotal) {
+    const sum = counted(run), turn = sum - (run.bankedCounts || 0);
+    run.banked = (run.banked || 0) + Math.max(turn, Number(turnTotal) >= 0 ? Number(turnTotal) : 0);
+    run.bankedCounts = sum;
+    Rate.reportTotal(run.meter, run.banked);
   }
   function persist(run) {
     if (!run || run.meter.endedAt === null) return;
@@ -68,10 +77,10 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     try { store.recordHost(run.entry, { ...summary, startedAt: run.meter.startedAt, endedAt: run.meter.endedAt, runId: run.runId }); }
     catch (error) { onError(error); }
   }
-  function end(agent, id, runId = null) {
+  function end(agent, id, runId = null, at = null) {
     const run = get(agent, id);
     if (!run || runId && run.runId !== runId || run.meter.endedAt !== null) return;
-    Rate.finish(run.meter, now()); persist(run);
+    Rate.finish(run.meter, Number.isFinite(at) && at > 0 ? Math.min(at, now()) : now()); persist(run);
   }
   function tool(run, value) { if (value?.id) busy(run, `tool:${value.id}`, value.running === true); }
   function pi(id, event) {
@@ -111,8 +120,15 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
     if (event.type !== "stream_event") for (const activity of Presentation.claudeEvent(event)) if (activity.kind === "tool") tool(run, activity.tool);
     if (event.type === "control_request" && event.request?.subtype === "can_use_tool" || event.type === "permission_request") busy(run, `ui:${event.requestId}`, true);
     if (["rate.permission.resolved", "control_cancel_request"].includes(event.type)) busy(run, `ui:${event.requestId}`, false);
-    if (event.type === "result") { Rate.reportTotal(run.meter, event.usage?.output_tokens); end("claude-code", id); }
-    if (event.type === "rate.turn.ended") end("claude-code", id);
+    // A turn that leaves background work does not end the run: the time
+    // until Claude's next turn is spent waiting, like a tool's.
+    if (event.type === "result") {
+      bank(run, event.usage?.output_tokens);
+      if (event.backgroundPending === true) busy(run, "background", true);
+      else end("claude-code", id);
+    }
+    if (event.type === "rate.turn.resumed") busy(run, "background", false);
+    if (event.type === "rate.turn.ended") end("claude-code", id, null, event.at);
   }
   function acp(agent, event) {
     const id = event.sessionId;

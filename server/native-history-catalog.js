@@ -10,7 +10,7 @@ const fs = require("node:fs");
 const fsp = fs.promises;
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { createForkPoints } = require("./claude-fork-point");
+const { createForkPoints, claudeOwnPrompt } = require("./claude-fork-point");
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const MAX_PROJECT_DEPTH = 4;
@@ -475,7 +475,9 @@ function createTranscript(provider, limits = DEFAULT_LIMITS, { keepBelow = Infin
     // conversation is resumed; its other notes, such as an API error, stay.
     if (row.type === "assistant" && row.message?.model === "<synthetic>" && raw === "No response requested.") return;
     if (row.type === "assistant") message("assistant", raw, row);
-    else if (/^<task-notification>/.test(raw)) return;
+    // A prompt Claude gave itself (a background task's notification) is not
+    // the person's; its reply goes on the turn of the message before it.
+    else if (/^<task-notification>/.test(raw) || claudeOwnPrompt(row)) return;
     else if (claudeCommand(raw)) message("user", claudeCommand(raw), row);
     else if (claudeCommandOutput(raw) !== null) { const output = claudeCommandOutput(raw); if (output) message("assistant", output, row); }
     else message("user", raw, row, sent);

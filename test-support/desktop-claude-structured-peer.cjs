@@ -114,6 +114,50 @@ rl.on("line", line => {
     return;
   }
   lifecycle(uuid, "queued"); lifecycle(uuid, "started");
+  // A message with "[background]" leaves work running after its turn, as
+  // Claude Code 2.1.304 reports it: an Agent and a Monitor run in the
+  // background, the list of background tasks, a turn that ends at once.
+  // Each ends later (the Monitor at half of FIXTURE_CLAUDE_BACKGROUND_MS) and
+  // Claude answers its notification in a turn of its own.
+  if (streaming && text.includes("[background]")) {
+    const n = replies, usage = { input_tokens: 12, output_tokens: 3 };
+    const say = (content, record = true) => {
+      const message = { id: "msg_fixture_" + (++replies), type: "message", role: "assistant", model: "claude-sonnet-5", content, usage };
+      out({ type: "assistant", session_id: sessionId, message });
+      if (record) history({ type: "assistant", message });
+    };
+    const system = value => out({ type: "system", session_id: sessionId, ...value });
+    const tasks = [{ id: `task_fixture_agent_${n}`, tool: `toolu_fixture_agent_${n}`, name: "Agent", type: "local_agent", description: "Watch the release build",
+      input: { description: "Watch the release build", prompt: "Watch the build", subagent_type: "general-purpose", run_in_background: true } },
+    { id: `task_fixture_monitor_${n}`, tool: `toolu_fixture_monitor_${n}`, name: "Monitor", type: "local_bash", description: "Follow the deploy log",
+      input: { command: "tail -f deploy.log", description: "Follow the deploy log" } }];
+    const listed = rows => system({ subtype: "background_tasks_changed", tasks: rows.map(task => ({ task_id: task.id, task_type: task.type, description: task.description })) });
+    let running = [...tasks];
+    history({ type: "user", message: { role: "user", content: text } });
+    system({ subtype: "init", model: "claude-sonnet-5" });
+    for (const task of tasks) {
+      say([{ type: "tool_use", id: task.tool, name: task.name, input: task.input }]);
+      listed(tasks.slice(0, tasks.indexOf(task) + 1));
+      system({ subtype: "task_started", task_id: task.id, tool_use_id: task.tool, description: task.description, task_type: task.type, is_backgrounded: true });
+      out({ type: "user", session_id: sessionId, message: { role: "user", content: [{ type: "tool_result", tool_use_id: task.tool, content: "Running in the background." }] } });
+    }
+    say([{ type: "text", text: "fixture:watching in the background" }]);
+    out({ type: "result", subtype: "success", session_id: sessionId, result: "fixture:watching in the background", usage });
+    lifecycle(uuid, "completed");
+    const total = Number(process.env.FIXTURE_CLAUDE_BACKGROUND_MS) || 8000;
+    for (const [task, after, reply] of [[tasks[1], total / 2, "fixture:the deploy log is quiet"], [tasks[0], total, "fixture:the release build passed"]]) setTimeout(() => {
+      system({ subtype: "task_updated", task_id: task.id, patch: { status: "completed" } });
+      system({ subtype: "task_notification", task_id: task.id, tool_use_id: task.tool, status: "completed", summary: task.description });
+      running = running.filter(row => row !== task);
+      listed(running);
+      history({ type: "user", origin: { kind: "task-notification" }, promptSource: "system", message: { role: "user",
+        content: `<task-notification><task-id>${task.id}</task-id><status>completed</status><summary>${task.description}</summary></task-notification>` } });
+      system({ subtype: "init", model: "claude-sonnet-5" });
+      say([{ type: "text", text: reply }]);
+      out({ type: "result", subtype: "success", session_id: sessionId, result: reply, usage });
+    }, after);
+    return;
+  }
   if (streaming && text.includes("[slow]")) {
     history({ type: "user", message: { role: "user", content: text } });
     out({ type: "system", subtype: "init", session_id: sessionId, model: "claude-sonnet-5" });

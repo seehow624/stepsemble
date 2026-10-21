@@ -6047,6 +6047,21 @@ html.reduced-motion .thinking-control.is-dragging .effort-knob { transform: none
 #view-chat .wl-chev .icon { width: 15px; height: 15px; }
 #view-chat .wl-head[aria-expanded="true"] .wl-chev { transform: rotate(90deg); }
 
+/* ---------- Waiting on background work ----------
+   Between turns Claude can wait on work it started in the background; the
+   running line says so ("· waiting on 2 background tasks") and opens a
+   list of that work. */
+#view-chat .wl-head-label { flex: none; }
+#view-chat .wl-wait { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 450; opacity: .85; }
+#view-chat .wl-wait:empty { display: none; }
+#view-chat .wl-head.wl-running.wl-waiting { cursor: pointer; }
+#view-chat .wl-head.wl-running.wl-waiting .wl-chev { display: inline-grid; }
+#view-chat .wl-head.wl-waiting:hover { color: var(--ink); }
+#view-chat .wl-wait-list { margin: -4px 0 8px; padding: 0 0 6px 22px; list-style: none; color: var(--pine-soft); font-size: var(--text-sm); line-height: 1.5; }
+#view-chat .wl-wait-list[hidden] { display: none; }
+#view-chat .wl-wait-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view-chat .wl-wait-kind { color: var(--ink); font-weight: 500; }
+
 #view-chat .wl-row {
   display: flex;
   align-items: center;
