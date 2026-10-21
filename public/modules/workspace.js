@@ -399,20 +399,27 @@
   // starts there, and a page still loading takes it once it says it is ready.
   // Like a session's pane, it takes the focus only to type a new schedule.
   const scheduleRequests = new Map();
+  const scheduleFocus = new Set();
   function openSchedules(target, { select = null, create = false } = {}) {
     if (!machines.some(m => m.id === target)) { toast(t("hostUnavailable")); return false; }
     const ref = allRefs().find(tab => tab.host === target && tab.schedules)
       || { host: target, key: crypto.randomUUID(), title: window.StepsembleWorkflows.label("schedules"), schedules: true };
     const key = L.identity(ref);
     scheduleRequests.set(key, { select, create, focus: create });
-    if (!open(ref)) { scheduleRequests.delete(key); return false; }
+    if (create) scheduleFocus.add(key);
+    if (!open(ref)) { scheduleRequests.delete(key); scheduleFocus.delete(key); return false; }
     showSchedules(frames.get(key));
     return true;
   }
   function showSchedules(item) {
-    const key = item && L.identity(item.ref), request = key && scheduleRequests.get(key);
-    if (!request || !item.ready) return;
-    scheduleRequests.delete(key); toFrame(item.frame, { type: "schedules-show", ...request });
+    const key = item && L.identity(item.ref);
+    if (!key || !item.ready) return;
+    const request = scheduleRequests.get(key);
+    if (request) { scheduleRequests.delete(key); toFrame(item.frame, { type: "schedules-show", ...request }); }
+    // The form takes the focus inside the pane; the pane must also hold the
+    // Workspace's, or what is typed next goes nowhere (a menu that chose New
+    // schedule has just taken its own focused button away).
+    if (scheduleFocus.delete(key)) item.frame.focus({ preventScroll: true });
   }
   function schedulesUrl(ref) {
     const key = L.identity(ref), request = scheduleRequests.get(key), url = new URL("/schedules.html", location.origin);
