@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { levelStops, stopFraction, nearestStop, project, landingStop, rubberband, springStep } = require("../public/modules/effort-slider");
+const { levelStops, stopFraction, nearestStop, linePlace, nearestPlace, project, landingStop, rubberband, springStep } = require("../public/modules/effort-slider");
 
 const option = (value, label = value, disabled = false) => ({ value, label, disabled });
 
@@ -46,6 +46,27 @@ test("a stop and its place on the line map to each other", () => {
   assert.equal(nearestStop(0.65, 5), 3);
   assert.equal(nearestStop(-0.4, 5), 0);
   assert.equal(nearestStop(1.7, 5), 4);
+});
+
+test("on the message box's edge the weakest level is a stub, the strongest the whole line and off the empty one", () => {
+  const claude = ["low", "medium", "high", "xhigh", "max"];
+  assert.deepEqual(claude.map((stop, index) => +linePlace(index, claude).toFixed(3)), [0.1, 0.325, 0.55, 0.775, 1]);
+  const pi = ["off", "low", "medium", "high"];
+  assert.deepEqual(pi.map((stop, index) => +linePlace(index, pi).toFixed(3)), [0, 0.1, 0.55, 1]);
+  assert.equal(linePlace(0, ["high"]), 1, "a lone level fills the line");
+  assert.equal(linePlace(0, ["none"]), 0);
+  assert.equal(linePlace(-1, claude), 0, "an unknown level, the empty line");
+  assert.equal(linePlace(9, claude), 0);
+  // Every stop is the nearest to its own place; between two, the nearer, and the stronger of two as near.
+  const places = pi.map((stop, index) => linePlace(index, pi));
+  for (let index = 0; index < pi.length; index++) assert.equal(nearestPlace(places[index], places), index);
+  assert.equal(nearestPlace(0.04, places), 0);
+  assert.equal(nearestPlace(0.06, places), 1);
+  assert.equal(nearestPlace(0.32, places), 1);
+  assert.equal(nearestPlace(0.33, places), 2);
+  assert.equal(nearestPlace(0.5, [0, 1]), 1);
+  assert.equal(nearestPlace(-3, places), 0);
+  assert.equal(nearestPlace(4, places), 3);
 });
 
 test("a release lands on the stop nearest where the gesture was heading", () => {
@@ -96,4 +117,25 @@ test("the sheet shows the slider for the level select, which stays in the page a
   assert.match(index, /modules\/effort-slider\.js\?v=[\d.]+"><\/script>[\s\S]*<script src="\/app\.js/);
   assert.match(fs.readFileSync(path.join(root, "public", "sw.js"), "utf8"), /"\/modules\/effort-slider\.js\?v=[\d.]+"/);
   assert.match(app, /stepsembleEffortSlider\?\.attach\(\{ select: el\.thinkingSelect, slider: \$\("thinking-slider"\)/);
+});
+
+test("the message box draws the level along its top edge as a slider of its own", () => {
+  const root = path.join(__dirname, "..");
+  const index = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "public", "style.css"), "utf8");
+  const toolbar = /<div class="composer-toolbar"[\s\S]*?<\/footer>/.exec(index)[0];
+  // Right after the model button, whose own text is the model alone.
+  assert.match(toolbar, /<button id="btn-model"[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>\s*(?:<!--[^>]*-->\s*)?<div id="composer-effort" class="composer-effort-line" role="slider"[^>]*aria-label="Thinking level"/);
+  assert.doesNotMatch(toolbar, /composer-model-level|composer-effort-bar/, "no bars beside the model");
+  for (const part of ["effort-line-track", "effort-line-fill", "effort-line-ticks", "effort-line-tip", "effort-line-label"]) assert.ok(toolbar.includes(`class="${part}"`), part);
+  assert.match(app, /window\.stepsembleEffortSlider\?\.attachLine\?\.\(\{ slider: line, commit: commitEffortLevel \}\)/);
+  // A finger's reach is 44px, a pointer's 24px; the chips above stay on top of it.
+  assert.match(css, /#view-chat \.composer-effort-line \{\s*--line-out: 18px;\s*--line-in: 6px;/);
+  assert.match(css, /@media \(pointer: coarse\) \{ #view-chat \.composer-effort-line \{ --line-out: 38px;/);
+  assert.match(css, /#view-chat :is\(\.subagent-bar, \.task-progress\) \{ position: relative; z-index: 2; \}/);
+  for (const query of ["prefers-reduced-motion: reduce", "prefers-contrast: more", "forced-colors: active", "prefers-reduced-transparency: reduce"]) {
+    const at = css.indexOf("composer-effort-line {"), block = css.slice(at, css.indexOf("Context the agent has not reported yet", at));
+    assert.ok(block.includes(query), query);
+  }
 });

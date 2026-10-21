@@ -135,29 +135,35 @@
   }
 
   /**
-   * The model button's thinking indicator: four bars lit by the level's place
-   * in the model's own list. The list's top level lights all four and a mark
-   * of its own; the others count up from one bar, so Claude's Low to Max is
-   * 1, 2, 3, 4 and 4 with the mark. More than four below the top share the
-   * lowest bar, keeping the levels people switch between apart.
-   * @returns {{ state: "level"|"off"|"auto"|"none", bars: number, top: boolean }}
+   * The thinking level as a line on the message box: the model's own levels
+   * weakest first (off first, when the model can do without), the level's
+   * place among them, and whether it is the strongest. Auto keeps the place
+   * of the level it runs at, when that is known. A level outside the model's
+   * list is placed on the whole scale, which tops out at Max unless the level
+   * is Codex's Ultra.
+   * @returns {{ state: "level"|"off"|"auto"|"none", stops: string[], index: number, top: boolean }}
+   *   stops keep the list's own values; index is -1 when the level is not among them
    */
-  function effortBars(level, levels = []) {
-    const value = String(level || "").trim().toLowerCase();
-    if (!value) return { state: "none", bars: 0, top: false };
-    if (NO_LEVEL.has(value)) return { state: "off", bars: 0, top: false };
-    if (AUTO_LEVEL.has(value)) return { state: "auto", bars: 0, top: false };
-    let list = [...new Set((Array.isArray(levels) ? levels : []).map(item => String(item?.value ?? item ?? "").trim().toLowerCase())
-      .filter(item => item && !NO_LEVEL.has(item) && !AUTO_LEVEL.has(item)))];
-    if (list.every(item => LEVEL_ORDER.includes(item))) list.sort((a, b) => LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b));
-    // A level outside the model's list is placed on the whole scale, which
-    // tops out at Max unless the level is Codex's Ultra.
-    if (!list.includes(value)) list = LEVEL_ORDER.includes(value) ? LEVEL_ORDER.filter(item => item !== "ultra" || value === "ultra") : [];
-    const index = list.indexOf(value);
-    if (index < 0) return { state: "level", bars: 2, top: false };
-    if (index === list.length - 1) return { state: "level", bars: 4, top: true };
-    const below = list.length - 1;
-    return { state: "level", bars: below <= 4 ? index + 1 : Math.max(1, 4 - (below - 1 - index)), top: false };
+  function effortLine(level, levels = [], effective = "") {
+    const value = String(level || "").trim().toLowerCase(), lower = item => item.toLowerCase(), seen = new Set(), list = [];
+    for (const item of Array.isArray(levels) ? levels : []) {
+      const raw = String(item?.value ?? item ?? "").trim();
+      if (!raw || AUTO_LEVEL.has(lower(raw)) || seen.has(lower(raw))) continue;
+      seen.add(lower(raw)); list.push(raw);
+    }
+    const named = list.filter(item => !NO_LEVEL.has(lower(item)));
+    if (named.every(item => LEVEL_ORDER.includes(lower(item)))) named.sort((a, b) => LEVEL_ORDER.indexOf(lower(a)) - LEVEL_ORDER.indexOf(lower(b)));
+    let stops = [...list.filter(item => NO_LEVEL.has(lower(item))).slice(0, 1), ...named];
+    const find = name => stops.findIndex(item => lower(item) === name);
+    if (!value) return { state: "none", stops, index: -1, top: false };
+    if (NO_LEVEL.has(value)) return { state: "off", stops, index: stops.findIndex(item => NO_LEVEL.has(lower(item))), top: false };
+    const auto = AUTO_LEVEL.has(value), wanted = auto ? String(effective || "").trim().toLowerCase() : value;
+    let index = wanted ? find(wanted) : -1;
+    if (index < 0 && !auto && LEVEL_ORDER.includes(value)) {
+      stops = LEVEL_ORDER.filter(item => item !== "ultra" || value === "ultra");
+      index = stops.indexOf(value);
+    }
+    return { state: auto ? "auto" : "level", stops, index, top: !auto && index >= 0 && index === stops.length - 1 };
   }
 
   /**
@@ -269,5 +275,5 @@
     });
   }
 
-  return { present, detailLine, modelGroups, providerName, claudeVersionName, contextText, levelName, modelKey, modelTags, plainModelId, matchModel, contextCapacity, effortBars, LEVEL_ORDER };
+  return { present, detailLine, modelGroups, providerName, claudeVersionName, contextText, levelName, modelKey, modelTags, plainModelId, matchModel, contextCapacity, effortLine, LEVEL_ORDER };
 });

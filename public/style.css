@@ -4902,9 +4902,9 @@ body.compact #view-list .project-group-items .session-item {
 }
 #view-chat .composer-toolbar .composer-icon-btn { flex: 0 0 auto; }
 
-/* Fixed-width model chip: the model name truncates with an ellipsis while the
-   trailing thinking level always stays fully visible. The width is sized so
-   long entries such as "GLM-5.3-Flash (2x usage) · max" stay readable. */
+/* Fixed-width model chip: the model name truncates with an ellipsis. The
+   width is sized so long names such as "GLM-5.3-Flash (2x usage)" stay
+   readable. */
 #view-chat .composer-model-control {
   width: var(--composer-model-w, 240px);
   min-width: 0;
@@ -4927,10 +4927,6 @@ body.compact #view-list .project-group-items .session-item {
   color: var(--ink);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-#view-chat .composer-effort {
-  flex: 0 0 auto;
-  color: var(--accent);
 }
 #view-chat .composer-model-control .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 
@@ -6763,7 +6759,7 @@ html.reduced-motion #view-chat .composer-send { transition: none; }
 }
 @media (max-width: 480px) {
   /* A narrow phone keeps the words and drops the approval chevron; the model
-     chip keeps its chevron and its small thinking bars. */
+     keeps its chevron. */
   #view-chat .composer-approval .composer-approval-chevron { display: none; }
   #view-chat .composer-approval { gap: 5px; padding: 0 5px; font-size: var(--text-sm); }
   #view-chat .composer-model-control { max-width: 44vw; padding: 0 4px; font-size: var(--text-sm); }
@@ -6985,66 +6981,173 @@ html.workspace-mobile-pane #view-chat .session-summary { width: min(304px, calc(
 }
 
 /* ==========================================================================
-   v3.10 effort-and-context — the thinking level as four rising bars beside
-   the model, and the context ring before the agent has reported. The bars
-   light in the accent colour up to the level's place in the model's own
-   list, and its top level adds a dot over the tallest bar, a shape rather
-   than a colour; its name is their tooltip and part of the button's name.
-   They stay on a phone and in a narrow pane. Pixel-aligned at 1× and 2×.
+   v3.10 effort-and-context — the thinking level as a line along the message
+   box's top edge, and the context ring before the agent has reported. The
+   line fills from the left to the level's place in the model's own list (its
+   weakest level a short stub, its strongest the whole edge), in the accent
+   colour that brightens towards the right; the top level adds a bright tip.
+   Off is the empty line, Auto a dashed one. Dragged, tapped or stepped with
+   the keys it changes the level, its name floating above while it does. Its
+   reach runs above the edge, under the chips there, and into the box's
+   padding only, short of the text box.
    ========================================================================== */
-#view-chat .composer-model-copy { align-items: center; }
-#view-chat .composer-effort {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 3px;
-  line-height: 0;
+#view-chat .composer-effort-line {
+  --line-out: 18px;
+  --line-in: 6px;
+  --line-inset: calc(var(--radius-2xl) + 2px);
+  --line-h: 2px;
+  --label-lift: 9px;
+  --effort-hot: color-mix(in srgb, var(--accent) 88%, var(--ink));
+  --effort-glow: color-mix(in srgb, var(--accent) 30%, transparent);
+  --effort-light: rgba(255, 255, 255, .8);
+  position: absolute;
+  z-index: 1;
+  top: calc(-1 * var(--line-out));
+  left: 0;
+  right: 0;
+  height: calc(var(--line-out) + var(--line-in));
+  outline: none;
+  cursor: pointer;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
-#view-chat .composer-effort-glyph { display: block; width: 11px; height: 13px; overflow: visible; }
-/* The list's top level: a dot over the tallest bar, with a pixel between. */
-#view-chat .composer-effort-mark { fill: currentColor; opacity: 0; transition: opacity .2s ease; }
-#view-chat .composer-effort[data-top="true"] .composer-effort-mark { opacity: 1; }
-/* --s scales a bar from its own height (--h, in the markup) to the one its
-   state draws; whole pixels at 1× and 2×. */
-#view-chat .composer-effort-bar {
-  --s: 1;
-  fill: color-mix(in srgb, var(--ink) 18%, transparent);
-  transform: scaleY(var(--s));
-  transform-box: fill-box;
+#view-chat .composer-effort-line[hidden] { display: none; }
+#view-chat .composer-effort-line.is-disabled { cursor: default; pointer-events: none; }
+/* In the dark the line gives off light; in the light it is ink on paper. */
+[data-theme="dark"] #view-chat .composer-effort-line { --effort-hot: color-mix(in srgb, var(--accent) 55%, #fff); --effort-glow: color-mix(in srgb, var(--accent) 70%, transparent); --effort-light: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #view-chat .composer-effort-line { --effort-hot: color-mix(in srgb, var(--accent) 55%, #fff); --effort-glow: color-mix(in srgb, var(--accent) 70%, transparent); --effort-light: #fff; }
+}
+/* A finger's reach is 44px; the chips above stay on top of it. */
+@media (pointer: coarse) { #view-chat .composer-effort-line { --line-out: 38px; --label-lift: 46px; } }
+#view-chat :is(.subagent-bar, .task-progress) { position: relative; z-index: 2; }
+/* The line runs along the edge's straight stretch, centred on the rim. */
+#view-chat .effort-line-track {
+  position: absolute;
+  left: var(--line-inset);
+  right: var(--line-inset);
+  top: calc(var(--line-out) - .5px - var(--line-h) / 2);
+  height: var(--line-h);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ink) 13%, var(--milk));
+  transition: height .2s var(--oc-spring, ease), top .2s var(--oc-spring, ease);
+}
+/* The fill is the accent, faint at the weak end and full, then brighter,
+   towards the strong end: the gradient spans the whole line, so a low level
+   shows only its faint start. */
+#view-chat .effort-line-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 32%, var(--milk)), var(--accent) 76%, var(--effort-hot)) left center / var(--effort-w, 100%) 100% no-repeat;
+  box-shadow: 0 0 calc(2px + 6px * var(--effort-p, 0)) color-mix(in srgb, var(--effort-glow) calc(20% + 60% * var(--effort-p, 0)), transparent);
+}
+#view-chat .effort-line-ticks { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+#view-chat .effort-line-tick { position: absolute; top: 50%; width: 2px; height: 2px; margin: -1px 0 0 -1px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 50%, transparent); }
+#view-chat .effort-line-tick.on { background: color-mix(in srgb, var(--milk) 80%, transparent); }
+/* The tip: lit at the top level, and the handle while the line is held. */
+#view-chat .effort-line-tip { position: absolute; left: 0; top: 50%; width: 0; height: 0; pointer-events: none; will-change: transform; }
+#view-chat .effort-line-tip::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--effort-hot);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--milk) 70%, transparent), 0 0 10px 2px var(--effort-glow);
+  opacity: 0;
+  transform: scale(.4);
+  transition: opacity .2s ease, transform .25s var(--oc-spring, ease);
+}
+#view-chat .composer-effort-line:is(.is-top, .is-dragging) .effort-line-tip::before { opacity: 1; transform: none; }
+/* Its name floats above the end of the fill: under the pointer, while held,
+   and a moment after it lands. */
+#view-chat .effort-line-label {
+  position: absolute;
+  bottom: calc(var(--line-in) + var(--label-lift));
+  left: clamp(48px, calc(var(--line-inset) + var(--effort-x, 0px)), calc(100% - 48px));
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--milk);
+  color: var(--ink);
+  box-shadow: 0 0 0 .5px var(--line), 0 6px 16px -6px rgba(0, 0, 0, .3);
+  font-size: var(--text-xs);
+  font-weight: 620;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 3px) scale(.94);
   transform-origin: 50% 100%;
-  transition: fill .2s ease, opacity .2s ease, transform .25s var(--oc-spring, ease);
+  transition: opacity .16s ease, transform .22s var(--oc-spring, ease);
 }
-#view-chat .composer-effort-bar.on { fill: currentColor; }
-/* Auto: the agent picks its level, so no step is lit; four even bars. */
-#view-chat .composer-effort[data-state="auto"] .composer-effort-bar { --s: calc(6 / var(--h)); fill: currentColor; opacity: .55; }
-/* No level to show: the bars lie flat; the tooltip says why. */
-#view-chat .composer-effort[data-state="none"] .composer-effort-bar { --s: calc(2 / var(--h)); }
-/* While the agent works, the lit bars rise one after another. */
-@keyframes composer-effort-ripple {
-  0%, 64%, 100% { transform: scaleY(var(--s)); }
-  30% { transform: scaleY(calc(var(--s) * .5)); }
+#view-chat .effort-line-label:empty { display: none; }
+/* A pointer passing over brightens the line at once and names it only if it
+   stays; held, the name is there at once. */
+@media (hover: hover) {
+  #view-chat .composer-effort-line:hover { --line-h: 4px; }
+  #view-chat .composer-effort-line:hover :is(.effort-line-ticks, .effort-line-label) { opacity: 1; transition-delay: .3s; }
+  #view-chat .composer-effort-line:hover .effort-line-label { transform: translate(-50%, 0); }
 }
-#view-chat .composer-model-control.is-working .composer-effort-bar.on,
-#view-chat .composer-model-control.is-working .composer-effort[data-state="auto"] .composer-effort-bar {
-  animation: composer-effort-ripple 1.8s cubic-bezier(.45, 0, .3, 1) infinite;
-  animation-delay: calc(var(--bar) * 150ms);
+#view-chat .composer-effort-line:is(.is-dragging, .is-pressed, :focus-visible) { --line-h: 4px; }
+#view-chat .composer-effort-line:is(.is-dragging, :focus-visible) .effort-line-ticks { opacity: 1; transition-delay: 0s; }
+#view-chat .composer-effort-line:is(.is-dragging, .is-landing, :focus-visible) .effort-line-label { opacity: 1; transform: translate(-50%, 0); transition-delay: 0s; }
+#view-chat .composer-effort-line:focus-visible .effort-line-track { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+/* Auto: the agent picks, so the line is dashed, filled to the level it runs
+   at once reported. */
+#view-chat .composer-effort-line.is-auto .effort-line-track { background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink) 30%, var(--milk)) 0 5px, transparent 5px 9px); }
+#view-chat .composer-effort-line.is-auto .effort-line-fill { background: repeating-linear-gradient(90deg, var(--accent) 0 5px, transparent 5px 9px); box-shadow: none; }
+/* While the agent works, a soft light runs along the filled part. */
+@keyframes effort-line-travel { from { transform: translateX(-100%); } to { transform: translateX(var(--effort-x, 0px)); } }
+#view-chat .composer-model-control.is-working + .composer-effort-line .effort-line-fill::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 56px;
+  background: linear-gradient(90deg, transparent, var(--effort-light), transparent);
+  animation: effort-line-travel 2.4s cubic-bezier(.45, 0, .3, 1) infinite;
 }
-html.reduced-motion #view-chat :is(.composer-effort-bar, .composer-effort-mark) { transition: none; animation: none; }
+/* Less motion (every transition already stops): no travelling light, and
+   the name appears in place. */
+html.reduced-motion #view-chat .effort-line-fill::after { display: none; }
+html.reduced-motion #view-chat .effort-line-label { transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) {
-  #view-chat :is(.composer-effort-bar, .composer-effort-mark) { transition: none; animation: none; }
+  #view-chat .effort-line-fill::after { display: none; }
+  #view-chat .effort-line-label { transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #view-chat .effort-line-fill { box-shadow: none; }
+  #view-chat .effort-line-tip::before { box-shadow: 0 0 0 1.5px var(--milk); }
+}
+@media (prefers-contrast: more) {
+  #view-chat .composer-effort-line { --line-h: 3px; }
+  #view-chat .effort-line-track { background: color-mix(in srgb, var(--ink) 40%, var(--milk)); }
+  #view-chat .effort-line-fill { background: var(--accent); box-shadow: none; }
+  #view-chat .effort-line-label { box-shadow: 0 0 0 1px var(--ink); }
+}
+@media (forced-colors: active) {
+  #view-chat .composer-effort-line { forced-color-adjust: none; }
+  #view-chat .effort-line-track { background: GrayText; }
+  #view-chat .effort-line-fill, #view-chat .composer-effort-line.is-auto .effort-line-fill { background: Highlight; box-shadow: none; }
+  #view-chat .composer-effort-line.is-auto .effort-line-track { background: repeating-linear-gradient(90deg, GrayText 0 5px, transparent 5px 9px); }
+  #view-chat .effort-line-tip::before { background: Highlight; box-shadow: none; }
+  #view-chat .effort-line-tick { background: CanvasText; }
+  #view-chat .effort-line-tick.on { background: HighlightText; }
+  #view-chat .effort-line-label { border: 1px solid CanvasText; background: Canvas; color: CanvasText; box-shadow: none; }
+  #view-chat .composer-effort-line:focus-visible .effort-line-track { outline-color: Highlight; }
+  #view-chat .effort-line-fill::after { display: none; }
 }
 /* A read-only history names the model it ran with; there is nothing to open. */
 #view-chat .composer-model-control.is-static { cursor: default; }
 #view-chat .composer-model-control.is-static > .icon { display: none; }
-#view-chat .composer-model-control.is-static:hover { background: transparent; }
-@media (max-width: 480px) {
-  #view-chat .composer-effort { margin-left: 2px; }
-}
-@media (forced-colors: active) {
-  #view-chat .composer-effort { forced-color-adjust: none; color: ButtonText; }
-  #view-chat .composer-effort-bar { fill: GrayText; }
-  #view-chat .composer-effort-bar.on, #view-chat .composer-effort-mark { fill: ButtonText; }
-  #view-chat .composer-effort[data-state="auto"] .composer-effort-bar { fill: ButtonText; }
-}
 
 /* Context the agent has not reported yet: an empty dashed ring and a dash. */
 #view-chat .context-dashboard[data-context-state="unknown"] .context-ring-track {

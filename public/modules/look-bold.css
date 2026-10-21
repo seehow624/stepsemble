@@ -295,6 +295,11 @@ html[data-look="bold"] #view-chat .composer-toolbar .composer-icon-btn { border-
 html[data-look="bold"] #view-chat .composer-toolbar .composer-icon-btn:active { transform: scale(.9); }
 html[data-look="bold"] #view-chat .composer-control { border-radius: var(--radius-pill); background: transparent; }
 html[data-look="bold"] #view-chat .composer-control:not(.is-static):active { transform: scale(.97); }
+/* The thinking level along the capsule's top edge; its name floats in the
+   menus' glass. */
+html[data-look="bold"] #view-chat .composer-effort-line { --line-inset: 30px; }
+html[data-look="bold"] #view-chat .effort-line-label { background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); }
 html[data-look="bold"] #view-chat .composer-send { border-radius: 50%; }
 html[data-look="bold"] #view-chat .composer-send:active:not(:disabled) { transform: scale(.9); }
 html[data-look="bold"] #view-chat :is(.context-ring-btn, .composer-approval) { border-radius: var(--radius-pill); }
@@ -409,6 +414,7 @@ html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transitio
   html[data-look="bold"] dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
   html[data-look="bold"].workspace-mobile-pane #view-chat .chat-topbar, html[data-look="bold"] #view-settings .topbar, html[data-look="bold"] #view-settings .settings-content-title { background: var(--paper); }
   html[data-look="bold"] #view-chat .composer { background: var(--milk); }
+  html[data-look="bold"] #view-chat .effort-line-label { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
   html[data-look="bold"] { --bold-outline: 0 0 0 1px var(--line); --bold-hairline: var(--line); }
@@ -416,11 +422,13 @@ html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transitio
   /* The sidebar has no frame; one edge keeps it apart. */
   html[data-look="bold"] #workspace-sidebar { border-right: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); }
   html[data-look="bold"] .workspace-session[data-open=true] { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+  html[data-look="bold"] #view-chat .effort-line-label { box-shadow: 0 0 0 1px var(--ink); }
 }
 @media (forced-colors: active) {
   html[data-look="bold"] :is(.workspace-pane, .workspace-menu, dialog, .sheet, #view-chat .composer, .settings-group, .settings-nav-list, .settings-host-card, .workspace-host-card, .workspace-search-wrap, input[type="search"]) { border: 1px solid CanvasText; box-shadow: none; }
   html[data-look="bold"] #workspace-sidebar { border-right: 1px solid CanvasText; }
   html[data-look="bold"] #view-chat .msg.user .bubble { border: 1px solid CanvasText; }
+  html[data-look="bold"] #view-chat .effort-line-label { background: Canvas; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   html[data-look="bold"] .settings-nav-icon { forced-color-adjust: none; }
   html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle)::before { display: none; }
   html[data-look="bold"] :is(.usage-view-tabs, .usage-periods, .usage-quota-toggle) > button:is([aria-selected=true], [aria-pressed=true]) { outline: 2px solid Highlight; }

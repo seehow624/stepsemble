@@ -152,7 +152,7 @@ const el = {
   chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
-  composerModelNameText: $("composer-model-name"), composerModelLevelText: $("composer-model-level"),
+  composerModelNameText: $("composer-model-name"), composerEffort: $("composer-effort"),
   approvalControl: $("approval-control"), btnApproval: $("btn-approval"), approvalLabel: $("approval-label"),
   approvalMenu: $("approval-menu"), approvalOptions: $("approval-options"), approvalMenuNote: $("approval-menu-note"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
@@ -279,11 +279,13 @@ const draftWrites = new Map();
 const pendingDraftSends = new Map();
 let composerModelName = "";
 let composerReasoningLevel = "off";
-// The thinking bars beside the model: the model's own levels they scale a
-// level against, why there is no level to show, and the level "auto" runs at.
+// The thinking level on the message box's edge: the model's own levels it
+// places a level among, why there is no level to show, and the level "auto"
+// runs at; the line's drag and spring once drawn.
 let composerReasoningLevels = [];
 let composerReasoningNote = "";
 let composerReasoningEffective = "";
+let composerEffortLine = null;
 let modelCatalog = [];
 let modelCatalogSources = new Map();
 let configuredProviders = [];
@@ -11484,7 +11486,8 @@ function setStreaming(on) {
   // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
   // endpoint and Codex applies the selected model on its next prompt. Other
   // connectors have no safe model route, and read-only history must not offer
-  // to change anything. The thinking bars ripple while the agent works.
+  // to change anything. While the agent works, light runs along the thinking
+  // line, the button's next sibling (see .is-working in style.css).
   syncComposerModelControl(rpc);
   el.btnModel?.classList.toggle("is-working", !!on && !!rpc);
   // Attachments follow the connector's wire format, not the Pi/generic split:
@@ -11521,6 +11524,7 @@ function syncComposerModelControl(connection = rpc) {
   el.btnModel.classList.toggle("is-static", observed);
   if (observed) el.btnModel.setAttribute("aria-disabled", "true");
   else el.btnModel.removeAttribute("aria-disabled");
+  syncEffortLine();
 }
 
 // ---- 送出 / 中止 ----
@@ -12361,36 +12365,13 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
   // Until the agent names its model, the chip invites a choice; it never
   // shows a "default" that hides which model will answer.
   const model = composerModelName || (window.stepsembleI18n?.t("Choose model") || "Choose model");
-  const level = composerReasoningLevel.toLowerCase();
-  // The level as four bars: how many are lit is the level's place in the
-  // model's own list, and its top level adds a mark. "Auto" lights the level
-  // it runs at when reported, and otherwise shows its own look; no level
-  // shows flat bars that say why.
-  const shown = modelPresentation?.effortBars(level, composerReasoningLevels) || { state: level ? "level" : "none", bars: 0, top: false };
-  const effective = shown.state === "auto" && composerReasoningEffective
-    ? modelPresentation?.effortBars(composerReasoningEffective, composerReasoningLevels) : null;
-  const words = shown.state === "none" ? ""
-    : shown.state === "auto" ? reasoningLevelText("auto") + (effective?.state === "level" ? " · " + reasoningLevelText(composerReasoningEffective) : "")
-      : reasoningLevelText(level);
-  const note = words ? tKey("runtime.thinkingTooltip", { level: words }) : composerReasoningNote || tKey("runtime.thinkingNotReported");
+  const { words, note } = composerThinking();
   if (el.composerModelNameText) {
     el.composerModelNameText.textContent = model;
     el.composerModelNameText.title = model;
   }
-  const indicator = el.composerModelLevelText;
-  if (indicator) {
-    const lit = effective?.state === "level" ? effective : shown;
-    const state = effective?.state === "level" ? "level" : shown.state;
-    const bars = lit.bars;
-    indicator.dataset.state = state;
-    indicator.dataset.bars = String(bars);
-    indicator.dataset.top = String(lit.top === true);
-    indicator.dataset.level = words;
-    indicator.title = note;
-    indicator.querySelectorAll?.(".composer-effort-bar").forEach((bar, index) => bar.classList.toggle("on", index < bars));
-    // The bars belong to a model; none show before one is known.
-    indicator.classList.toggle("hidden", !composerModelName);
-  }
+  syncEffortLine();
+  // The button shows the model alone; its name also says the level.
   if (el.btnModel) {
     el.btnModel.title = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
     el.btnModel.setAttribute("aria-label", words ? tKey("runtime.modelThinking", { model, level: words }) : `${model}. ${note}`);
@@ -12399,6 +12380,47 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
 // Levels read the way Codex shows them beside the model: "Medium", "Max".
 function reasoningLevelText(level) {
   return modelPresentation?.levelName(level) || String(level || "");
+}
+// The level as the composer tells it: its place among the model's own levels
+// (see effortLine), its words ("Extra high", "Auto · High") and, without one,
+// why. Auto names the level it runs at once reported.
+function composerThinking() {
+  const level = composerReasoningLevel.toLowerCase(), levels = composerReasoningLevels;
+  const shown = modelPresentation?.effortLine(level, levels, composerReasoningEffective) || { state: level ? "level" : "none", stops: [], index: -1, top: false };
+  const effective = shown.state === "auto" && !!composerReasoningEffective && modelPresentation?.effortLine(composerReasoningEffective, levels).state === "level";
+  const words = shown.state === "none" ? ""
+    : shown.state === "auto" ? reasoningLevelText("auto") + (effective ? " · " + reasoningLevelText(composerReasoningEffective) : "")
+      : reasoningLevelText(level);
+  const note = words ? tKey("runtime.thinkingTooltip", { level: words }) : composerReasoningNote || tKey("runtime.thinkingNotReported");
+  return { shown, words, note };
+}
+// The level as a line along the message box's top edge, filled to its place
+// among the model's own levels. Dragged, tapped or stepped with the keys, it
+// sets the level the way the sheet's slider does; it changes nothing where
+// the model button is only a label. No model, or no level to pick, no line.
+function syncEffortLine() {
+  const line = el.composerEffort;
+  if (!line) return;
+  composerEffortLine ??= window.stepsembleEffortSlider?.attachLine?.({ slider: line, commit: commitEffortLevel }) || null;
+  const { shown, words } = composerThinking();
+  const select = el.thinkingSelect, options = [...(select?.options || [])];
+  const open = new Set(options.filter(option => !option.disabled).map(option => option.value));
+  const live = connectorAllowsLiveControls(rpc) && !!select && !select.disabled && !select.hidden && shown.stops.every(stop => open.has(stop));
+  const levelled = shown.stops.some(stop => !/^(?:off|none)$/i.test(stop));
+  const hidden = !composerModelName || !!el.btnModel?.classList.contains("hidden") || !levelled || (shown.state === "none" && !live);
+  const label = stop => options.find(option => option.value === stop)?.textContent.trim() || reasoningLevelText(stop);
+  Object.assign(line.dataset, { state: shown.state, level: words, top: String(shown.top) });
+  line.hidden = hidden;
+  composerEffortLine?.set({ stops: shown.stops, labels: new Map(shown.stops.map(stop => [stop, label(stop)])), current: shown.index,
+    auto: shown.state === "auto", disabled: !live, hidden, name: words || composerReasoningNote || tKey("runtime.thinkingNotReported"), shown: words || "—" });
+}
+// A level picked on the line takes the path the sheet's does, without a
+// notice: the line names the level itself as it lands.
+function commitEffortLevel(level) {
+  const select = el.thinkingSelect;
+  if (!select || select.disabled || ![...select.options].some(option => option.value === level && !option.disabled)) return false;
+  select.value = level;
+  void changeThinkingLevel(level, { quiet: true });
 }
 // The Host keeps the model and level last chosen for an agent, so its next
 // conversation starts with them, on every device.
@@ -13579,9 +13601,10 @@ el.modelSheet.addEventListener("click", (event) => {
 function thinkingLevelToast(level) {
   if (el.modelSheet?.classList.contains("hidden")) toast(tKey("runtime.thinkingLevel", { level }));
 }
-async function changeThinkingLevel(level) {
+async function changeThinkingLevel(level, { quiet = false } = {}) {
   const expectedSid = rpc?.sid;
   if (!expectedSid) return;
+  const notify = quiet ? () => {} : thinkingLevelToast;
   if (rpc?.nativeClaudeStructured) {
     const connection = rpc;
     const expectedGeneration = viewGeneration;
@@ -13612,7 +13635,7 @@ async function changeThinkingLevel(level) {
       updateComposerSummary(undefined, connection.claudeEffort);
       renderContextDashboard();
       if (plain && !el.modelSheet.classList.contains("hidden")) renderModelList(plain.id, "claude-code");
-      thinkingLevelToast(reasoningLevelText(connection.claudeEffort));
+      notify(reasoningLevelText(connection.claudeEffort));
     } catch (error) {
       if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
         syncNativeThinkingSelect(connection);
@@ -13630,7 +13653,7 @@ async function changeThinkingLevel(level) {
       if (rpc !== connection) return;
       if (result?.kind === "reject") throw new Error(result.code || "reasoning change rejected");
       applyAcpConfig(connection, result?.configOptions);
-      thinkingLevelToast(reasoningLevelText(requested));
+      notify(reasoningLevelText(requested));
     } catch (error) {
       if (rpc === connection) { syncNativeThinkingSelect(connection); toast(tKey("runtime.saveFailed", { detail: error.message }), true); }
     }
@@ -13673,7 +13696,7 @@ async function changeThinkingLevel(level) {
         actual,
       }) || `${level} → ${actual}`, true);
     } else {
-      thinkingLevelToast(level);
+      notify(level);
     }
   } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
