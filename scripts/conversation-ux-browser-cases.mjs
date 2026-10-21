@@ -627,7 +627,9 @@ export async function runGoalCloseBrowserCases(browser) {
       await toggle.waitFor({ state: "hidden" });
       await openSummary(codex);
       await codex.locator(".session-summary").getByText("Keep the synthetic Codex task moving until browser parity is verified", { exact: true }).waitFor();
-      await codex.locator(".session-summary-close").click();
+      // Its icon closes it; on a phone the tap lands on the layer over the page.
+      if (viewport.mobile) await codex.locator("#btn-summary").click({ force: true }); else await page.locator(".workspace-summary-button").click();
+      await codex.locator(".session-summary").waitFor({ state: "hidden" });
       preview.state.codexGoal.status = "active";
       await toggle.waitFor({ timeout: 30_000 });
       assert.equal(await close.isVisible(), false);
@@ -646,12 +648,15 @@ export async function runGoalCloseBrowserCases(browser) {
   }
 }
 
-// A conversation's summary opens from the pane's title bar on a desktop and
-// from the title row on a phone: its goal, subagents, the files it wrote and
-// what it read. A subagent in it opens its details.
+// A conversation's summary is a small card its icon opens and closes, in the
+// pane's title bar on a desktop and the title row on a phone: its goals,
+// subagents, what it made (pictures, documents, links to open; never code)
+// and what it read. Each section folds and stays folded. On a desktop it stays
+// while the person works in the conversation; on a phone a tap outside closes
+// it and presses nothing under it. A subagent in it opens its details.
 export async function runSessionSummaryBrowserCases(browser, { screenshots } = {}) {
   for (const viewport of [{ width: 1440, height: 900, mobile: false }, { width: 393, height: 852, mobile: true }]) {
-    const preview = await createNativeComposerPreview();
+    const preview = await createNativeComposerPreview({ richContent: true });
     const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
     try {
       await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
@@ -670,30 +675,107 @@ export async function runSessionSummaryBrowserCases(browser, { screenshots } = {
       await codex.waitForFunction(() => typeof subagentTracker !== "undefined" && document.querySelectorAll("#messages .tool-card").length > 0);
       await codex.evaluate(() => subagentTracker.codex([{ type: "collabAgentToolCall", id: "summary-spawn", tool: "spawnAgent", receiverThreadIds: ["summary-child"],
         prompt: "Check the links", agentsStates: { "summary-child": { status: "completed", message: "All links work" } } }], "summary-turn"));
-      // A reply's long link, as a shared Drive file has, must not widen the panel.
+      // A reply that hands over a preview on the tailnet and a shared file with
+      // a long address (which must not widen the card), and cites a page; the
+      // agent read a page and searched first.
       const longLink = "https://drive.google.com/file/d/1D1RTi3qi3jyLdMBzQ7aYmYkkOKAlXrig0123456789abcdefghij/view?usp=sharing";
-      await codex.evaluate(href => { const reply = document.createElement("div"); reply.className = "msg assistant"; const link = document.createElement("a"); link.href = href; link.textContent = href; reply.append(link); document.querySelector("#messages").append(reply); }, longLink);
-      if (viewport.mobile) await codex.locator("#btn-summary").click();
-      else await page.locator(".workspace-summary-button").click();
+      const longCite = "https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter/" + "a-very-long-section-name-".repeat(6);
+      await codex.evaluate(({ longLink, longCite }) => {
+        const tools = makeMsgShell("assistant", "Codex");
+        tools.bubble.append(makeToolCard("WebSearch", { query: "backdrop-filter support" }, "ok"), makeToolCard("WebFetch", { url: "https://caniuse.com/css-backdrop-filter" }, "ok"));
+        makeMsgShell("assistant", "Codex").bubble.append(renderMarkdown(`Open it on your phone: http://mini.tail5e2f.ts.net:5173/release\n\nThe deck: [shared](${longLink}), as [MDN describes](${longCite}).\n\nNotes: [release-notes.pdf](/synthetic-project/release-notes.pdf)`));
+      }, { longLink, longCite });
+      const icon = viewport.mobile ? codex.locator("#btn-summary") : page.locator(".workspace-summary-button");
+      const toggle = async () => { if (viewport.mobile) await icon.click({ force: true }); else await icon.click(); };
+      // The title bar's button is told by the pane, a message later.
+      const expanded = value => (viewport.mobile ? codex : page).waitForFunction(([selector, value]) => document.querySelector(selector)?.getAttribute("aria-expanded") === value,
+        [viewport.mobile ? "#btn-summary" : ".workspace-summary-button", value]);
       const panel = codex.locator(".session-summary");
+      await toggle();
       await panel.waitFor();
-      await panel.locator(".session-summary-link").first().waitFor();
+      await expanded("true");
+      await panel.getByText("Tidy the release notes", { exact: true }).waitFor();
+      assert.equal(await panel.locator("button", { hasText: "×" }).count() + await panel.locator(".session-summary-close").count(), 0, "no close button: the icon closes it");
+      const headings = () => panel.locator(".session-summary-toggle .session-summary-title").allTextContents();
+      assert.deepEqual(await headings(), ["Goals", "Subagents", "Outputs", "Sources"]);
+      assert.equal(await panel.getByText("Keep the synthetic Codex task moving until browser parity is verified", { exact: true }).count(), 1, "Codex's own goal leads");
+      // Outputs: the picture and the PDF the reply gave, the preview and the
+      // share; the file it edited is code, which is in Changes.
+      const outputs = panel.locator("#session-summary-outputs");
+      const outputNames = await outputs.locator(".session-summary-name").allTextContents();
+      for (const name of ["agent-workspace.png", "release-notes.pdf", "mini.tail5e2f.ts.net:5173", "drive.google.com"]) assert.ok(outputNames.includes(name), name + " is an output: " + JSON.stringify(outputNames));
+      assert.ok(!outputNames.includes("app.js"), "code is not an output");
+      const sourceNames = await panel.locator("#session-summary-sources .session-summary-name").allTextContents();
+      assert.deepEqual(sourceNames.slice().sort(), ["backdrop-filter support", "caniuse.com", "developer.mozilla.org"].sort(), JSON.stringify(sourceNames));
+      await outputs.locator('.session-summary-file[data-host-path="/synthetic-project/agent-workspace.png"] img').waitFor();
+      assert.ok(await outputs.locator('.session-summary-file[data-host-path="/synthetic-project/agent-workspace.png"] img').evaluate(img => img.complete && img.naturalWidth > 0), "a picture on the Host shows as a thumbnail");
       const fits = await panel.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
       assert.ok(fits.scroll <= fits.client + 1, "a long link ends in an ellipsis instead of letting the summary scroll sideways " + JSON.stringify(fits));
-      await panel.getByText("Tidy the release notes", { exact: true }).waitFor();
-      const sections = await panel.locator(".session-summary-section h3").allTextContents();
-      assert.deepEqual(sections, ["Goals", "Subagents", "Outputs", "Sources"]);
-      assert.equal(await panel.getByText("Keep the synthetic Codex task moving until browser parity is verified", { exact: true }).count(), 1, "Codex's own goal leads");
-      assert.ok(await panel.locator(".session-summary-section").nth(2).locator(".session-summary-path").count() >= 1, "the file it edited is listed");
+      // Small, in the corner, clear of the message box.
+      const box = await codex.evaluate(() => { const r = document.querySelector(".session-summary").getBoundingClientRect(), c = document.querySelector("#view-chat .composer").getBoundingClientRect(), b = document.querySelector("#btn-summary").getBoundingClientRect();
+        return { right: r.right, top: r.top, bottom: r.bottom, width: r.width, composer: c.top, icon: b.bottom, iconRight: b.right, page: innerWidth }; });
+      assert.ok(box.bottom <= box.composer, "the card stays above the message box " + JSON.stringify(box));
+      assert.ok(box.width <= 320 && box.width < box.page - 40, "a small card, not a sheet " + JSON.stringify(box));
+      if (viewport.mobile) assert.ok(box.top - box.icon >= 0 && box.top - box.icon <= 16 && Math.abs(box.right - box.iconRight) <= 12, "under its icon " + JSON.stringify(box));
+      else assert.ok(box.page - box.right <= 16, "in the pane's right-hand corner " + JSON.stringify(box));
+      // Each section folds from its heading, by pointer or keyboard, and stays
+      // as it was left when the summary opens again.
+      const sources = panel.locator(".session-summary-toggle", { hasText: "Sources" });
+      await sources.click();
+      assert.equal(await sources.getAttribute("aria-expanded"), "false");
+      await panel.locator("#session-summary-sources").waitFor({ state: "hidden" });
+      await toggle(); await panel.waitFor({ state: "hidden" });
+      await expanded("false");
+      await toggle(); await panel.waitFor();
+      assert.equal(await sources.getAttribute("aria-expanded"), "false", "a folded section stays folded");
+      assert.equal(await panel.locator("#session-summary-sources").isVisible(), false);
+      assert.deepEqual(await codex.evaluate(() => JSON.parse(localStorage.getItem("stepsemble.summary.sections.v1"))), { sources: false });
+      await sources.press("Enter");
+      await panel.locator("#session-summary-sources").waitFor();
+      assert.equal(await sources.getAttribute("aria-expanded"), "true");
       if (screenshots) { await fs.mkdir(screenshots, { recursive: true }); await page.screenshot({ path: path.join(screenshots, `summary-${viewport.width}.png`) }); }
+      if (viewport.mobile) {
+        // A tap outside closes it and lands on nothing under it.
+        await codex.evaluate(() => { window.summaryTaps = []; for (const id of ["input", "btn-chat-menu"]) document.getElementById(id).addEventListener("click", () => summaryTaps.push(id)); });
+        const input = await codex.locator("#input").boundingBox();
+        await page.touchscreen.tap(input.x + 40, input.y + input.height / 2);
+        await panel.waitFor({ state: "hidden" });
+        await page.waitForTimeout(600);
+        assert.deepEqual(await codex.evaluate(() => ({ taps: summaryTaps, typing: document.activeElement?.id === "input" })), { taps: [], typing: false }, "the tap that closes the summary presses nothing else");
+        await expanded("false");
+        await toggle(); await panel.waitFor();
+        const open = await panel.boundingBox();
+        await page.touchscreen.tap(box.page / 2, Math.round((open.y + open.height + box.composer) / 2));
+        await panel.waitFor({ state: "hidden" });
+        assert.deepEqual(await codex.evaluate(() => summaryTaps), []);
+      } else {
+        // On a desktop it stays while the person reads, types and works.
+        await codex.locator("#messages").click({ position: { x: 40, y: 200 } });
+        await codex.locator("#input").click();
+        await codex.locator("#input").pressSequentially("still here");
+        assert.equal(await panel.isVisible(), true, "clicking into the conversation and typing leaves the summary open");
+        assert.equal(await codex.evaluate(() => document.activeElement?.id), "input", "the message box keeps the focus");
+        // It follows the pane as the window narrows.
+        await page.setViewportSize({ width: 1100, height: 900 });
+        await codex.waitForFunction(() => { const r = document.querySelector(".session-summary").getBoundingClientRect(); return Math.abs(innerWidth - r.right - 10) <= 2; });
+        // From the keyboard the icon puts the focus in the card, and Escape
+        // closes it and gives the focus back.
+        await icon.focus(); await page.keyboard.press("Enter");
+        await panel.waitFor({ state: "hidden" });
+        await page.keyboard.press("Enter");
+        await panel.waitFor();
+        await codex.waitForFunction(() => document.activeElement?.matches?.(".session-summary-toggle"));
+        await page.keyboard.press("Escape");
+        await panel.waitFor({ state: "hidden" });
+        await page.waitForFunction(() => document.activeElement?.matches?.(".workspace-summary-button") && document.activeElement.getAttribute("aria-expanded") === "false");
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      }
+      await toggle(); await panel.waitFor();
       await panel.locator(".session-summary-item", { hasText: "Subagent 1" }).click();
       await codex.locator(".subagent-drawer:not([hidden])").waitFor();
       assert.equal(await panel.isVisible(), false, "the subagent's details replace the summary");
+      await expanded("false");
       await codex.locator(".subagent-drawer .subagent-close").click();
-      if (viewport.mobile) await codex.locator("#btn-summary").click(); else await page.locator(".workspace-summary-button").click();
-      await panel.waitFor();
-      await codex.locator("#input").click();
-      await panel.waitFor({ state: "hidden" });
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "Session summary", width: viewport.width, result: "passed" }));
     } finally { await context.unrouteAll({ behavior: "wait" }); await context.close(); await preview.close(); }

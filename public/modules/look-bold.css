@@ -479,3 +479,20 @@ html[data-look="bold"] .thinking-control.is-empty { padding: 4px 16px 12px; }
 }
 html[data-look="bold"].reduced-motion .thinking-control.is-dragging .effort-knob { transform: none; }
 @media (prefers-reduced-motion: reduce) { html[data-look="bold"] .thinking-control.is-dragging .effort-knob { transform: none; } }
+
+/* ---------- The conversation's summary ---------- */
+/* A compact glass card in the pane's corner, the weight of the app's menus,
+   legible over true black; its icon reads pressed while it is open. */
+html[data-look="bold"] #view-chat .session-summary { border: 0; border-radius: var(--bold-radius-menu); background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); animation-timing-function: var(--bold-spring); }
+html[data-look="bold"] :is(.session-summary-toggle, .session-summary-row, .session-summary-changes) { border-radius: 10px; }
+@media (hover: hover) { html[data-look="bold"] :is(.session-summary-toggle, a.session-summary-row, button.session-summary-row, .session-summary-changes):hover { background: var(--bold-hover); } }
+html[data-look="bold"] :is(.session-summary-toggle, a.session-summary-row, button.session-summary-row, .session-summary-changes):focus-visible { background: var(--bold-hover); }
+html[data-look="bold"] :is(a, button).session-summary-row { transition: background-color .15s ease, transform .14s var(--bold-spring); }
+html[data-look="bold"] :is(a, button).session-summary-row:active { background: var(--bold-press-fill); transform: scale(.98); }
+html[data-look="bold"] .session-summary-lead { border-radius: 8px; background: var(--bold-field); }
+html[data-look="bold"] .session-summary-lead:is([data-kind="preview"], [data-kind="share"], [data-kind="app"]) { background: var(--bold-select); box-shadow: inset 0 0 0 .5px var(--bold-select-rim); }
+html[data-look="bold"] :is(.workspace-summary-button, #btn-summary)[aria-expanded="true"] { background: var(--bold-press-fill); color: var(--ink); }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { html[data-look="bold"] #view-chat .session-summary { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@media (prefers-contrast: more) { html[data-look="bold"] #view-chat .session-summary { outline: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); outline-offset: -1px; } }
+@media (forced-colors: active) { html[data-look="bold"] #view-chat .session-summary { border: 1px solid CanvasText; background: Canvas; box-shadow: none; } }
