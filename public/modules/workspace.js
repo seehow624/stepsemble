@@ -84,6 +84,11 @@
   // from an event handler here, so the page would drop it; this window's
   // postMessage names this window.
   function toFrame(frame, data) { const target = frame?.contentWindow; if (target) window.postMessage.call(target, data, location.origin); }
+  // The title bar's summary button shows whether the pane's summary is open.
+  function summaryState(item, open, focus = false) {
+    item.summaryOpen = open;
+    for (const summary of document.querySelectorAll(".workspace-summary-button")) if (summary.dataset.frame === L.identity(item.ref)) { summary.setAttribute("aria-expanded", String(open)); if (focus) summary.focus(); }
+  }
   const hostSnapshots = new Map(), readsPending = new Set(), readCompletions = new Set();
   const snapshotRequests = new Map();
   let channel;
@@ -595,6 +600,8 @@
       frame.allow = "fullscreen"; frame.allowFullscreen = true;
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
       frame.src = ref.assistant ? new URL(WAM.frameUrl(ref), location.origin).href : ref.schedules ? schedulesUrl(ref) : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
+      // A pane that loads again starts with its summary closed.
+      frame.addEventListener("load", () => { const item = frames.get(key); if (item?.summaryOpen) summaryState(item, false); });
     }
     const shown = (maximized && L.leaves(tree).find(p => p.id === maximized)) || tree;
     const corners = cornerPanes(shown);
@@ -642,9 +649,13 @@
         catch (error) { toast(error.message); } finally { dragEnd(); }
       };
       tabs.append(tablist);
-      const frameCommand = command => toFrame(frames.get(n.active)?.frame, { type: "workspace-command", command });
+      const frameCommand = (command, extra = {}) => toFrame(frames.get(n.active)?.frame, { type: "workspace-command", command, ...extra });
       if (shownRef && !pageTab(shownRef)) {
-        const summary = button("", () => frameCommand("summary"), t("summary"), "btn workspace-strip-button workspace-summary-button");
+        // The summary opens and closes from here only; opened from the
+        // keyboard, it takes the focus, and Escape gives it back.
+        const summary = button("", event => frameCommand("summary", { keyboard: event.detail === 0 }), t("summary"), "btn workspace-strip-button workspace-summary-button");
+        summary.dataset.frame = n.active; summary.setAttribute("aria-expanded", String(frames.get(n.active)?.summaryOpen === true));
+        summary.onkeydown = event => { if (event.key === "Escape" && summary.getAttribute("aria-expanded") === "true") { event.preventDefault(); frameCommand("summary-close"); } };
         summary.append(icon("M6.5 3.5h11A2.5 2.5 0 0 1 20 6v12a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18V6a2.5 2.5 0 0 1 2.5-2.5zM8 8.5h8M8 12h8M8 15.5h5")); tabs.append(summary);
       }
       // A Bot's conversation keeps its history at the same place.
@@ -1815,6 +1826,7 @@
       for (const peer of frames.values()) toFrame(peer.frame, { type: "workspace-workflows-changed" });
     }
     if (event.data?.type === "workspace-title") setRefTitle(item.ref, event.data.title);
+    if (event.data?.type === "workspace-summary") summaryState(item, event.data.open === true, event.data.focus === true);
     if (event.data?.type === "workspace-show-list" && mobile()) {
       if (window.history.state?.stepsembleWorkspaceView === "session") window.history.back();
       else showMobileList();

@@ -19848,7 +19848,8 @@ if (WORKSPACE_PANE) {
     if (event.data?.type === "workspace-renamed") applyWorkspaceName(event.data.title);
     // The pane's title bar holds the conversation's summary and actions.
     if (event.data?.type === "workspace-command") {
-      if (event.data.command === "summary") void toggleSessionSummary();
+      if (event.data.command === "summary") void toggleSessionSummary({ keyboard: event.data.keyboard === true });
+      if (event.data.command === "summary-close") sessionSummary?.hide({ restore: true });
       if (event.data.command === "changes") el.btnChanges?.click();
       if (event.data.command === "menu") el.btnChatMenu?.click();
     }
@@ -20043,12 +20044,28 @@ subagentBar?.addEventListener("click", event => {
 // Elapsed times move while a subagent works; nothing redraws when none does.
 setInterval(() => { if (subagentTracker?.summary().running) subagentPanel?.render(subagentTracker.list()); }, 1000);
 
-// The conversation's summary: its goals, subagents, the files it wrote and
-// what it read, opened from the pane's title bar or the phone's title row.
+// The conversation's summary: its goals, subagents, what it made and what it
+// read, opened and closed from the pane's title bar or the phone's title row.
+const phoneLayout = () => document.documentElement.classList.contains("workspace-mobile-pane");
 const sessionSummary = window.StepsembleSessionSummary?.mount({ document, container: el.viewChat, t: key => tKey("sessionSummary." + key),
+  storage: (() => { try { return localStorage; } catch { return null; } })(), phone: phoneLayout, anchor: () => el.btnSummary,
+  below: () => [subagentBar, document.querySelector("#view-chat .composer")], watch: el.messages, thumb: summaryThumbnail,
+  // The icon shows it pressed; the Workspace's title bar is told, as its
+  // button lives outside this page.
+  onToggle(open, { restore } = {}) {
+    el.btnSummary?.setAttribute("aria-expanded", String(open));
+    if (restore && phoneLayout()) el.btnSummary?.focus({ preventScroll: true });
+    if (WORKSPACE_PANE) parent.postMessage({ type: "workspace-summary", open, focus: !!restore && !phoneLayout() }, location.origin);
+  },
   onSubagent: id => { const row = subagentTracker?.get(id); if (row) subagentPanel?.show([row]); },
-  onFile: link => openHostFile(link), onChanges: () => el.btnChanges?.click(), fileLink: path => hostFileLink(path) }) || null;
+  onFile: link => openHostFile(link), onChanges: () => el.btnChanges?.click(), fileLink: (path, label) => hostFileLink(path, label) }) || null;
 let summaryGoalRuns = [];
+// A picture on the Host as a thumbnail, asked for again once, as a reply's is.
+async function summaryThumbnail(filePath) {
+  let file = await describeHostFile(filePath);
+  if (!file) { await new Promise(resolve => setTimeout(resolve, 600)); file = await describeHostFile(filePath, { fresh: true }); }
+  return file?.kind === "image" ? codexImagePreviewSrc(file) : "";
+}
 function sessionSummaryData() {
   const goals = [];
   const codexGoal = rpc?.nativeCodex ? rpc.nativeTranscriptState?.goal : null;
@@ -20057,17 +20074,31 @@ function sessionSummaryData() {
   for (const run of summaryGoalRuns) goals.push({ objective: run.objective, state: run.status, label: tKey("goalComposer.state." + run.status),
     elapsed: runElapsedText(Math.max(0, Number(run.elapsedMs) || 0)) });
   const subagents = (subagentTracker?.all() || []).map(row => ({ id: row.id, name: row.name, task: row.task, status: row.status, statusLabel: subagentCopy("status_" + (row.status || "running")) }));
-  const tools = [...el.messages.querySelectorAll(".tool-card")].map(card => card.__tool).filter(Boolean);
-  const links = [...el.messages.querySelectorAll(".msg.assistant a[href]")].map(link => link.getAttribute("href"));
+  // Tools and replies in the order shown: a reply's links, the files on the
+  // Host it links or shows, and an address or path it gives on its own as code.
+  const items = [];
+  for (const node of el.messages.querySelectorAll(".tool-card, .msg.assistant .md-body")) {
+    if (node.matches(".tool-card")) { if (node.__tool) items.push({ tool: node.__tool }); continue; }
+    if (node.closest(".tool-card, .thinking-wrap")) continue;
+    for (const part of node.querySelectorAll("a[href], [data-host-path], code")) {
+      if (part.dataset.hostPath) items.push({ file: part.dataset.hostPath });
+      else if (part.matches("a[href]")) items.push({ link: part.getAttribute("href") });
+      else if (!part.closest("a")) {
+        const text = part.textContent.trim();
+        if (!text || text.length > 2048 || /\s/.test(text)) continue;
+        if (/^(?:\/|~\/|[A-Za-z]:[\\/])/.test(text)) items.push({ file: text }); else if (text.includes("://")) items.push({ mention: text });
+      }
+    }
+  }
   // How many files the project has changed, as the title row's badge said.
   const changes = el.changesBadge && !el.changesBadge.classList.contains("hidden") ? el.changesBadge.textContent.trim() : "";
-  return { goals, subagents, changes, outputs: window.StepsembleSessionSummary.outputs(tools), sources: window.StepsembleSessionSummary.sources(tools, links) };
+  return { goals, subagents, changes, ...window.StepsembleSessionSummary.summarize(items) };
 }
-async function toggleSessionSummary() {
+async function toggleSessionSummary({ keyboard = false } = {}) {
   if (!sessionSummary) return;
   if (sessionSummary.isOpen()) { sessionSummary.hide(); return; }
   subagentPanel?.collapse?.(); conversationGoal?.collapse?.(); setNativeGoalOpen(false);
-  sessionSummary.show(sessionSummaryData);
+  sessionSummary.show(sessionSummaryData, { focus: keyboard });
   if (!WORKSPACE_ENTRY_KEY) return;
   const base = apiBase;
   try {
@@ -20077,7 +20108,8 @@ async function toggleSessionSummary() {
     sessionSummary.render();
   } catch {}
 }
-el.btnSummary?.addEventListener("click", () => void toggleSessionSummary());
+el.btnSummary?.addEventListener("click", event => void toggleSessionSummary({ keyboard: event.detail === 0 }));
+subagentTracker?.onChange(() => sessionSummary?.render());
 
 conversationGoal = window.StepsembleWorkflows?.mountConversation({ api, post,
   getConnection: () => rpc, getAgentId: () => conversationAgentId(),
