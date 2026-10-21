@@ -193,8 +193,15 @@ export async function runRichContentBrowserCases(browser) {
       page.on("pageerror", e => errors.push(e.message));
       await page.goto(preview.origin); await workspaceReady(page);
       const pane = await openFromSidebar(page, "Codex composer fixture");
-      for (const image of await pane.locator('.host-file-image:not([hidden])').all()) await image.scrollIntoViewIfNeeded();
-      await pane.waitForFunction(() => [...document.querySelectorAll(".host-file-preview.loaded img")].filter(i => i.naturalWidth > 0).length === 2);
+      // Images load as they come into view, and the set shown changes as an
+      // expired one is hidden; bring each shown one into view in turn until two
+      // have loaded, rather than holding on to a count taken up front.
+      await pane.waitForFunction(() => {
+        const shown = [...document.querySelectorAll(".host-file-image:not([hidden])")];
+        window.richImageTurn = ((window.richImageTurn ?? -1) + 1) % Math.max(1, shown.length);
+        shown[window.richImageTurn]?.scrollIntoView({ block: "center" });
+        return [...document.querySelectorAll(".host-file-preview.loaded img")].filter(i => i.naturalWidth > 0).length === 2;
+      }, null, { polling: 250 });
       const diagram = pane.locator(".mermaid-block svg"); await diagram.waitFor();
       assert.match(await diagram.textContent(), /Agent 工作台/);
       assert.match(await diagram.textContent(), /Mac mini 主機/);
