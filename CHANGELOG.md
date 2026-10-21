@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.42
+
+- Show the Bots and their groups as one card in the Workspace's list: the groups sit in it under a hairline, move with the Bots and fold when the Bots fold.
+- Open Automations from a lightning button beside the search, with a dot while one needs attention: a panel under the search row lists every schedule and routine, with + and its menu. A search still finds them after the rest of the list. While the search is in use it takes the row and its three buttons step aside; an empty search left behind gives them back, and Escape clears it.
+- Drag a Bot's file or picture out of a conversation as the file itself. Chrome and Edge download it where it is dropped; in the Mac app it lands in a Finder folder, WhatsApp, Mail or Messages as the file, not a link: the app downloads it with the page's sign-in while it is dragged.
+- Choose the colour of your own messages in Settings → Appearance → Your messages: the theme's own, or blue, purple, green, teal, orange, pink or graphite, each keeping its white text at 4.5:1 or more in light and dark. It applies at once in every open conversation.
+
 ## 3.9.41
 
 - See each agent by its own current icon, in its own colours, the same in light and dark: Claude Code's Clawd, the Codex app icon, Pi's colour logo, and the official icons of OpenCode, Grok, Google Antigravity, Cline, Kilo Code, Hermes Agent and Oh My Pi — the last five in place of Stepsemble's stand-ins. Icons that come on a tile keep a fine edge, so a dark one still shows on black.
