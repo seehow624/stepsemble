@@ -344,6 +344,8 @@ const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
   readConfig: () => readQuotaConfig(CONFIG_DIR),
   readCodexBar: () => codexBarReader.read(),
   readMagpie: () => magpieGateway.quotaReports(),
+  // Deferred until reads begin: desktopClaude is declared with task services below.
+  readDesktopClaudeQuota: async () => desktopClaude ? desktopClaude.quota() : undefined,
 });
 const usageAnalytics = require("./server/usage-analytics").createUsageAnalytics({
   home: APP_HOME,

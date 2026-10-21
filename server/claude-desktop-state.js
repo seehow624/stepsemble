@@ -43,4 +43,15 @@ async function privateWrite(file, value) {
   } finally { await handle?.close(); await fs.unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
 }
 function exact(value, keys) { return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join("|") === [...keys].sort().join("|"); }
-module.exports = { UUID, failure, desktopPaths, privateDirectory, privateRead, privateWrite, exact };
+// canStart describes native LOGIN, not helper idleness. Only this explicit
+// other_auth shape may reach the installer without login availability; the
+// installer must still acquire the helper's authoritative maintenance lease.
+function canMaintainOtherAuth(status, health, { leased = false } = {}) {
+  return status?.credential?.state === "other_auth" && status.credential.liveVerified === false && status.canStart === false
+    && status.blockedReason === null && status.login === null
+    && [status, health].every(value => value?.version === 1 && value.context === "Aqua" && UUID.test(value.instance)
+      && value.maintenanceVersion === 1 && value.maintenance?.active === leased
+      && value.activeStructured === 0 && value.recoveryRequired !== true && value.uncertain !== true)
+    && status.instance === health.instance;
+}
+module.exports = { UUID, failure, desktopPaths, privateDirectory, privateRead, privateWrite, exact, canMaintainOtherAuth };
