@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.37
+
+- See one current Claude limits card for an account shared by two computers. On a Mac the Host now reads Claude's limits through the desktop helper, from the signed-in Keychain, instead of an old credentials file that could hide the live reading; and readings from the Claude app and from Magpie are merged when the account's identity is verified, keeping the newest complete one. Switching accounts or a conflict keeps them apart.
+- Start a Claude conversation through an opted-in local gateway such as Magpie without first passing the native Keychain sign-in check; a direct connection still checks it, and an offline gateway never falls back to the native route.
+
 ## 3.9.36
 
 - Pick each model once. A Claude conversation through Magpie listed Opus 5.5 three times, once for each of Claude Code's model slots Magpie points at it, and couldn't reach Sonnet 5.5 or Fable 5.1; the list now shows one row per model, and the thinking level is chosen on its own. Goals, Schedules and Settings list them the same way.
