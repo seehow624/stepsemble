@@ -6564,11 +6564,15 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 
 /* v3.6.0 — Codex-style composer bar. Attachments and the approval mode sit on
    the left; the context ring, the model and a small round Send sit on the
-   right. Hit areas stay about 44px through the ::after margins. */
-#view-chat .composer-toolbar { min-height: 40px; gap: 4px; padding: 2px 0 0; }
+   right. Hit areas stay about 44px through the ::after margins. Every control
+   is a 36px box centred on the row's one centre line, and centres what it
+   holds as a box too: a glyph set on a line of text sits below the middle. */
+#view-chat .composer-toolbar { min-height: 40px; gap: 4px; padding: 0; }
 #view-chat .composer-toolbar .composer-icon-btn {
   position: relative;
   width: 36px; height: 36px; min-height: 36px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
 }
 #view-chat .composer-toolbar .composer-icon-btn .icon { width: 20px; height: 20px; }
@@ -6716,10 +6720,18 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
   background: transparent;
   font-size: var(--text-sm);
 }
-#view-chat .composer-model-control:hover { background: var(--bubble-user); }
+/* The model reads as plain text with a small chevron: no pill, fill or rim.
+   The pointer brightens it and a press dims it, as a text button does. */
+#view-chat .composer-model-control { transition: color .15s ease, opacity .12s ease, transform .14s var(--oc-spring, ease); }
 #view-chat .composer-model-copy { gap: 5px; }
-#view-chat .composer-model-name { color: var(--ink); font-weight: 560; }
-#view-chat .composer-model-control .icon { width: 12px; height: 12px; opacity: .7; }
+#view-chat .composer-model-name { color: color-mix(in srgb, var(--ink) 86%, transparent); font-weight: 560; transition: color .15s ease; }
+#view-chat .composer-model-control .icon { width: 12px; height: 12px; opacity: .7; transition: opacity .15s ease; }
+@media (hover: hover) {
+  #view-chat .composer-model-control:not(.is-static):hover .composer-model-name { color: var(--ink); }
+  #view-chat .composer-model-control:not(.is-static):hover .icon { opacity: 1; }
+}
+#view-chat .composer-model-control:not(.is-static):active { opacity: .55; }
+#view-chat .composer-model-control:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 #view-chat .composer-send {
   position: relative;
   width: 34px; height: 34px; min-height: 34px;

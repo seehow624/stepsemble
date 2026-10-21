@@ -293,8 +293,8 @@ html[data-look="bold"] #view-chat .composer:focus-within { border-color: color-m
   box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 4px var(--focus-halo), 0 22px 48px -22px rgba(0, 0, 0, .38), 0 4px 12px -6px rgba(0, 0, 0, .14); }
 html[data-look="bold"] #view-chat .composer-toolbar .composer-icon-btn { border-radius: 50%; transition: background-color .15s ease, transform .14s var(--bold-spring); }
 html[data-look="bold"] #view-chat .composer-toolbar .composer-icon-btn:active { transform: scale(.9); }
-html[data-look="bold"] #view-chat .composer-control { border-radius: var(--radius-pill); background: color-mix(in srgb, var(--ink) 6%, transparent); }
-html[data-look="bold"] #view-chat .composer-control:active { transform: scale(.97); }
+html[data-look="bold"] #view-chat .composer-control { border-radius: var(--radius-pill); background: transparent; }
+html[data-look="bold"] #view-chat .composer-control:not(.is-static):active { transform: scale(.97); }
 html[data-look="bold"] #view-chat .composer-send { border-radius: 50%; }
 html[data-look="bold"] #view-chat .composer-send:active:not(:disabled) { transform: scale(.9); }
 html[data-look="bold"] #view-chat :is(.context-ring-btn, .composer-approval) { border-radius: var(--radius-pill); }
