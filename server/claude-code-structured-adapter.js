@@ -37,6 +37,20 @@ const SETTINGS_READ_TIMEOUT_MS = 3000;
 const CLAUDE_EFFORTS = new Set(["auto", "low", "medium", "high", "xhigh", "max"]);
 // Tools whose work goes on inside the Claude process after its turn ends.
 const PROCESS_BOUND_TOOLS = new Set(["CronCreate", "ScheduleWakeup", "Monitor"]);
+// A span of work lasts from the person's message until a turn ends with no
+// background work left: a task Claude reports (an Agent, a command or a
+// Monitor run in the background) or a ScheduleWakeup not yet due. Claude
+// starts a turn by itself for each, which joins the span. A task's last
+// event comes a moment before that turn; the span waits this long for it.
+const SPAN_SETTLE_MS = 15_000;
+// A wake-up that has not come this long after it was due holds no longer.
+const WAKEUP_LATE_MS = 10 * 60_000;
+const TASK_END = new Set(["completed", "failed", "error", "killed", "stopped", "cancelled"]);
+const AGENT_TASKS = new Set(["local_agent", "remote_agent", "in_process_teammate"]);
+// Claude's own housekeeping, not work the person asked for.
+const OWN_TASKS = new Set(["dream", "local_memory_import"]);
+const MAX_LISTED_TASKS = 8;
+const MAX_TASKS = 256;
 // Keep a single Claude stream-json input frame and its ordered write queue
 // bounded like the Codex native transport. The HTTP prompt route admits up to
 // 28 MiB so a prompt with its full 24 MiB image budget can reach this adapter;
@@ -512,6 +526,7 @@ function createClaudeStructuredSession({
   initialEffort = null,
   allowBypass = false,
   fork = null,
+  spanSettleMs = SPAN_SETTLE_MS,
 } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("claude_command_absolute_required");
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("claude_cwd_absolute_required");
@@ -528,23 +543,95 @@ function createClaudeStructuredSession({
   const startedAt = Date.now();
   let lastActivityAt = startedAt;
   let state = "waiting";
-  // When the turn now running, or the last one, started and ended. startedAt
-  // is when the process started, that is when the conversation was opened,
-  // which can be hours before the message being answered.
-  let turnStartedAt = null, turnEndedAt = null;
+  // When the span of work now under way, or the last one, started and ended
+  // (SPAN_SETTLE_MS). startedAt is when the process started, that is when
+  // the conversation was opened, which can be hours before the message
+  // being answered.
+  let turnStartedAt = null, turnEndedAt = null, spanOpen = false;
+  // When the background work a span waits on ran out, and the timer that
+  // ends the span if Claude starts no turn to report it.
+  let workEndedAt = null, spanTimer = null;
   const rateEvent = event => { try { onRateEvent?.(event); } catch {} };
-  const beginTurn = () => {
-    if (state === "waiting" || turnStartedAt === null) {
-      turnStartedAt = Date.now(); turnEndedAt = null;
+  // Tasks Claude reports by their start and end, each Bash command among
+  // them, and its list of the background ones (background_tasks_changed),
+  // which a missed end cannot leave running. The list is null until Claude
+  // sends it; one process sends it only once its tasks change.
+  const backgroundTasks = new Map();
+  let backgroundList = null;
+  // ScheduleWakeup calls not yet due, and Monitor calls, whose tasks Claude
+  // reports as commands.
+  const wakeups = new Map(), monitorCalls = new Set();
+  // person: a message sent from here, not a turn Claude starts by itself.
+  const beginTurn = ({ person = false } = {}) => {
+    const between = state === "waiting";
+    // A message sent while Claude only waits on its background work is a
+    // request of its own.
+    if (person && between && spanOpen) endSpan({ result: { stopReason: "superseded" }, at: workEndedAt ?? Date.now() });
+    clearTimeout(spanTimer); spanTimer = null; workEndedAt = null;
+    if (!spanOpen) {
+      spanOpen = true; turnStartedAt = Date.now(); turnEndedAt = null;
       rateEvent({ type: "rate.turn.started", at: turnStartedAt });
-    }
+    } else if (between) rateEvent({ type: "rate.turn.resumed" });
+    // A wake-up's turn is one Claude starts by itself once it is due.
+    if (!person && between) for (const [id, wake] of wakeups) if (wake.dueAt <= Date.now() + 60_000) wakeups.delete(id);
     state = "running";
   };
-  const endTurn = (notify = true, result = null) => {
-    if (turnStartedAt !== null && turnEndedAt === null) turnEndedAt = Date.now();
-    state = "waiting";
-    if (notify) rateEvent({ type: "rate.turn.ended", ...(result ? { result } : {}) });
-  };
+  // result: how the span ended, for whoever is told (notify); a result
+  // Claude reports is passed on as it is.
+  function endSpan({ result = null, at = Date.now(), notify = true } = {}) {
+    clearTimeout(spanTimer); spanTimer = null; workEndedAt = null;
+    if (spanOpen) turnEndedAt = at;
+    spanOpen = false;
+    if (notify) rateEvent({ type: "rate.turn.ended", at, ...(result ? { result } : {}) });
+  }
+  const endTurn = (notify = true, result = null) => { state = "waiting"; endSpan({ result, notify }); };
+  function taskKind(event, toolUseId = null) {
+    const type = String(event.task_type || "");
+    if (AGENT_TASKS.has(type) || !type && event.subagent_type) return "agent";
+    if (type === "local_bash") return toolUseId && monitorCalls.has(toolUseId) ? "monitor" : "command";
+    if (type.startsWith("monitor")) return "monitor";
+    return type === "local_workflow" ? "workflow" : "task";
+  }
+  function taskRecord(event, known = null) {
+    const type = String(event.task_type || "");
+    return { kind: known?.kind || taskKind(event, safeId(event.tool_use_id)),
+      description: safeText(String(event.description || ""), 512).split("\n")[0].trim().slice(0, 160) || known?.description || "",
+      holds: event.ambient !== true && !OWN_TASKS.has(type), background: event.is_backgrounded === true || !!known?.background };
+  }
+  function heldTasks() { return [...(backgroundList || backgroundTasks).values()].filter(task => task.holds); }
+  function dueWakeups() {
+    const now = Date.now();
+    for (const [id, wake] of wakeups) if (now > wake.dueAt + WAKEUP_LATE_MS) wakeups.delete(id);
+    return [...wakeups.values()];
+  }
+  // Ends a span once its background work has run out while Claude waits and
+  // Claude has had time to start the turn that reports it.
+  function settleSpan() {
+    clearTimeout(spanTimer); spanTimer = null;
+    if (!spanOpen || state !== "waiting" || closed) return;
+    const wakes = dueWakeups();
+    if (heldTasks().length || wakes.length) {
+      workEndedAt = null;
+      const late = Math.min(...wakes.map(wake => wake.dueAt + WAKEUP_LATE_MS));
+      if (Number.isFinite(late)) { spanTimer = setTimeout(settleSpan, Math.max(0, late - Date.now()) + 1); spanTimer.unref?.(); }
+      return;
+    }
+    workEndedAt ??= Date.now();
+    const wait = workEndedAt + spanSettleMs - Date.now();
+    if (wait > 0) { spanTimer = setTimeout(settleSpan, wait); spanTimer.unref?.(); }
+    else endSpan({ result: { stopReason: "end_turn" }, at: workEndedAt });
+  }
+  // What a span waits on, bounded for the page: how much, and the first few
+  // by kind and description.
+  function backgroundStatus() {
+    const tasks = heldTasks().filter(task => task.background || state === "waiting"), wakes = dueWakeups();
+    const count = tasks.length + wakes.length;
+    if (!count) return null;
+    const listed = [...tasks.map(task => ({ kind: task.kind, description: task.description })),
+      ...wakes.map(wake => ({ kind: "wakeup", description: wake.description }))].slice(0, MAX_LISTED_TASKS);
+    const wakeAt = wakes.length ? Math.min(...wakes.map(wake => wake.dueAt)) : null;
+    return { count, tasks: listed, ...(wakeAt ? { wakeAt } : {}) };
+  }
   let exitCode = null;
   let exitSignal = null;
   let childExited = false;
@@ -553,7 +640,6 @@ function createClaudeStructuredSession({
   const pendingPermissions = new Map();
   const pendingInterrupts = new Set();
   const pendingControls = new Map();
-  const backgroundTasks = new Set();
   // Scheduled prompts and monitors live in this process and end with it.
   let processBoundWork = false;
   // Claude compacting the conversation by itself, between "compacting" and
@@ -749,7 +835,7 @@ function createClaudeStructuredSession({
   function endProcess() {
     if (childExited || endingProcess) return;
     endingProcess = true;
-    rateEvent({ type: "rate.turn.ended" });
+    endSpan();
     try { child.stdin?.end?.(); } catch {}
     try { child.kill?.(); } catch {}
     const forceTimer = setTimeout(() => {
@@ -982,12 +1068,44 @@ function createClaudeStructuredSession({
       observeCompaction(event);
       const taskId = safeId(event.task_id);
       if (event.type === "system" && taskId && event.isReplay !== true) {
-        if (event.subtype === "task_started") backgroundTasks.add(taskId);
-        else if (["task_updated", "task_notification"].includes(event.subtype)
-          && ["completed", "failed", "error", "killed", "stopped", "cancelled"].includes(event.patch?.status || event.status)) backgroundTasks.delete(taskId);
+        const known = backgroundTasks.get(taskId);
+        if (event.subtype === "task_started") {
+          backgroundTasks.delete(taskId);
+          if (backgroundTasks.size >= MAX_TASKS) backgroundTasks.delete(backgroundTasks.keys().next().value);
+          backgroundTasks.set(taskId, taskRecord(event));
+          // Claude lists a task among its background ones before it reports
+          // its start, which names the tool that started it.
+          if (backgroundList?.has(taskId)) backgroundList.set(taskId, { ...backgroundTasks.get(taskId), background: true });
+        } else if (["task_updated", "task_notification"].includes(event.subtype) && TASK_END.has(event.patch?.status || event.status)) backgroundTasks.delete(taskId);
+        else if (known && event.patch?.is_backgrounded === true) known.background = true;
       }
-      if (event.type === "assistant" && event.isReplay !== true && Array.isArray(event.message?.content)
-        && event.message.content.some(block => block?.type === "tool_use" && PROCESS_BOUND_TOOLS.has(block.name))) processBoundWork = true;
+      if (event.type === "system" && event.subtype === "background_tasks_changed" && event.isReplay !== true && Array.isArray(event.tasks)) {
+        backgroundList = new Map();
+        for (const entry of event.tasks.slice(0, MAX_TASKS)) {
+          const id = plain(entry) ? safeId(entry.task_id) : null;
+          if (id) backgroundList.set(id, { ...taskRecord(entry, backgroundTasks.get(id)), background: true });
+        }
+      }
+      if (event.type === "assistant" && event.isReplay !== true && Array.isArray(event.message?.content)) {
+        for (const block of event.message.content) {
+          if (block?.type !== "tool_use") continue;
+          if (PROCESS_BOUND_TOOLS.has(block.name)) processBoundWork = true;
+          const toolId = safeId(block.id);
+          if (block.name === "Monitor" && toolId) { monitorCalls.add(toolId); if (monitorCalls.size > 64) monitorCalls.delete(monitorCalls.values().next().value); }
+          // A wake-up Claude schedules for itself; stop: true ends its loop.
+          if (block.name === "ScheduleWakeup" && !event.parentToolUseId && plain(block.input)) {
+            if (block.input.stop === true) wakeups.clear();
+            else if (toolId && Number.isFinite(Number(block.input.delaySeconds)) && wakeups.size < 16) {
+              const seconds = Math.min(3600, Math.max(60, Number(block.input.delaySeconds)));
+              wakeups.set(toolId, { dueAt: Date.now() + seconds * 1000, description: safeText(String(block.input.reason || ""), 512).split("\n")[0].trim().slice(0, 160) });
+            }
+          }
+        }
+      }
+      // A wake-up Claude could not schedule is not waited on.
+      if (event.type === "user" && Array.isArray(event.message?.content)) {
+        for (const block of event.message.content) if (block?.type === "tool_result" && block.is_error === true) wakeups.delete(safeId(block.tool_use_id));
+      }
       lastActivityAt = Date.now();
       const interrupted = event.type === "result" && (interruptRequested || /^aborted/.test(String(event.terminal_reason || "")));
       // init and status events report the mode, including changes Claude
@@ -999,11 +1117,21 @@ function createClaudeStructuredSession({
         if (event.subtype === "status") autoCompacting = event.status === "compacting";
         else if (event.subtype === "compact_boundary") autoCompacting = false;
       }
-      if (event.type === "result") { endTurn(false); autoCompacting = false; }
+      // A turn that leaves background work keeps the span open; Stop ends it.
+      let backgroundPending = false;
+      if (event.type === "result") {
+        state = "waiting"; autoCompacting = false;
+        for (const task of backgroundTasks.values()) task.background = true;
+        backgroundPending = spanOpen && !interrupted && (heldTasks().length > 0 || dueWakeups().length > 0);
+        if (!backgroundPending) endSpan({ notify: false });
+        settleSpan();
+      }
       // Each turn starts with init, also one Claude starts by itself, such as
-      // for a background task's notification or a message it had queued.
-      else if (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)
-        || event.type === "system" && event.subtype === "init" && event.isReplay !== true) beginTurn();
+      // for a background task's notification or a message it had queued. A
+      // background subagent's own messages are not a turn of the conversation.
+      else if (!event.parentToolUseId && (["assistant", "stream_event", "tool_use", "progress", "permission_request"].includes(event.type)
+        || event.type === "system" && event.subtype === "init" && event.isReplay !== true)) beginTurn();
+      else if (event.type === "system" && event.isReplay !== true && (taskId || event.subtype === "background_tasks_changed")) settleSpan();
       if (event.type === "assistant") captureAssistantUsage(event);
       else if (event.type === "stream_event") {
         const streamEvent = plain(event.event) ? event.event : {};
@@ -1029,7 +1157,8 @@ function createClaudeStructuredSession({
       }
       else if (event.type === "control_request") {
         const subtype = String(event.request?.subtype || "");
-        if (subtype === "can_use_tool") beginTurn();
+        // Between turns only background work asks: it is not a turn of its own.
+        if (subtype === "can_use_tool" && !(state === "waiting" && spanOpen)) beginTurn();
         if (subtype === "interrupt") state = "interrupting";
       } else if (event.type === "control_response") {
         const response = event.response || {};
@@ -1063,7 +1192,7 @@ function createClaudeStructuredSession({
         }
       }
       try { onEvent?.(clone(event)); } catch {}
-      rateEvent(interrupted ? { ...event, interrupted: true } : event);
+      rateEvent(interrupted ? { ...event, interrupted: true } : backgroundPending ? { ...event, backgroundPending: true } : event);
     },
     onError(code) {
       finishCompaction(code);
@@ -1079,7 +1208,7 @@ function createClaudeStructuredSession({
   child.stdin?.on?.("error", () => { processError ||= Object.assign(new Error("claude_input_unavailable"), { code: "claude_input_unavailable" }); endProcess(); });
   child.on?.("close", (code, signal) => {
     finishCompaction("claude_process_ended");
-    rateEvent({ type: "rate.turn.ended" });
+    endSpan();
     childExited = true;
     exitCode = Number.isInteger(code) ? code : null;
     exitSignal = typeof signal === "string" ? signal : null;
@@ -1160,7 +1289,7 @@ function createClaudeStructuredSession({
     const afterInitialize = ensureOpen();
     if (afterInitialize) return Promise.resolve(afterInitialize);
     interruptRequested = false;
-    beginTurn();
+    beginTurn({ person: true });
     lastActivityAt = Date.now();
     return enqueueFrame(frame)
       .then(result => {
@@ -1293,6 +1422,14 @@ function createClaudeStructuredSession({
   }
   function interrupt() {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
+    // Between turns Claude has nothing to interrupt: Stop ends the wait on
+    // its background work and leaves that work running, as an interrupt
+    // during a turn does. Claude reports it when it ends, in a turn of its own.
+    if (state === "waiting" && spanOpen) {
+      lastActivityAt = Date.now();
+      endSpan({ result: { stopReason: "cancelled" } });
+      return Promise.resolve({ kind: "stopped", background: true });
+    }
     const requestId = `stepsemble-int-${crypto.randomUUID()}`;
     pendingInterrupts.add(requestId);
     interruptRequested = true;
@@ -1306,7 +1443,7 @@ function createClaudeStructuredSession({
     if (closePromise) return closePromise;
     finishCompaction("claude_session_closed");
     closed = true; parser.close();
-    state = "closed";
+    state = "closed"; clearTimeout(spanTimer);
     rejectControls(controlError("claude_session_closed"));
     pendingPermissions.clear(); pendingInterrupts.clear();
     closePromise = (async () => {
@@ -1327,9 +1464,9 @@ function createClaudeStructuredSession({
     return closePromise;
   }
   function isIdle() {
-    return !!initializationResult && !closed && !processError && !parser.status().failed && state === "waiting"
+    return !!initializationResult && !closed && !processError && !parser.status().failed && state === "waiting" && !spanOpen
       && !compactionPending && !pendingUserInputs && !queuedInputBytes && !child.stdin?.writableLength
-      && !pendingControls.size && !pendingInterrupts.size && !pendingPermissions.size && !backgroundTasks.size && !processBoundWork
+      && !pendingControls.size && !pendingInterrupts.size && !pendingPermissions.size && !(backgroundList || backgroundTasks).size && !processBoundWork
       && !autoCompacting;
   }
   return Object.freeze({
@@ -1361,6 +1498,9 @@ function createClaudeStructuredSession({
         nativeSessionId: current.sessionId || (fork ? fork.sessionId : sessionId), state: current.failed || processError ? "failed" : state,
         model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),
         turnError: turnError ? { ...turnError } : null,
+        // working: a span of work is under way, also while Claude waits
+        // between turns on the background work it started (background).
+        working: spanOpen && !closed, background: closed ? null : backgroundStatus(),
         startedAt, turnStartedAt, turnEndedAt, lastActivityAt, exitCode, exitSignal, processExited: childExited, cleanupConfirmed: closed && childExited };
     },
     events: () => parser.events(),

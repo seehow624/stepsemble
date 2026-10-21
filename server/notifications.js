@@ -76,12 +76,16 @@ function createNotifications({ entries, host, publish = () => {}, now = Date.now
     if (agent === "codex" && type === "turn.completed") outcome = event.status === "completed" ? "completed" : event.status === "interrupted" ? "stopped" : "failed";
     if (agent === "codex" && type === "turn.interrupted") outcome = "stopped";
     if (agent === "codex" && ["transport.failed", "thread.closed"].includes(type)) outcome = "failed";
-    if (agent === "claude-code" && type === "result") outcome = event.interrupted ? "stopped" : event.is_error ? "failed" : "completed";
+    // A Claude turn that leaves background work is not the end of the work;
+    // the end of its span is (rate.turn.ended with how it ended).
+    if (agent === "claude-code" && type === "result" && !event.backgroundPending) outcome = event.interrupted ? "stopped" : event.is_error ? "failed" : "completed";
     if (type === "rate.turn.ended") {
-      outcome = event.result?.stopReason === "cancelled" ? "stopped" : agent === "claude-code" ? "failed" : event.result ? "completed" : "failed";
+      outcome = event.result?.stopReason === "cancelled" ? "stopped" : event.result?.stopReason === "superseded" ? "superseded" : event.result ? "completed" : "failed";
     }
     if (outcome && run.active) {
       run.active = false;
+      // The person sent another message: they are here, and the work goes on.
+      if (outcome === "superseded") return;
       const entry = entryFor(agent, id);
       for (const row of recent) if (row.key === entry?.key && row.kind === "approval") row.resolved = true;
       mark(agent, id);

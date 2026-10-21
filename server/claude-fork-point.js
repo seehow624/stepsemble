@@ -26,14 +26,52 @@ function claudeTranscriptFile(nativeSessionId, cwd, { configDir = claudeConfigDi
   return path.join(configDir, "projects", cwd.replace(/[^A-Za-z0-9]/g, "-"), id + ".jsonl");
 }
 
+function promptText(row) {
+  const content = row.message?.content;
+  return typeof content === "string" ? content
+    : Array.isArray(content) ? content.filter(part => part?.type === "text").map(part => part.text || "").join("") : "";
+}
+// A prompt Claude gave itself, such as a background task's notification: it
+// starts a turn of the work already under way, not a request of its own.
+function claudeOwnPrompt(row) {
+  if (row?.type !== "user" || row.isMeta === true) return false;
+  return row.origin?.kind === "task-notification" || row.promptSource === "system" || /^\s*<task-notification>/.test(promptText(row));
+}
 // A message the person wrote starts a turn; a tool's result, a task's notice
 // and Claude's own notes are recorded as theirs but do not.
 function personWrote(row) {
-  if (row.type !== "user" || row.isMeta === true) return false;
-  const content = row.message?.content;
-  const text = typeof content === "string" ? content
-    : Array.isArray(content) ? content.filter(part => part?.type === "text").map(part => part.text || "").join("") : "";
-  return !!text.trim() && !/^\s*<(task-notification|local-command-)/.test(text);
+  if (row.type !== "user" || row.isMeta === true || claudeOwnPrompt(row)) return false;
+  const text = promptText(row);
+  return !!text.trim() && !/^\s*<local-command-/.test(text);
+}
+
+// The work each of the person's messages started, read entry by entry: from
+// the message to the last entry before the next one, with each turn Claude
+// took in between (its own, for a task's notification, among them).
+function createWorkSpans() {
+  const spans = [];
+  let span = null;
+  const time = row => { const at = Date.parse(row?.timestamp); return Number.isFinite(at) ? at : null; };
+  return {
+    record(row) {
+      if (!row || row.isSidechain === true || row.type !== "user" && row.type !== "assistant") return;
+      const at = time(row);
+      if (at === null) return;
+      if (personWrote(row)) { span = { at, endedAt: at, turns: [{ startedAt: at, endedAt: at }] }; spans.push(span); return; }
+      if (!span) return;
+      if (claudeOwnPrompt(row)) span.turns.push({ startedAt: at, endedAt: at });
+      span.endedAt = Math.max(span.endedAt, at);
+      const turn = span.turns[span.turns.length - 1];
+      turn.endedAt = Math.max(turn.endedAt, at);
+    },
+    spans: () => spans.map(row => ({ ...row, durationMs: row.endedAt - row.at,
+      turns: row.turns.map(turn => ({ ...turn, durationMs: turn.endedAt - turn.startedAt })) })),
+  };
+}
+function claudeWorkSpans(rows) {
+  const reader = createWorkSpans();
+  for (const row of Array.isArray(rows) ? rows : []) reader.record(row);
+  return reader.spans();
 }
 
 // The branch points of a transcript read entry by entry: each reply's message
@@ -84,4 +122,5 @@ async function claudeForkPoint(nativeSessionId, messageId, cwd, { configDir = cl
   return streamedForkPoint(file, messageId);
 }
 
-module.exports = { claudeConfigDir, claudeTranscriptFile, createForkPoints, claudeForkPointFromRows, claudeForkPoint };
+module.exports = { claudeConfigDir, claudeTranscriptFile, createForkPoints, claudeForkPointFromRows, claudeForkPoint,
+  personWrote, claudeOwnPrompt, createWorkSpans, claudeWorkSpans };

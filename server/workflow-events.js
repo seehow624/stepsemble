@@ -49,8 +49,11 @@ function createWorkflowEvents({ onEvent = () => {} } = {}) {
       // permission waits for the person.
       if (e.type === "control_request" && e.request?.subtype === "can_use_tool" || e.type === "permission_request") activity("approval", true);
       if (e.type === "rate.permission.resolved" || e.type === "control_cancel_request") activity("thinking");
-      if (e.type === "result") { if (typeof e.result === "string") row.text = e.result.slice(-32000); row.finish(e.is_error ? e.errors?.join("\n") || e.result || "Claude Code failed" : null); }
-      if (e.type === "rate.turn.ended") row.finish("Claude Code ended without a final result");
+      // A turn that leaves background work is not the Goal turn's end: Claude
+      // reports on that work in turns of its own, and the span ends after.
+      if (e.type === "result" && e.backgroundPending) { if (typeof e.result === "string" && e.result) row.text = e.result.slice(-32000); }
+      else if (e.type === "result") { if (typeof e.result === "string") row.text = e.result.slice(-32000); row.finish(e.is_error ? e.errors?.join("\n") || e.result || "Claude Code failed" : null); }
+      if (e.type === "rate.turn.ended") row.finish(["end_turn", "superseded"].includes(e.result?.stopReason) ? null : "Claude Code ended without a final result");
     } else {
       if (e.type === "rate.permission") activity(e.resolved ? "thinking" : "approval", !e.resolved);
       const u = e.update;

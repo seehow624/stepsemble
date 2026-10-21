@@ -77,6 +77,27 @@ test("stored rates belong to the nearest user turn after a conversation reload",
   assert.equal(f.run("turnRateFor(workTurns()[1], { before: 10000 })"), null);
 });
 
+test("Claude's own turns for its background work, stored as runs of their own, are one span with the message before them", async () => {
+  const f = fixture();
+  f.user(10000); f.user(900000);
+  // A Host from before kept the launch, each notification's turn and the next message's run apart.
+  const rows = [{ startedAt: 10500, endedAt: 30500, tokens: 300, totalMs: 20000, modelMs: 15000, estimated: false },
+    { startedAt: 600000, endedAt: 610000, tokens: 100, totalMs: 10000, modelMs: 9000, estimated: false },
+    { startedAt: 700000, endedAt: 790000, tokens: 200, totalMs: 90000, modelMs: 30000, estimated: false },
+    { startedAt: 900500, endedAt: 905500, tokens: 50, totalMs: 5000, modelMs: 5000, estimated: false }];
+  f.context.api = async () => ({ rates: rows, hostTracked: true, active: null });
+  f.run("ensureTurnRates()");
+  await new Promise(resolve => setImmediate(resolve));
+  f.context.rpc = { nativeClaudeStructured: true };
+  const first = f.run("turnRateFor(workTurns()[0], { after: 900000, followed: true })");
+  assert.deepEqual([first.totalMs, first.tokens, first.modelMs], [779500, 600, 54000], "Worked for runs from the message to the last turn's end");
+  assert.equal(f.run("turnRateFor(workTurns()[1], { before: 10000 }).totalMs"), 5000);
+  assert.equal(f.run("turnRateFor(workTurns()[0], { followed: true }).totalMs"), 20000, "a next message whose time is unknown merges nothing");
+  // Other agents' runs stay as they were.
+  f.context.rpc = { nativeCodex: true };
+  assert.equal(f.run("turnRateFor(workTurns()[0], { after: 900000, followed: true }).totalMs"), 20000);
+});
+
 test("a reopened page prefers Host summaries and never writes a local estimate over them", async () => {
   const f = fixture();
   const user = f.user(10000);
