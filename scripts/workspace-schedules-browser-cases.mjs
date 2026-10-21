@@ -62,6 +62,10 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
       const objective = schedules.locator('textarea[name="objectivePrompt"]');
       await objective.waitFor();
       assert.equal(await frame.count(), 1, "one Schedules tab per computer");
+      // The form takes the focus once its pane has it; on a loaded runner that
+      // lands a moment after the form is drawn, so type only once it has.
+      await page.waitForFunction(() => { const pane = document.querySelector('iframe.workspace-frame[src*="/schedules.html"]');
+        return document.activeElement === pane && pane.contentDocument?.activeElement?.name === "objectivePrompt"; });
       await page.keyboard.type("Check the build");
       assert.equal(await objective.inputValue(), "Check the build", "typing goes to the objective");
       await schedules.locator('[data-focus="editor-back"]').click();
