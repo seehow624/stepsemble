@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.41
+
+- See each agent by its own current icon, in its own colours, the same in light and dark: Claude Code's Clawd, the Codex app icon, Pi's colour logo, and the official icons of OpenCode, Grok, Google Antigravity, Cline, Kilo Code, Hermes Agent and Oh My Pi — the last five in place of Stepsemble's stand-ins. Icons that come on a tile keep a fine edge, so a dark one still shows on black.
+- The limits capsule and sheet show providers the same way, and Codex limits show the Codex icon.
+
 ## 3.9.40
 
 - Refresh by tapping the Stepsemble name at the top of the list; its mark turns while it reads. The list no longer has Refresh and Settings buttons of its own.
