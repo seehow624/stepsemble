@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.35
+
+- Try a bolder look: Settings → Appearance → Interface style is Bold by default — the sidebar floats as glass over a quiet backdrop from your theme, replies read with a calmer rhythm, the message box is a glass capsule, Settings has large titles and coloured category tiles, and menus and sheets arrive as blurred glass. Choose Classic to go back to the previous look; every device and pane follows the change without a reload.
+- Stop the Agents & models settings page and a conversation's summary from swaying sideways on an iPhone. A dropdown with a long model name no longer widens the page, and a long link in the summary ends in an ellipsis.
+
 ## 3.9.34
 
 - See usage in the same glass sheet as the limits: the sheet now has Limits and Usage tabs and grows up from the capsule to fit the tab, instead of opening another window. Pull it down, scroll or click elsewhere, or press Escape, and it sinks back into the capsule. The limits bars have their colour again.
