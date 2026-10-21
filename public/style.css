@@ -7089,11 +7089,13 @@ html.workspace-mobile-pane #view-chat .session-summary { width: min(304px, calc(
 }
 #view-chat .effort-line-label:empty { display: none; }
 /* A pointer passing over brightens the line at once and names it only if it
-   stays; held, the name is there at once. */
+   stays; held, the name is there at once. Under the pointer alone the name
+   stops a hair short of opaque, so a press starts a transition of its own
+   instead of waiting out this one's delay. */
 @media (hover: hover) {
   #view-chat .composer-effort-line:hover { --line-h: 4px; }
-  #view-chat .composer-effort-line:hover :is(.effort-line-ticks, .effort-line-label) { opacity: 1; transition-delay: .3s; }
-  #view-chat .composer-effort-line:hover .effort-line-label { transform: translate(-50%, 0); }
+  #view-chat .composer-effort-line:hover .effort-line-ticks { opacity: .99; transition-delay: .3s; }
+  #view-chat .composer-effort-line:hover .effort-line-label { opacity: .98; transform: translate(-50%, 0); transition-delay: .3s; }
 }
 #view-chat .composer-effort-line:is(.is-dragging, .is-pressed, :focus-visible) { --line-h: 4px; }
 #view-chat .composer-effort-line:is(.is-dragging, :focus-visible) .effort-line-ticks { opacity: 1; transition-delay: 0s; }

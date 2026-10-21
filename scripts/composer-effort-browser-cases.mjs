@@ -328,8 +328,8 @@ async function lightCase(browser) {
     await ui.evaluate(() => setStreaming(true));
     const working = await composer(ui);
     assert.deepEqual([working.light, working.tip], ["effort-line-travel", true], "light runs along the filled line");
-    await ui.waitForTimeout(700);
-    near((await composer(ui)).place, 1, "the line springs to its end");
+    await ui.waitForFunction(() => { const node = document.querySelector("#composer-effort");
+      return node.querySelector(".effort-line-fill").getBoundingClientRect().width >= node.querySelector(".effort-line-track").getBoundingClientRect().width - 1; }, null, { timeout: 3000 });
     await ui.evaluate(() => setStreaming(false));
     assert.equal((await composer(ui)).light, "none");
   } finally { await context.close(); await preview.close(); }
@@ -373,6 +373,10 @@ async function lineCase(browser, width) {
         select: document.getElementById("thinking-select").value, focus: document.activeElement?.id || document.activeElement?.tagName }; });
     const settled = level => ui.waitForFunction(level => document.querySelector("#composer-effort").dataset.level === level
       && document.getElementById("thinking-slider").getAttribute("aria-valuetext") === level, level);
+    // Where the fill comes to rest once its spring has settled.
+    const placed = place => ui.waitForFunction(place => { const node = document.querySelector("#composer-effort");
+      const fill = node.querySelector(".effort-line-fill").getBoundingClientRect(), track = node.querySelector(".effort-line-track").getBoundingClientRect();
+      return Math.abs(fill.width / track.width - place) <= 0.01; }, place, { timeout: 3000 });
     assert.deepEqual([await line.getAttribute("role"), await line.getAttribute("aria-label"), await line.getAttribute("aria-valuemax")], ["slider", "Thinking level", "4"]);
 
     // Its reach: 24px under a pointer, 44px under a finger, mostly above the
@@ -411,18 +415,17 @@ async function lineCase(browser, width) {
       await page.mouse.move(at(1) + 30, y, { steps: 5 });
     }
     // The name floats above while it is held, and nothing is sent yet.
-    await ui.waitForTimeout(250);
+    await ui.waitForFunction(() => getComputedStyle(document.querySelector("#composer-effort .effort-line-label")).opacity === "1", null, { timeout: 2000 });
     let shown = await state();
     assert.deepEqual([shown.label, shown.labelShown], ["Max", true]);
     assert.deepEqual(host.efforts, [], "nothing is sent while dragging");
     if (phone) await finger("touchEnd"); else { await ui.waitForTimeout(120); await page.mouse.up(); }
     await settled("Max");
-    await ui.waitForTimeout(phone ? 100 : 700);
+    await placed(1);
     assert.deepEqual(host.efforts, ["max"], "one change for the drag");
     // An alias whose id names its level moves to the model's own id first, as from the sheet.
     assert.deepEqual(host.calls, [["model", "claude/claude-opus-5-5[1m]"], ["effort", "max"]]);
     shown = await state();
-    near(shown.place, 1, "Max fills the line");
     assert.deepEqual([shown.now, shown.select, shown.focus], ["4", "max", "input"], "the sheet's record follows, and the text box keeps the focus");
     assert.equal(await ui.evaluate(() => document.getElementById("toast-wrap")?.textContent.trim() || ""), "", "no notice: the line names the level");
 
@@ -430,8 +433,7 @@ async function lineCase(browser, width) {
     if (phone) { await finger("touchStart", at(1)); for (let step = 1; step <= 8; step++) await finger("touchMove", at(1) + (at(0.47) - at(1)) * step / 8); await finger("touchEnd"); }
     else { await page.mouse.move(at(1), y); await page.mouse.down(); await page.mouse.move(at(0.47), y, { steps: 8 }); await ui.waitForTimeout(120); await page.mouse.up(); }
     await settled("High");
-    await ui.waitForTimeout(phone ? 100 : 700);
-    near((await state()).place, 0.55, "it springs to High");
+    await placed(0.55);
     // A tap jumps to the level under it.
     if (phone) { await finger("touchStart", at(0.12)); await finger("touchEnd"); }
     else await page.mouse.click(at(0.12), y);
@@ -493,7 +495,10 @@ async function piCase(browser, width) {
     await signInToWorkspace(page, base, (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim());
     await adoptPiHistory(page, "effort.jsonl");
     const ui = await openFromSidebar(page, "Pi thinking fixture");
+    // Pi's levels for the model (Off–High) arrive after its state; until then
+    // the line scales against every level Pi has.
     await ui.waitForFunction(() => document.querySelector("#composer-effort")?.dataset.state === "level"
+      && document.querySelector("#composer-effort").getAttribute("aria-valuemax") === "3"
       && document.querySelector("#context-dashboard").dataset.contextState === "normal");
     const shown = await composer(ui);
     assert.equal(shown.name, "Synthetic baseline, thinking: Medium");
