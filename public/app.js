@@ -12453,19 +12453,24 @@ function restoreDefaultThinkingSelectOptions() {
 // Replaces a select's options only when they change. Conversations refresh
 // every few seconds, and rebuilding the options each time would close or
 // reset a menu the person has open.
+// An entry for Claude's "auto" carries the level it runs at, for the slider.
 function setSelectOptions(select, entries) {
   const current = [...select.options];
   const same = current.length === entries.length && current.every((option, index) => option.value === entries[index].value
     && option.textContent === entries[index].label && !!option.disabled === !!entries[index].disabled);
   if (same) return;
-  select.replaceChildren(...entries.map(({ value, label, disabled }) => Object.assign(document.createElement("option"), { value, textContent: label, disabled: !!disabled })));
+  select.replaceChildren(...entries.map(({ value, label, disabled, auto, effective }) => {
+    const option = Object.assign(document.createElement("option"), { value, textContent: label, disabled: !!disabled });
+    if (auto && option.dataset) Object.assign(option.dataset, { auto: "true", ...(effective ? { effective } : {}) });
+    return option;
+  }));
 }
 
 function setThinkingControlVisibility(hidden) {
   const select = el.thinkingSelect;
   if (!select) return;
   select.hidden = !!hidden;
-  document.querySelector('label[for="thinking-select"]')?.classList.toggle("hidden", !!hidden);
+  document.querySelector("#thinking-label")?.classList.toggle("hidden", !!hidden);
   if (hidden) setThinkingHint("");
   const heading = el.modelSheet?.querySelector?.(".model-heading h2");
   const title = hidden ? "Model" : "Model & reasoning";
@@ -12526,11 +12531,14 @@ function syncNativeThinkingSelect(connection = rpc) {
     // Claude reports the level it runs with, or "auto" when it chooses; one
     // it has not reported yet is shown as unknown rather than as a default.
     const auto = String(connection.claudeEffort || "").toLowerCase() === "auto";
-    connection.claudeEffort = [connection.claudeEffort, model?.defaultEffort]
+    // An alias whose id names the level it runs at (Magpie's
+    // "claude/claude-opus-5-5:xhigh[1m]") runs at that one until Claude reports its own.
+    const preset = auto ? null : modelPresentation?.modelTags(model?.resolvedModel || model?.id).effort;
+    connection.claudeEffort = [connection.claudeEffort, preset, model?.defaultEffort]
       .map(value => String(value || "").toLowerCase()).find(value => choices.has(value)) || (auto ? "auto" : null);
     const current = choices.has(connection.claudeEffort) ? connection.claudeEffort : "";
     const effective = auto && choices.has(connection.claudeEffectiveEffort) ? connection.claudeEffectiveEffort : "";
-    setSelectOptions(select, [...(current ? [] : [{ value: "", label: auto ? reasoningLevelText("auto") + (effective ? " · " + reasoningLevelText(effective) : "") : "—", disabled: true }]),
+    setSelectOptions(select, [...(current ? [] : [{ value: "", label: auto ? reasoningLevelText("auto") + (effective ? " · " + reasoningLevelText(effective) : "") : "—", disabled: true, auto, effective }]),
       ...levels.map(level => ({ value: level, label: reasoningLevelText(level) }))]);
     select.value = current;
     updateComposerSummary(undefined, connection.claudeEffort || "", { levels, note: "", effective });
@@ -12838,28 +12846,6 @@ document.addEventListener("click", (event) => {
 let availableModels = [];
 let modelSheetCurrentId = null;
 let modelSheetCurrentProvider = null;
-// The badge answers "how deep can this model think" before picking it. Claude
-// and gateway rows declare the exact levels per model, so those show the real
-// span and nothing at all when the model offers no levels, which keeps Haiku
-// from claiming the same depth as Opus. Pi rows fall back to
-// getSupportedThinkingLevels: levels through "high" are standard, while
-// "xhigh"/"max" require a non-null thinkingLevelMap entry.
-function modelThinkingBadge(model) {
-  const declaredLevels = Array.isArray(model?.supportedEffortLevels) ? model.supportedEffortLevels : null;
-  if (declaredLevels) {
-    const levels = [...new Set(declaredLevels
-      .map(level => String(level).trim().toLowerCase())
-      .filter(level => THINKING_LEVEL_ORDER.includes(level)))]
-      .sort((a, b) => THINKING_LEVEL_ORDER.indexOf(a) - THINKING_LEVEL_ORDER.indexOf(b));
-    if (!levels.length) return "";
-    return levels.length === 1 ? levels[0] : `${levels[0]}-${levels[levels.length - 1]}`;
-  }
-  if (!model?.reasoning) return "";
-  const map = model.thinkingLevelMap && typeof model.thinkingLevelMap === "object" ? model.thinkingLevelMap : null;
-  if (map?.max) return "max";
-  if (map?.xhigh) return "xhigh";
-  return "high";
-}
 
 function normalizeOpenCodeModel(model) {
   return openCodeContext.normalizeModel(model);
@@ -12959,6 +12945,19 @@ function claudeCatalogFrom(result) {
   const models = rows.filter(model => model.id !== "default");
   const current = result?.currentModel === "default" && alias?.resolvedModel ? alias.resolvedModel : result?.currentModel;
   return { models, current };
+}
+
+// A conversation on a gateway alias whose id names the level it runs at
+// (Magpie's "opus" at "claude/claude-opus-5-5:xhigh[1m]") would keep that
+// level whatever is picked. The same model without it ("claude/claude-opus-5-5[1m]",
+// the id its row picks) takes the level picked; null when nothing names one.
+function claudePlainModel(connection) {
+  const model = connection?.claudeModel, wire = String(model?.resolvedModel || model?.id || "");
+  if (!model || !modelPresentation?.modelTags(wire).effort) return null;
+  const id = modelPresentation.plainModelId(wire);
+  if (!/^[^/\s]+\/./.test(id)) return null;
+  return (Array.isArray(connection.claudeModels) ? connection.claudeModels : []).find(row => row.id === id)
+    || { ...model, id, name: id, resolvedModel: id, description: "" };
 }
 
 function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
@@ -13238,15 +13237,23 @@ function renderModelList(currentId, currentProvider = null) {
   const current = availableModels.find(matchesCurrent);
   const query = String(el.modelSearch?.value || "").trim().toLocaleLowerCase();
   const agentId = connectionAgentId(connection);
-  const shown = (m) => modelPresentation?.present(m, agentId) || { name: m.name || m.id, provider: m.provider || "" };
-  const visibleModels = availableModels.filter((m) => m?.hidden !== true).filter(isModelVisible).filter((m) => !query
-    || `${m.name || ""} ${m.id || ""} ${m.provider || ""} ${shown(m).name} ${shown(m).provider}`.toLocaleLowerCase().includes(query));
+  const shown = (m) => modelPresentation?.present(m, agentId) || { name: m.name || m.id, base: m.name || m.id, provider: m.provider || "" };
+  const visibleModels = availableModels.filter((m) => m?.hidden !== true).filter(isModelVisible);
+  // One row per model: Claude Code's aliases of one model at several levels
+  // are one row, chosen by an id that names no level (the slider below picks
+  // the level). The conversation's model may be named bare or without an
+  // alias's level; its row is the one that model is in.
+  const groups = modelPresentation?.modelGroups(visibleModels, agentId) || visibleModels.map((m) => ({ id: m.id, model: m, members: [m] }));
+  const currentRow = current || (connection?.nativeClaudeStructured && currentId
+    ? modelPresentation?.matchModel(visibleModels, currentId, { effort: connection.claudeEffort }) : null);
+  const matching = groups.filter((group) => !query || group.members.some((m) => `${m.name || ""} ${m.id || ""} ${m.provider || ""} ${shown(m).name} ${shown(m).provider}`
+    .toLocaleLowerCase().includes(query)));
   if (current) updateComposerSummary(shown(current).name, undefined);
   else if (!currentId && !connection?.nativeCodexMutation && !connection?.nativeClaudeStructured) {
     updateComposerSummary("", undefined);
   }
   el.modelList.innerHTML = "";
-  if (!visibleModels.length) {
+  if (!matching.length) {
     // Build the node instead of interpolating: the copy is translated at
     // runtime and must never be parsed as markup.
     const empty = document.createElement("p");
@@ -13255,23 +13262,23 @@ function renderModelList(currentId, currentProvider = null) {
     el.modelList.appendChild(empty);
     return;
   }
-  for (const m of visibleModels) {
+  for (const group of matching) {
+    const active = !!currentRow && group.members.includes(currentRow);
+    // Picking the model in use again keeps it as it runs.
+    const pick = group.id === group.model.id ? group.model : { ...group.model, id: group.id, resolvedModel: group.id };
+    const m = active && current ? current : pick;
     const row = document.createElement("button");
-    row.className = "action-row model-row" + (matchesCurrent(m) ? " active" : "");
+    row.className = "action-row model-row" + (active ? " active" : "");
     row.type = "button";
-    row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span><span class="model-thinking-badge"></span>';
-    row.querySelector(".model-check").textContent = matchesCurrent(m) ? "✓" : "";
-    // The model's own name, then the provider serving it; the agent is the
-    // conversation's, so it is not repeated on every row.
-    row.querySelector("strong").textContent = shown(m).name;
+    row.innerHTML = '<span class="model-check"></span><span class="model-info"><strong></strong><small></small></span>';
+    row.querySelector(".model-check").textContent = active ? "✓" : "";
+    // The model's own name, then the provider serving it and its context; the
+    // agent is the conversation's, so it is not repeated on every row.
+    row.querySelector("strong").textContent = shown(group.model).base;
     row.querySelector("strong").dataset.i18nIgnore = "true";
-    row.querySelector("small").textContent = modelPresentation?.detailLine(m, agentId) || "";
+    row.querySelector("small").textContent = modelPresentation?.detailLine(group.model, agentId) || "";
     row.querySelector("small").dataset.i18nIgnore = "true";
-    const badge = row.querySelector(".model-thinking-badge");
-    const badgeText = modelThinkingBadge(m);
-    badge.textContent = badgeText ? badgeText.split("-").map(reasoningLevelText).join("–") : "";
-    badge.classList.toggle("hidden", !badgeText);
-    if (m.description) row.title = m.description;
+    if (group.model.description) row.title = group.model.description;
     row.addEventListener("click", async () => {
       if (!expectedSid) return;
       try {
@@ -13563,6 +13570,10 @@ el.modelSearch?.addEventListener("input", () => renderModelList(modelSheetCurren
 el.modelSheet.addEventListener("click", (event) => {
   if (event.target === el.modelSheet) closeModelSheet();
 });
+// The sheet's slider shows the level it lands on; a toast would cover it.
+function thinkingLevelToast(level) {
+  if (el.modelSheet?.classList.contains("hidden")) toast(tKey("runtime.thinkingLevel", { level }));
+}
 async function changeThinkingLevel(level) {
   const expectedSid = rpc?.sid;
   if (!expectedSid) return;
@@ -13574,6 +13585,17 @@ async function changeThinkingLevel(level) {
     const allowed = new Set(["low", "medium", "high", "xhigh", "max"]);
     if (!allowed.has(requested) || ![...el.thinkingSelect.options].some(option => option.value === requested)) return;
     try {
+      // The same model without its alias's level first, so the level picked is
+      // the one it runs at. No switch to tell about: the row, the name and the
+      // context stay as they are.
+      const plain = claudePlainModel(connection);
+      if (plain) {
+        const moved = await post("/api/claude/structured/model", { sessionId: connection.nativeSessionId, model: plain.id });
+        if (rpc !== connection || viewGeneration !== expectedGeneration || apiBase !== expectedBase) return;
+        if (moved?.kind === "reject" || moved?.success === false) throw new Error(moved.error || moved.code || "Claude rejected the model");
+        connection.claudeModel = plain;
+        connection.claudeModelSelected = true;
+      }
       const result = await post("/api/claude/structured/effort", {
         sessionId: connection.nativeSessionId,
         effort: requested,
@@ -13584,7 +13606,8 @@ async function changeThinkingLevel(level) {
       syncNativeThinkingSelect(connection);
       updateComposerSummary(undefined, connection.claudeEffort);
       renderContextDashboard();
-      toast(tKey("runtime.thinkingLevel", { level: reasoningLevelText(connection.claudeEffort) }));
+      if (plain && !el.modelSheet.classList.contains("hidden")) renderModelList(plain.id, "claude-code");
+      thinkingLevelToast(reasoningLevelText(connection.claudeEffort));
     } catch (error) {
       if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
         syncNativeThinkingSelect(connection);
@@ -13602,7 +13625,7 @@ async function changeThinkingLevel(level) {
       if (rpc !== connection) return;
       if (result?.kind === "reject") throw new Error(result.code || "reasoning change rejected");
       applyAcpConfig(connection, result?.configOptions);
-      toast(tKey("runtime.thinkingLevel", { level: reasoningLevelText(requested) }));
+      thinkingLevelToast(reasoningLevelText(requested));
     } catch (error) {
       if (rpc === connection) { syncNativeThinkingSelect(connection); toast(tKey("runtime.saveFailed", { detail: error.message }), true); }
     }
@@ -13645,11 +13668,15 @@ async function changeThinkingLevel(level) {
         actual,
       }) || `${level} → ${actual}`, true);
     } else {
-      toast(tKey("runtime.thinkingLevel", { level }));
+      thinkingLevelToast(level);
     }
   } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
 el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinkingSelect.value));
+// The level is picked on a line from the weakest to the strongest; the select
+// stays as its record, so everything above reads and writes it as before.
+window.stepsembleEffortSlider?.attach({ select: el.thinkingSelect, slider: $("thinking-slider"), value: $("thinking-value"),
+  auto: $("thinking-auto"), control: $("thinking-control") });
 
 // ===========================================================================
 // Markdown / Mermaid Rich 渲染
@@ -17945,6 +17972,18 @@ async function renderModelAgentList() {
   }
 }
 
+// The models an agent reported, as its model sheet names them: one row per
+// model (Claude Code's slots on one Magpie model at several levels are one),
+// with the id it is picked by, the provider and the context.
+function agentModelRows(models, agentId) {
+  const list = Array.isArray(models) ? models : [];
+  if (agentId === "codex" || !modelPresentation) {
+    return list.map(model => ({ name: model.name || model.id, detail: [model.name && model.name !== model.id ? model.id : "", model.description || ""].filter(Boolean).join(" · ") }));
+  }
+  return modelPresentation.modelGroups(list, agentId).map(({ id, model }) => ({ name: modelPresentation.present(model, agentId).name,
+    detail: [id, modelPresentation.detailLine(model, agentId)].filter(Boolean).join(" · ") }));
+}
+
 // Codex lists its models live. Claude Code and the ACP agents only report them
 // inside a conversation, so their page shows the list from the last one.
 let agentModelRequest = 0;
@@ -17977,13 +18016,13 @@ async function loadAgentModelList(agentId) {
     }
     if (!current()) return;
     const label = agentTerminalLabel(agentId);
-    for (const model of models) {
+    for (const shown of agentModelRows(models, agentId)) {
       const row = document.createElement("div");
       row.className = "agent-model-row";
       const name = document.createElement("strong");
-      name.textContent = model.name || model.id;
+      name.textContent = shown.name;
       row.appendChild(name);
-      const detail = [model.name && model.name !== model.id ? model.id : "", model.description || ""].filter(Boolean).join(" · ");
+      const detail = shown.detail;
       if (detail) {
         const small = document.createElement("small");
         small.textContent = detail;

@@ -11,7 +11,9 @@ const { gatewayModelOptions } = require("../server/claude-code-structured-adapte
 
 const MODELS = [
   { id: "minimax/MiniMax-M3", display_name: "MiniMax-M3", magpie_label: "MiniMax-M3 · MiniMax", owned_by: "minimax", context_window: 1000000, reasoning_levels: ["low", "high", "ultra"] },
-  { id: "claude/claude-opus-5-5", display_name: "Claude Opus 5.5", magpie_label: "Claude Opus 5.5 · Claude Code", owned_by: "claude", context_window: 1000000 },
+  { id: "claude/claude-haiku-5-5", display_name: "Claude Haiku 5.5", magpie_label: "Claude Haiku 5.5 · Claude Code", owned_by: "claude", context_window: 1000000, reasoning_levels: ["low", "max"] },
+  { id: "claude/claude-opus-5-5", display_name: "Claude Opus 5.5", magpie_label: "Claude Opus 5.5 · Claude Code", owned_by: "claude", context_window: 1000000, reasoning_levels: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "claude/claude-opus-4-5", display_name: "Claude Opus 4.5", magpie_label: "Claude Opus 4.5 · Claude Code", owned_by: "claude", context_window: 200000 },
   { id: "codex/gpt-6.1-sol", display_name: "GPT-6.1-Sol", magpie_label: "GPT-6.1-Sol · Codex", owned_by: "codex", context_window: 272000, reasoning_levels: ["low", "max"] },
 ];
 
@@ -58,7 +60,7 @@ test("status tells which agents go through Magpie and which go elsewhere", async
   assert.equal((await f.service.status()).codex.mode, "direct");
 });
 
-test("Claude routing needs Magpie answering, writes its model list without Claude's own models, and is taken back only from Magpie", async t => {
+test("Claude routing needs Magpie answering, writes its model list with Claude's own models first, and is taken back only from Magpie", async t => {
   const f = fixture(t, { online: false });
   await assert.rejects(f.service.setClaudeSessionRouting(true), { code: "magpie_offline" });
   assert.equal(fs.existsSync(path.join(f.home, ".config/stepsemble/claude-gateway.json")), false);
@@ -68,15 +70,23 @@ test("Claude routing needs Magpie answering, writes its model list without Claud
   assert.deepEqual(f.read(".config/stepsemble/claude-gateway.json"), { version: 1, enabled: true, baseUrl: "http://127.0.0.1:3425" });
   const catalog = f.read(".config/stepsemble/claude-gateway-catalog.json");
   assert.equal(catalog.gateway, "magpie"); assert.equal(catalog.baseUrl, "http://127.0.0.1:3425");
-  assert.deepEqual(catalog.models.map(row => row.id), ["minimax/MiniMax-M3", "codex/gpt-6.1-sol"]);
-  assert.equal(catalog.models[0].description, "Magpie gateway · MiniMax");
-  assert.deepEqual(catalog.models[0].supportedEffortLevels, ["low", "high"]);
-  assert.deepEqual(f.read(".claude/cache/gateway-models.json").models.map(row => row.id), ["minimax/MiniMax-M3", "codex/gpt-6.1-sol"]);
+  // Claude's own models come first in Claude Code's order, named as Claude
+  // Code's own settings name them: "[1m]" for the 1M context, no level.
+  const ids = ["claude/claude-opus-5-5[1m]", "claude/claude-opus-4-5", "claude/claude-haiku-5-5[1m]", "minimax/MiniMax-M3", "codex/gpt-6.1-sol"];
+  assert.deepEqual(catalog.models.map(row => row.id), ids);
+  assert.equal(catalog.models[3].description, "Magpie gateway · MiniMax");
+  assert.deepEqual(catalog.models[3].supportedEffortLevels, ["low", "high"]);
+  assert.deepEqual(catalog.models[0].supportedEffortLevels, ["low", "medium", "high", "xhigh", "max"]);
+  // Claude Code's own cache keeps Magpie's ids as its discovery writes them.
+  assert.deepEqual(f.read(".claude/cache/gateway-models.json").models.map(row => row.id),
+    ["claude/claude-opus-5-5", "claude/claude-opus-4-5", "claude/claude-haiku-5-5", "minimax/MiniMax-M3", "codex/gpt-6.1-sol"]);
   const picker = f.read(".config/stepsemble/claude-gateway-settings.json").modelPicker.options;
-  assert.deepEqual(picker.map(row => row.behavesAs), ["claude-sonnet-5[1m]", "claude-sonnet-5"]);
+  assert.deepEqual(picker.map(row => row.model), ids);
+  // Claude's own models behave as themselves; others as a Claude model of their context.
+  assert.deepEqual(picker.map(row => row.behavesAs), ["claude-opus-5-5", "claude-opus-4-5", "claude-haiku-5-5", "claude-sonnet-5[1m]", "claude-sonnet-5"]);
   // The conversation's model sheet reads the same list.
   const options = gatewayModelOptions({ HOME: f.home, ANTHROPIC_BASE_URL: "http://127.0.0.1:3425" });
-  assert.deepEqual(options.map(row => [row.id, row.gateway]), [["minimax/MiniMax-M3", "magpie"], ["codex/gpt-6.1-sol", "magpie"]]);
+  assert.deepEqual(options.map(row => [row.id, row.gateway]), ids.map(id => [id, "magpie"]));
   assert.equal(options[0].contextWindow, 1000000);
   await f.service.setClaudeSessionRouting(false);
   assert.deepEqual(f.read(".config/stepsemble/claude-gateway.json"), { version: 1, enabled: false, baseUrl: null });
@@ -89,10 +99,10 @@ test("Claude routing needs Magpie answering, writes its model list without Claud
 test("Claude's model list follows the models picked for Claude Code in Magpie", async t => {
   const f = fixture(t);
   fs.mkdirSync(path.join(f.home, ".config/magpie"), { recursive: true });
-  f.write(".config/magpie/settings.json", JSON.stringify({ hiddenModels: { claude: ["codex/gpt-6.1-sol"], codex: ["minimax/MiniMax-M3"] } }));
+  f.write(".config/magpie/settings.json", JSON.stringify({ hiddenModels: { claude: ["codex/gpt-6.1-sol", "claude/claude-opus-4-5", "claude/claude-haiku-5-5"], codex: ["minimax/MiniMax-M3"] } }));
   await f.service.setClaudeSessionRouting(true);
-  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-catalog.json").models.map(row => row.id), ["minimax/MiniMax-M3"]);
-  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-settings.json").modelPicker.options.map(row => row.model), ["minimax/MiniMax-M3"]);
+  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-catalog.json").models.map(row => row.id), ["claude/claude-opus-5-5[1m]", "minimax/MiniMax-M3"]);
+  assert.deepEqual(f.read(".config/stepsemble/claude-gateway-settings.json").modelPicker.options.map(row => row.model), ["claude/claude-opus-5-5[1m]", "minimax/MiniMax-M3"]);
   // A change on the Agents page is taken up at the next launch, with the same catalog.
   f.write(".config/magpie/settings.json", JSON.stringify({ hiddenModels: { claude: [] }, pickedModels: { claude: ["codex/gpt-6.1-sol"] } }));
   await f.service.refreshClaudeGatewayCache();

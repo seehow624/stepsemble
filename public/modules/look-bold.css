@@ -30,10 +30,8 @@ html[data-look="bold"] {
      4.5:1 in the warmer palettes. */
   --bold-bubble: color-mix(in srgb, var(--accent) 84%, var(--ink));
   --bold-on-bubble: var(--paper);
-  --bold-ambient:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
-    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--gold) 9%, transparent), transparent 62%),
-    linear-gradient(to bottom, color-mix(in srgb, var(--paper) 95%, var(--ink)), color-mix(in srgb, var(--paper) 92%, var(--ink)));
+  /* One flat colour behind the panels: no glow in a corner. */
+  --bold-ambient: color-mix(in srgb, var(--paper) 94%, var(--ink));
   /* Category tiles, as on iOS Settings, eased toward the theme's ink. */
   --bold-tile-blue: color-mix(in oklab, #0a7aff 84%, var(--accent));
   --bold-tile-indigo: color-mix(in oklab, #5e5ce6 84%, var(--accent));
@@ -56,11 +54,12 @@ html[data-look="bold"][data-theme="dark"] {
   --bold-press-fill: color-mix(in srgb, var(--ink) 14%, transparent);
   --bold-select: color-mix(in srgb, var(--accent) 17%, color-mix(in srgb, var(--milk) 50%, transparent));
   --bold-bubble: color-mix(in srgb, var(--accent) 90%, var(--milk));
-  --bold-ambient:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 58%),
-    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--gold) 8%, transparent), transparent 60%),
-    linear-gradient(to bottom, color-mix(in srgb, var(--paper) 82%, #000), color-mix(in srgb, var(--paper) 70%, #000));
+  /* Dark is true black, as iOS draws it, up into the status bar. */
+  --bold-ambient: #000;
 }
+/* A conversation that fills a phone sits on the same black; on a desktop the
+   panes stay lifted cards over it. */
+html[data-look="bold"][data-theme="dark"].workspace-mobile-pane { --paper: #000; }
 
 /* ---------- Motion ---------- */
 @keyframes bold-materialize { from { opacity: 0; transform: scale(.94); filter: blur(6px); } }
@@ -96,7 +95,7 @@ html[data-look="bold"] input[type="search"]:focus { background-color: var(--fiel
 html[data-look="bold"] .toggle input:checked + .toggle-track { box-shadow: inset 0 1px 1px rgba(0, 0, 0, .12), 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent); }
 
 /* ---------- Workspace: a floating glass sidebar over a quiet backdrop ---------- */
-html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] body:has(#workspace-main) { background: var(--bold-ambient); }
 html[data-look="bold"] #workspace-main, html[data-look="bold"] #workspace-stage { background: transparent; }
 @media (min-width: 761px) {
   html[data-look="bold"] #workspace-sidebar { margin: 10px 0 10px 10px; padding: 14px 12px 12px; border: 0; border-radius: var(--bold-radius-panel);
@@ -196,7 +195,7 @@ html[data-look="bold"] #workspace-dialog-body .workspace-history-row .btn, html[
 html[data-look="bold"] .workspace-folder-list { border: 0; border-radius: 18px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
 html[data-look="bold"] .workspace-folder-path-row { border-radius: var(--radius-pill); }
 html[data-look="bold"] #workspace-toast { border-radius: var(--radius-pill); box-shadow: var(--bold-float-shadow); animation: bold-toast .3s var(--bold-spring); }
-html[data-look="bold"] .workspace-settings-layer { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .workspace-settings-layer { background: var(--bold-ambient); }
 html[data-look="bold"] .workspace-settings-frame { background: transparent; }
 
 html[data-look="bold"] .sheet-layer { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
@@ -312,7 +311,7 @@ html[data-look="bold"] #view-chat .cq-chip { border-color: transparent; border-r
 html[data-look="bold"] #view-chat .cq-btn { border-radius: var(--radius-pill); }
 
 /* ---------- Settings ---------- */
-html[data-look="bold"] :is(#view-settings, #view-model-settings) { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] :is(#view-settings, #view-model-settings) { background: var(--bold-ambient); }
 html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar { border-bottom: 0; background: transparent; box-shadow: none; }
 html[data-look="bold"] :is(#view-settings, #view-model-settings) .topbar-title { font-weight: 700; letter-spacing: -.015em; }
 html[data-look="bold"] :is(#view-settings, #view-model-settings) :is(.settings-group, .settings-nav-list, .settings-host-card) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card);
@@ -376,14 +375,14 @@ html[data-look="bold"] #view-chat .session-summary { border-color: transparent; 
   box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); }
 
 /* ---------- Sign-in, the assistant and Schedules ---------- */
-html[data-look="bold"] .overlay { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .overlay { background: var(--bold-ambient); }
 html[data-look="bold"] .login-card .login-mark { box-shadow: 0 18px 36px -16px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .18); }
 html[data-look="bold"] .login-card h1 { font-size: 1.7rem; font-weight: 780; letter-spacing: -.03em; }
 html[data-look="bold"] :is(.login-help, .login-onboarding) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 14px 34px -24px rgba(0, 0, 0, .4); }
 html[data-look="bold"] :is(.login-help-tabs, .model-agent-switch, .assistant-switch) { border: 0; border-radius: var(--radius-pill); background: var(--bold-field); }
 html[data-look="bold"] :is(.login-help-tab, .model-agent-tab, .assistant-switch > *) { border-radius: var(--radius-pill); }
 html[data-look="bold"] :is(.login-help-tab[aria-selected="true"], .model-agent-tab.is-active, .assistant-switch [aria-current="page"]) { box-shadow: 0 1px 3px rgba(0, 0, 0, .14), inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
-html[data-look="bold"] .assistant-page { background: var(--bold-ambient); background-color: var(--paper); }
+html[data-look="bold"] .assistant-page { background: var(--bold-ambient); }
 html[data-look="bold"] .assistant-top { border-bottom: 0; background: transparent; }
 html[data-look="bold"] .assistant-page :is(.btn, .assistant-icon-btn) { border-radius: var(--radius-pill); }
 html[data-look="bold"] .assistant-page .assistant-icon-btn { border-radius: 50%; }
@@ -424,3 +423,49 @@ html[data-look="bold"].reduced-motion :is(.btn, .icon-button-small, .settings-ac
   html[data-look="bold"] :is(.btn, .icon-button-small, .settings-action-btn, .workspace-icon-btn, .workspace-host-card, .workspace-row-action, .workspace-session, .workspace-automation, .workspace-strip-button, .workspace-pane-menu,
     .settings-nav-item, .usage-refresh, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
 }
+
+/* ---------- Thinking level ---------- */
+/* The level slider as an instrument of its own in the glass sheet: a deeper
+   groove, a fill that glows brighter the stronger the level, a glass thumb,
+   and the level's name large beside the label. */
+html[data-look="bold"] .thinking-control { --effort-knob: 28px; margin-top: 12px; padding: 4px 14px 10px; border: 0; border-radius: var(--bold-radius-card);
+  background: color-mix(in srgb, var(--ink) 4%, transparent); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
+html[data-look="bold"] .thinking-head { min-height: 46px; padding: 0 2px; }
+html[data-look="bold"] .thinking-value { color: var(--effort-hot); font-size: 1.3rem; font-weight: 760; letter-spacing: -.024em; }
+html[data-look="bold"][data-theme="dark"] .thinking-value { text-shadow: 0 0 calc(16px * var(--effort-p)) color-mix(in srgb, var(--accent) calc(8% + 34% * var(--effort-p)), transparent); }
+@media (prefers-color-scheme: dark) {
+  html[data-look="bold"]:not([data-theme="light"]) .thinking-value { text-shadow: 0 0 calc(16px * var(--effort-p)) color-mix(in srgb, var(--accent) calc(8% + 34% * var(--effort-p)), transparent); }
+}
+html[data-look="bold"] :is(:lang(zh), :lang(ja), :lang(ko)) .thinking-value { letter-spacing: 0; }
+html[data-look="bold"] .thinking-auto { min-height: 30px; border: 0; background: var(--bold-field); box-shadow: var(--bold-outline); }
+html[data-look="bold"] .thinking-auto[aria-pressed="true"] { background: var(--bold-select); box-shadow: inset 0 0 0 .5px var(--bold-select-rim), 0 0 14px -4px var(--effort-glow); }
+html[data-look="bold"] .effort-slider { height: 52px; }
+html[data-look="bold"] .effort-track { height: 6px; margin-top: -3px; background: color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .16), 0 1px 0 var(--glass-edge); }
+html[data-look="bold"] .effort-fill { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3),
+  0 0 calc(3px + 16px * var(--effort-p)) color-mix(in srgb, var(--effort-glow) calc(14% + 46% * var(--effort-p)), transparent),
+  0 0 calc(8px + 30px * var(--effort-p)) color-mix(in srgb, var(--effort-glow) calc(20% * var(--effort-p)), transparent); }
+html[data-look="bold"] .effort-tick { width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; }
+html[data-look="bold"] .effort-knob { background: radial-gradient(circle at 50% 28%, #fff, color-mix(in srgb, var(--effort-knob-bg) 90%, var(--ink)) 74%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 0 0 .5px color-mix(in srgb, var(--ink) 14%, transparent), 0 4px 12px -3px rgba(0, 0, 0, .3),
+    0 0 calc(6px + 20px * var(--effort-p)) color-mix(in srgb, var(--effort-glow) calc(10% + 52% * var(--effort-p)), transparent); }
+html[data-look="bold"] .effort-ends { margin-top: -8px; }
+html[data-look="bold"] .thinking-control.is-empty { padding: 4px 16px 12px; }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html[data-look="bold"] .thinking-control { background: var(--milk); }
+  html[data-look="bold"] .effort-fill { box-shadow: none; }
+  html[data-look="bold"] .effort-knob { background: var(--effort-knob-bg); }
+  html[data-look="bold"] .thinking-value { text-shadow: none !important; }
+}
+@media (prefers-contrast: more) {
+  html[data-look="bold"] .thinking-control { outline: 1px solid color-mix(in srgb, var(--ink) 45%, transparent); outline-offset: -1px; }
+  html[data-look="bold"] .effort-knob { box-shadow: 0 0 0 1.5px var(--ink); }
+}
+@media (forced-colors: active) {
+  html[data-look="bold"] .thinking-control { border: 1px solid CanvasText; box-shadow: none; }
+  html[data-look="bold"] :is(.effort-fill, .effort-knob, .effort-track) { box-shadow: none; }
+  html[data-look="bold"] .effort-knob { background: Canvas; }
+  html[data-look="bold"] .thinking-value { text-shadow: none !important; }
+}
+html[data-look="bold"].reduced-motion .thinking-control.is-dragging .effort-knob { transform: none; }
+@media (prefers-reduced-motion: reduce) { html[data-look="bold"] .thinking-control.is-dragging .effort-knob { transform: none; } }

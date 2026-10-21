@@ -86,6 +86,12 @@
     return { wide: /\[1m\]/i.test(text), effort: effort ? effort[1].toLowerCase() : null };
   }
 
+  /** A model id without the level it names: "claude/claude-opus-5-5:xhigh[1m]" is "claude/claude-opus-5-5[1m]". */
+  function plainModelId(value) {
+    const text = String(value || "").trim(), tags = /(?:\[[^\]]*\])*$/.exec(text)[0];
+    return text.slice(0, text.length - tags.length).replace(EFFORT_SUFFIX, "") + tags;
+  }
+
   const rowNames = row => [row.id, row.resolvedModel, row.model].filter(name => typeof name === "string" && name.trim());
   function rowTags(row) {
     const tags = rowNames(row).map(modelTags);
@@ -157,7 +163,8 @@
   /**
    * @param model a model row from any agent ({ id, name, provider, description, ... })
    * @param agent the agent whose list it is ("claude-code", "codex", "pi", ...)
-   * @returns {{ name: string, provider: string, notes: string[], wide: boolean }}
+   * @returns {{ name: string, base: string, provider: string, notes: string[], wide: boolean, level: string|null }}
+   *   base is the name without its "· 1M"; level the one a Magpie id runs at
    */
   function present(model, agent = "") {
     const row = model && typeof model === "object" ? model : { id: String(model || "") };
@@ -171,13 +178,11 @@
     const notes = [];
     let match;
     // Claude Code names a model Magpie routes by Magpie's id, with the level
-    // it runs at: "opus" is "claude/claude-opus-5-5:xhigh[1m]". The level
-    // tells such rows apart, so it is noted beside the provider.
+    // it runs at: "opus" is "claude/claude-opus-5-5:xhigh[1m]".
     const preset = modelTags(resolved || id).effort;
     if (agentId === "claude-code" && VENDOR_ID.test((resolved || id).replace(/\[[^\]]*\]$/, ""))) {
       route = "Magpie";
       vendor = (resolved || id).slice(0, (resolved || id).indexOf("/"));
-      if (preset) notes.push(levelName(preset));
     }
     // Grok lists OpenCodex models as "OCX anthropic/claude-opus-5-5".
     if ((match = /^OCX\s+(.+)$/i.exec(name))) { route = "OpenCodex"; name = match[1]; vendor = "native"; }
@@ -217,6 +222,7 @@
     // Claude Code names its own models by family ("Opus"); the version is in
     // the description or the full model id.
     if (agentId === "claude-code" && (!route || route === "Magpie")) name = claudeVersionName(description) || claudeVersionName(row.resolvedModel) || claudeVersionName(id) || claudeVersionName(name) || name;
+    const base = name.replace(/\s·\s1M$/i, "") || id;
     if (wide && !/(^|\s·\s)1M$/i.test(name)) name = name + " · 1M";
     // The provider: the route and the vendor behind it, without the agent's own id.
     const listed = String(row.providerID || row.provider || "").trim();
@@ -227,15 +233,41 @@
     else if (vendor && vendor !== "native") provider = providerName(vendor);
     else if (/^grok[-\s]/i.test(name) && agentId === "grok-build") provider = "xAI";
     else provider = AGENT_PROVIDERS[agentId] || "";
-    return { name: name || id, provider, notes, wide };
+    return { name: name || id, base, provider, notes, wide, level: route === "Magpie" ? preset : null };
   }
 
-  /** The second line under a model: provider, notes, and a capacity the name does not state. */
+  /** The second line under a model in the list: provider, notes and context ("Magpie · Anthropic · 1M"). */
   function detailLine(model, agent = "") {
     const shown = present(model, agent);
-    const context = shown.wide ? "" : contextText(model?.contextWindow);
-    return [shown.provider, ...shown.notes, context ? context + " ctx" : ""].filter(Boolean).join(" · ");
+    return [shown.provider, ...shown.notes, contextText(contextCapacity(model)) || (shown.wide ? "1M" : "")].filter(Boolean).join(" · ");
   }
 
-  return { present, detailLine, providerName, claudeVersionName, contextText, levelName, modelKey, modelTags, matchModel, contextCapacity, effortBars, LEVEL_ORDER };
+  /**
+   * The model list's rows, one per model. Rows that differ only in the level
+   * their id names are one model: Claude Code's opus, fable and sonnet can all
+   * be Magpie's claude-opus-5-5 at three levels. Another provider or another
+   * context size is another model. A row is chosen by an id that names no
+   * level, so the level is the one picked apart from it; for Claude Code that
+   * id is made from an alias's own when the list has none ("[1m]" kept).
+   * @returns {{ key: string, id: string, model: object, members: object[] }[]}
+   *   in the list's order of each row's model
+   */
+  function modelGroups(models, agent = "") {
+    const agentId = String(agent || "").toLowerCase(), groups = new Map();
+    const levelled = row => !!(modelTags(row.id).effort || modelTags(row.resolvedModel).effort);
+    (Array.isArray(models) ? models : []).forEach((row, index) => {
+      if (!row || typeof row !== "object" || !String(row.id || "").trim()) return;
+      const key = [present(row, agentId).provider, modelKey(row.resolvedModel || row.id), contextText(contextCapacity(row))].join("\u0000");
+      const group = groups.get(key) || groups.set(key, { key, members: [], plain: null, index }).get(key);
+      group.members.push(row);
+      if (!group.plain && !levelled(row)) { group.plain = row; group.index = index; }
+    });
+    return [...groups.values()].sort((a, b) => a.index - b.index).map(({ key, members, plain }) => {
+      const model = plain || members[0];
+      const own = agentId === "claude-code" && !plain ? plainModelId(model.resolvedModel || model.id) : "";
+      return { key, id: own && VENDOR_ID.test(own.replace(/\[[^\]]*\]$/, "")) ? own : model.id, model, members };
+    });
+  }
+
+  return { present, detailLine, modelGroups, providerName, claudeVersionName, contextText, levelName, modelKey, modelTags, plainModelId, matchModel, contextCapacity, effortBars, LEVEL_ORDER };
 });

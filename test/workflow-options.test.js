@@ -48,3 +48,22 @@ test("model lists are bounded and malformed rows are ignored", async () => {
   const result = await options({ codexModels: async () => ({ data:many }) })("codex", "/repo");
   assert.equal(result.models.length, 500); assert.ok(result.models.every(model => !/\s/.test(model.choice.model)));
 });
+
+// Claude Code through Magpie: three slots on Opus 5.5 at three levels, the
+// Haiku slot, and Magpie's own rows as the model sheet lists them (Mini, 2026-10-21).
+test("a Goal or schedule offers one row per model, picked by the model's own id with its levels apart", async () => {
+  const levels = ["low", "medium", "high", "xhigh", "max"];
+  const slot = (id, model, level) => ({ id, name: `claude/${model}:${level}[1m]`, resolvedModel: `claude/${model}:${level}[1m]`, supportsEffort: true, supportedEffortLevels: levels });
+  const cached = [slot("opus", "claude-opus-5-5", "xhigh"), slot("fable", "claude-opus-5-5", "high"), slot("sonnet", "claude-opus-5-5", "medium"), slot("haiku", "claude-haiku-5-5", "xhigh"),
+    { id: "claude/claude-sonnet-5-5[1m]", name: "Claude Sonnet 5.5", resolvedModel: "claude/claude-sonnet-5-5[1m]", description: "Magpie gateway · Claude Code", contextWindow: 1_000_000, supportedEffortLevels: levels },
+    { id: "minimax/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", description: "Magpie gateway · MiniMax", contextWindow: 1_000_000, supportedEffortLevels: ["low", "max"] }];
+  const result = await options({ cachedModels: agentId => agentId === "claude-code" ? { models: cached } : { models: [] } })("claude-code", "/repo");
+  assert.deepEqual(result.models, [
+    { choice: { model: "claude/claude-opus-5-5[1m]" }, label: "Opus 5.5 · 1M", efforts: levels },
+    { choice: { model: "claude/claude-haiku-5-5[1m]" }, label: "Haiku 5.5 · 1M", efforts: levels },
+    { choice: { model: "claude/claude-sonnet-5-5[1m]" }, label: "Sonnet 5.5 · 1M", efforts: levels },
+    { choice: { model: "minimax/MiniMax-M3.1-Flash" }, label: "MiniMax-M3.1-Flash", efforts: ["low", "max"] },
+  ]);
+  // The choice kept from before ("opus") is still the Host's to apply.
+  assert.deepEqual(result.current, { model: "opus" });
+});
