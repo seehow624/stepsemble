@@ -802,12 +802,18 @@ function createClaudeStructuredSession({
           gateway: gateway.gateway,
         };
       });
-      const seen = new Set(enrichedNativeModels.map(model => model.id));
-      availableModels = [...enrichedNativeModels, ...gatewayModels.filter(model => {
+      // With the gateway's own list, its models keep that list's order, also
+      // one Claude Code leaves out of its own (a model its account hides).
+      const nativeById = new Map(enrichedNativeModels.map(model => [model.id, model]));
+      const ordered = authoritative
+        ? [...enrichedNativeModels.filter(model => !gatewayById.has(model.id)), ...gatewayModels.map(model => nativeById.get(model.id) || model)]
+        : [...enrichedNativeModels, ...gatewayModels];
+      const seen = new Set();
+      availableModels = ordered.filter(model => {
         if (seen.has(model.id)) return false;
         seen.add(model.id);
         return true;
-      })].filter(model => model.id !== "default").slice(0, MAX_MODELS);
+      }).filter(model => model.id !== "default").slice(0, MAX_MODELS);
       // "default" stands for another entry (Claude's "Default (recommended)"
       // is Opus with 1M context); the list shows that entry by its own name.
   }

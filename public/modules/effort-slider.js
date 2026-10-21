@@ -49,7 +49,7 @@
     }
     // Known levels are ranked (Grok lists Extra high first); a list with
     // names of its own keeps its order, with off first.
-    const known = values.every(value => rank(value.toLowerCase()) >= -1 && (NO_LEVEL.has(value.toLowerCase()) || LEVEL_ORDER.includes(value.toLowerCase())));
+    const known = values.every(value => NO_LEVEL.has(value.toLowerCase()) || LEVEL_ORDER.includes(value.toLowerCase()));
     const stops = known ? [...values].sort((a, b) => rank(a.toLowerCase()) - rank(b.toLowerCase()))
       : [...values.filter(value => NO_LEVEL.has(value.toLowerCase())), ...values.filter(value => !NO_LEVEL.has(value.toLowerCase()))];
     return { stops, labels, auto };

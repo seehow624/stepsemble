@@ -5508,7 +5508,7 @@ html.reduced-motion .thinking-control.is-dragging .effort-knob { transform: none
 }
 @media (forced-colors: active) {
   .effort-slider { forced-color-adjust: none; }
-  .effort-track { background: Canvas; box-shadow: 0 0 0 1px CanvasText; }
+  .effort-track { background: Canvas; outline: 1px solid CanvasText; }
   .effort-fill { background: Highlight; box-shadow: none; opacity: 1 !important; }
   .effort-tick { background: CanvasText; }
   .effort-tick.on { background: HighlightText; }

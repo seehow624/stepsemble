@@ -1026,6 +1026,31 @@ function magpieClaude(child, { applied = { model: "claude/claude-opus-5-5[1m]", 
   });
 }
 
+test("Magpie's list keeps its order, also for a model Claude Code leaves out of its own", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-claude-magpie-order-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const configDir = path.join(home, ".config", "stepsemble"), baseUrl = "http://127.0.0.1:3425";
+  fs.mkdirSync(configDir, { recursive: true });
+  const ids = ["claude/claude-opus-5-5[1m]", "claude/claude-fable-5-1[1m]", "claude/claude-sonnet-5-5[1m]", "minimax/MiniMax-M3.1-Flash"];
+  fs.writeFileSync(path.join(configDir, "claude-gateway-catalog.json"), JSON.stringify({ version: 1, gateway: "magpie", baseUrl,
+    models: ids.map(id => ({ id, name: id, description: "Magpie gateway", contextWindow: 1_000_000, supportsEffort: true, supportedEffortLevels: ["low", "max"] })) }));
+  const child = childFixture();
+  observeControlWire(child, message => {
+    if (message.type !== "control_request") return;
+    // Claude Code's slots first, then the picker's rows, without Fable (Mini, 2026-10-21: an account without it).
+    const response = message.request.subtype === "initialize" ? { models: [{ value: "opus", resolvedModel: "claude/claude-opus-5-5:xhigh[1m]" },
+      ...ids.filter(id => !id.includes("fable")).map(value => ({ value, resolvedModel: value })), { value: "claude/claude-haiku-5-5" }] } : {};
+    child.stdout.write(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response } }) + "\n");
+  });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", env: { HOME: home, ANTHROPIC_BASE_URL: baseUrl }, spawnImpl: () => child });
+  t.after(() => session.close());
+  const { models } = await session.models();
+  // Claude Code's own model ids from its gateway discovery are left out; Magpie's list is the one shown.
+  assert.deepEqual(models.map(row => row.id), ["opus", ...ids]);
+  assert.equal(models[1].resolvedModel, ids[0], "a row Claude Code lists keeps what it says of it");
+  assert.deepEqual(models[2].supportedEffortLevels, ["low", "max"]);
+});
+
 test("Claude through Magpie keeps the model picked without an alias's level, also once it names the model bare", async t => {
   const child = childFixture(), requests = [];
   magpieClaude(child, { own: true, requests });
