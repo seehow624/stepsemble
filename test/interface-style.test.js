@@ -108,9 +108,12 @@ test("the Bold layer touches nothing unless <html> asks for it", () => {
   const loose = all.filter(selector => !selector.startsWith('html[data-look="bold"]'));
   assert.deepEqual(loose, [], "every rule is scoped to html[data-look=\"bold\"]");
   // The layer leans on the theme's own colours; it defines no palette of its own,
-  // save true black under a dark conversation that fills a phone.
+  // save true black under a dark conversation that fills a phone, and the
+  // colour of a person's own message, which must carry white text at 4.5:1
+  // where no theme token does (test/bubble-contrast.test.js holds it to that).
   const blackPage = 'html[data-look="bold"][data-theme="dark"].workspace-mobile-pane { --paper: #000; }';
   assert.ok(css.includes(blackPage), "a dark conversation on a phone is true black");
+  assert.match(css, /--bold-on-bubble: #fff;/, "a message's own colour carries white text");
   const own = css.replace(blackPage, "");
   for (const token of ["--paper", "--milk", "--ink", "--accent", "--err-ink", "--ok-ink", "--warn-ink"])
     assert.doesNotMatch(own, new RegExp(`${token}\\s*:`), `${token} is the theme's, not the layer's`);

@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { present, detailLine, modelGroups, modelKey, modelTags, plainModelId, matchModel, contextCapacity, effortBars, levelName } = require("../public/modules/model-presentation");
+const { present, detailLine, modelGroups, modelKey, modelTags, plainModelId, matchModel, contextCapacity, effortLine, levelName } = require("../public/modules/model-presentation");
 
 // Rows as each agent lists them (Mini, 2026-09-27).
 const rows = (agent, list) => list.map(([row, name, detail]) => ({ agent, row, name, detail }));
@@ -200,32 +200,31 @@ test("a model's capacity is the one it states, else 1M from its name or descript
   assert.equal(contextCapacity(null), null);
 });
 
-test("a level lights its place in the model's own list on four bars, and the top level a mark", () => {
-  // "4+" is all four bars with the top level's mark.
-  const bars = (levels, list) => levels.map(level => { const shown = effortBars(level, list); return shown.top ? "4+" : shown.bars; });
+test("a level takes its place among the model's own levels on the message box's line, weakest first", () => {
+  // The level's index among the stops, "top" for the strongest.
+  const places = (levels, list) => levels.map(level => { const shown = effortLine(level, list); return shown.top ? "top" : shown.index; });
   const claude = ["low", "medium", "high", "xhigh", "max"];
-  assert.deepEqual(bars(claude, claude), [1, 2, 3, 4, "4+"], "every Claude level has its own look");
-  // Short lists count up from one bar, so no two levels share one.
-  assert.deepEqual(bars(["low", "high"], ["low", "high"]), [1, "4+"]);
-  assert.deepEqual(bars(["low", "medium", "high"], ["off", "low", "medium", "high"]), [1, 2, "4+"], "Medium stays apart from High");
-  assert.deepEqual(bars(["low", "medium", "high", "xhigh"], ["low", "medium", "high", "xhigh"]), [1, 2, 3, "4+"]);
-  assert.deepEqual(bars(["high"], ["high"]), ["4+"], "a model with one level shows it as its top");
-  // Longer lists share the lowest bar, once.
-  const codex = ["low", "medium", "high", "xhigh", "max", "ultra"];
-  assert.deepEqual(bars(codex, codex), [1, 1, 2, 3, 4, "4+"]);
-  const pi = ["minimal", "low", "medium", "high", "xhigh", "max"];
-  assert.deepEqual(bars(pi, ["off", ...pi]), [1, 1, 2, 3, 4, "4+"]);
-  // Seven levels into four bars share it twice, still at the low end.
-  const every = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-  assert.deepEqual(bars(every, every), [1, 1, 1, 2, 3, 4, "4+"]);
+  assert.deepEqual(places(claude, claude), [0, 1, 2, 3, "top"], "every Claude level has its own place");
+  assert.deepEqual(effortLine("xhigh", claude), { state: "level", stops: claude, index: 3, top: false });
+  assert.deepEqual(places(["low", "high"], ["low", "high"]), [0, "top"]);
+  assert.deepEqual(places(["high"], ["high"]), ["top"], "a model with one level shows it as its top");
+  // Off, when the model has it, is the first stop: the empty line.
+  assert.deepEqual(effortLine("medium", ["off", "low", "medium", "high"]), { state: "level", stops: ["off", "low", "medium", "high"], index: 2, top: false });
+  assert.deepEqual(effortLine("off", ["off", "low", "high"]), { state: "off", stops: ["off", "low", "high"], index: 0, top: false });
+  assert.deepEqual(effortLine("none", ["none", "low"]).index, 0);
+  assert.deepEqual(effortLine("off", claude), { state: "off", stops: claude, index: -1, top: false });
   // Grok lists its levels from Extra high down; they are ranked all the same.
-  assert.deepEqual(bars(["low", "high", "xhigh"], ["xhigh", "high", "medium", "low"]), [1, 3, "4+"]);
+  assert.deepEqual(effortLine("high", ["xhigh", "high", "medium", "low"]), { state: "level", stops: ["low", "medium", "high", "xhigh"], index: 2, top: false });
+  // An agent's own names keep the agent's order; the list's values are kept for the select.
+  assert.deepEqual(effortLine("deep", ["Quick", "deep", "QUICK"]), { state: "level", stops: ["Quick", "deep"], index: 1, top: true });
   // A level outside the model's list is placed on the full scale, topped by Max.
-  assert.deepEqual(bars(["max", "xhigh", "minimal", "ultra"], []), ["4+", 4, 1, "4+"]);
-  assert.deepEqual(effortBars("off", claude), { state: "off", bars: 0, top: false });
-  assert.deepEqual(effortBars("none", claude), { state: "off", bars: 0, top: false });
-  assert.deepEqual(effortBars("auto", claude), { state: "auto", bars: 0, top: false });
-  assert.deepEqual(effortBars("", claude), { state: "none", bars: 0, top: false });
+  assert.deepEqual(places(["max", "xhigh", "minimal", "ultra"], []), ["top", 4, 0, "top"]);
+  assert.deepEqual(effortLine("max", []).stops, ["minimal", "low", "medium", "high", "xhigh", "max"]);
+  // Auto keeps the place of the level it runs at, once reported, and is never the top.
+  assert.deepEqual(effortLine("auto", claude, "high"), { state: "auto", stops: claude, index: 2, top: false });
+  assert.deepEqual(effortLine("auto", claude), { state: "auto", stops: claude, index: -1, top: false });
+  assert.deepEqual(effortLine("", claude), { state: "none", stops: claude, index: -1, top: false });
+  assert.deepEqual(effortLine("high", null).stops, ["minimal", "low", "medium", "high", "xhigh", "max"]);
   assert.equal(levelName("xhigh"), "Extra high");
   assert.equal(levelName("max"), "Max");
 });

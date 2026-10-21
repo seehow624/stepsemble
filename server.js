@@ -3382,7 +3382,10 @@ function publicClaudeStructuredTask(id, session) {
   const idle = status.state === "waiting" && typeof session.pendingPermissions === "function"
     && session.pendingPermissions().length === 0;
   const cleanupPending = (status.closed || !!status.failed) && status.processExited === false;
-  const taskStatus = cleanupPending ? "reconnecting" : status.closed ? "stopped" : status.failed ? "failed" : status.state === "running" ? "running" : idle ? "history" : "waiting";
+  // Waiting between turns on the background work it started, Claude is
+  // still at work on what it was asked.
+  const taskStatus = cleanupPending ? "reconnecting" : status.closed ? "stopped" : status.failed ? "failed"
+    : status.state === "running" || status.state === "waiting" && status.working === true ? "running" : idle ? "history" : "waiting";
   return {
     id: `claude-code:${id}`,
     taskId: `claude-code:${id}`,

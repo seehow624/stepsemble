@@ -33,8 +33,9 @@ function element(children = []) {
   };
 }
 
-// The thinking bars beside the model: which of the four are lit.
-const litBars = indicator => indicator.querySelectorAll(".composer-effort-bar").filter(bar => bar.classList.contains("on")).length;
+// The thinking level on the message box's edge: what the composer tells it
+// (its dataset) and the state it hands the line to draw.
+const line = el => ({ ...el.composerEffort.dataset, hidden: el.composerEffort.hidden, ...el.composerEffort.drawn });
 
 function selectStub(levels) {
   return {
@@ -54,13 +55,16 @@ function harness() {
   const label = element();
   const el = {
     thinkingSelect: select, thinkingHint: hint, modelSheet: { querySelector: () => null },
-    composerModelNameText: element(), composerModelLevelText: element([0, 1, 2, 3].map(() => element())), btnModel: element(),
+    composerModelNameText: element(), composerEffort: element(), btnModel: element(),
   };
+  const changes = [], access = { live: true };
   const context = vm.createContext({
-    el,
+    el, changes,
     document: { createElement: () => ({ value: "", textContent: "", dataset: {} }), querySelector: () => label },
-    window: { stepsembleI18n: { t: key => key } },
+    window: { stepsembleI18n: { t: key => key }, stepsembleEffortSlider: { attachLine: ({ slider, commit }) => ({ set(state) { slider.drawn = state; slider.commit = commit; } }) } },
     rpc: { nativeClaudeStructured: true },
+    connectorAllowsLiveControls: () => access.live,
+    changeThinkingLevel: (level, options) => { changes.push([level, options]); return Promise.resolve(); },
     modelPresentation: require("../public/modules/model-presentation"),
     agentConnectorLabel: id => ({ kilo: "Kilo" })[id] || id,
     acpAgentOf: () => "kilo",
@@ -76,11 +80,11 @@ function harness() {
   const source = [
     'let defaultThinkingSelectOptions = null;',
     slice("const CODEX_EFFORTS", "\nfunction updateThinkingSelectOptions()"),
-    'let composerModelName = "";\nlet composerReasoningLevel = "off";\nlet composerReasoningLevels = [];\nlet composerReasoningNote = "";\nlet composerReasoningEffective = "";',
+    'let composerModelName = "";\nlet composerReasoningLevel = "off";\nlet composerReasoningLevels = [];\nlet composerReasoningNote = "";\nlet composerReasoningEffective = "";\nlet composerEffortLine = null;',
     slice("function updateComposerSummary(", "\nfunction applyComposerState("),
   ].join("\n");
   vm.runInContext(source, context, { filename: "public/app.js" });
-  return { el, select, hint, context };
+  return { el, select, hint, context, changes, access };
 }
 
 test("a Claude model without thinking levels disables its control and says why", () => {
@@ -95,18 +99,18 @@ test("a Claude model without thinking levels disables its control and says why",
   assert.equal(el.thinkingSelect.title, "No thinking levels");
   assert.equal(hint.textContent, "No thinking levels");
   assert.equal(hint.classList.contains("hidden"), false);
-  // The bars must not keep advertising the level of the model selected
-  // before: they lie flat and say the model has none.
-  assert.equal(el.composerModelLevelText.dataset.state, "none");
-  assert.equal(litBars(el.composerModelLevelText), 0);
-  assert.equal(el.composerModelLevelText.title, "No thinking levels");
+  // The line must not keep advertising the level of the model selected
+  // before: there is none, and the slider's text says why.
+  assert.equal(line(el).state, "none");
+  assert.equal(line(el).hidden, true);
+  assert.equal(line(el).name, "No thinking levels");
   // The remembered level survives so a later model can restore it.
   assert.equal(connection.claudeEffort, "max");
   // Claude's list leaves the levels out for such a model.
   connection.claudeModel = { id: "haiku", name: "Haiku", resolvedModel: "claude-haiku-4-5-20251001" };
   context.syncNativeThinkingSelect(connection);
   assert.equal(el.thinkingSelect.disabled, true);
-  assert.equal(el.composerModelLevelText.title, "No thinking levels");
+  assert.equal(line(el).name, "No thinking levels");
 });
 
 test("a restored model lists exactly its own levels and brings the chip back", () => {
@@ -120,12 +124,10 @@ test("a restored model lists exactly its own levels and brings the chip back", (
   assert.equal(el.thinkingSelect.title, "");
   assert.equal(hint.textContent, "");
   assert.equal(hint.classList.contains("hidden"), true);
-  // The bars: Max is the top of this model's own list, so all four are lit
-  // and its mark shows.
-  assert.equal(el.composerModelLevelText.dataset.level, "Max");
-  assert.equal(litBars(el.composerModelLevelText), 4);
-  assert.equal(el.composerModelLevelText.dataset.top, "true");
-  assert.equal(el.composerModelLevelText.title, "Thinking: Max");
+  // The line: Max is the top of this model's own list, its whole length.
+  assert.deepEqual([line(el).level, line(el).current, line(el).top, line(el).name], ["Max", 2, "true", "Max"]);
+  assert.deepEqual(line(el).stops, ["low", "high", "max"]);
+  assert.deepEqual([line(el).hidden, line(el).disabled], [true, false], "no model named yet, no line");
   // A level the model does not offer is shown as unknown until Claude reports
   // the level it runs with; it is never shown as "Default".
   connection.claudeModel = { id: "deepseek", supportsEffort: true, supportedEffortLevels: ["low", "max"] };
@@ -133,8 +135,8 @@ test("a restored model lists exactly its own levels and brings the chip back", (
   context.syncNativeThinkingSelect(connection);
   assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["", "low", "max"]);
   assert.equal(el.thinkingSelect.value, "");
-  assert.equal(el.composerModelLevelText.dataset.state, "none");
-  assert.equal(el.composerModelLevelText.title, "Not reported yet");
+  assert.equal(line(el).state, "none");
+  assert.deepEqual([line(el).current, line(el).name], [-1, "Not reported yet"]);
   // The model's own level, when Claude's list names one, is used instead.
   connection.claudeModel = { id: "deepseek", supportsEffort: true, supportedEffortLevels: ["low", "max"], defaultEffort: "max" };
   connection.claudeEffort = "high";
@@ -152,9 +154,7 @@ test("Codex shows the thread's own level and offers no Default", () => {
   assert.deepEqual(el.thinkingSelect.options.map(option => option.value), ["low", "medium", "high", "xhigh", "max"]);
   assert.equal(el.thinkingSelect.value, "max");
   assert.equal(connection.codexEffort, "max");
-  assert.equal(el.composerModelLevelText.dataset.level, "Max");
-  assert.equal(litBars(el.composerModelLevelText), 4);
-  assert.equal(el.composerModelLevelText.dataset.top, "true");
+  assert.deepEqual([line(el).level, line(el).current, line(el).top], ["Max", 4, "true"]);
   // A model without the chosen level takes the model's own level.
   connection.codexModel = { id: "glm", supportedReasoningEfforts: ["low", "high"], defaultReasoningEffort: "high" };
   context.syncNativeThinkingSelect(connection);
@@ -171,7 +171,7 @@ test("Codex guesses no level before Codex reports one, and a refresh keeps an op
   assert.equal(connection.codexEffort, null);
   assert.equal(el.thinkingSelect.value, "");
   assert.equal(el.thinkingSelect.options[0].value, "");
-  assert.equal(el.composerModelLevelText.dataset.state, "none");
+  assert.equal(line(el).state, "none");
   // Codex reports the thread's model; its own level is used, not a guess.
   connection.codexModel = { id: "gpt-6-luna", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "high" };
   context.syncNativeThinkingSelect(connection);
@@ -207,12 +207,12 @@ test("the model chip never shows a default model or level", () => {
   const { context, el } = harness();
   context.updateComposerSummary("", "auto");
   assert.equal(el.composerModelNameText.textContent, "Choose model");
-  assert.equal(el.composerModelLevelText.classList.contains("hidden"), true);
+  assert.equal(line(el).hidden, true, "a level belongs to a model; none shows before one is known");
   context.updateComposerSummary("Opus (1M context)", "max");
   assert.equal(el.composerModelNameText.textContent, "Opus (1M context)");
-  assert.equal(el.composerModelLevelText.dataset.level, "Max");
-  assert.equal(el.composerModelLevelText.classList.contains("hidden"), false);
-  // The level's name is in the button's own name.
+  assert.equal(line(el).level, "Max");
+  assert.equal(line(el).hidden, false);
+  // The button shows the model alone; the level's name is in its own name.
   assert.equal(el.btnModel.getAttribute("aria-label"), "Opus (1M context), thinking: Max");
 });
 
@@ -263,9 +263,7 @@ test("a level Claude reports shows on a model whose entry lists no levels", () =
   context.syncNativeThinkingSelect(connection);
   assert.equal(connection.claudeEffort, "xhigh");
   assert.equal(el.thinkingSelect.value, "xhigh");
-  assert.equal(el.composerModelLevelText.dataset.level, "Extra high");
-  assert.equal(litBars(el.composerModelLevelText), 4);
-  assert.equal(el.composerModelLevelText.dataset.top, "false", "only Max has the mark");
+  assert.deepEqual([line(el).level, line(el).current, line(el).top], ["Extra high", 3, "false"], "only Max has the tip");
   assert.equal(el.btnModel.getAttribute("aria-label"), "Opus 5.5, thinking: Extra high");
 });
 
@@ -275,16 +273,13 @@ test("Claude's auto shows the level it runs at when reported, and its own look o
   context.updateComposerSummary("Opus 5.5 · 1M", undefined);
   context.syncNativeThinkingSelect(connection);
   assert.equal(connection.claudeEffort, "auto");
-  assert.equal(el.composerModelLevelText.dataset.state, "auto");
-  assert.equal(litBars(el.composerModelLevelText), 0);
-  assert.equal(el.composerModelLevelText.title, "Thinking: Auto");
+  assert.deepEqual([line(el).state, line(el).auto, line(el).current, line(el).name], ["auto", true, -1, "Auto"]);
   assert.equal(el.thinkingSelect.options[0].textContent, "Auto");
   assert.equal(el.thinkingSelect.options[0].disabled, true);
   connection.claudeEffectiveEffort = "high";
   context.syncNativeThinkingSelect(connection);
-  assert.equal(el.composerModelLevelText.dataset.state, "level");
-  assert.equal(litBars(el.composerModelLevelText), 3);
-  assert.equal(el.composerModelLevelText.title, "Thinking: Auto · High");
+  // Dashed to the level it runs at, never the top.
+  assert.deepEqual([line(el).state, line(el).current, line(el).top, line(el).name], ["auto", 2, "false", "Auto · High"]);
   assert.equal(el.btnModel.getAttribute("aria-label"), "Opus 5.5 · 1M, thinking: Auto · High");
   assert.equal(el.thinkingSelect.options[0].textContent, "Auto · High");
   // The level slider reads auto, and the level it runs at, from that entry.
@@ -300,7 +295,7 @@ test("a Magpie alias runs at the level its id names until Claude reports its own
   context.syncNativeThinkingSelect(connection);
   assert.equal(connection.claudeEffort, "high");
   assert.equal(el.thinkingSelect.value, "high");
-  assert.equal(litBars(el.composerModelLevelText), 3);
+  assert.equal(line(el).current, 2);
   // A level Claude reports wins, and changing it keeps the model.
   connection.claudeEffort = "max";
   context.syncNativeThinkingSelect(connection);
@@ -313,36 +308,56 @@ test("a Magpie alias runs at the level its id names until Claude reports its own
   assert.equal(el.thinkingSelect.value, "");
 });
 
-test("agents with no level to choose show flat bars that say why", () => {
+test("agents with no level to choose show no line, and the button says why", () => {
   const { context, el } = harness();
   context.updateComposerSummary("Fixture OpenCode", "high");
   context.rpc = { nativeOpenCode: true };
   context.syncNativeThinkingSelect(context.rpc);
-  assert.equal(el.composerModelLevelText.dataset.state, "none");
-  assert.equal(el.composerModelLevelText.title, "OpenCode offers none");
-  assert.equal(el.composerModelLevelText.classList.contains("hidden"), false);
+  assert.deepEqual([line(el).state, line(el).hidden, line(el).name], ["none", true, "OpenCode offers none"]);
   assert.equal(el.btnModel.getAttribute("aria-label"), "Fixture OpenCode. OpenCode offers none");
   // An ACP agent without a thought_level option.
   context.rpc = { nativeAcp: true, acpConfigOptions: [] };
   context.syncNativeThinkingSelect(context.rpc);
-  assert.equal(el.composerModelLevelText.title, "Kilo offers none");
-  // Grok lists its levels from Extra high down; the bars rank them.
+  assert.deepEqual([line(el).hidden, line(el).name], [true, "Kilo offers none"]);
+  // Grok lists its levels from Extra high down; the line ranks them, by the names Grok gives.
   context.rpc = { nativeGrokAcp: true, acpConfigOptions: [{ id: "effort", category: "thought_level", currentValue: "high",
-    options: ["xhigh", "high", "medium", "low"].map(value => ({ value, name: value })) }] };
+    options: ["xhigh", "high", "medium", "low"].map(value => ({ value, name: "Grok " + value })) }] };
   context.syncNativeThinkingSelect(context.rpc);
-  assert.equal(el.composerModelLevelText.dataset.state, "level");
-  assert.equal(litBars(el.composerModelLevelText), 3);
+  assert.deepEqual([line(el).state, line(el).hidden, line(el).current], ["level", false, 2]);
+  assert.deepEqual(line(el).stops, ["low", "medium", "high", "xhigh"]);
+  assert.equal(line(el).labels.get("xhigh"), "Grok xhigh");
 });
 
-test("Pi's off shows every bar hollow, and its levels scale the rest", () => {
+test("Pi's off is the empty line, and its levels fill the rest", () => {
   const { context, el } = harness();
   context.updateComposerSummary("Synthetic baseline", "off", { levels: ["off", "low", "medium", "high"] });
-  assert.equal(el.composerModelLevelText.dataset.state, "off");
-  assert.equal(litBars(el.composerModelLevelText), 0);
-  assert.equal(el.composerModelLevelText.title, "Thinking: Off");
+  assert.deepEqual([line(el).state, line(el).current, line(el).name, line(el).hidden], ["off", 0, "Off", false]);
+  assert.deepEqual(line(el).stops, ["off", "low", "medium", "high"]);
   context.updateComposerSummary(undefined, "medium");
-  assert.equal(litBars(el.composerModelLevelText), 2);
+  assert.equal(line(el).current, 2);
   assert.equal(el.btnModel.getAttribute("aria-label"), "Synthetic baseline, thinking: Medium");
+  // A model that can only go without has no level to pick: no line.
+  context.updateComposerSummary(undefined, "off", { levels: ["off"] });
+  assert.equal(line(el).hidden, true);
+});
+
+test("a level picked on the line goes the sheet's way, quietly, and a label is not a control", () => {
+  const { context, el, changes, access } = harness();
+  context.updateComposerSummary("Opus 5.5", "high", { levels: ["low", "medium", "high", "xhigh", "max"] });
+  assert.equal(line(el).disabled, false);
+  // The select is the record the sheet's slider shows; the change takes the app's one path, without a notice.
+  assert.equal(el.composerEffort.commit("max"), undefined);
+  assert.equal(el.thinkingSelect.value, "max");
+  assert.deepEqual(changes.map(([level, options]) => [level, options?.quiet]), [["max", true]]);
+  // A level the select does not offer is refused, and the line goes back.
+  el.thinkingSelect.options.find(option => option.value === "xhigh").disabled = true;
+  assert.equal(el.composerEffort.commit("xhigh"), false);
+  assert.equal(el.composerEffort.commit("ultra"), false);
+  assert.equal(changes.length, 1);
+  // A read-only history shows the level it ran at, as a label.
+  access.live = false;
+  context.updateComposerSummary(undefined, "high");
+  assert.deepEqual([line(el).hidden, line(el).disabled, line(el).current], [false, true, 2]);
 });
 
 test("a level picked on a Magpie alias that names its own moves the conversation to the same model without it", () => {

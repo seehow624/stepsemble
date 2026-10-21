@@ -10,7 +10,9 @@
 //   - pictures sent with a message sit above it as thumbnails;
 //   - a long saved history opens at its newest page and reads back to its
 //     oldest message without a gap;
-//   - a table in a reply scrolls sideways and keeps its headers on one line.
+//   - a table in a reply scrolls sideways and keeps its headers on one line;
+//   - Claude waiting on its background work still works, under one "Worked
+//     for" (background-work-browser-cases.mjs).
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +24,7 @@ import { freePort, waitForServer, stopServer } from "./host-performance-baseline
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
+import { runBackgroundWorkBrowserCases } from "./background-work-browser-cases.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const quote = value => "'" + String(value).replace(/'/g, "'\\''") + "'";
@@ -929,7 +932,7 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
       assert.equal(await ui.locator("#btn-model").isVisible(), true, "the model can be picked before Claude starts");
       // The thinking level is shown and can be picked before Claude starts.
       await ui.waitForFunction(() => rpc?.claudeEffort === "high" && el.thinkingSelect.disabled === false && el.thinkingSelect.value === "high"
-        && !el.composerModelLevelText.classList.contains("hidden"));
+        && !el.composerEffort.hidden && el.composerEffort.dataset.level === "High" && el.composerEffort.getAttribute("aria-disabled") === "false");
       await ui.evaluate(() => changeThinkingLevel("xhigh"));
       await ui.waitForFunction(() => rpc?.claudeEffort === "xhigh" && el.thinkingSelect.value === "xhigh");
       assert.deepEqual(efforts.map(row => [row.sessionId, row.effort]), [[claude.nativeSessionId, "xhigh"]]);
@@ -1216,6 +1219,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSessionRecoveryBrowserCases(browser, options);
   await runEarlySendBrowserCases(browser);
   await runHistoryPagesBrowserCases(browser);
+  await runBackgroundWorkBrowserCases(browser, options);
   for (const viewport of [{ name: "phone", width: 390, height: 844, mobile: true }, { name: "desktop", width: 1280, height: 860, mobile: false }]) {
     const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-conversation-ux-")));
     let child, context, stage = "fixture";

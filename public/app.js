@@ -152,7 +152,7 @@ const el = {
   chatEmpty: $("chat-empty"), chatEmptyNewProject: $("chat-empty-new-project"), slashMenu: $("slash-menu"),
   input: $("input"), btnSend: $("btn-send"), btnAbort: $("btn-abort"), btnModel: $("btn-model"),
   sessionCount: $("session-count"), btnLayout: $("btn-layout"),
-  composerModelNameText: $("composer-model-name"), composerModelLevelText: $("composer-model-level"),
+  composerModelNameText: $("composer-model-name"), composerEffort: $("composer-effort"),
   approvalControl: $("approval-control"), btnApproval: $("btn-approval"), approvalLabel: $("approval-label"),
   approvalMenu: $("approval-menu"), approvalOptions: $("approval-options"), approvalMenuNote: $("approval-menu-note"),
   btnOpenSettings: $("btn-open-settings"), btnSettingsBack: $("btn-settings-back"), btnModelSettingsBack: $("btn-model-settings-back"), modelSettingsOpen: $("model-settings-open"), modelSettingsSummary: $("model-settings-summary"),
@@ -279,11 +279,13 @@ const draftWrites = new Map();
 const pendingDraftSends = new Map();
 let composerModelName = "";
 let composerReasoningLevel = "off";
-// The thinking bars beside the model: the model's own levels they scale a
-// level against, why there is no level to show, and the level "auto" runs at.
+// The thinking level on the message box's edge: the model's own levels it
+// places a level among, why there is no level to show, and the level "auto"
+// runs at; the line's drag and spring once drawn.
 let composerReasoningLevels = [];
 let composerReasoningNote = "";
 let composerReasoningEffective = "";
+let composerEffortLine = null;
 let modelCatalog = [];
 let modelCatalogSources = new Map();
 let configuredProviders = [];
@@ -7220,6 +7222,17 @@ function renderClaudeStructuredPermissions(connection, permissions) {
   }
 }
 
+// The background work Claude waits on between turns, as the Host reports it:
+// how much, and the first few by kind and description.
+const CLAUDE_BACKGROUND_KINDS = new Set(["agent", "command", "monitor", "workflow", "wakeup", "task"]);
+function claudeBackgroundWork(value) {
+  const tasks = (Array.isArray(value?.tasks) ? value.tasks : []).slice(0, 8).map(row => ({
+    kind: CLAUDE_BACKGROUND_KINDS.has(row?.kind) ? row.kind : "task",
+    description: String(row?.description || "").replace(/\s+/g, " ").trim().slice(0, 160) }));
+  const count = Number(value?.count), wakeAt = Number(value?.wakeAt);
+  return { count: Number.isSafeInteger(count) && count > 0 ? count : tasks.length, tasks, ...(wakeAt > 0 ? { wakeAt } : {}) };
+}
+
 async function refreshClaudeStructuredSnapshot(connection, { initial = false, restart = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeClaudeStructured) return;
   if (connection.nativeRefreshInFlight) return;
@@ -7279,8 +7292,13 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
     // Claude's own id for the conversation, which it reports after the
     // Host's local key; resuming uses it.
     if (typeof status.nativeSessionId === "string" && status.nativeSessionId) connection.claudeNativeSessionId = status.nativeSessionId;
+    // Between turns, Claude can still be at work on what it was asked: it
+    // waits on background work it started and reports on it in a turn of its own.
+    const waitingOnBackground = !parked && !status.closed && !status.failed && status.state === "waiting" && status.working === true;
     connection.taskStatus = parked ? "waiting" : status.closed ? "stopped" : status.failed ? "failed"
-      : status.state === "running" ? "running" : "waiting";
+      : status.state === "running" || waitingOnBackground ? "running" : "waiting";
+    const background = waitingOnBackground ? claudeBackgroundWork(status.background) : null;
+    if (JSON.stringify(background) !== JSON.stringify(connection.claudeBackground || null)) { connection.claudeBackground = background; scheduleWorkLog("tail"); }
     // A turn Claude ended with an error is shown once, below that turn; the
     // conversation goes on. One from before this view opened is not repeated.
     const turnError = status.turnError;
@@ -7301,7 +7319,7 @@ async function refreshClaudeStructuredSnapshot(connection, { initial = false, re
       startedAt: status.turnStartedAt,
       lastActivityAt: status.lastActivityAt,
       endedAt: parked ? status.turnEndedAt || status.lastActivityAt || undefined
-        : status.closed ? (status.lastActivityAt || Date.now()) : status.state !== "running" ? status.turnEndedAt : undefined,
+        : status.closed ? (status.lastActivityAt || Date.now()) : connection.taskStatus !== "running" ? status.turnEndedAt : undefined,
       nativeStatus: status,
       // Said once, below the turn it ended.
       ...(connection.taskStatus === "failed" ? { error: agentHubText("claudeStopped") } : {}),
@@ -9731,7 +9749,9 @@ function workLogRunState() {
   const measured = turnRateCache.key === turnRateKey() && turnRateCache.hostTracked ? turnRateCache.active : null;
   if (running && measured && Date.now() - measured.observedAt < 5000
     && (!pending || pending.whileRunning || measured.startedAt >= pending.at - 2000)) startedAt = measured.startedAt;
-  return { running, startedAt };
+  // What Claude waits on between the turns of one piece of work.
+  const background = running && !(pending && !pending.sawRun) && connection.claudeBackground?.count > 0 ? connection.claudeBackground : null;
+  return { running, startedAt, background };
 }
 function beginPendingTurn(connection) {
   if (!connection) return null;
@@ -10018,7 +10038,23 @@ function turnRateFor(turn, around = null) {
     if ([around?.before, around?.after].some(other => other && Math.abs(other - startedAt) < gap)) continue;
     best = { gap, row };
   }
-  return best ? OutputRate.storedSummary(best.row) : null;
+  if (!best) return null;
+  // Claude takes a turn by itself for each background task it waited on,
+  // shown with the message before it; a Host from before kept each turn as a
+  // run of its own. The runs up to the next message are one piece of work.
+  const limit = around?.after ? around.after - RATE_MATCH_MS : around?.followed ? -Infinity : Infinity;
+  const later = rpc?.nativeClaudeStructured ? turnRateCache.rates.filter(row => row !== best.row
+    && Number(row?.startedAt) > Number(best.row.startedAt) && Number(row?.startedAt) < limit) : [];
+  return later.length ? mergedTurnRate([best.row, ...later]) : OutputRate.storedSummary(best.row);
+}
+function mergedTurnRate(rows) {
+  const parts = rows.map(row => ({ row, summary: OutputRate.storedSummary(row) })).filter(part => part.summary);
+  if (!parts.length) return null;
+  const start = Number(parts[0].row.startedAt);
+  const end = Math.max(...parts.map(({ row, summary }) => Number(row.endedAt) || Number(row.startedAt) + summary.totalMs));
+  return OutputRate.storedSummary({ tokens: parts.reduce((sum, part) => sum + part.summary.tokens, 0),
+    estimated: parts.some(part => part.summary.estimated), totalMs: Math.max(0, end - start),
+    modelMs: parts.reduce((sum, part) => sum + part.summary.modelMs, 0) });
 }
 function turnSettling(turn) {
   if (!settlingRates.size || !turn?.user) return false;
@@ -10191,17 +10227,67 @@ function makeWorkHead() {
   head.dataset.i18nIgnore = "";
   const label = document.createElement("span");
   label.className = "wl-head-label";
+  const wait = document.createElement("span");
+  wait.className = "wl-wait";
   const rate = document.createElement("span");
   rate.className = "wl-rate";
-  head.append(label, workChevron(), rate);
+  head.append(label, wait, workChevron(), rate);
   head.addEventListener("click", () => {
-    if (head.dataset.running === "true" || head.dataset.static === "true") return;
     const state = workLogState.turns.get(head.dataset.key);
+    // While Claude waits on its background work, the line lists that work.
+    if (state && head.dataset.waiting === "true") { state.waitOpen = !state.waitOpen; layoutWorkLogAround(head); return; }
+    if (head.dataset.running === "true" || head.dataset.static === "true") return;
     if (!state) return;
     state.expanded = !state.expanded;
     layoutWorkLogAround(head);
   });
   return head;
+}
+function makeWorkWaitList() {
+  const list = document.createElement("ul");
+  list.className = "wl-own wl-wait-list";
+  list.dataset.i18nIgnore = "";
+  return list;
+}
+function workWaitTime(at) {
+  try { return new Date(at).toLocaleTimeString(document.documentElement.lang || undefined, { hour: "numeric", minute: "2-digit" }); }
+  catch { return new Date(at).toLocaleTimeString(); }
+}
+// "· waiting on 2 background tasks", or the time a scheduled check-in is due.
+function workWaitText(background) {
+  const tasks = background.count - background.tasks.filter(task => task.kind === "wakeup").length;
+  if (tasks <= 0 && background.wakeAt) return "· " + tKey("work.background.wakeup", { time: workWaitTime(background.wakeAt) });
+  return "· " + tKey(background.count === 1 ? "work.background.one" : "work.background.many", { count: background.count });
+}
+function workWaitLines(background) {
+  const lines = background.tasks.map(task => {
+    const kind = tKey("work.background.kind." + task.kind);
+    const detail = task.kind === "wakeup" && background.wakeAt
+      ? [task.description, workWaitTime(background.wakeAt)].filter(Boolean).join(" · ") : task.description;
+    return { kind, detail };
+  });
+  const hidden = background.count - background.tasks.length;
+  if (hidden > 0) lines.push({ kind: "", detail: tKey("work.background.more", { count: hidden }) });
+  return lines;
+}
+function updateWorkWait(head, list, background, open) {
+  const wait = head.querySelector(".wl-wait");
+  const text = background ? workWaitText(background) : "";
+  if (wait && wait.textContent !== text) wait.textContent = text;
+  const lines = background ? workWaitLines(background) : [];
+  const title = lines.map(line => [line.kind, line.detail].filter(Boolean).join(": ")).join("\n");
+  if (head.title !== title) head.title = title;
+  if (!list) return;
+  list.hidden = !open;
+  const signature = JSON.stringify(lines);
+  if (list.dataset.signature === signature) return;
+  list.dataset.signature = signature;
+  list.replaceChildren(...lines.map(line => {
+    const item = document.createElement("li");
+    if (line.kind) { const kind = document.createElement("span"); kind.className = "wl-wait-kind"; kind.textContent = line.kind; item.append(kind, " "); }
+    item.append(line.detail || "");
+    return item;
+  }));
 }
 function makeWorkRow() {
   const row = document.createElement("button");
@@ -10361,7 +10447,7 @@ function workSetHidden(block, hide) {
   wrapper.appendChild(block.node);
 }
 
-function layoutWorkTurn(turn, key, { running = false, startedAt = null, around = null } = {}) {
+function layoutWorkTurn(turn, key, { running = false, startedAt = null, background = null, around = null } = {}) {
   let state = workLogState.turns.get(key);
   if (!state) { state = { expanded: false }; workLogState.turns.set(key, state); }
   const shells = turn.nodes.filter(node => node.classList.contains("msg") && directMessageBubble(node));
@@ -10391,6 +10477,9 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, around =
   const rateDisplay = summaryRateDisplay(rateSummary);
   const showHead = shells.length > 0 && (running || foldable || !!rateDisplay || !running && turnSettling(turn));
   const collapsed = !running && foldable && state.expanded !== true;
+  // Claude waits between turns on background work it started; the line says
+  // so and opens a list of that work.
+  const waiting = running && background?.count > 0 ? background : null;
 
   if (showHead) {
     const head = take("wl-head", makeWorkHead);
@@ -10406,11 +10495,18 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, around =
     const fixed = !running && !foldable;
     head.dataset.static = String(fixed);
     head.classList.toggle("wl-static", fixed);
-    if (running || fixed) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
+    head.dataset.waiting = String(!!waiting);
+    head.classList.toggle("wl-waiting", !!waiting);
+    if (!waiting) state.waitOpen = false;
+    if (waiting) { head.setAttribute("aria-expanded", String(state.waitOpen === true)); head.tabIndex = 0; }
+    else if (running || fixed) { head.removeAttribute("aria-expanded"); head.tabIndex = -1; }
     else { head.setAttribute("aria-expanded", String(!collapsed)); head.tabIndex = 0; }
     const label = head.querySelector(".wl-head-label");
     const text = workHeadText(running, duration);
     if (label.textContent !== text) label.textContent = text;
+    const waitList = waiting ? take("wl-wait-list", makeWorkWaitList) : null;
+    if (waitList && head.nextSibling !== waitList) head.after(waitList);
+    updateWorkWait(head, waitList, waiting, state.waitOpen === true);
     setWorkHeadRate(head, running ? liveRateDisplay() : rateDisplay);
   }
 
@@ -10458,7 +10554,7 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, around =
     workSetHidden(block, collapsed && index !== finalIndex && (block.kind === "text" || block.kind === "divider"));
   }
 
-  if (running && !liveCard && shells.length && !blocks.some(block => block.kind === "pulse"
+  if (running && !waiting && !liveCard && shells.length && !blocks.some(block => block.kind === "pulse"
     || block.kind === "notice" && block.node.matches?.(".agent-approval-card"))) {
     const pulse = take("wl-pulse", makeWorkPulse);
     const bubble = directMessageBubble(shells[shells.length - 1]);
@@ -10524,8 +10620,8 @@ function layoutWorkLog({ from = null, tail = false, keepScroll = false } = {}) {
     const start = turn.user || turn.nodes[0];
     const include = (!from && !tail) || (tail && last) || (!!from && (turn.user === from || turn.nodes.includes(from)
       || !!start && !!(from.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING)));
-    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt,
-      around: { before: starts[index - 1] || 0, after: starts[index + 1] || 0 } });
+    if (include) layoutWorkTurn(turn, key, { running: run.running && last, startedAt: run.startedAt, background: last ? run.background : null,
+      around: { before: starts[index - 1] || 0, after: starts[index + 1] || 0, followed: !last } });
   });
   syncWorkPlaceholder(lastTurn, run);
   syncWorkLogClock();
@@ -11484,7 +11580,8 @@ function setStreaming(on) {
   // OpenCode/ACP expose a live model route; Claude owns a session-scoped model
   // endpoint and Codex applies the selected model on its next prompt. Other
   // connectors have no safe model route, and read-only history must not offer
-  // to change anything. The thinking bars ripple while the agent works.
+  // to change anything. While the agent works, light runs along the thinking
+  // line, the button's next sibling (see .is-working in style.css).
   syncComposerModelControl(rpc);
   el.btnModel?.classList.toggle("is-working", !!on && !!rpc);
   // Attachments follow the connector's wire format, not the Pi/generic split:
@@ -11521,6 +11618,7 @@ function syncComposerModelControl(connection = rpc) {
   el.btnModel.classList.toggle("is-static", observed);
   if (observed) el.btnModel.setAttribute("aria-disabled", "true");
   else el.btnModel.removeAttribute("aria-disabled");
+  syncEffortLine();
 }
 
 // ---- 送出 / 中止 ----
@@ -12361,36 +12459,13 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
   // Until the agent names its model, the chip invites a choice; it never
   // shows a "default" that hides which model will answer.
   const model = composerModelName || (window.stepsembleI18n?.t("Choose model") || "Choose model");
-  const level = composerReasoningLevel.toLowerCase();
-  // The level as four bars: how many are lit is the level's place in the
-  // model's own list, and its top level adds a mark. "Auto" lights the level
-  // it runs at when reported, and otherwise shows its own look; no level
-  // shows flat bars that say why.
-  const shown = modelPresentation?.effortBars(level, composerReasoningLevels) || { state: level ? "level" : "none", bars: 0, top: false };
-  const effective = shown.state === "auto" && composerReasoningEffective
-    ? modelPresentation?.effortBars(composerReasoningEffective, composerReasoningLevels) : null;
-  const words = shown.state === "none" ? ""
-    : shown.state === "auto" ? reasoningLevelText("auto") + (effective?.state === "level" ? " · " + reasoningLevelText(composerReasoningEffective) : "")
-      : reasoningLevelText(level);
-  const note = words ? tKey("runtime.thinkingTooltip", { level: words }) : composerReasoningNote || tKey("runtime.thinkingNotReported");
+  const { words, note } = composerThinking();
   if (el.composerModelNameText) {
     el.composerModelNameText.textContent = model;
     el.composerModelNameText.title = model;
   }
-  const indicator = el.composerModelLevelText;
-  if (indicator) {
-    const lit = effective?.state === "level" ? effective : shown;
-    const state = effective?.state === "level" ? "level" : shown.state;
-    const bars = lit.bars;
-    indicator.dataset.state = state;
-    indicator.dataset.bars = String(bars);
-    indicator.dataset.top = String(lit.top === true);
-    indicator.dataset.level = words;
-    indicator.title = note;
-    indicator.querySelectorAll?.(".composer-effort-bar").forEach((bar, index) => bar.classList.toggle("on", index < bars));
-    // The bars belong to a model; none show before one is known.
-    indicator.classList.toggle("hidden", !composerModelName);
-  }
+  syncEffortLine();
+  // The button shows the model alone; its name also says the level.
   if (el.btnModel) {
     el.btnModel.title = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
     el.btnModel.setAttribute("aria-label", words ? tKey("runtime.modelThinking", { model, level: words }) : `${model}. ${note}`);
@@ -12399,6 +12474,47 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
 // Levels read the way Codex shows them beside the model: "Medium", "Max".
 function reasoningLevelText(level) {
   return modelPresentation?.levelName(level) || String(level || "");
+}
+// The level as the composer tells it: its place among the model's own levels
+// (see effortLine), its words ("Extra high", "Auto · High") and, without one,
+// why. Auto names the level it runs at once reported.
+function composerThinking() {
+  const level = composerReasoningLevel.toLowerCase(), levels = composerReasoningLevels;
+  const shown = modelPresentation?.effortLine(level, levels, composerReasoningEffective) || { state: level ? "level" : "none", stops: [], index: -1, top: false };
+  const effective = shown.state === "auto" && !!composerReasoningEffective && modelPresentation?.effortLine(composerReasoningEffective, levels).state === "level";
+  const words = shown.state === "none" ? ""
+    : shown.state === "auto" ? reasoningLevelText("auto") + (effective ? " · " + reasoningLevelText(composerReasoningEffective) : "")
+      : reasoningLevelText(level);
+  const note = words ? tKey("runtime.thinkingTooltip", { level: words }) : composerReasoningNote || tKey("runtime.thinkingNotReported");
+  return { shown, words, note };
+}
+// The level as a line along the message box's top edge, filled to its place
+// among the model's own levels. Dragged, tapped or stepped with the keys, it
+// sets the level the way the sheet's slider does; it changes nothing where
+// the model button is only a label. No model, or no level to pick, no line.
+function syncEffortLine() {
+  const line = el.composerEffort;
+  if (!line) return;
+  composerEffortLine ??= window.stepsembleEffortSlider?.attachLine?.({ slider: line, commit: commitEffortLevel }) || null;
+  const { shown, words } = composerThinking();
+  const select = el.thinkingSelect, options = [...(select?.options || [])];
+  const open = new Set(options.filter(option => !option.disabled).map(option => option.value));
+  const live = connectorAllowsLiveControls(rpc) && !!select && !select.disabled && !select.hidden && shown.stops.every(stop => open.has(stop));
+  const levelled = shown.stops.some(stop => !/^(?:off|none)$/i.test(stop));
+  const hidden = !composerModelName || !!el.btnModel?.classList.contains("hidden") || !levelled || (shown.state === "none" && !live);
+  const label = stop => options.find(option => option.value === stop)?.textContent.trim() || reasoningLevelText(stop);
+  Object.assign(line.dataset, { state: shown.state, level: words, top: String(shown.top) });
+  line.hidden = hidden;
+  composerEffortLine?.set({ stops: shown.stops, labels: new Map(shown.stops.map(stop => [stop, label(stop)])), current: shown.index,
+    auto: shown.state === "auto", disabled: !live, hidden, name: words || composerReasoningNote || tKey("runtime.thinkingNotReported"), shown: words || "—" });
+}
+// A level picked on the line takes the path the sheet's does, without a
+// notice: the line names the level itself as it lands.
+function commitEffortLevel(level) {
+  const select = el.thinkingSelect;
+  if (!select || select.disabled || ![...select.options].some(option => option.value === level && !option.disabled)) return false;
+  select.value = level;
+  void changeThinkingLevel(level, { quiet: true });
 }
 // The Host keeps the model and level last chosen for an agent, so its next
 // conversation starts with them, on every device.
@@ -13579,9 +13695,10 @@ el.modelSheet.addEventListener("click", (event) => {
 function thinkingLevelToast(level) {
   if (el.modelSheet?.classList.contains("hidden")) toast(tKey("runtime.thinkingLevel", { level }));
 }
-async function changeThinkingLevel(level) {
+async function changeThinkingLevel(level, { quiet = false } = {}) {
   const expectedSid = rpc?.sid;
   if (!expectedSid) return;
+  const notify = quiet ? () => {} : thinkingLevelToast;
   if (rpc?.nativeClaudeStructured) {
     const connection = rpc;
     const expectedGeneration = viewGeneration;
@@ -13612,7 +13729,7 @@ async function changeThinkingLevel(level) {
       updateComposerSummary(undefined, connection.claudeEffort);
       renderContextDashboard();
       if (plain && !el.modelSheet.classList.contains("hidden")) renderModelList(plain.id, "claude-code");
-      thinkingLevelToast(reasoningLevelText(connection.claudeEffort));
+      notify(reasoningLevelText(connection.claudeEffort));
     } catch (error) {
       if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {
         syncNativeThinkingSelect(connection);
@@ -13630,7 +13747,7 @@ async function changeThinkingLevel(level) {
       if (rpc !== connection) return;
       if (result?.kind === "reject") throw new Error(result.code || "reasoning change rejected");
       applyAcpConfig(connection, result?.configOptions);
-      thinkingLevelToast(reasoningLevelText(requested));
+      notify(reasoningLevelText(requested));
     } catch (error) {
       if (rpc === connection) { syncNativeThinkingSelect(connection); toast(tKey("runtime.saveFailed", { detail: error.message }), true); }
     }
@@ -13673,7 +13790,7 @@ async function changeThinkingLevel(level) {
         actual,
       }) || `${level} → ${actual}`, true);
     } else {
-      thinkingLevelToast(level);
+      notify(level);
     }
   } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
