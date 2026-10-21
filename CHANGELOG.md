@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.40
+
+- Refresh by tapping the Stepsemble name at the top of the list; its mark turns while it reads. The list no longer has Refresh and Settings buttons of its own.
+- Open Settings from the limits sheet: tap the limits capsule at the foot of the list, and Settings sits beside the sheet's Refresh.
+- Move the Mac app's window from anywhere on its top edge except the controls: beside the Stepsemble name, and on a conversation's title bar anywhere but its title, its × and its buttons. The title still opens the conversation and drags it elsewhere.
+- Choose from three design themes — Warm Paper, Graphite and Ink & Ivory. Their light variants are tinted paper rather than white, with text kept at 4.5:1 or more; dark is unchanged. A retired theme you had chosen opens as Ink & Ivory.
+
 ## 3.9.39
 
 - See how long a Claude Code request really took. Work is timed from your message until Claude has no background work left — subagents, background commands, monitors — so the turns Claude starts when a background task reports belong to the same request, under one "Worked for". While it waits, the header keeps counting and says which background tasks it is waiting on, the conversation still shows as working, and the completion notice comes once, at the end.
