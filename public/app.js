@@ -17972,6 +17972,18 @@ async function renderModelAgentList() {
   }
 }
 
+// The models an agent reported, as its model sheet names them: one row per
+// model (Claude Code's slots on one Magpie model at several levels are one),
+// with the id it is picked by, the provider and the context.
+function agentModelRows(models, agentId) {
+  const list = Array.isArray(models) ? models : [];
+  if (agentId === "codex" || !modelPresentation) {
+    return list.map(model => ({ name: model.name || model.id, detail: [model.name && model.name !== model.id ? model.id : "", model.description || ""].filter(Boolean).join(" · ") }));
+  }
+  return modelPresentation.modelGroups(list, agentId).map(({ id, model }) => ({ name: modelPresentation.present(model, agentId).name,
+    detail: [id, modelPresentation.detailLine(model, agentId)].filter(Boolean).join(" · ") }));
+}
+
 // Codex lists its models live. Claude Code and the ACP agents only report them
 // inside a conversation, so their page shows the list from the last one.
 let agentModelRequest = 0;
@@ -18004,13 +18016,13 @@ async function loadAgentModelList(agentId) {
     }
     if (!current()) return;
     const label = agentTerminalLabel(agentId);
-    for (const model of models) {
+    for (const shown of agentModelRows(models, agentId)) {
       const row = document.createElement("div");
       row.className = "agent-model-row";
       const name = document.createElement("strong");
-      name.textContent = model.name || model.id;
+      name.textContent = shown.name;
       row.appendChild(name);
-      const detail = [model.name && model.name !== model.id ? model.id : "", model.description || ""].filter(Boolean).join(" · ");
+      const detail = shown.detail;
       if (detail) {
         const small = document.createElement("small");
         small.textContent = detail;

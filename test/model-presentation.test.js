@@ -229,3 +229,22 @@ test("a level lights its place in the model's own list on four bars, and the top
   assert.equal(levelName("xhigh"), "Extra high");
   assert.equal(levelName("max"), "Max");
 });
+
+test("Settings lists the models an agent reported as its model sheet does", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const start = app.indexOf("function agentModelRows("), end = app.indexOf("\n// Codex lists its models live.", start);
+  assert.ok(start >= 0 && end > start);
+  const context = require("node:vm").createContext({ modelPresentation: require("../public/modules/model-presentation") });
+  require("node:vm").runInContext(app.slice(start, end), context);
+  const rows = context.agentModelRows([...magpieAliases.slice(0, 4), ...magpieOwn, magpieAliases[4]], "claude-code");
+  assert.deepEqual(rows.map(row => [row.name, row.detail]), [
+    ["Opus 5.5 · 1M", "claude/claude-opus-5-5[1m] · Magpie · Anthropic · 1M"],
+    ["Fable 5.1 · 1M", "claude/claude-fable-5-1[1m] · Magpie · Anthropic · 1M"],
+    ["Sonnet 5.5 · 1M", "claude/claude-sonnet-5-5[1m] · Magpie · Anthropic · 1M"],
+    ["Haiku 5.5 · 1M", "claude/claude-haiku-5-5[1m] · Magpie · Anthropic · 1M"],
+    ["MiniMax-M3.1-Flash", "minimax/MiniMax-M3.1-Flash · Magpie · MiniMax · 1M"],
+  ]);
+  // Codex's live list keeps its own names.
+  assert.deepEqual(context.agentModelRows([{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol", description: "Latest" }], "codex").map(row => [row.name, row.detail]),
+    [["GPT-6.1-Sol", "gpt-6.1-sol · Latest"]]);
+});
