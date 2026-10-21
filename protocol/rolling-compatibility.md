@@ -2,8 +2,8 @@
 
 `npm run test:rolling` runs actual browser code and actual Node Hosts from the
 two immutable releases in `rolling-releases.json`, paired in both directions
-with the current development tree. At this pre-release point these are v3.9.34
-and v3.9.33, the latest two **shipped** versions before 3.9.35. Tags are verified against
+with the current development tree. At this pre-release point these are v3.9.35
+and v3.9.34, the latest two **shipped** versions before 3.9.36. Tags are verified against
 full commit IDs, then Git archives are extracted into disposable local folders.
 Nothing is checked out over the worktree. Update the pins explicitly at release
 time; do not float tags or substitute current sources for a historical Client.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.36
+
+- Pick each model once. A Claude conversation through Magpie listed Opus 5.5 three times, once for each of Claude Code's model slots Magpie points at it, and couldn't reach Sonnet 5.5 or Fable 5.1; the list now shows one row per model, and the thinking level is chosen on its own. Goals, Schedules and Settings list them the same way.
+- Drag the thinking level along a line, from faster on the left to deeper on the right. It follows your finger, settles on the nearest level, and tells the agent once you let go; Auto sits beside it where an agent offers it.
+- Bold's backdrop is one flat colour, with no glow in the corner; in dark it is true black, up into the iPhone's status bar and behind a conversation on a phone.
+
 ## 3.9.35
 
 - Try a bolder look: Settings → Appearance → Interface style is Bold by default — the sidebar floats as glass over a quiet backdrop from your theme, replies read with a calmer rhythm, the message box is a glass capsule, Settings has large titles and coloured category tiles, and menus and sheets arrive as blurred glass. Choose Classic to go back to the previous look; every device and pane follows the change without a reload.
