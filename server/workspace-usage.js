@@ -2,7 +2,8 @@
 const { normalizeQuotaConfig } = require("./quota-sources");
 const { accountKey, boundAnthropicKey, createClaudeIdentityReader } = require("./quota-identity");
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
-const { execFile } = require("node:child_process");
+const { windowUsage, currentWindows, claudeWindows } = require("./quota-windows");
+const { claudeToken, sanitizeClaudeQuota } = require("./claude-quota");
 // opencodex already probes every provider it routes and publishes the results on
 // its loopback management API. Reading that endpoint keeps provider credentials
 // and probes out of Stepsemble, and it is the only source for allowances that
@@ -134,11 +135,6 @@ async function configuredProviderQuotas({ home, fetchImpl = fetch, osHome = os.h
   // Probe order, not completion order, so rows keep their place between polls.
   return rows.filter(Boolean);
 }
-function windowUsage(used, reset, label, windowDurationMins = null, bucket = null) {
-  if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) return null;
-  const resetMs = typeof reset === "number" ? reset * 1000 : Date.parse(reset);
-  return { label, windowDurationMins, bucket, usedPercent: used, remainingPercent: 100 - used, resetsAt: Number.isFinite(resetMs) ? resetMs : null };
-}
 function codexWindows(data) {
   const buckets = data?.rateLimitsByLimitId ? Object.entries(data.rateLimitsByLimitId) : [["codex", data?.rateLimits]];
   return buckets.flatMap(([name, b]) => [b?.primary, b?.secondary].map(w => windowUsage(w?.usedPercent, w?.resetsAt,
@@ -194,13 +190,6 @@ function chatgptWindows(data) {
   }
   return rows;
 }
-// A window whose reset time has already passed is no longer described by the
-// reading it came from: its allowance started over. Keeping such a window is
-// how a day-old snapshot ends up presenting 100% remaining for a window that is
-// in fact exhausted.
-function currentWindows(windows, now) {
-  return windows.filter(w => w.resetsAt === null || w.resetsAt > now);
-}
 // The keychain belongs to the console user, so it is only read for that user's
 // home - directly, or through a symlink such as an isolated preview home that
 // resolves to the same .claude directory.
@@ -210,10 +199,6 @@ function keychainHome(home, { osHome = os.homedir(), realpath = fss.realpathSync
   try {
     return realpath(path.join(path.resolve(home), ".claude")) === realpath(path.join(path.resolve(osHome), ".claude"));
   } catch { return false; }
-}
-function claudeWindows(data) {
-  return [windowUsage(data?.five_hour?.utilization ?? data?.five_hour?.used_percentage, data?.five_hour?.resets_at, "5 hours", 300),
-    windowUsage(data?.seven_day?.utilization ?? data?.seven_day?.used_percentage, data?.seven_day?.resets_at, "Weekly", 10080)].filter(Boolean);
 }
 // Claude Code caches its own utilization snapshot next to its settings. Reading
 // that file needs no credential and no keychain prompt, but it is only as
@@ -227,14 +212,6 @@ async function claudeCache(home, now) {
     if (!windows.length) return null;
     return { windows, observedAt: typeof cache?.fetchedAtMs === "number" ? cache.fetchedAtMs : null };
   } catch { return null; }
-}
-async function claudeToken(home, allowKeychain) {
-  try { const raw = await fs.readFile(path.join(home, ".claude", ".credentials.json"), "utf8"); return JSON.parse(raw)?.claudeAiOauth?.accessToken || null; } catch {}
-  if (!allowKeychain || process.platform !== "darwin") return null;
-  return new Promise(resolve => execFile("/usr/bin/security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], { timeout: 5000, maxBuffer: 65536 }, (error, stdout) => {
-    if (error) return resolve(null);
-    try { resolve(JSON.parse(stdout)?.claudeAiOauth?.accessToken || null); } catch { resolve(null); }
-  }));
 }
 // The management API needs the admin token and the port the service actually
 // bound, both of which live beside the user's opencodex configuration.
@@ -299,7 +276,7 @@ function asSecondsValue(value) { return typeof value === "number" && Number.isFi
 // `readSignIn(providerId)` returns a Settings sign-in. The server passes one
 // that renews an expiring OAuth token through Pi; the default only reads.
 function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fetchImpl = fetch, readClaudeToken = () => claudeToken(home, allowKeychain),
-  readClaudeCache = () => claudeCache(home, now()), readCodexSignIn = () => codexSignIn(home, env),
+  readClaudeCache = () => claudeCache(home, now()), readDesktopClaudeQuota = async () => undefined, readCodexSignIn = () => codexSignIn(home, env),
   readSignIn = providerId => storedSignIn(home, providerId),
   readProviderQuotas = () => configuredProviderQuotas({ home, fetchImpl, readSignIn }),
   readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null,
@@ -364,6 +341,15 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       return chatgptReading(readCodexSignIn, "account");
     }
     if (sourceId === "pi") return claudeTokenReading(() => readSignIn("anthropic"), "signin");
+    // undefined means this Host does not use the macOS desktop broker. An
+    // unsupported/offline broker never falls through to SSH credential reads.
+    let desktop;
+    try { desktop = await readDesktopClaudeQuota(); } catch { desktop = null; }
+    if (desktop !== undefined) {
+      const reading = sanitizeClaudeQuota(desktop);
+      return reading?.windows.length ? { windows: reading.windows, observedAt: reading.status === "cached" ? reading.sampledAt : null,
+        sampledAt: reading.sampledAt, accountKey: reading.accountKey, ...(reading.accountAliases ? { accountAliases: reading.accountAliases } : {}), source: "native" } : null;
+    }
     return claudeTokenReading(async () => ({ type: "oauth", secret: await readClaudeToken(), expiresAt: null }), "native");
   }
   // `full` reads every source that is on, for Settings to compare them; the
@@ -437,7 +423,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     if (on("agents") && !DEFAULT_ORDER.some(id => on(id) && readings[id].has("claude"))) {
       try {
         const cache = await readClaudeCache();
-        if (cache?.windows?.length) readings.agents.set("claude", { windows: cache.windows, observedAt: cache.observedAt ?? null, source: "native" });
+        if (cache?.windows?.length) readings.agents.set("claude", { windows: cache.windows, observedAt: cache.observedAt ?? null, cached: true, source: "native" });
       } catch {}
     }
     const label = service => SERVICE_LABELS[service] || labels.get(service) || service;
@@ -450,9 +436,10 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       if (!reading && service !== "codex" && service !== "claude") continue;
       const windows = reading?.windows || [];
       const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
-      providers.push({ provider: label(service), service, sourceId, status: !windows.length ? "unavailable" : observed ? "cached" : "ready",
+      providers.push({ provider: label(service), service, sourceId, status: !windows.length ? "unavailable" : reading?.cached || observed !== null ? "cached" : "ready",
         observedAt: windows.length ? observed : null, source: windows.length ? reading.source || null : null,
-        accountKey: windows.length ? reading.accountKey || null : null, sampledAt: reading?.sampledAt ?? observed ?? now(), windows });
+        accountKey: windows.length ? reading.accountKey || null : null,
+        ...(windows.length && reading.accountAliases ? { accountAliases: reading.accountAliases } : {}), sampledAt: reading?.sampledAt ?? observed ?? now(), windows });
     }
     const sources = {};
     for (const id of DEFAULT_ORDER) {

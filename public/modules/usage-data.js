@@ -143,10 +143,26 @@
       hosts, issues, coverage: { covered, missing, unsupported, partial, indexing, issuesOmitted, scope: historyCoverage ? "history" : "unknown" }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine", dateApproximateRecords };
   }
   function combineQuotas(results) {
-    const groups = new Map();
+    const groups = new Map(), aliases = new Map();
+    const validIdentity = value => typeof value === "string" && /^v1:[a-f0-9]{64}$/.test(value);
+    // Only a native Claude profile reading can attest an opaque email alias
+    // for its official UUID. Conflicting UUID claimants remain ambiguous.
+    for (const result of results || []) for (const provider of result.quota?.providers || []) {
+      if (provider.service !== "claude" || provider.source !== "native" || !validIdentity(provider.accountKey)
+        || !["ready", "cached"].includes(provider.status) || !provider.windows?.length
+        || !Array.isArray(provider.accountAliases) || provider.accountAliases.length !== 1) continue;
+      const alias = provider.accountAliases[0];
+      if (!validIdentity(alias) || alias === provider.accountKey) continue;
+      const key = JSON.stringify([provider.service, alias]);
+      if (!aliases.has(key)) aliases.set(key, new Set());
+      aliases.get(key).add(provider.accountKey);
+    }
     for (const result of results || []) for (const [index, provider] of (result.quota?.providers || []).entries()) {
       const service = provider.service || provider.provider || provider.id;
-      const identity = /^v1:[a-f0-9]{64}$/.test(provider.accountKey || "") ? provider.accountKey : null;
+      let identity = validIdentity(provider.accountKey) ? provider.accountKey : null;
+      const claims = service === "claude" && provider.source === "magpie" && identity ? aliases.get(JSON.stringify([service, identity])) : null;
+      if (claims?.size === 1) identity = claims.values().next().value;
+      const reading = identity && identity !== provider.accountKey ? { ...provider, accountKey: identity } : provider;
       const key = JSON.stringify(identity ? [service, identity] : [result.host, service, index]);
       const cached = !!result.unavailable || provider.status === "cached";
       const quality = provider.windows?.length ? cached ? 1 : 2 : 0;
@@ -154,13 +170,13 @@
       let group = groups.get(key);
       const host = { id: result.host, name: result.name || result.host };
       if (!group) {
-        group = { ...provider, cached, quality, at, hosts: [host] }; groups.set(key, group);
+        group = { ...reading, cached, quality, at, hosts: [host] }; groups.set(key, group);
       } else {
         if (!group.hosts.some(row => row.id === host.id)) group.hosts.push(host);
         // An account's quota is shared, not additive. Keep one complete reading
         // so windows from different reset cycles are never mixed together.
         if (quality > group.quality || quality === group.quality && at > group.at) {
-          groups.set(key, { ...provider, cached, quality, at, hosts: group.hosts });
+          groups.set(key, { ...reading, cached, quality, at, hosts: group.hosts });
         }
       }
     }

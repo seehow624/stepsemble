@@ -313,3 +313,50 @@ test("a live reading is kept two minutes, and Refresh reads the providers again 
   time += 5_000; await service.read({ full: true, fresh: true }); assert.equal(calls, afterFull);
   time += 15_000; await service.read({ full: true, fresh: true }); assert.ok(calls > afterFull);
 });
+
+test("failing Magpie with no allowance uses live Aqua native quota without reading SSH credentials", async () => {
+  const { accountKey } = require("../server/quota-identity");
+  const key = accountKey("claude", "11111111-1111-4111-8111-111111111111");
+  const service = createWorkspaceUsage({ now: () => 1700000000000,
+    codex: async () => ({}), readMagpie: async () => [{ service: "claude", windows: [], error: "Total cost: $0.0000" }],
+    readProviderQuotas: async () => [], readOpenCodex: async () => [], readSignIn: async () => null,
+    readClaudeToken: async () => { throw new Error("must not read credentials under SSH"); },
+    readDesktopClaudeQuota: async () => ({ quotaVersion: 1, status: "ready", sampledAt: 1700000000000,
+      accountKey: key, windows: claudeWindows({ five_hour: { utilization: 21 }, seven_day: { utilization: 77 } }) }),
+  });
+  const claude = (await service.read()).providers.find(p => p.service === "claude");
+  assert.equal(claude.status, "ready"); assert.equal(claude.source, "native"); assert.equal(claude.accountKey, key);
+  assert.deepEqual(claude.windows.map(w => w.usedPercent), [21, 77]);
+});
+test("offline/old Aqua helper retains explicitly anonymous CLI cache without inheriting current UUID", async () => {
+  for (const status of ["unsupported", "unavailable"]) {
+    const service = createWorkspaceUsage({ now: () => 1700000000000, codex: async () => ({}),
+      readProviderQuotas: async () => [], readOpenCodex: async () => [], readSignIn: async () => null,
+      readClaudeToken: async () => { assert.fail("SSH credential fallback is forbidden"); },
+      readDesktopClaudeQuota: async () => ({ quotaVersion: 1, status, accountKey: "v1:" + "a".repeat(64), windows: [] }),
+      readClaudeCache: async () => ({ observedAt: 1699999000000, windows: claudeWindows({ five_hour: { utilization: 8 } }) }),
+    });
+    const result = (await service.read()).providers.find(p => p.service === "claude");
+    assert.equal(result.status, "cached"); assert.equal(result.accountKey, null); assert.equal(result.observedAt, 1699999000000);
+  }
+});
+test("an Aqua cached snapshot keeps its original sample time and verified identity, not live status", async () => {
+  const service = createWorkspaceUsage({ now: () => 1700000000000, codex: async () => ({}),
+    readProviderQuotas: async () => [], readOpenCodex: async () => [], readSignIn: async () => null,
+    readDesktopClaudeQuota: async () => ({ quotaVersion: 1, status: "cached", sampledAt: 1699999999000,
+      accountKey: "v1:" + "a".repeat(64), accountAliases: ["v1:" + "b".repeat(64)], windows: claudeWindows({ seven_day: { utilization: 50 } }) }),
+  });
+  const result = (await service.read()).providers.find(p => p.service === "claude");
+  assert.equal(result.status, "cached"); assert.equal(result.observedAt, 1699999999000);
+  assert.equal(result.sampledAt, 1699999999000); assert.equal(result.accountKey, "v1:" + "a".repeat(64));
+  assert.deepEqual(result.accountAliases, ["v1:" + "b".repeat(64)]);
+});
+
+test("anonymous CLI snapshot without a timestamp is labelled cached, never newly observed or identified", async () => {
+  const service = createWorkspaceUsage({ now: () => 1700000000000, codex: async () => ({}), readProviderQuotas: async () => [],
+    readOpenCodex: async () => [], readSignIn: async () => null, readDesktopClaudeQuota: async () => null,
+    readClaudeCache: async () => ({ windows: claudeWindows({ five_hour: { utilization: 8 } }) }),
+  });
+  const result = (await service.read()).providers.find(p => p.service === "claude");
+  assert.equal(result.status, "cached"); assert.equal(result.observedAt, null); assert.equal(result.accountKey, null);
+});

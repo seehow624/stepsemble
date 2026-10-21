@@ -1,10 +1,11 @@
 "use strict";
 
-// GUI-session launch broker, not an OAuth client or a generic shell service.
+// GUI-session launch broker with fixed read-only quota metadata, not a generic shell service.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
 const http = require("node:http"), net = require("node:net");
 const { execFile, spawn } = require("node:child_process");
 const { createClaudeAuthService } = require("./claude-auth");
+const { QUOTA_VERSION, createDesktopQuotaReader } = require("./claude-quota");
 const { AUTH_TERMINAL_VERSION, createTerminalRunRegistry, findChoice, commandArgs } = require("./agent-auth");
 const { resolvePtyRuntime, supervisorSocketPath, supervisorMetadataPath } = require("./agent-connectors");
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
@@ -55,7 +56,7 @@ function alive(pid) { if (!Number.isSafeInteger(pid) || pid < 2) return false; t
 
 async function createDesktopHelper({ home, configDir, claudeCommand, roots, env = process.env,
   contextCheck = desktopContext, authFactory = createClaudeAuthService, launch = launchAgentSupervisor,
-  spawnImpl = spawn, now = Date.now, ticketTtlMs = 60000, fetchImpl = globalThis.fetch } = {}) {
+  spawnImpl = spawn, now = Date.now, ticketTtlMs = 60000, fetchImpl = globalThis.fetch, readQuotaToken } = {}) {
   if (!await contextCheck()) throw failure("desktop_required");
   if (!path.isAbsolute(home) || !path.isAbsolute(configDir) || !path.isAbsolute(claudeCommand)
     || !Array.isArray(roots) || !roots.length || roots.length > 16 || roots.some(root => !path.isAbsolute(root))) throw failure("desktop_configuration");
@@ -64,6 +65,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
   const key = (await privateRead(paths.key, 128)).trim();
   if (!/^[a-f0-9]{64}$/.test(key)) throw failure("desktop_permissions");
   const instance = crypto.randomUUID(), tickets = new Map();
+  const quota = createDesktopQuotaReader({ home, fetchImpl, now, ...(readQuotaToken ? { readToken: readQuotaToken } : {}) });
   let state;
   try { state = JSON.parse(await privateRead(paths.state, 32768)); }
   catch (error) { if (error.code !== "ENOENT") throw failure("desktop_recovery_required"); state = { version: 1, auth: null, launches: [] }; }
@@ -370,14 +372,17 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
       : op === "structured/prepare" ? ["cwd", "sessionId", "permissionPromptTool", "startedAt", ...(body && typeof body === "object" && Object.hasOwn(body, "fork") ? ["fork"] : [])]
         : op === "maintenance/cancel" ? ["token", "instance"]
           : op === "auth/start" || op === "auth/cancel" ? ["id"] : [])) throw failure("invalid_request");
+    // Quota is read-only and never joins the auth/task admission lane. It
+    // neither grants launch permission nor mutates recovery/maintenance state.
+    if (op === "quota") return quota.read();
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION,
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, quotaVersion: QUOTA_VERSION,
       activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, quotaVersion: QUOTA_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");
@@ -498,27 +503,29 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     "desktop_recovery_required", "desktop_workspace_denied", "desktop_capacity", "desktop_sign_in_required", "desktop_gateway_unavailable", "desktop_launch_uncertain",
     "desktop_structured_unavailable", "desktop_structured_launch_uncertain", "desktop_structured_stream_failed", "desktop_structured_stream_closed",
     "auth_run_active", "run_not_found", "run_ended", "secret_required", "action_unsupported"]);
-  let inFlight = 0;
+  let inFlight = 0, quotaInFlight = 0;
   const server = http.createServer({ maxHeaderSize: 2048 }, (req, res) => {
     const reply = (status, value) => { if (!res.destroyed) { res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store", "Connection": "close" }); res.end(JSON.stringify(value)); } };
     const supplied = String(req.headers.authorization || "");
     if (req.headers.origin || Buffer.byteLength(supplied) !== 71 || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(`Bearer ${key}`))) { reply(403, { code: "desktop_denied" }); req.resume(); return; }
     const op = req.url?.slice("/v1/".length);
-    if (!req.url?.startsWith("/v1/") || !["health", "status", "auth/prepare", "auth/start", "auth/cancel", "task/prepare", "task/launch", "structured/prepare", "maintenance/prepare", "maintenance/cancel",
+    if (!req.url?.startsWith("/v1/") || !["health", "status", "quota", "auth/prepare", "auth/start", "auth/cancel", "task/prepare", "task/launch", "structured/prepare", "maintenance/prepare", "maintenance/cancel",
       "terminal/start", "terminal/read", "terminal/input", "terminal/cancel"].includes(op) || req.method !== "POST") { reply(404, { code: "invalid_request" }); req.resume(); return; }
-    if (inFlight >= 8) { reply(429, { code: "desktop_capacity" }); req.resume(); return; }
-    inFlight++;
+    if (inFlight >= 8 || op === "quota" && quotaInFlight >= 4) { reply(429, { code: "desktop_capacity" }); req.resume(); return; }
+    inFlight++; if (op === "quota") quotaInFlight++;
     let size = 0, chunks = [], released = false;
-    const release = () => { if (!released) { released = true; inFlight--; } };
+    const release = () => { if (!released) { released = true; inFlight--; if (op === "quota") quotaInFlight--; } };
     req.on("error", release); req.on("aborted", release);
     req.on("data", chunk => { size += chunk.length; if (size > 8192) { chunks = []; reply(413, { code: "invalid_request" }); req.destroy(); } else chunks.push(chunk); });
     req.on("end", () => {
       if (size > 8192) { release(); return; }
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { reply(400, { code: "invalid_request" }); release(); return; }
       // Small bounded serial lane is the authority for auth/task admission.
-      sequence = sequence.then(() => { if (res.destroyed) throw failure("service_closed"); return dispatch(op, body); }).then(value => reply(200, value), error => reply(409, {
+      const run = () => { if (res.destroyed) throw failure("service_closed"); return dispatch(op, body); };
+      const response = (op === "quota" ? Promise.resolve().then(run) : sequence.then(run)).then(value => reply(200, value), error => reply(409, {
         code: errors.has(error.code) ? error.code : "desktop_recovery_required", uncertain: error.uncertain === true || op === "task/launch" && !errors.has(error.code),
       })).finally(release);
+      if (op !== "quota") sequence = response;
     });
   });
   server.on("upgrade", (req, socket, head) => {

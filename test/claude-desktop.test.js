@@ -249,3 +249,24 @@ test("the desktop terminal runs only Claude's fixed auth commands and pauses tas
   assert.match(text, /synthetic Claude account/);
 });
 
+
+test("Aqua quota IPC is authenticated metadata-only and does not block the launch admission lane", unix, async t => {
+  let release, started = false;
+  const f = await fixture(t, { readQuotaToken: async () => "quota-secret",
+    fetchImpl: async url => {
+      if (url.endsWith("usage")) { started = true; await new Promise(resolve => { release = resolve; }); }
+      return Response.json(url.endsWith("profile") ? { account: { uuid: "11111111-1111-4111-8111-111111111111", email: "private@example.test" } }
+        : { five_hour: { utilization: 12 }, seven_day: { utilization: 56 } });
+    } });
+  assert.equal((await f.client.health()).quotaVersion, 1); assert.equal(await f.client.quotaSupported(), true);
+  assert.equal((await f.raw("quota", {}, { authorization: "Bearer " + "a".repeat(64) })).status, 403);
+  assert.equal((await f.raw("quota", { url: "https://evil.test" })).status, 409);
+  const pending = f.client.quota();
+  await until(() => started);
+  try {
+    const prepare = await Promise.race([f.raw("task/prepare", f.task()), sleep(2000).then(() => { throw new Error("quota blocked launch lane"); })]);
+    assert.equal(prepare.status, 200);
+  } finally { release(); }
+  const result = await pending; assert.equal(result.status, "ready"); assert.equal(result.windows[0].usedPercent, 12);
+  assert(!/quota-secret|private|11111111/.test(JSON.stringify(result)));
+});

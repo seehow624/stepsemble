@@ -36,7 +36,7 @@ test("upgrade accepts signed-out Aqua auth but requires structured stream v1 aft
   const { validateUpgradePreflight, validateUpgradedHelper } = await installer;
   assert.equal(validateUpgradePreflight({ status: status(), health: health() }).credentialState, "signed_out");
   assert.throws(() => validateUpgradedHelper({ status: status(), health: health() }), error => error.code === "upgrade_structured_stream_unsupported");
-  assert.equal(validateUpgradedHelper({ status: status(), health: health({ structuredStreamVersion: 1, terminalVersion: 1, activeStructured: 0 }) }).activeStructured, 0);
+  assert.equal(validateUpgradedHelper({ status: status(), health: health({ structuredStreamVersion: 1, terminalVersion: 1, quotaVersion: 1, activeStructured: 0 }) }).activeStructured, 0);
 });
 
 async function fixture(t, { brokenAfterBootstrap = false } = {}) {
@@ -63,7 +63,7 @@ async function fixture(t, { brokenAfterBootstrap = false } = {}) {
     if (file === "/bin/launchctl" && args[0] === "bootstrap") { loaded = true; bootstrapCount++; phase = brokenAfterBootstrap && bootstrapCount === 1 ? "broken" : bootstrapCount > 1 ? "old" : "new"; }
     return undefined;
   };
-  const clientFactory = () => ({ status: async () => status(), health: async () => phase === "old" ? health() : health({ structuredStreamVersion: phase === "broken" ? 0 : 1, terminalVersion: 1, activeStructured: 0 }), close() {} });
+  const clientFactory = () => ({ status: async () => status(), health: async () => phase === "old" ? health() : health({ structuredStreamVersion: phase === "broken" ? 0 : 1, terminalVersion: 1, quotaVersion: 1, activeStructured: 0 }), close() {} });
   const stageRuntime = async ({ runtimeRoot: root }) => { const release = await fs.mkdtemp(path.join(root, "candidate-test-")); await fs.mkdir(path.join(release, "server"), { mode: 0o700 }); await fs.writeFile(path.join(release, "server", "claude-desktop-entry.js"), "new", { mode: 0o700 }); return release; };
   t.after(() => fs.rm(home, { recursive: true, force: true }));
   return { home, configDir, configFile, plistFile, runtimeRoot, oldPlist, originalConfig, originalKey, originalPlist, calls, runImpl, clientFactory, stageRuntime };
@@ -99,7 +99,7 @@ test("current helper maintenance lease is used only when advertised by health", 
   const runImpl = async (file, args, options) => { const value = await f.runImpl(file, args, options); if (file === "/bin/launchctl" && args[0] === "bootstrap") upgraded = true; return value; };
   const clientFactory = () => ({
     status: async () => status(),
-    health: async () => upgraded ? health({ structuredStreamVersion: 1, terminalVersion: 1, activeStructured: 0 }) : health({ maintenanceVersion: 1, maintenance: { active: locked, expiresAt: locked ? Date.now() + 30000 : null } }),
+    health: async () => upgraded ? health({ structuredStreamVersion: 1, terminalVersion: 1, quotaVersion: 1, activeStructured: 0 }) : health({ maintenanceVersion: 1, maintenance: { active: locked, expiresAt: locked ? Date.now() + 30000 : null } }),
     prepareUpgrade: async () => { prepares++; locked = true; return { token: uuid, instance: uuid, expiresAt: Date.now() + 30000, maintenanceVersion: 1 }; },
     cancelUpgrade: async () => { cancels++; locked = false; return health({ maintenanceVersion: 1, maintenance: { active: false, expiresAt: null } }); },
     close() {},
@@ -168,5 +168,68 @@ test("a failed upgrade with a new folder brings back the old folders", posixFixt
   const volumes = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-desktop-volumes-")));
   t.after(() => fs.rm(volumes, { recursive: true, force: true }));
   await assert.rejects(upgradeDesktop(["--upgrade", "--root", volumes], { platform: "darwin", uid: process.getuid(), home: f.home, configDir: f.configDir, readPlist: async () => f.oldPlist, stageRuntime: f.stageRuntime, runImpl: f.runImpl, clientFactory: f.clientFactory, nodePath: process.execPath, verifyTimeoutMs: 5 }), error => error.code === "upgrade_verify_failed" && error.rollback === "verified");
+  assert.deepEqual(await fs.readFile(f.configFile), f.originalConfig); assert.deepEqual(await fs.readFile(f.plistFile), f.originalPlist);
+});
+
+test("other_auth false-canStart requires explicit idle maintenance metadata, never unknown or busy", async () => {
+  const { validateUpgradePreflight } = await installer;
+  const metadata = { maintenanceVersion: 1, maintenance: { active: false, expiresAt: null }, activeStructured: 0 };
+  const native = () => status({ ...metadata, canStart: false, credential: { state: "other_auth", liveVerified: false } });
+  assert.equal(validateUpgradePreflight({ status: native(), health: health(metadata) }).credentialState, "other_auth");
+  for (const extra of [{ login: { state: "waiting" } }, { blockedReason: "active_tasks" }, { activeStructured: 1 },
+    { maintenanceVersion: undefined }, { credential: { state: "unknown", liveVerified: false } }, { recoveryRequired: true }]) {
+    assert.throws(() => validateUpgradePreflight({ status: { ...native(), ...extra }, health: health(metadata) }));
+  }
+  assert.throws(() => validateUpgradePreflight({ status: native(), health: health() }));
+});
+
+function maintenanceClientFixture(f, { broken = false, leaseMode = "valid" } = {}) {
+  let locked = false, bootstraps = 0, prepares = 0;
+  const summary = () => ({ activeStructured: 0, maintenanceVersion: 1, maintenance: { active: locked, expiresAt: locked ? Date.now() + 30000 : null } });
+  const runImpl = async (file, args, options) => {
+    const value = await f.runImpl(file, args, options);
+    if (file === "/bin/launchctl" && args[0] === "bootstrap") { bootstraps++; locked = false; }
+    return value;
+  };
+  const clientFactory = () => ({
+    status: async () => status({ ...summary(), credential: { state: "other_auth", liveVerified: false }, canStart: false }),
+    health: async () => health({ ...summary(), ...(bootstraps === 1 ? { structuredStreamVersion: 1, terminalVersion: 1, quotaVersion: broken ? 0 : 1 } : {}),
+      ...(locked && leaseMode === "new-work" ? { activeStructured: 1 } : {}) }),
+    prepareUpgrade: async () => {
+      prepares++;
+      if (leaseMode === "denied") throw new Error("active_tasks");
+      locked = true;
+      return { token: uuid, instance: leaseMode === "wrong-instance" ? crypto.randomUUID() : uuid, maintenanceVersion: 1,
+        expiresAt: Date.now() + (leaseMode === "expiring" ? 1000 : 30000) };
+    },
+    cancelUpgrade: async () => { locked = false; }, close() {},
+  });
+  return { runImpl, clientFactory, prepares: () => prepares };
+}
+
+test("other_auth helper upgrade acquires a real bounded lease and postverifies quota without enabling login", posixFixture, async t => {
+  const f = await fixture(t), { upgradeDesktop } = await installer, m = maintenanceClientFixture(f);
+  const result = await upgradeDesktop(["--upgrade"], { platform: "darwin", uid: process.getuid(), home: f.home, configDir: f.configDir,
+    readPlist: async () => f.oldPlist, stageRuntime: f.stageRuntime, runImpl: m.runImpl, clientFactory: m.clientFactory, nodePath: process.execPath });
+  assert.equal(result.upgraded, true); assert.equal(result.credential, "other_auth"); assert.equal(m.prepares(), 1);
+  assert.deepEqual(await fs.readFile(f.configFile), f.originalConfig);
+});
+
+test("denied, expiring, mismatched leases or new work refuse other_auth upgrade before bootout", posixFixture, async t => {
+  const { upgradeDesktop } = await installer;
+  for (const leaseMode of ["denied", "expiring", "wrong-instance", "new-work"]) {
+    const f = await fixture(t), m = maintenanceClientFixture(f, { leaseMode });
+    await assert.rejects(upgradeDesktop(["--upgrade"], { platform: "darwin", uid: process.getuid(), home: f.home, configDir: f.configDir,
+      readPlist: async () => f.oldPlist, stageRuntime: f.stageRuntime, runImpl: m.runImpl, clientFactory: m.clientFactory, nodePath: process.execPath }));
+    assert(!f.calls.some(([file, args]) => file === "/bin/launchctl" && args[0] === "bootout"), leaseMode);
+    assert.deepEqual(await fs.readFile(f.configFile), f.originalConfig); assert.deepEqual(await fs.readFile(f.plistFile), f.originalPlist);
+  }
+});
+
+test("other_auth postverify failure restores and verifies exact prior helper without login availability", posixFixture, async t => {
+  const f = await fixture(t), { upgradeDesktop } = await installer, m = maintenanceClientFixture(f, { broken: true });
+  await assert.rejects(upgradeDesktop(["--upgrade"], { platform: "darwin", uid: process.getuid(), home: f.home, configDir: f.configDir,
+    readPlist: async () => f.oldPlist, stageRuntime: f.stageRuntime, runImpl: m.runImpl, clientFactory: m.clientFactory, nodePath: process.execPath, verifyTimeoutMs: 5 }),
+  error => error.code === "upgrade_verify_failed" && error.rollback === "verified");
   assert.deepEqual(await fs.readFile(f.configFile), f.originalConfig); assert.deepEqual(await fs.readFile(f.plistFile), f.originalPlist);
 });

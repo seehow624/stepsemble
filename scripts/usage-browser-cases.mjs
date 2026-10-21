@@ -373,6 +373,29 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 1);
     assert.match(await full.locator(".usage-quota-card").innerText(), /Mac Mini · MacBook Pro/);
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-shared-account.png") });
+    // Claude's native UUID and Magpie's email key merge only through the
+    // official profile's verified opaque alias, never matching percentages.
+    const uuid = "v1:" + "b".repeat(64), email = "v1:" + "c".repeat(64), sampled = Date.now();
+    const claude = (identity, source, used, at, aliases = []) => ({ provider: "Claude", service: "claude", source,
+      accountKey: identity, accountAliases: aliases, sampledAt: at, status: "ready", windows: [
+        { usedPercent: used, windowDurationMins: 300 }, { usedPercent: 47, windowDurationMins: 10080 },
+      ] });
+    fixture.setQuotas({ mini: { updatedAt: sampled, providers: [claude(uuid, "native", 24, sampled, [email])] },
+      mbp: { updatedAt: sampled - 1000, providers: [claude(email, "magpie", 22, sampled - 1000)] } });
+    await page.locator("#refresh").click(); await ready();
+    assert.equal(await page.locator(".quota").count(), 1, "Claude native and Magpie share one verified account");
+    await full.locator(".usage-sheet").getByRole("button", { name: "Refresh", exact: true }).click();
+    await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true");
+    assert.equal(await full.locator(".usage-quota-card").count(), 1);
+    assert.match(await full.locator(".usage-quota-card").innerText(), /Claude[\s\S]*Mac Mini · MacBook Pro/);
+    assert.match(await full.locator(".usage-quota-card").innerText(), /24%/);
+    if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-claude-verified-account.png") });
+    fixture.setQuotas({ mini: { updatedAt: sampled, providers: [claude(uuid, "native", 24, sampled, [email]),
+      claude("v1:" + "d".repeat(64), "native", 30, sampled, [email])] },
+      mbp: { updatedAt: sampled, providers: [claude(email, "magpie", 24, sampled)] } });
+    await full.locator(".usage-sheet").getByRole("button", { name: "Refresh", exact: true }).click();
+    await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true");
+    assert.equal(await full.locator(".usage-quota-card").count(), 3, "conflicting UUID claims never merge an email-only account");
     // The new native reader owns activity polling; an older native shell still
     // gets its existing JS heartbeat so rolling updates stay compatible.
     await page.evaluate(() => { window.webkit = { messageHandlers: { stepsemble: { postMessage(body) { window.lastSummary = body; } } } }; window.StepsembleMenubarNativePolling = true; });
