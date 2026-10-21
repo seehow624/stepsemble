@@ -239,7 +239,7 @@ test("Schedules are one tab per computer: a new pane's page starts at the reques
   vm.runInContext(source.slice(start, end), context);
   // The Workspace draws a pane's page as it opens; the frame's src comes from the pending request.
   context.open = ref => { tree = L.insert(tree, L.leaves(tree)[0].id, ref); const key = L.identity(ref);
-    if (!frames.has(key)) frames.set(key, { ref, frame: { src: context.schedulesUrl(ref) } }); return true; };
+    if (!frames.has(key)) frames.set(key, { ref, frame: { src: context.schedulesUrl(ref), focused: 0, focus() { this.focused += 1; } } }); return true; };
   assert.equal(context.openSchedules("mbp", { select: "schedule-1" }), true);
   const [item] = frames.values(), url = new URL(item.frame.src);
   assert.deepEqual([item.ref.host, item.ref.schedules, item.ref.title], ["mbp", true, "Schedules"]);
@@ -252,8 +252,10 @@ test("Schedules are one tab per computer: a new pane's page starts at the reques
   item.ready = true; context.showSchedules(item);
   const told = () => sent.map(([, data]) => JSON.parse(JSON.stringify(data)));
   assert.deepEqual(told(), [{ type: "schedules-show", select: null, create: true, focus: true }]);
+  assert.equal(item.frame.focused, 1, "a new schedule's pane holds the Workspace's focus, so typing reaches the form");
   context.openSchedules("mbp");
   assert.deepEqual(told().at(-1), { type: "schedules-show", select: null, create: false, focus: false }, "a ready page is told at once");
+  assert.equal(item.frame.focused, 1, "showing a schedule leaves the focus where it is");
   assert.equal(context.openSchedules("gone"), false); assert.deepEqual(toasts, ["hostUnavailable"]);
 });
 test("Schedules are a page in a pane: nothing in the Workspace waits on a dialog, and their tab is never a session", () => {
