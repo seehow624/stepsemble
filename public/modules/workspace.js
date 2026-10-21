@@ -782,7 +782,7 @@
     }
     return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_SHOWN);
   }
-  // The list's sections, Recent, the Bots, Automations and each computer,
+  // The list's sections, Recent, the Bots (with their groups) and each computer,
   // keep the order and the folds a person gives them, on this device. A
   // section that appears later takes its usual place among the others.
   const SECTION_ORDER_KEY = "stepsemble.workspace.sections.v1", SECTION_FOLDED_KEY = "stepsemble.workspace.sections.folded.v1";
@@ -791,7 +791,7 @@
   const foldedSections = new Set(savedIds(SECTION_FOLDED_KEY));
   const machineSectionId = target => "machine:" + target;
   function sectionsInOrder() {
-    const present = [...(machines.length > 1 ? ["recent"] : []), ...(assistantUI.installed ? ["bots"] : []), "automations", ...orderedMachines().map(m => machineSectionId(m.id))];
+    const present = [...(machines.length > 1 ? ["recent"] : []), ...(assistantUI.installed ? ["bots"] : []), ...orderedMachines().map(m => machineSectionId(m.id))];
     const order = sectionOrder.filter(id => present.includes(id));
     present.forEach((id, index) => {
       if (order.includes(id)) return;
@@ -854,11 +854,12 @@
     for (const row of recent) contents.append(sessionRow(row.target, row.entry, { openKeys, recent: true }));
     return section;
   }
-  // Automations: every computer's Schedules and the Bots' routines in one
-  // section, those needing attention first, then by their next run. A row
-  // opens its own schedule or its Bot's routines; + makes a new one.
-  const AUTOMATIONS_SHOWN = 3, automationData = { schedules: new Map(), routines: null, read: false };
-  let automationsReading = null, automationsAgain = false, automationsExpanded = false;
+  // Automations: every computer's Schedules and the Bots' routines, those
+  // needing attention first, then by their next run, behind the button beside
+  // the search; a search finds them in the list too. A row opens its own
+  // schedule or its Bot's routines; + makes a new one.
+  const automationData = { schedules: new Map(), routines: null, read: false };
+  let automationsReading = null, automationsAgain = false, automationsPanel = null;
   function automationList() {
     const A = window.StepsembleWorkspaceAutomations, M = window.StepsembleAssistantModel;
     return A.collect({
@@ -882,7 +883,7 @@
       try { automationData.routines = assistantUI.installed ? await assistantUI.routines() : null; } catch {}
       const before = JSON.stringify(automationData.drawn || null), now = JSON.stringify(automationList());
       automationData.read = true; automationData.drawn = JSON.parse(now);
-      if (before !== now) { if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
+      if (before !== now) { syncAutomations(); if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
     })().finally(() => { automationsReading = null; if (automationsAgain) { automationsAgain = false; void refreshAutomations(); } });
     return automationsReading;
   }
@@ -904,13 +905,13 @@
       : [[label, () => openSchedules(host)]]),
       ...(assistantUI.installed ? [[assistantUI.text("allRoutines"), () => openAssistant(assistantUI.machine.id, { page: "routines" })]] : [])];
   }
-  function automationRow(row) {
+  function automationRow(row, opened = () => {}) {
     const A = window.StepsembleWorkspaceAutomations;
     const item = node("div", "", "workspace-automation-row"); item.dataset.automation = row.key; item.dataset.state = row.state;
     const state = { attention: t("automationAttention"), paused: t("automationPaused"), finished: t("automationFinished") }[row.state] || "";
     const next = row.nextAt ? t("automationNext", { time: A.nextLabel(row.nextAt, Date.now(), prefs.locale) }) : "";
     const meta = [row.cadence, next, row.owner].filter(Boolean).join(" · ");
-    const entry = button("", () => openAutomation(row), [row.title, state, meta].filter(Boolean).join(" · "), "btn workspace-automation");
+    const entry = button("", () => { opened(); openAutomation(row); }, [row.title, state, meta].filter(Boolean).join(" · "), "btn workspace-automation");
     const lead = row.kind === "routine" && row.bot ? assistantUI.avatar(row.bot) : node("span", "", "workspace-automation-icon");
     if (!(row.kind === "routine" && row.bot)) lead.append(icon(row.kind === "routine" ? "M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" : SCHEDULE_ICON));
     const copy = node("span", "", "workspace-automation-copy"); copy.append(node("strong", row.title), node("small", meta));
@@ -919,21 +920,72 @@
     item.append(entry);
     return item;
   }
+  // A search's matches among the automations, after the rest of the list.
   function automationsSection(search) {
-    const all = automationList(), rows = search ? all.filter(row => `${row.title} ${row.owner} ${row.cadence}`.toLowerCase().includes(search)) : all;
-    if (search && !rows.length) return null;
-    // Its own class: a project's + (New session) is .workspace-project-add.
-    const add = button("", () => openPaneMenu(add, newAutomationActions()), t("newAutomation"), "btn workspace-section-add");
-    add.append(icon("M12 5v14M5 12h14")); add.setAttribute("aria-haspopup", "menu");
-    const { section, contents } = listSection("automations", t("automations"), { className: "workspace-automations", extra: [add], menu: allAutomationActions, search });
-    rows.forEach((row, index) => { const item = automationRow(row); if (!search && index >= AUTOMATIONS_SHOWN) item.dataset.overflow = "true"; contents.append(item); });
-    if (!search && rows.length > AUTOMATIONS_SHOWN) {
-      const more = button("", () => { automationsExpanded = !automationsExpanded; more.setAttribute("aria-expanded", String(automationsExpanded)); syncSessionMore(section); }, "", "btn workspace-session-more");
-      more.setAttribute("aria-expanded", String(automationsExpanded)); contents.append(more); syncSessionMore(section);
-    }
-    if (!rows.length) contents.append(node("small", automationData.read ? t("noAutomations") : t("loadingSession")));
+    const rows = automationList().filter(row => `${row.title} ${row.owner} ${row.cadence}`.toLowerCase().includes(search));
+    if (!rows.length) return null;
+    const { section, contents } = listSection("automations", t("automations"), { className: "workspace-automations", search });
+    for (const row of rows) contents.append(automationRow(row));
     return section;
   }
+  // The button beside the search: a dot while an automation needs attention.
+  function syncAutomations() {
+    const control = $("workspace-automations");
+    if (!control) return;
+    const attention = automationList().some(row => row.state === "attention"), label = attention ? `${t("automations")} · ${t("automationAttention")}` : t("automations");
+    control.querySelector(".workspace-row-badge").hidden = !attention;
+    control.title = label; control.setAttribute("aria-label", label);
+    if (automationsPanel) drawAutomationsPanel();
+  }
+  // Every automation in a panel under the button: + makes a new one, ⋯ opens
+  // each computer's Schedules and all routines. A row opens and closes it.
+  function closeAutomationsPanel(restore = false) {
+    const open = automationsPanel;
+    if (!open) return;
+    automationsPanel = null; open.element.remove();
+    $("workspace-automations").setAttribute("aria-expanded", "false");
+    if (restore) $("workspace-automations").focus();
+  }
+  function drawAutomationsPanel() {
+    const { element, list } = automationsPanel, rows = automationList(), keep = list.scrollTop;
+    list.replaceChildren(...rows.map(row => automationRow(row, () => closeAutomationsPanel())));
+    if (!rows.length) list.append(node("p", automationData.read ? t("noAutomations") : t("loadingSession"), "workspace-automations-empty"));
+    list.scrollTop = keep;
+    element.dataset.count = String(rows.length);
+  }
+  function openAutomationsPanel(anchor) {
+    if (automationsPanel) { closeAutomationsPanel(); return; }
+    closePaneMenu();
+    const element = node("div", "", "workspace-menu workspace-automations-panel"); element.id = "workspace-automations-panel";
+    element.setAttribute("role", "dialog"); element.setAttribute("aria-label", t("automations"));
+    const header = node("header"), title = node("strong", t("automations"));
+    // What a menu of the panel opens takes its place.
+    const closing = actions => actions.map(([label, run]) => [label, () => { closeAutomationsPanel(); run(); }]);
+    const add = button("", () => openPaneMenu(add, closing(newAutomationActions())), t("newAutomation"), "btn workspace-section-add");
+    add.append(icon("M12 5v14M5 12h14")); add.setAttribute("aria-haspopup", "menu");
+    const more = button("⋯", () => openPaneMenu(more, closing(allAutomationActions())), t("sectionActions", { section: t("automations") }), "btn workspace-project-menu");
+    more.setAttribute("aria-haspopup", "menu");
+    const list = node("div", "", "workspace-automations-list");
+    header.append(title, add, more); element.append(header, list);
+    document.body.append(element);
+    automationsPanel = { element, list };
+    drawAutomationsPanel();
+    // Under the search row, as wide as it.
+    const row = anchor.closest(".workspace-search-row").getBoundingClientRect(), width = Math.max(row.width, Math.min(300, innerWidth - 16));
+    element.style.top = `${Math.round(row.bottom + 8)}px`;
+    element.style.width = `${Math.round(width)}px`;
+    element.style.left = `${Math.round(Math.min(Math.max(8, row.left), Math.max(8, innerWidth - width - 8)))}px`;
+    anchor.setAttribute("aria-expanded", "true");
+    (list.querySelector(".workspace-automation") || add).focus({ preventScroll: true });
+    void refreshAutomations();
+  }
+  addEventListener("pointerdown", event => {
+    if (!automationsPanel || automationsPanel.element.contains(event.target) || $("workspace-automations").contains(event.target) || paneMenu?.element.contains(event.target)) return;
+    closeAutomationsPanel();
+  }, true);
+  // Before the menus' own Escape: with one of the panel's menus open, Escape closes only that.
+  addEventListener("keydown", event => { if (event.key === "Escape" && automationsPanel && !paneMenu) closeAutomationsPanel(true); }, true);
+  addEventListener("resize", () => closeAutomationsPanel());
   // With more than one computer, every computer's sessions share one list:
   // the most recent across them first, then each computer's projects, each
   // with its own order and pins. There is no computer to switch to; whatever
@@ -951,7 +1003,6 @@
     for (const id of sectionsInOrder()) {
       if (id === "recent") { const section = recentSection(search, openKeys); if (section) box.append(section); }
       else if (id === "bots") { Object.assign(botsBlock.dataset, { section: "bots" }); box.append(botsBlock); }
-      else if (id === "automations") { const section = automationsSection(search); if (section) box.append(section); }
       else if (merged) box.append(machineSection(machines.find(m => machineSectionId(m.id) === id), search, openKeys));
       else {
         // One computer: its projects are the list itself, without a heading.
@@ -959,6 +1010,8 @@
         if (!snapshot.projects.length && !snapshot.entries.length) box.append(node("p", t("empty")));
       }
     }
+    if (search) { const found = automationsSection(search); if (found) box.append(found); }
+    syncAutomations();
     if (focusTarget?.part) {
       const row = focusTarget.entry ? [...box.querySelectorAll(".workspace-session-row")].find(item => item.dataset.entry === focusTarget.entry && (!focusTarget.host || item.dataset.host === focusTarget.host))
         : focusTarget.section ? [...box.querySelectorAll("[data-section]")].find(item => item.dataset.section === focusTarget.section)
@@ -1931,6 +1984,7 @@
   });
   $("workspace-add").onclick = event => forMachine(event.currentTarget, target => addProject(target));
   $("workspace-history").onclick = event => forMachine(event.currentTarget, target => void history(target));
+  $("workspace-automations").onclick = event => openAutomationsPanel(event.currentTarget);
   // The Stepsemble name is Refresh: it reloads the list and the allowances
   // together. The allowances are read from the providers again; the Host
   // answers repeated clicks within 15 seconds with the reading it just took.
@@ -1953,7 +2007,21 @@
       }, Math.max(0, 450 - (performance.now() - started)));
     }
   };
-  $("workspace-search").oninput = () => { assistantUI.setQuery($("workspace-search").value.trim()); renderSidebar(); };
+  $("workspace-search").oninput = () => { assistantUI.setQuery($("workspace-search").value.trim()); renderSidebar(); syncSearching(); };
+  // While the search is in use it takes the whole row and its three buttons
+  // step aside; an empty search left behind gives them back. Escape clears it.
+  function syncSearching() {
+    const input = $("workspace-search");
+    input.closest(".workspace-search-row").classList.toggle("searching", document.activeElement === input || !!input.value.trim());
+  }
+  $("workspace-search").addEventListener("focus", () => { closeAutomationsPanel(); syncSearching(); });
+  $("workspace-search").addEventListener("blur", syncSearching);
+  $("workspace-search").addEventListener("keydown", event => {
+    if (event.key !== "Escape" || event.isComposing) return;
+    const input = event.currentTarget;
+    if (input.value) { input.value = ""; input.dispatchEvent(new Event("input")); }
+    input.blur();
+  });
   function selectHost(value) {
     if (!machines.some(machine => machine.id === value) || value === host) return;
     window.StepsembleWorkspaceReorder.cancel(); sidebarEditEpoch++; sidebarBusy = false;

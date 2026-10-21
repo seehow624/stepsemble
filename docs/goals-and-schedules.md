@@ -11,7 +11,7 @@ side by side, a long one ending in "…", and one of their panels opens at a tim
 To start a Goal in a new conversation,
 open the conversation with the agent, project and model you want, then type
 `/goal`. Schedules open in a pane, as a Bot's routines do, with one tab per
-computer: the sidebar's **Automations** list every computer's schedules (with
+computer: the **Automations** button beside the sidebar's search lists every computer's schedules (with
 the Bots' routines), and a schedule opens its computer's Schedules tab at that
 schedule; **+** there makes a new one, and **⋯** opens each computer's
 Schedules. A run's **Open conversation** opens the conversation beside them. The

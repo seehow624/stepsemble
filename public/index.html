@@ -423,6 +423,13 @@
                 <option value="classic" data-i18n-key="settings.lookClassic">Classic</option>
               </select>
             </label>
+            <div class="settings-row settings-bubble-row">
+              <span><strong data-i18n-key="settings.bubble">Your messages</strong><small data-i18n-key="settings.bubbleNote">The colour of what you send in a conversation</small></span>
+              <span class="bubble-picker">
+                <span id="set-bubble" class="bubble-choices" role="radiogroup" aria-label="Your messages" data-i18n-aria-key="settings.bubble"></span>
+                <span class="bubble-preview" aria-hidden="true"><span id="bubble-choice-name" data-i18n-ignore></span></span>
+              </span>
+            </div>
             <div class="settings-row settings-theme-row">
               <span><strong>Design theme</strong><small>Choose a complete colour system</small></span>
               <button id="theme-choices-toggle" class="theme-current" type="button" aria-expanded="false" aria-controls="theme-choices">

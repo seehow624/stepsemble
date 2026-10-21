@@ -154,6 +154,16 @@ html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle)
 html[data-look="bold"] .workspace-session-more { border-radius: var(--radius-pill); }
 html[data-look="bold"] .workspace-session-more:hover { background: var(--bold-hover); }
 html[data-look="bold"] .workspace-automation-icon { border-radius: 9px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
+/* The Bots' card is the glass of the computer card above it: a lit top edge,
+   a hairline rim and a soft shadow, so the block reads as one object. */
+html[data-look="bold"] #workspace-projects #workspace-assistant { padding: 2px 6px 6px; border-radius: var(--bold-radius-card);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--glass-edge) 22%, transparent), transparent 64px), var(--bold-glass-card);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim, transparent), var(--bold-outline), 0 14px 30px -22px rgba(0, 0, 0, .5); }
+html[data-look="bold"] #workspace-projects .workspace-assistant-part::before { background: var(--bold-hairline); }
+html[data-look="bold"] .workspace-row-badge { box-shadow: 0 0 0 2px var(--bold-ambient); }
+/* A list rather than a few words: a thicker glass, so rows behind it do not show through. */
+html[data-look="bold"] .workspace-menu.workspace-automations-panel { padding: 6px; background: color-mix(in srgb, var(--milk) 97%, transparent); }
+html[data-look="bold"] .workspace-automations-panel > header .btn:hover { background: var(--bold-hover); }
 /* What passes behind the capsule settles into the backdrop. */
 html[data-look="bold"] #workspace-sidebar footer::before { background: linear-gradient(to bottom, transparent, var(--bold-ambient) 70%); }
 
@@ -256,6 +266,26 @@ html[data-look="bold"] #view-chat .md-body th { background: color-mix(in srgb, v
    test/bubble-contrast.test.js holds each to 4.5:1. */
 html[data-look="bold"][data-design-theme="warm-paper"][data-theme="light"] { --bold-bubble: #8C6E43; }
 html[data-look="bold"][data-design-theme="warm-paper"][data-theme="dark"] { --bold-bubble: #8E7041; }
+/* Or a colour of your own (Settings · Your messages). Each keeps white text
+   at 4.5:1 or more, a shade brighter on black; auto is the theme's own, as
+   above. test/bubble-contrast.test.js holds them to it. */
+html[data-look="bold"][data-theme="light"] {
+  --bubble-choice-auto: #0C65DE; --bubble-choice-blue: #0C65DE; --bubble-choice-purple: #6741D9; --bubble-choice-green: #1E7B44;
+  --bubble-choice-teal: #0B7285; --bubble-choice-orange: #C2410C; --bubble-choice-pink: #C2255C; --bubble-choice-graphite: #3A3A3C;
+}
+html[data-look="bold"][data-theme="dark"] {
+  --bubble-choice-auto: #1D70EA; --bubble-choice-blue: #1D70EA; --bubble-choice-purple: #7048E8; --bubble-choice-green: #22854A;
+  --bubble-choice-teal: #0C7B8F; --bubble-choice-orange: #C8480F; --bubble-choice-pink: #CC2E67; --bubble-choice-graphite: #48484A;
+}
+html[data-look="bold"][data-design-theme="warm-paper"][data-theme="light"] { --bubble-choice-auto: #8C6E43; }
+html[data-look="bold"][data-design-theme="warm-paper"][data-theme="dark"] { --bubble-choice-auto: #8E7041; }
+html[data-look="bold"][data-theme][data-bubble="blue"] { --bold-bubble: var(--bubble-choice-blue); }
+html[data-look="bold"][data-theme][data-bubble="purple"] { --bold-bubble: var(--bubble-choice-purple); }
+html[data-look="bold"][data-theme][data-bubble="green"] { --bold-bubble: var(--bubble-choice-green); }
+html[data-look="bold"][data-theme][data-bubble="teal"] { --bold-bubble: var(--bubble-choice-teal); }
+html[data-look="bold"][data-theme][data-bubble="orange"] { --bold-bubble: var(--bubble-choice-orange); }
+html[data-look="bold"][data-theme][data-bubble="pink"] { --bold-bubble: var(--bubble-choice-pink); }
+html[data-look="bold"][data-theme][data-bubble="graphite"] { --bold-bubble: var(--bubble-choice-graphite); }
 html[data-look="bold"] #view-chat .msg.user .bubble { border: 0; border-radius: 24px 24px 8px 24px; background: var(--bold-bubble); color: var(--bold-on-bubble);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 10px 22px -16px color-mix(in srgb, var(--bold-bubble) 85%, #000); }
 html[data-look="bold"][data-theme="dark"] #view-chat .msg.user .bubble { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 12px 26px -16px rgba(0, 0, 0, .8); }

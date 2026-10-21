@@ -89,3 +89,32 @@ test("inside the bubble, code and tables sit in darker wells and links stay unde
   assert.match(css, /\.msg\.user \.bubble \.md-body :is\(\.code-block, \.md-table-scroll\) \{ background: rgba\(0, 0, 0, \.\d+\);/);
   assert.match(css, /\.msg\.user \.bubble a \{ text-decoration: underline;/);
 });
+
+// Settings · Your messages: a colour of one's own, light and dark, in place of
+// the theme's. Each keeps 4.5:1 for its white text and stands apart from every
+// theme's page; auto is the theme's own colour, as the swatch shows it.
+test("each colour you can choose for your messages keeps 4.5:1 for its white text, light and dark", () => {
+  const css = read("public/modules/look-bold.css"), palettes = themes();
+  const ids = JSON.parse(/BUBBLE_COLORS = Object\.freeze\((\[[^\]]*\])\)/.exec(read("public/modules/app-foundation.js"))[1]);
+  const choices = mode => Object.fromEntries(rules(css).filter(([selector]) => selector === `html[data-look="bold"][data-theme="${mode}"]`)
+    .flatMap(([, body]) => [...body.matchAll(/--bubble-choice-([\w-]+):\s*(#[0-9a-f]{6})/gi)]).map(match => [match[1], match[2]]));
+  const report = [];
+  for (const mode of ["light", "dark"]) {
+    const palette = choices(mode);
+    assert.deepEqual(Object.keys(palette), ids, `${mode}: a colour for every choice, auto first`);
+    for (const id of ids.filter(id => id !== "auto")) {
+      const color = palette[id], ratio = contrast(color, "#ffffff");
+      report.push(`${id} ${mode} ${color} ${ratio.toFixed(2)}:1`);
+      assert.ok(ratio >= 4.5, `${id} ${mode}: white on ${color} is ${ratio.toFixed(2)}:1`);
+      for (const theme of Object.keys(palettes)) assert.ok(contrast(color, palettes[theme][mode].paper) > 1.25, `${id} ${mode}: ${color} stands apart from ${theme}'s page`);
+      assert.match(css, new RegExp(`html\\[data-look="bold"\\]\\[data-theme\\]\\[data-bubble="${id}"\\] \\{ --bold-bubble: var\\(--bubble-choice-${id}\\); \\}`), `${id} colours the bubble`);
+    }
+    // The theme's own swatch is the colour its messages take.
+    for (const theme of Object.keys(palettes)) {
+      const auto = [...rules(css)].filter(([selector]) => selector === `html[data-look="bold"][data-design-theme="${theme}"][data-theme="${mode}"]`)
+        .map(([, body]) => declared(body, "--bubble-choice-auto")).filter(Boolean).at(-1) || palette.auto;
+      assert.equal(auto.toLowerCase(), bubble(css, theme, mode).toLowerCase(), `${theme} ${mode}: the theme's swatch is its bubble`);
+    }
+  }
+  assert.equal(report.length, 14, report.join("\n"));
+});

@@ -196,6 +196,23 @@
       });
       return button;
     }
+    // Dragged out of the page a Bot's file lands as the file itself: Chrome and
+    // Edge download it where it is dropped (DownloadURL), and the Mac app turns
+    // the address of a file it is handed into the file (WorkspaceWebView in
+    // macos/Stepsemble/main.swift). A link (the picture) already carries its
+    // address; WebKit writes a link's own data only when the page writes none.
+    const chromium = /Chrom(?:e|ium)\//.test(view.navigator.userAgent || "");
+    function dragOut(element, file, { link = false } = {}) {
+      element.draggable = true;
+      element.addEventListener("dragstart", event => {
+        const data = event.dataTransfer;
+        if (!data || event.target.closest?.("button, a") && event.target.closest("button, a") !== element) return;
+        const url = new URL(mediaUrl(file.path, true), view.location.href).href, type = media?.contentType?.(file.path) || "application/octet-stream";
+        data.effectAllowed = "copy";
+        if (chromium) data.setData("DownloadURL", `${type}:${file.name.replace(/:/g, "_")}:${url}`);
+        if (!link) { data.setData("text/uri-list", url); data.setData("text/plain", url); }
+      });
+    }
     function fileActions(file, open) {
       const actions = node("span", "assistant-file-actions");
       if (open) actions.append(action("assistant-file-open", file, "open", false));
@@ -213,7 +230,7 @@
       copy.append(name);
       if (unavailable) copy.append(node("small", "", t("fileUnavailable")));
       box.append(badge, copy);
-      if (!unavailable) box.append(fileActions(file, open));
+      if (!unavailable) { box.append(fileActions(file, open)); dragOut(box, file); }
       return box;
     }
     function card(file) {
@@ -223,6 +240,7 @@
         link.href = mediaUrl(file.path); link.target = "_blank"; link.rel = "noopener noreferrer";
         link.setAttribute("aria-label", `${t("fileOpen")} ${file.name}`);
         link.addEventListener("click", event => { if (plainClick(event)) { event.preventDefault(); openViewer(file, link); } });
+        dragOut(link, file, { link: true });
         const image = node("img");
         image.alt = file.name; image.loading = "lazy"; image.decoding = "async";
         image.addEventListener("error", () => figure.replaceWith(fileCard(file, { unavailable: true })), { once: true });

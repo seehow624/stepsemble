@@ -159,19 +159,24 @@
       row.append(wrap, manage, add);
       return row;
     }
-    function section(id, title, extra = null) {
+    // fold: false makes a part of a section (the groups inside the Workspace's
+    // Bots card), which folds with the section it is part of.
+    function section(id, title, extra = null, { fold = true } = {}) {
       const box = node("section", "", "workspace-project workspace-assistant-section"); box.dataset.section = id;
       const header = node("header"), contents = node("div", "", "workspace-project-sessions");
-      const hidden = !query && collapsed.has(id);
-      const toggle = button("", () => {
-        if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
-        saveCollapsed(); update();
-      }, title, "btn workspace-project-toggle");
+      const hidden = fold && !query && collapsed.has(id);
       const copy = node("span", "", "workspace-project-copy"); copy.append(node("strong", title));
-      toggle.append(icon(ICONS.down, "workspace-project-chevron"), copy);
-      toggle.setAttribute("aria-expanded", String(!hidden));
+      let toggle = null;
+      if (fold) {
+        toggle = button("", () => {
+          if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
+          saveCollapsed(); update();
+        }, title, "btn workspace-project-toggle");
+        toggle.append(icon(ICONS.down, "workspace-project-chevron"), copy);
+        toggle.setAttribute("aria-expanded", String(!hidden));
+        header.append(toggle);
+      } else { box.classList.add("workspace-assistant-part"); copy.classList.add("workspace-assistant-label"); header.append(copy); }
       box.dataset.collapsed = String(hidden); contents.hidden = hidden;
-      header.append(toggle);
       if (extra) header.append(extra);
       box.append(header, contents);
       return { box, contents, toggle };
@@ -248,9 +253,12 @@
         for (const bot of botRows) bots.contents.append(botRow(bot));
         if (!botRows.length) bots.contents.append(node("small", t(query ? "noMatches" : "noBots")));
         list.append(bots.box);
+        // In the Workspace's list the groups are part of the Bots' card: they
+        // move with it, and fold when the Bots fold.
+        if (inline && bots.contents.hidden) { list.scrollTop = keep; return; }
         const add = data.groups.supported ? button("", () => go({ page: "newgroup" }), t("newGroup"), "btn workspace-project-add") : null;
         add?.append(icon(ICONS.plus));
-        const groups = section("groups", t("groups"), add);
+        const groups = section("groups", t("groups"), add, { fold: !inline });
         if (!data.groups.supported) groups.contents.append(node("small", t("groupsUnsupported")));
         else {
           const rooms = W.groupRows(data.groups.rooms, query, locale());

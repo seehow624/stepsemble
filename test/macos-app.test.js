@@ -215,3 +215,17 @@ test("a Host left unloaded by an interrupted reload is loaded again", { skip: !o
   assert.equal(unavailable.status, 0, unavailable.stderr);
   assert.equal(fs.existsSync(path.join(dir, "marker")), true, "a failed recovery keeps its marker so the next run can retry");
 });
+
+test("a Bot's file dragged out of the Mac app is handed out as the file, every other drag stays WebKit's", () => {
+  const main = readText(path.join(root, "macos", "Stepsemble", "main.swift"));
+  // WebKit 7624 starts a page's drag with NSView's dragImage:…, which Swift cannot override.
+  assert.match(main, /NSSelectorFromString\("dragImage:at:offset:event:pasteboard:source:slideBack:"\)/);
+  assert.match(main, /class_addMethod\(WorkspaceWebView\.self, selector, imp_implementationWithBlock\(hook\), types\)/);
+  assert.match(main, /page\(view, selector, image, location, offset, event, pasteboard, source, slideBack\)/, "any other drag goes on to NSView's");
+  assert.match(main, /let workspaceView = WorkspaceWebView\(frame: \.zero, configuration: configuration\)/);
+  assert.match(main, /isHostURL\(url\), url\.path\.hasSuffix\("\/api\/assistant\/media"\)/, "only the Host's own Bot files");
+  assert.match(main, /if let http = response as\? HTTPURLResponse, !\(200\.\.<300\)\.contains\(http\.statusCode\) \{ state = \.failed; completionHandler\(nil\); return \}/, "an error page is never handed out as the file");
+  assert.match(main, /item\.setDataProvider\(self, forTypes: \[\.fileURL\]\)/);
+  const check = readText(path.join(root, "scripts", "check-mac-file-drag.mjs"));
+  assert.match(check, /main\.indexOf\("\/\/ MARK: Dragging a Bot's file out"\), end = main\.indexOf\("\/\/ MARK: Downloads", start\)/, "the check builds the app's own code");
+});

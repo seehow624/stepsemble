@@ -88,12 +88,14 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await page.getByRole("menuitem", { name: "MacBook Pro" }).click();
         await page.locator("#workspace-dialog-title").filter({ hasText: "MacBook Pro" }).waitFor();
         await page.locator("#workspace-dialog-close").click();
-        // Sections: Recent, Automations, then each computer, this one first.
+        // Sections: Recent, then each computer, this one first; Automations
+        // sit behind their button beside the search.
         const sections = () => page.evaluate(() => [...document.querySelectorAll("#workspace-projects > [data-section]")].map(node => node.dataset.section));
-        assert.deepEqual(await sections(), ["recent", "automations", "machine:mini", "machine:mbp"]);
+        assert.deepEqual(await sections(), ["recent", "machine:mini", "machine:mbp"]);
         // Automations: each computer's schedule, named by its computer; a row
         // opens Schedules on that computer at that schedule.
-        const automation = page.locator(".workspace-automation-row");
+        await page.locator("#workspace-automations").click();
+        const automation = page.locator("#workspace-automations-panel .workspace-automation-row");
         await automation.nth(1).waitFor();
         assert.deepEqual((await automation.allInnerTexts()).map(text => text.split("\n")[0]), ["每日專案健康檢查", "每日專案健康檢查"]);
         assert.deepEqual((await automation.allInnerTexts()).map(text => text.split(" · ").pop()).sort(), ["Mac Mini", "MacBook Pro"]);
@@ -110,28 +112,28 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         await machine("mbp").locator(".workspace-machine-menu").click();
         assert.deepEqual(await page.getByRole("menuitem").allTextContents(), ["Add project", "Schedules", "Move to top", "Move up"]);
         await page.getByRole("menuitem", { name: "Move to top" }).click();
-        assert.deepEqual(await sections(), ["machine:mbp", "recent", "automations", "machine:mini"]);
-        await page.locator('[data-section="automations"] .workspace-project-toggle').focus();
+        assert.deepEqual(await sections(), ["machine:mbp", "recent", "machine:mini"]);
+        await page.locator('[data-section="recent"] .workspace-project-toggle').focus();
         await page.keyboard.press("Alt+ArrowUp");
-        assert.deepEqual(await sections(), ["machine:mbp", "automations", "recent", "machine:mini"]);
-        assert.equal(await page.evaluate(() => document.activeElement?.closest("[data-section]")?.dataset.section), "automations", "the moved heading keeps the focus");
+        assert.deepEqual(await sections(), ["recent", "machine:mbp", "machine:mini"]);
+        assert.equal(await page.evaluate(() => document.activeElement?.closest("[data-section]")?.dataset.section), "recent", "the moved heading keeps the focus");
         // Recent folds; the order and the fold are still there after a reload.
         await page.locator('[data-section="recent"] .workspace-project-toggle').click();
         await page.reload();
         await machine("mbp").locator(".workspace-session").first().waitFor({ timeout: 30_000 });
-        assert.deepEqual(await sections(), ["machine:mbp", "automations", "recent", "machine:mini"]);
+        assert.deepEqual(await sections(), ["recent", "machine:mbp", "machine:mini"]);
         assert.equal(await page.locator('[data-section="recent"]').getAttribute("data-collapsed"), "true");
         assert.equal(await page.locator('[data-section="recent"] .workspace-session').first().isVisible(), false);
         if (!viewport.mobile) {
           // A heading drags its section: Mac Mini's dropped on the top of
-          // Automations' (MacBook Pro folded, so both are in view).
+          // MacBook Pro's (folded, so both are in view).
           await machine("mbp").locator(".workspace-machine-toggle").click();
           await machine("mini").locator(".workspace-machine-toggle").scrollIntoViewIfNeeded();
-          const from = await machine("mini").locator(".workspace-machine-toggle").boundingBox(), to = await page.locator('[data-section="automations"] > header').boundingBox();
+          const from = await machine("mini").locator(".workspace-machine-toggle").boundingBox(), to = await machine("mbp").locator(".workspace-machine-toggle").boundingBox();
           await page.mouse.move(from.x + 40, from.y + from.height / 2); await page.mouse.down();
           await page.mouse.move(to.x + 60, to.y + to.height * .2, { steps: 12 }); await page.mouse.up();
           await page.waitForFunction(() => !document.querySelector(".workspace-reorder-source, .workspace-reorder-marker"));
-          assert.deepEqual(await sections(), ["machine:mbp", "machine:mini", "automations", "recent"]);
+          assert.deepEqual(await sections(), ["recent", "machine:mini", "machine:mbp"]);
         }
         assert.deepEqual(errors, []);
         console.log(JSON.stringify({ case: "Workspace machines", width: viewport.width, result: "passed", recent: true, openOnOwner: true, offline: true, ownOrder: true, asksComputer: true, sections: true, automations: true, modelCalls: 0 }));
