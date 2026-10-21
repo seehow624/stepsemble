@@ -1051,6 +1051,30 @@ test("Magpie's list keeps its order, also for a model Claude Code leaves out of 
   assert.deepEqual(models[2].supportedEffortLevels, ["low", "max"]);
 });
 
+test("moving from a Magpie alias to the same model without its level keeps the conversation's context", async t => {
+  const child = childFixture(), requests = [];
+  magpieClaude(child, { own: true, requests, applied: { model: "opus", effort: "xhigh" } });
+  const session = createClaudeStructuredSession({ command: "/usr/local/bin/claude", cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 500 });
+  t.after(() => session.close());
+  assert.equal((await session.models()).currentModel, "opus");
+  child.stdout.write(JSON.stringify({ type: "assistant", session_id: "session-1", message: { id: "m1", model: "claude-opus-5-5",
+    usage: { input_tokens: 2, cache_read_input_tokens: 200_000, output_tokens: 10 }, content: [] } }) + "\n");
+  child.stdout.write(JSON.stringify({ type: "result", subtype: "success", session_id: "session-1", result: "done" }) + "\n");
+  await new Promise(resolve => setImmediate(resolve));
+  const before = session.contextUsage();
+  assert.equal(before.contextTokens, 200_002);
+  // The same model, by Magpie's own id: Claude is told, and nothing of the context is lost.
+  const moved = await session.setModel("claude/claude-opus-5-5[1m]");
+  assert.equal(moved.model, "claude/claude-opus-5-5[1m]");
+  assert.deepEqual(requests.filter(request => request.subtype === "set_model").map(request => request.model), ["claude/claude-opus-5-5[1m]"]);
+  const after = session.contextUsage();
+  assert.deepEqual([after.contextTokens, after.contextWindow, after.contextPercent], [before.contextTokens, 1_000_000, before.contextPercent]);
+  assert.equal((await session.models()).currentModel, "claude/claude-opus-5-5[1m]");
+  // Another model starts afresh, as before.
+  await session.setModel("claude/claude-haiku-5-5[1m]");
+  assert.equal(session.contextUsage().contextTokens, null);
+});
+
 test("Claude through Magpie keeps the model picked without an alias's level, also once it names the model bare", async t => {
   const child = childFixture(), requests = [];
   magpieClaude(child, { own: true, requests });

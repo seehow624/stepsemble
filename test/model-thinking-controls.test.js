@@ -344,3 +344,24 @@ test("Pi's off shows every bar hollow, and its levels scale the rest", () => {
   assert.equal(litBars(el.composerModelLevelText), 2);
   assert.equal(el.btnModel.getAttribute("aria-label"), "Synthetic baseline, thinking: Medium");
 });
+
+test("a level picked on a Magpie alias that names its own moves the conversation to the same model without it", () => {
+  const { claudeCatalogFrom, claudePlainModel } = claudeCatalogHelpers();
+  const own = { id: "claude/claude-opus-5-5[1m]", name: "Claude Opus 5.5", resolvedModel: "claude/claude-opus-5-5[1m]", description: "Magpie gateway · Claude Code",
+    contextWindow: 1_000_000, supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] };
+  // Only aliases listed: the model's own id is made from the alias's, "[1m]" kept.
+  const aliases = claudeCatalogFrom({ models: magpieRows }).models;
+  const made = claudePlainModel({ claudeModel: aliases[0], claudeModels: aliases });
+  assert.equal(made.id, "claude/claude-opus-5-5[1m]");
+  assert.equal(made.resolvedModel, "claude/claude-opus-5-5[1m]");
+  assert.equal(made.contextWindow, 1_000_000, "the same model, the same context");
+  assert.deepEqual([...made.supportedEffortLevels], ["low", "medium", "high", "xhigh", "max"]);
+  // With Magpie's own row listed, that row.
+  const listed = claudeCatalogFrom({ models: [...magpieRows, own] }).models;
+  assert.equal(claudePlainModel({ claudeModel: listed[1], claudeModels: listed }), listed[3]);
+  // Nothing to move: the plain model itself, Claude's own aliases, a bare name.
+  assert.equal(claudePlainModel({ claudeModel: listed[3], claudeModels: listed }), null);
+  assert.equal(claudePlainModel({ claudeModel: { id: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]" }, claudeModels: [] }), null);
+  assert.equal(claudePlainModel({ claudeModel: { id: "claude-opus-5-5" }, claudeModels: [] }), null);
+  assert.equal(claudePlainModel({ claudeModel: null }), null);
+});

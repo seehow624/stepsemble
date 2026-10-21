@@ -884,6 +884,16 @@ function createClaudeStructuredSession({
     return id && plainModelId(id) === id && availableModels.some(model => typeof model.resolvedModel === "string"
       && model.resolvedModel !== id && plainModelId(model.resolvedModel) === id) ? id : null;
   }
+  // Another name for the model a conversation runs: a gateway alias and that
+  // model without the alias's level ("opus" at "claude/claude-opus-5-5:xhigh[1m]"
+  // and "claude/claude-opus-5-5[1m]"), or the bare name Claude reports.
+  function sameRun(a, b) {
+    const row = id => availableModels.find(model => model.id === id) || { id };
+    const [first, second] = [row(a), row(b)];
+    if (!a || !b || modelKey(first.resolvedModel || first.id) !== modelKey(second.resolvedModel || second.id)) return false;
+    const [one, other] = [contextCapacity(first), contextCapacity(second)];
+    return one === null || other === null || one === other;
+  }
   async function applyRememberedChoice() {
     const model = rememberedModel ? plainAliasModel(rememberedModel) || catalogModelId(rememberedModel) : null;
     if (model && model !== selectedModel && model !== catalogModelId(selectedModel)) {
@@ -1191,8 +1201,10 @@ function createClaudeStructuredSession({
       || requested || null;
     // Never update the selected model before the native success response.
     const changed = previous !== acknowledgedModel;
+    // The same model under another name keeps the conversation's context.
+    const renamed = changed && sameRun(previous, acknowledgedModel);
     selectedModel = acknowledgedModel;
-    if (changed) {
+    if (changed && !renamed) {
       // Capacity and usage belong to the previous model. Keep neither while
       // the newly selected model has not emitted fresh assistant usage.
       haveAssistantUsage = false;

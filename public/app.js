@@ -12947,6 +12947,19 @@ function claudeCatalogFrom(result) {
   return { models, current };
 }
 
+// A conversation on a gateway alias whose id names the level it runs at
+// (Magpie's "opus" at "claude/claude-opus-5-5:xhigh[1m]") would keep that
+// level whatever is picked. The same model without it ("claude/claude-opus-5-5[1m]",
+// the id its row picks) takes the level picked; null when nothing names one.
+function claudePlainModel(connection) {
+  const model = connection?.claudeModel, wire = String(model?.resolvedModel || model?.id || "");
+  if (!model || !modelPresentation?.modelTags(wire).effort) return null;
+  const id = modelPresentation.plainModelId(wire);
+  if (!/^[^/\s]+\/./.test(id)) return null;
+  return (Array.isArray(connection.claudeModels) ? connection.claudeModels : []).find(row => row.id === id)
+    || { ...model, id, name: id, resolvedModel: id, description: "" };
+}
+
 function currentOpenCodeModelPayload(model = rpc?.openCodeModel) {
   const normalized = normalizeOpenCodeModel(model);
   if (!normalized) return null;
@@ -13572,6 +13585,17 @@ async function changeThinkingLevel(level) {
     const allowed = new Set(["low", "medium", "high", "xhigh", "max"]);
     if (!allowed.has(requested) || ![...el.thinkingSelect.options].some(option => option.value === requested)) return;
     try {
+      // The same model without its alias's level first, so the level picked is
+      // the one it runs at. No switch to tell about: the row, the name and the
+      // context stay as they are.
+      const plain = claudePlainModel(connection);
+      if (plain) {
+        const moved = await post("/api/claude/structured/model", { sessionId: connection.nativeSessionId, model: plain.id });
+        if (rpc !== connection || viewGeneration !== expectedGeneration || apiBase !== expectedBase) return;
+        if (moved?.kind === "reject" || moved?.success === false) throw new Error(moved.error || moved.code || "Claude rejected the model");
+        connection.claudeModel = plain;
+        connection.claudeModelSelected = true;
+      }
       const result = await post("/api/claude/structured/effort", {
         sessionId: connection.nativeSessionId,
         effort: requested,
@@ -13582,6 +13606,7 @@ async function changeThinkingLevel(level) {
       syncNativeThinkingSelect(connection);
       updateComposerSummary(undefined, connection.claudeEffort);
       renderContextDashboard();
+      if (plain && !el.modelSheet.classList.contains("hidden")) renderModelList(plain.id, "claude-code");
       thinkingLevelToast(reasoningLevelText(connection.claudeEffort));
     } catch (error) {
       if (rpc === connection && viewGeneration === expectedGeneration && apiBase === expectedBase) {

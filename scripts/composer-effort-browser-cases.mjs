@@ -18,7 +18,9 @@
 //     and one other model are two rows, picked by the model's own id; the
 //     thinking level is a slider that a drag to its end, keys and a tap set,
 //     one change each, with the bars following (1280 with springs, a 390px
-//     phone with a finger and reduced motion).
+//     phone with a finger and reduced motion). A level picked on an alias
+//     whose id names its own moves the conversation to the model's own id
+//     first, with no notice and the context ring as it was.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -170,24 +172,31 @@ async function sliderCase(browser, width) {
   try {
     await settingsFor(context, { theme: phone ? "dark" : "light", reducedMotion: phone });
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
-    const host = { model: "opus", effort: "xhigh", efforts: [], models: [] };
+    const host = { model: "opus", effort: "xhigh", efforts: [], models: [], calls: [] };
     const other = { id: "minimax/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", resolvedModel: "minimax/MiniMax-M3.1-Flash", description: "Magpie gateway · MiniMax",
       contextWindow: 1_000_000, supportsEffort: true, supportedEffortLevels: LEVELS, gateway: "magpie" };
     await context.route("**/api/claude/structured/models?**", route => route.fulfill({ json: { models: [...MAGPIE_MODELS, other], currentModel: host.model,
       currentEffort: host.effort, nativeSessionId: "fixture-claude-session" } }));
     await context.route("**/api/claude/structured/effort", route => {
-      host.effort = route.request().postDataJSON().effort; host.efforts.push(host.effort);
+      const body = route.request().postDataJSON();
+      host.effort = body.effort; host.efforts.push(host.effort); host.calls.push(["effort", body.effort, body.model ?? null]);
       return route.fulfill({ json: { kind: "changed", effort: host.effort } });
     });
     await context.route("**/api/claude/structured/model", route => {
-      host.model = route.request().postDataJSON().model; host.models.push(host.model);
+      const body = route.request().postDataJSON();
+      host.model = body.model; host.models.push(host.model); host.calls.push(["model", body.model, body.effort ?? null]);
       return route.fulfill({ json: { kind: "changed", model: host.model, effort: host.effort } });
     });
+    // Claude's report of its context, the same whatever the model is called.
+    await context.route("**/api/claude/structured/context?**", route => route.fulfill({ json: { model: "claude-opus-5-5", contextWindow: null, contextTokens: 128_581,
+      contextPercent: null, usage: { inputTokens: 2, cachedInputTokens: 128_000, cacheWriteInputTokens: 579, outputTokens: 300 } } }));
     const page = await context.newPage(), errors = [];
     page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
     await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
     const ui = await openFromSidebar(page, "Claude composer fixture");
-    await ui.waitForFunction(() => rpc?.claudeModelsLoaded);
+    await ui.waitForFunction(() => rpc?.claudeModelsLoaded && document.querySelector("#context-dashboard").dataset.contextState === "normal");
+    const before = await composer(ui);
+    assert.equal(before.name, "Opus 5.5 · 1M, thinking: Extra high");
     await ui.locator("#btn-model").click();
     await ui.locator("#model-sheet:not(.hidden) .model-row").first().waitFor();
     // Bold's sheet arrives scaled; measure it once it has.
@@ -231,6 +240,14 @@ async function sliderCase(browser, width) {
     await ui.waitForFunction(() => document.getElementById("thinking-slider").getAttribute("aria-valuenow") === "4");
     await ui.waitForTimeout(phone ? 100 : 700);
     assert.deepEqual(host.efforts, ["max"], "one change for the drag");
+    // "opus" is Magpie's Opus at Extra high by its id, which would win over the
+    // level picked: the conversation moves to the same model without it, then
+    // takes the level. Nothing says a model changed, and the context stays.
+    assert.deepEqual(host.calls, [["model", "claude/claude-opus-5-5[1m]", null], ["effort", "max", null]]);
+    const after = await composer(ui);
+    assert.deepEqual([after.name, after.context, after.ring], ["Opus 5.5 · 1M, thinking: Max", before.context, before.ring]);
+    assert.equal(await ui.locator("#model-list .model-row.active strong").textContent(), "Opus 5.5", "its row stays chosen");
+    assert.equal(await ui.evaluate(() => document.getElementById("toast-wrap")?.textContent.trim() || ""), "", "no notice");
     assert.deepEqual(await aria(), { min: "0", max: "4", now: "4", text: "Max", value: "Max", select: "max" });
     // The bars' state (their mark fades in and out where motion is allowed).
     const indicator = () => ui.evaluate(() => { const node = document.querySelector("#composer-model-level");
@@ -256,6 +273,7 @@ async function sliderCase(browser, width) {
     await slider.press("End");
     await bars("Max");
     assert.deepEqual(host.efforts, ["max", "xhigh", "low", "high", "max"]);
+    assert.equal(host.calls.filter(([kind]) => kind === "model").length, 1, "once moved, only the level is sent");
     assert.equal((await aria()).text, "Max");
 
     // A tap on the line jumps to the stop under it.
@@ -269,7 +287,7 @@ async function sliderCase(browser, width) {
     await ui.waitForFunction(() => document.querySelector("#model-list .model-row.active strong")?.textContent === "MiniMax-M3.1-Flash");
     await ui.locator("#model-list .model-row", { hasText: "Opus 5.5" }).click();
     await ui.waitForFunction(() => document.querySelector("#model-list .model-row.active strong")?.textContent === "Opus 5.5");
-    assert.deepEqual(host.models, ["minimax/MiniMax-M3.1-Flash", "claude/claude-opus-5-5[1m]"]);
+    assert.deepEqual(host.models, ["claude/claude-opus-5-5[1m]", "minimax/MiniMax-M3.1-Flash", "claude/claude-opus-5-5[1m]"]);
     assert.equal(host.efforts.at(-1), "medium", "the level stays as the slider set it");
     assert.equal((await aria()).select, "medium");
     assert.deepEqual(errors, []);
