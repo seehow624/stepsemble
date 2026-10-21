@@ -6082,6 +6082,8 @@ html.reduced-motion .thinking-control.is-dragging .effort-knob { transform: none
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A command a step ran, inside its label. */
+#view-chat .wl-code { font-family: var(--mono); font-size: .9em; letter-spacing: 0; }
 #view-chat .wl-row .wl-chev { opacity: 0; }
 #view-chat .wl-row:hover .wl-chev,
 #view-chat .wl-row:focus-visible .wl-chev,
