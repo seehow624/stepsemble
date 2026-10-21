@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.38
+
+- Read what each step did. A step says what it was for — a Claude Code command's own description, the command a Codex step ran, the file it edited or read, what it searched for — and a group says its first step and how many more, instead of "Ran a command".
+- Open the summary as a small card in the conversation's corner with its icon, and close it with the same icon; there is no close button. On a computer it stays while you read and type; on a phone a tap anywhere else closes it. Goals, Subagents, Outputs and Sources each fold open and closed, and keep how you left them.
+- See in Outputs what the agent made that isn't code — images with a thumbnail, video, documents, archives — and links it made for you to open, such as a preview of an app or a shared file. Code stays in Changes; with nothing made, there is no Outputs.
+- In Bold, the sidebar sits on the backdrop without a frame, and steps are plain lines without a box.
+
 ## 3.9.37
 
 - See one current Claude limits card for an account shared by two computers. On a Mac the Host now reads Claude's limits through the desktop helper, from the signed-in Keychain, instead of an old credentials file that could hide the live reading; and readings from the Claude app and from Magpie are merged when the account's identity is verified, keeping the newest complete one. Switching accounts or a conflict keeps them apart.
