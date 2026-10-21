@@ -131,7 +131,7 @@ test("the colour of your own messages is saved with the appearance, the theme's 
   assert.equal(foundationWith({ bubble: "green" }).foundation.loadSettings().bubble, "green");
   assert.equal(foundationWith({ bubble: "chartreuse" }).foundation.loadSettings().bubble, "auto", "a colour no longer offered falls back to the theme's");
   const app = read("public/app.js");
-  assert.match(app, /if \(BUBBLE_COLORS\.includes\(settings\.bubble\) && settings\.bubble !== "auto"\) html\.dataset\.bubble = settings\.bubble;\n  else delete html\.dataset\.bubble;/);
+  assert.match(app, /if \(BUBBLE_COLORS\.includes\(settings\.bubble\) && settings\.bubble !== "auto"\) html\.dataset\.bubble = settings\.bubble;\r?\n  else delete html\.dataset\.bubble;/);
   assert.match(app, /RESET_APPEARANCE_SETTINGS = Object\.freeze\(\[[^\]]*"bubble"/, "Restore interface defaults brings back the theme's colour");
   assert.match(read("public/index.html"), /<span id="set-bubble" class="bubble-choices" role="radiogroup"/);
   const strings = read("public/i18n.js");
