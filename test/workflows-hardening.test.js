@@ -4,6 +4,9 @@ const fs = require("node:fs"), os = require("node:os"), path = require("node:pat
 const { createWorkflows, outcome, failureKind, retryDelay, definition } = require("../server/workflows");
 const { createWorkflowEvents } = require("../server/workflow-events");
 const wait = ms => new Promise(r => setTimeout(r, ms));
+// A Goal waits a real second between turns; on a loaded runner the next turn
+// can start later than that, so wait for it rather than for a fixed time.
+async function nextTurn(f) { const end = Date.now() + 10000; while (!f.pending.length && Date.now() < end) await wait(20); }
 const def = { title:"Verify login",objective:"Implement login and test it",agentId:"pi",cwd:os.tmpdir() };
 function fixture(t, { sleeps = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(),"stepsemble-goals-hardening-"));
@@ -36,8 +39,8 @@ test("the stored result drops the marker together with its decoration", async t 
 
 test("two consecutive turns without visible progress stop as blocked instead of burning the turn budget", async t => {
   const f = fixture(t); f.host.create(def); await wait(10);
-  f.pending.shift().resolve({ text:"Waiting for the staging database to come back." }); await wait(1100);
-  f.pending.shift().resolve({ text:"Waiting for the staging database to come back." }); await wait(1100);
+  f.pending.shift().resolve({ text:"Waiting for the staging database to come back." }); await nextTurn(f);
+  f.pending.shift().resolve({ text:"Waiting for the staging database to come back." }); await nextTurn(f);
   assert.equal(f.get().status, "running"); assert.equal(f.sends.length, 3);
   f.pending.shift().resolve({ text:"  waiting for the staging   database to come back. " }); await wait(10);
   assert.equal(f.get().status, "blocked"); assert.match(f.get().error, /no visible progress/i); assert.equal(f.sends.length, 3);
@@ -45,9 +48,9 @@ test("two consecutive turns without visible progress stop as blocked instead of 
 
 test("empty replies count as no progress, and changed replies reset the count", async t => {
   const f = fixture(t); f.host.create(def); await wait(10);
-  f.pending.shift().resolve({ text:"" }); await wait(1100);
-  f.pending.shift().resolve({ text:"Implemented the form" }); await wait(1100);
-  f.pending.shift().resolve({ text:"" }); await wait(1100);
+  f.pending.shift().resolve({ text:"" }); await nextTurn(f);
+  f.pending.shift().resolve({ text:"Implemented the form" }); await nextTurn(f);
+  f.pending.shift().resolve({ text:"" }); await nextTurn(f);
   assert.equal(f.get().status, "running");
   f.pending.shift().resolve({ text:"" }); await wait(10);
   assert.equal(f.get().status, "blocked");
@@ -55,10 +58,10 @@ test("empty replies count as no progress, and changed replies reset the count", 
 
 test("resuming a stalled Goal starts a fresh progress count", async t => {
   const f = fixture(t); f.host.create(def); await wait(10);
-  for (let i = 0; i < 3; i++) { f.pending.shift().resolve({ text:"Same" }); await wait(i < 2 ? 1100 : 10); }
+  for (let i = 0; i < 3; i++) { f.pending.shift().resolve({ text:"Same" }); if (i < 2) await nextTurn(f); else await wait(10); }
   assert.equal(f.get().status, "blocked");
   await f.host.action({ id:f.get().id, action:"resume" }); await f.host.tick(); await wait(10);
-  f.pending.shift().resolve({ text:"Same" }); await wait(1100);
+  f.pending.shift().resolve({ text:"Same" }); await nextTurn(f);
   assert.equal(f.get().status, "running");
 });
 
@@ -165,7 +168,7 @@ test("a temporary error retries the same turn with backoff, without using a turn
 test("a successful turn resets the retry allowance", async t => {
   const sleeps = [], f = fixture(t, { sleeps }); f.host.create(def); await wait(10);
   f.pending.shift().resolve({ error:"fetch failed" }); await wait(20);
-  f.pending.shift().resolve({ text:"Progress" }); await wait(1100);
+  f.pending.shift().resolve({ text:"Progress" }); await nextTurn(f);
   f.pending.shift().resolve({ error:"fetch failed" }); await wait(20);
   assert.deepEqual(sleeps, [30000, 30000]);
 });
