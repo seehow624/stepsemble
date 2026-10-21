@@ -74,6 +74,14 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await entry.getAttribute("aria-expanded"), "true");
       await sheet.getByRole("button", { name: mobile ? "重新整理" : "Refresh", exact: true }).click(); await readySheet();
       assert.ok(quotaRequests.some(url => new URL(url).searchParams.get("fresh") === "1"), "refresh reads fresh limits");
+      stage = "Settings sit beside Refresh in the sheet";
+      assert.deepEqual(await sheet.locator(".usage-sheet-head > *").evaluateAll(nodes => nodes.map(node => node.className)), ["usage-view-tabs", "usage-refresh", "usage-settings"]);
+      assert.equal(await page.locator("#workspace-settings").count(), 0, "the list has no Settings button of its own");
+      await sheet.getByRole("button", { name: mobile ? "設定" : "Settings", exact: true }).click(); await sheetGone();
+      const settingsFrame = page.locator("iframe.workspace-settings-frame"); await settingsFrame.waitFor();
+      assert.equal(new URL(await settingsFrame.getAttribute("src")).searchParams.get("section"), null, "Settings open at their start");
+      await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settingsFrame.waitFor({ state: "detached" });
+      await openLimits();
       stage = "the sheet goes when left";
       await page.mouse.click(sidebarBox.x + 4, sidebarBox.y + 4); await sheetGone();
       assert.equal(await entry.getAttribute("aria-expanded"), "false");

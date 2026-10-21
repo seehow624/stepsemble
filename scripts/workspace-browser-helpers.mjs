@@ -29,6 +29,15 @@ export async function workspaceReady(page) {
   await page.waitForFunction(() => (document.getElementById("workspace-host")?.options.length || 0) > 0);
 }
 
+// Settings open from the limits sheet, as people open them: the capsule at
+// the foot of the list, then Settings beside the sheet's Refresh. A sheet
+// left a moment ago may still be sinking into the capsule; it is not this one.
+export async function openWorkspaceSettings(page) {
+  await page.locator(".workspace-limits-strip").click();
+  await page.locator(".usage-sheet:not([data-state=closing]) .usage-settings").click();
+  await page.waitForSelector(".workspace-settings-layer iframe");
+}
+
 // On a phone an open conversation covers the list; going back shows it again.
 async function showWorkspaceList(page) {
   if (!await page.evaluate(() => document.body.classList.contains("sidebar-hidden"))) return;

@@ -397,7 +397,7 @@ html[data-look="bold"] .usage-quota-toggle { --bold-thumb-w: 76px; }
 html[data-look="bold"] .usage-quota-toggle:has(> button:nth-child(2)[aria-pressed=true]) { --bold-thumb-i: 1; }
 html[data-look="bold"] :is(.usage-metric, .usage-quota-grid) { border-radius: 20px; }
 html[data-look="bold"] .usage-sheet select { border-radius: var(--radius-pill); }
-html[data-look="bold"] .usage-refresh:active { transform: scale(.9); }
+html[data-look="bold"] :is(.usage-refresh, .usage-settings):active { transform: scale(.9); }
 
 /* A permission request and the summary read as glass cards over the reply. */
 html[data-look="bold"] #view-chat .agent-approval-card { border-color: transparent; border-radius: 20px; background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), var(--bold-chip-shadow); }
@@ -455,10 +455,10 @@ html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transitio
 /* Less motion: nothing scales or springs. style.css already stops every
    animation and transition; the press scales are undone here. */
 html[data-look="bold"].reduced-motion :is(.btn, .icon-button-small, .settings-action-btn, .workspace-icon-btn, .workspace-host-card, .workspace-row-action, .workspace-session, .workspace-automation, .workspace-strip-button, .workspace-pane-menu,
-  .settings-nav-item, .usage-refresh, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
+  .settings-nav-item, .usage-refresh, .usage-settings, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
 @media (prefers-reduced-motion: reduce) {
   html[data-look="bold"] :is(.btn, .icon-button-small, .settings-action-btn, .workspace-icon-btn, .workspace-host-card, .workspace-row-action, .workspace-session, .workspace-automation, .workspace-strip-button, .workspace-pane-menu,
-    .settings-nav-item, .usage-refresh, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
+    .settings-nav-item, .usage-refresh, .usage-settings, #view-chat .wl-row, #view-chat .composer-icon-btn, #view-chat .composer-control, #view-chat .composer-send):active { transform: none; }
 }
 
 /* ---------- Thinking level ---------- */

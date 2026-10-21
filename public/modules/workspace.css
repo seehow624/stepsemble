@@ -39,7 +39,13 @@ small { color: var(--pine-soft); }
   /* The logo lines up with the Host card's icon, the buttons with its edge. */
   padding: 0 0 0 11px;
 }
-.workspace-identity { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
+/* The name is Refresh: a quiet button only as wide as the logo and name, so
+   the rest of the row stays empty (in the Mac app it moves the window). */
+.workspace-identity { display: flex; align-items: center; gap: 9px; min-width: 0; min-height: 0; flex: 0 1 auto; margin: -4px 0 -4px -6px; padding: 4px 12px 4px 6px;
+  border-radius: var(--radius-pill); color: var(--ink); text-align: left; transition: transform .12s ease-out, background-color .15s ease; }
+@media (hover: hover) { .workspace-identity:hover { background: var(--control-fill-hover); } }
+.workspace-identity:active { background: var(--control-fill-press); }
+.workspace-identity:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 /* Size only. The artwork, its tile and the forced-colour mask come from the
    product stylesheet; a monochrome silhouette here would drop the brand's
    colour and merge the connectors into the modules. */
@@ -53,12 +59,14 @@ small { color: var(--pine-soft); }
 .workspace-icon-btn svg { display: block; width: 19px; height: 19px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @media (hover: hover) { .workspace-icon-btn:hover { background: var(--control-fill-hover); } }
 .workspace-icon-btn:active { background: var(--control-fill-press); }
-/* The brand row's Refresh and Settings are bare icons, as the pane title bar's are. */
+/* The brand row's buttons are bare icons, as the pane title bar's are. */
 .workspace-brand-row .workspace-icon-btn { border-color: transparent; background: transparent; color: var(--pine-soft); }
 .workspace-brand-row .workspace-icon-btn:hover, .workspace-brand-row .workspace-icon-btn:focus-visible { color: var(--ink); }
 @keyframes workspace-turn { to { transform: rotate(360deg); } }
-#workspace-refresh[data-busy=true] svg { animation: workspace-turn .7s linear infinite; }
-@media (prefers-reduced-motion: reduce) { #workspace-refresh[data-busy=true] svg { animation: none; opacity: .45; } }
+/* While it reads, the mark turns like the pinwheel it is. */
+#workspace-refresh[data-busy=true] .workspace-logo { animation: workspace-turn .7s linear infinite; }
+@media (prefers-reduced-motion: reduce) { #workspace-refresh[data-busy=true] .workspace-logo { animation: none; opacity: .45; } }
+html.reduced-motion #workspace-refresh[data-busy=true] .workspace-logo { opacity: .45; }
 .workspace-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 /* The Host is the list's subject: one card names it, shows whether it
@@ -720,8 +728,7 @@ body.sidebar-hidden #workspace-sidebar { display: none; }
 html[data-mac-window=chromeless] #workspace-sidebar { padding-top: max(0px, calc(var(--mac-controls-center) - 22px)); }
 html[data-mac-window=chromeless] .workspace-brand-row { padding-left: max(6px, calc(var(--mac-controls-end) + 14px - 12px)); }
 /* That row carries the window's buttons, then the Stepsemble name and logo,
-   sized to sit with them; Refresh and Settings are small toolbar buttons on
-   the right, ending where the Host card ends. */
+   sized to sit with them; the rest of the row is empty. */
 html[data-mac-window=chromeless] .workspace-brand-row { gap: 2px; }
 html[data-mac-window=chromeless] .workspace-identity { gap: 8px; }
 html[data-mac-window=chromeless] .workspace-logo { width: 24px; height: 24px; flex-basis: 24px; }

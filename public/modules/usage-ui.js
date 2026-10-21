@@ -31,12 +31,18 @@
   function label(key, vars = {}) { const locale = localeOf(); return (strings[locale]?.[key] || strings.en[key] || key).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? ""); }
   const node = (tag, value = "", className = "") => { const el = document.createElement(tag); el.textContent = value; el.className = className; return el; };
   function button(value, action, className = "") { const el = node("button", value, className); el.type = "button"; el.onclick = action; return el; }
-  // The Workspace's own refresh arrows, so the two refresh buttons look alike.
-  function refreshIcon() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"), path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  function icon(...shapes) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
-    path.setAttribute("d", "M20 7v4h-4M4 17v-4h4M5.6 10a7 7 0 0 1 12.3-2L20 11M4 13l2.1 3a7 7 0 0 0 12.3-2"); svg.append(path); return svg;
+    for (const [tag, attributes] of shapes) {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+      svg.append(shape);
+    }
+    return svg;
   }
+  const refreshIcon = () => icon(["path", { d: "M20 7v4h-4M4 17v-4h4M5.6 10a7 7 0 0 1 12.3-2L20 11M4 13l2.1 3a7 7 0 0 0 12.3-2" }]);
+  const settingsIcon = () => icon(["circle", { cx: "12", cy: "12", r: "3" }], ["path", { d: "M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.1h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1-2.8-2.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4h-.1a1.7 1.7 0 0 0-1.6 1Z" }]);
   const fmt = (n, compact = false) => new Intl.NumberFormat(localeOf(), compact ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 0 }).format(n || 0);
   function money(total, compact = false) {
     if (!(total?.pricedCalls || total?.unknownPricedRecords)) return "—";
@@ -167,7 +173,9 @@
       },
     };
   }
-  function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, onQuotaDisplayChanged = () => {}, openQuotaSources = () => {}, providerLogo = () => node("span"), restoreFocus = () => {} }) {
+  // openSettings, when given, puts Settings beside Refresh in the sheet's
+  // header; settingsLabel names it in the page's language.
+  function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, onQuotaDisplayChanged = () => {}, openQuotaSources = () => {}, openSettings = null, settingsLabel = () => "Settings", providerLogo = () => node("span"), restoreFocus = () => {} }) {
     let indexingTimer;
     let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
@@ -510,6 +518,11 @@
       const header = node("header", "", "usage-sheet-head"), tabs = viewTabs();
       const refresh = button("", () => void load(true), "usage-refresh"); refresh.setAttribute("aria-label", label("refresh")); refresh.title = label("refresh"); refresh.append(refreshIcon());
       header.append(tabs, refresh);
+      if (openSettings) {
+        const settings = button("", () => { close({ restore: false }); openSettings(); }, "usage-settings");
+        settings.setAttribute("aria-label", settingsLabel()); settings.title = settingsLabel(); settings.append(settingsIcon());
+        header.append(settings);
+      }
       const statusNote = node("p", label(tab === "limits" ? "loadingLimits" : "loading"), "usage-status"); statusNote.setAttribute("role", "status");
       const host = hostChoices.length > 1 ? makeSelect("host", [["", label("allHosts")], ...hostChoices.map(item => [item.id, item.name])], selectedHost, value => selectHost(value)) : null;
       const body = node("div", "", "usage-body"); body.id = "usage-view"; body.setAttribute("role", "tabpanel"); body.setAttribute("aria-labelledby", "usage-tab-" + tab);

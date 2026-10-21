@@ -8,7 +8,7 @@
 //   - choosing Bold again brings it back the same way, and it is saved.
 // Desktop 1280 and phone 390.
 import assert from "node:assert/strict";
-import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
+import { workspaceReady, openFromSidebar, openWorkspaceSettings } from "./workspace-browser-helpers.mjs";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 
 export async function runInterfaceStyleBrowserCases(browser) {
@@ -63,7 +63,7 @@ export async function runInterfaceStyleBrowserCases(browser) {
 
       stage = "Settings → Appearance → Interface style";
       if (viewport.mobile) { await page.evaluate(() => history.back()); await page.waitForFunction(() => !document.body.classList.contains("sidebar-hidden")); }
-      await page.locator("#workspace-settings").click();
+      await openWorkspaceSettings(page);
       await page.waitForFunction(() => { const view = document.querySelector(".workspace-settings-layer iframe")?.contentDocument?.getElementById("view-settings");
         return !!view && !view.classList.contains("hidden"); }, null, { timeout: 20_000 });
       const settings = await (await page.$(".workspace-settings-layer iframe")).contentFrame();
