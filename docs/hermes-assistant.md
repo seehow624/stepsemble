@@ -82,6 +82,8 @@ Hermes 已在執行的網頁伺服器，讓你在手機或桌面跟每個 Bot �
   看過的路徑，Hermes 仍套用它的敏感檔案阻擋與 100 MB 上限；Stepsemble 不直接讀那台電腦的磁碟，也不另存副本。
   圖片與影音以 inline 回應並加上沙盒 CSP；文字檔開啟時轉成跳脫後的閱讀頁（同樣在沙盒內，內容不會成為標籤），下載保留原檔；
   PDF 交給瀏覽器內建閱讀器，HTML 與其他類型一律下載；圖片、影音與 PDF 支援 Range，跨電腦轉送也會帶上。
+  Bot 的檔案卡片與圖片可以拖出頁面：Chrome、Edge 用 `DownloadURL` 下載到放下的地方；Mac App 的 `WorkspaceWebView` 攔下 WebKit 對這些
+  檔案網址的拖曳，拖曳時以頁面的登入下載到暫存資料夾，放下時交出檔案本身（Finder、WhatsApp、Mail 都收得到；`scripts/check-mac-file-drag.mjs` 驗證）。
   desktop 模式的 Bot 也可能寫 `::preview{file="…"}` 互動小工具；絕對路徑會顯示成只能下載的檔案卡片，Stepsemble 不執行其中的網頁。
 - Workspace 的 Bot 分頁載入 `assistant.html?embed=1`；只有這個嵌入版允許 Workspace 同源框架，助理頁本身仍不可嵌入。
   分頁的路由只留在分頁記憶體，不寫入瀏覽器歷史；分頁以訊息回報目前頁面、標題與頭像，Workspace 據此更新標籤並保存版面。

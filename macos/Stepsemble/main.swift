@@ -1114,7 +1114,8 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         self.controller = controller
         self.path = path
         self.isPopup = isPopup
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        let workspaceView = WorkspaceWebView(frame: .zero, configuration: configuration)
+        webView = workspaceView
         webView.allowsBackForwardNavigationGestures = false
         window = WorkspaceNSWindow(contentRect: NSRect(origin: .zero, size: size ?? NSSize(width: 1280, height: 820)),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -1134,6 +1135,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         }
         dragArea.webView = webView
         tabDragArea.webView = webView
+        workspaceView.isHostURL = { [weak self] url in self?.isHost(url) == true }
         tabDragArea.emit = { [weak self] data in self?.sendTabEvent(data) }
         tabDragArea.released = { [weak self] identity, token, point in self?.releaseTab(identity, token: token, at: point) }
         (window as? WorkspaceNSWindow)?.selectTab = { [weak self] direction in
@@ -1473,6 +1475,122 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         panel.canChooseDirectories = parameters.allowsDirectories
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.beginSheetModal(for: window) { response in completionHandler(response == .OK ? panel.urls : nil) }
+    }
+}
+
+// MARK: Dragging a Bot's file out
+
+/// A Bot's file dragged out of a conversation (a picture, a PDF, any file it
+/// sent) lands as that file: in a Finder folder or on the desktop, in
+/// WhatsApp, Mail or Messages. WebKit would hand out only the file's address,
+/// which a folder keeps as a link, so the app downloads the file, signed in as
+/// the page is, while it is dragged, and gives the downloaded file to the
+/// place it is dropped. Every other drag is WebKit's own.
+final class WorkspaceWebView: WKWebView {
+    var isHostURL: (URL) -> Bool = { _ in false }
+    private var fileDrag: AnyObject?
+
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        _ = WorkspaceWebView.dragHook
+        super.init(frame: frame, configuration: configuration)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// WebKit starts a page's drag with NSView's dragImage(_:at:offset:event:
+    /// pasteboard:source:slideBack:) (WebViewImpl::startDrag), which Swift
+    /// cannot override, so this view gets its own copy at run time; any drag
+    /// but a Bot's file goes on to NSView's.
+    private static let dragHook: Void = {
+        let selector = NSSelectorFromString("dragImage:at:offset:event:pasteboard:source:slideBack:")
+        guard let inherited = class_getInstanceMethod(WKWebView.self, selector), let types = method_getTypeEncoding(inherited) else { return }
+        typealias Drag = @convention(c) (NSView, Selector, NSImage, NSPoint, NSSize, NSEvent, NSPasteboard, AnyObject, ObjCBool) -> Void
+        let page = unsafeBitCast(method_getImplementation(inherited), to: Drag.self)
+        let hook: @convention(block) (NSView, NSImage, NSPoint, NSSize, NSEvent, NSPasteboard, AnyObject, ObjCBool) -> Void = { view, image, location, offset, event, pasteboard, source, slideBack in
+            if let view = view as? WorkspaceWebView, view.dragBotFile(image, at: location, event: event, pasteboard: pasteboard, source: source, slideBack: slideBack.boolValue) { return }
+            page(view, selector, image, location, offset, event, pasteboard, source, slideBack)
+        }
+        class_addMethod(WorkspaceWebView.self, selector, imp_implementationWithBlock(hook), types)
+    }()
+
+    private func dragBotFile(_ image: NSImage, at viewLocation: NSPoint, event: NSEvent, pasteboard: NSPasteboard, source: AnyObject, slideBack: Bool) -> Bool {
+        guard #available(macOS 11.3, *), let file = botFile(on: pasteboard), let draggingSource = source as? NSDraggingSource else { return false }
+        let drag = FileDrag(source: file, webView: self)
+        fileDrag = drag
+        let item = NSDraggingItem(pasteboardWriter: drag.item)
+        // WebKit gives the image's lower-left corner in this flipped view, as it
+        // does for its own file drags.
+        item.setDraggingFrame(NSRect(x: viewLocation.x, y: viewLocation.y - image.size.height, width: image.size.width, height: image.size.height), contents: image)
+        // WebKit stays the session's source, so the page sees its drag end.
+        let session = beginDraggingSession(with: [item], event: event, source: draggingSource)
+        session.animatesToStartingPositionsOnCancelOrFail = slideBack
+        drag.start()
+        return true
+    }
+
+    /// The Host's address of a Bot's file (/api/assistant/media, also through
+    /// /r/<computer>/), when that is what the page drags.
+    private func botFile(on pasteboard: NSPasteboard) -> URL? {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? []
+        guard let url = urls.first(where: { !$0.isFileURL }) ?? pasteboard.string(forType: .string).flatMap(URL.init(string:)),
+              isHostURL(url), url.path.hasSuffix("/api/assistant/media"),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let items = parts.queryItems,
+              items.contains(where: { $0.name == "path" && !($0.value ?? "").isEmpty }) else { return nil }
+        // The page's own encoding stays: a "+" in a name is %2B, never a space.
+        if !items.contains(where: { $0.name == "download" && $0.value == "1" }) { parts.percentEncodedQuery = (parts.percentEncodedQuery ?? "") + "&download=1" }
+        return parts.url
+    }
+}
+
+@available(macOS 11.3, *)
+final class FileDrag: NSObject, NSPasteboardItemDataProvider, WKDownloadDelegate {
+    private enum State { case loading, done, failed }
+    let item = NSPasteboardItem()
+    private let source: URL
+    private let folder: URL
+    private weak var webView: WKWebView?
+    private var state = State.loading
+    private var file: URL?
+
+    init(source: URL, webView: WKWebView) {
+        self.source = source
+        self.webView = webView
+        let drags = FileManager.default.temporaryDirectory.appendingPathComponent("Stepsemble drags", isDirectory: true)
+        FileDrag.tidy(drags)
+        folder = drags.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        super.init()
+        item.setDataProvider(self, forTypes: [.fileURL])
+    }
+
+    /// Earlier drags' copies: a place that copied a file has its own by now.
+    static func tidy(_ drags: URL) {
+        let old = Date().addingTimeInterval(-3600)
+        for entry in (try? FileManager.default.contentsOfDirectory(at: drags, includingPropertiesForKeys: [.creationDateKey])) ?? [] {
+            if let made = try? entry.resourceValues(forKeys: [.creationDateKey]).creationDate, made < old { try? FileManager.default.removeItem(at: entry) }
+        }
+    }
+
+    /// Downloads with the page's cookies, as its own download links do.
+    func start() {
+        guard let webView = webView, (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { state = .failed; return }
+        webView.startDownload(using: URLRequest(url: source)) { [weak self] download in download.delegate = self }
+    }
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        // A file the Host no longer has answers with an error, not the file.
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { state = .failed; completionHandler(nil); return }
+        let name = (suggestedFilename as NSString).lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = folder.appendingPathComponent(name.isEmpty || name.hasPrefix(".") ? "Download" + name : name)
+        file = target
+        completionHandler(target)
+    }
+    func downloadDidFinish(_ download: WKDownload) { if state == .loading { state = file == nil ? .failed : .done } }
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) { state = .failed }
+
+    /// Asked for at the drop; a large file may still be on its way.
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+        let deadline = Date().addingTimeInterval(30)
+        while state == .loading && Date() < deadline { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        if state == .done, let file = file { item.setString(file.absoluteString, forType: .fileURL) }
     }
 }
 

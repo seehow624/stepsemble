@@ -65,6 +65,24 @@ export async function runAssistantMediaBrowserCases(browser, { screenshots } = {
           if (width < 900) { const box = await action.boundingBox(); assert.ok(box.height >= 44 && box.width >= 44, "手機圖示至少 44px"); }
         }
       }
+      // Dragged out, a file lands as itself: Chrome and Edge download it where
+      // it is dropped (DownloadURL); a card also carries the file's address,
+      // which the Mac app turns into the file. A picture is a link already.
+      const dragged = await page.evaluate(() => {
+        const start = node => { const data = new DataTransfer(); node.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, bubbles: true, cancelable: true }));
+          return { draggable: node.draggable, types: [...data.types].sort(), download: data.getData("DownloadURL"), uri: data.getData("text/uri-list") }; };
+        const pdfCard = document.querySelector('.assistant-msg.assistant .assistant-file[data-kind="pdf"]'), picture = document.querySelector(".assistant-msg.assistant .assistant-file-image");
+        const inner = new DataTransfer(); pdfCard.querySelector(".assistant-file-open").dispatchEvent(new DragEvent("dragstart", { dataTransfer: inner, bubbles: true, cancelable: true }));
+        return { pdf: start(pdfCard), picture: start(picture), innerLink: [...inner.types] };
+      });
+      const fileUrl = name => new RegExp(`^http://127\\.0\\.0\\.1:\\d+/api/assistant/media\\?path=%2Ffake%2Fmedia%2F${name}&download=1$`);
+      assert.equal(dragged.pdf.draggable, true);
+      assert.deepEqual(dragged.pdf.types, ["downloadurl", "text/plain", "text/uri-list"]);
+      assert.match(dragged.pdf.uri, fileUrl("report\\.pdf"));
+      assert.equal(dragged.pdf.download, `application/pdf:report.pdf:${dragged.pdf.uri}`);
+      assert.deepEqual(dragged.picture.types, ["downloadurl"], "the picture keeps its own link data");
+      assert.match(dragged.picture.download, /^image\/png:photo\.png:http/);
+      assert.deepEqual(dragged.innerLink, [], "a card's own buttons drag as the links they are");
       await page.waitForFunction(() => document.querySelector(".assistant-file-image img")?.naturalWidth > 0);
       const image = photo.locator("img");
       assert.equal(await image.getAttribute("alt"), "photo.png");
