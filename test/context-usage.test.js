@@ -164,12 +164,13 @@ test("context sync lifecycle and responsive composer wiring are event-driven", (
   const usedAt = html.indexOf('id="context-used"');
   assert.ok(popoverAt > -1 && usedAt > popoverAt, "figures live inside the popover");
   assert.ok(html.indexOf('id="context-inline-percent"') < popoverAt, "percentage lives outside the hidden popover");
-  // Fixed-width chip: name truncates, the trailing thinking bars stay visible.
+  // Fixed-width chip: the name truncates; the thinking level is the line on
+  // the message box's edge, not part of the chip.
   assert.match(html, /id="composer-model-name"/);
-  assert.match(html, /id="composer-model-level" class="composer-effort/);
+  assert.doesNotMatch(html, /id="composer-model-level"/);
+  assert.match(html, /id="btn-model"[\s\S]*?<\/button>\s*(?:<!--[^>]*-->\s*)?<div id="composer-effort" class="composer-effort-line"/);
   assert.match(css, /\.composer-model-control[^}]*width: var\(--composer-model-w/);
   assert.match(css, /\.composer-model-name[^}]*text-overflow: ellipsis/);
-  assert.match(css, /\.composer-effort \{[^}]*flex: 0 0 auto/);
   assert.match(css, /\.context-popover/);
   assert.match(css, /\.context-ring-btn[^}]*cursor: pointer/);
   assert.match(css, /\.context-info-wrap[^}]*position: relative/);

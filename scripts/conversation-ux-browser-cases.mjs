@@ -932,7 +932,7 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
       assert.equal(await ui.locator("#btn-model").isVisible(), true, "the model can be picked before Claude starts");
       // The thinking level is shown and can be picked before Claude starts.
       await ui.waitForFunction(() => rpc?.claudeEffort === "high" && el.thinkingSelect.disabled === false && el.thinkingSelect.value === "high"
-        && !el.composerModelLevelText.classList.contains("hidden"));
+        && !el.composerEffort.hidden && el.composerEffort.dataset.level === "High" && el.composerEffort.getAttribute("aria-disabled") === "false");
       await ui.evaluate(() => changeThinkingLevel("xhigh"));
       await ui.waitForFunction(() => rpc?.claudeEffort === "xhigh" && el.thinkingSelect.value === "xhigh");
       assert.deepEqual(efforts.map(row => [row.sessionId, row.effort]), [[claude.nativeSessionId, "xhigh"]]);
