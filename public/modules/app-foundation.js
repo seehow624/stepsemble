@@ -23,11 +23,15 @@
     { id: "ink-ivory", label: "Ink & Ivory" },
   ]);
   const DESIGN_THEME_IDS = new Set(DESIGN_THEMES.map((theme) => theme.id));
+  // The colour of a person's own messages in the Bold look: the design
+  // theme's own (auto), or one of these, each in look-bold.css.
+  const BUBBLE_COLORS = Object.freeze(["auto", "blue", "purple", "green", "teal", "orange", "pink", "graphite"]);
   const DEFAULT_SETTINGS = Object.freeze({
     locale: "en",
     theme: "auto",          // auto | light | dark
     designTheme: "ink-ivory",
     look: "bold",           // bold | classic: the interface style layer
+    bubble: "auto",         // BUBBLE_COLORS: the colour of your own messages
     settingsVersion: SETTINGS_VERSION,
     sidebarWidth: 336,
     fontScale: 100,
@@ -73,6 +77,7 @@
       out.locale = global.stepsembleI18n?.normalizeLocale(out.locale) || "en";
       if (!DESIGN_THEME_IDS.has(out.designTheme)) out.designTheme = DEFAULT_SETTINGS.designTheme;
       if (out.look !== "classic") out.look = DEFAULT_SETTINGS.look;
+      if (!BUBBLE_COLORS.includes(out.bubble)) out.bubble = DEFAULT_SETTINGS.bubble;
       out.sidebarWidth = Math.min(440, Math.max(280, Number(out.sidebarWidth) || DEFAULT_SETTINGS.sidebarWidth));
       out.fontScale = Math.min(125, Math.max(90, Number(out.fontScale) || DEFAULT_SETTINGS.fontScale));
       out.projectPins = Array.isArray(out.projectPins)
@@ -174,6 +179,7 @@
     SETTINGS_VERSION,
     DESIGN_THEMES,
     DESIGN_THEME_IDS,
+    BUBBLE_COLORS,
     DEFAULT_SETTINGS,
     loadSelected,
     saveSelected,

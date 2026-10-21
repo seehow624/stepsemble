@@ -122,3 +122,22 @@ test("the Bold layer touches nothing unless <html> asks for it", () => {
     assert.ok(css.includes(query), query);
   assert.ok(css.includes('html[data-look="bold"].reduced-motion'), "the app's Reduce motion setting is honoured");
 });
+
+test("the colour of your own messages is saved with the appearance, the theme's own unless you chose another", () => {
+  const { BUBBLE_COLORS, DEFAULT_SETTINGS } = foundationWith().foundation;
+  assert.deepEqual([...BUBBLE_COLORS], ["auto", "blue", "purple", "green", "teal", "orange", "pink", "graphite"]);
+  assert.equal(DEFAULT_SETTINGS.bubble, "auto");
+  assert.equal(foundationWith({ theme: "dark" }).foundation.loadSettings().bubble, "auto", "nobody chose one: the theme's");
+  assert.equal(foundationWith({ bubble: "green" }).foundation.loadSettings().bubble, "green");
+  assert.equal(foundationWith({ bubble: "chartreuse" }).foundation.loadSettings().bubble, "auto", "a colour no longer offered falls back to the theme's");
+  const app = read("public/app.js");
+  assert.match(app, /if \(BUBBLE_COLORS\.includes\(settings\.bubble\) && settings\.bubble !== "auto"\) html\.dataset\.bubble = settings\.bubble;\n  else delete html\.dataset\.bubble;/);
+  assert.match(app, /RESET_APPEARANCE_SETTINGS = Object\.freeze\(\[[^\]]*"bubble"/, "Restore interface defaults brings back the theme's colour");
+  assert.match(read("public/index.html"), /<span id="set-bubble" class="bubble-choices" role="radiogroup"/);
+  const strings = read("public/i18n.js");
+  for (const key of ["settings.bubble", "settings.bubbleNote", "settings.bubbleAuto", "settings.bubbleBlue", "settings.bubblePurple", "settings.bubbleGreen",
+    "settings.bubbleTeal", "settings.bubbleOrange", "settings.bubblePink", "settings.bubbleGraphite"]) {
+    const row = new RegExp(`"${key.replace(".", "\\.")}": (\\[[^\\n]*\\]),`).exec(strings);
+    assert.ok(row, key); assert.equal(JSON.parse(row[1]).length, 11, `${key} in every language`);
+  }
+});

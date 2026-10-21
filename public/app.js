@@ -52,7 +52,7 @@ const agentTranscriptPresentation = window.stepsembleAgentTranscriptPresentation
 if (!foundation || !sessionUtils || !contextUtils || !piSession || !agentTranscriptPresentation) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
-  DESIGN_THEMES, DESIGN_THEME_IDS, DEFAULT_SETTINGS,
+  DESIGN_THEMES, DESIGN_THEME_IDS, BUBBLE_COLORS, DEFAULT_SETTINGS,
   loadSelected, saveSelected, loadSettings, saveSettings,
   currentMachine: currentMachineFromList,
   machineDisplayName, machineDisplayHost, machineName: machineNameFromList,
@@ -173,6 +173,7 @@ const el = {
   setLocale: $("set-locale"), setTheme: $("set-theme"), setDesignTheme: $("theme-choices"), setSidebarWidth: $("set-sidebar-width"), setSidebarWidthValue: $("set-sidebar-width-value"), setFontScale: $("set-font-scale"), setFontScaleValue: $("set-font-scale-value"), setCompact: $("set-compact"),
   btnImg: $("btn-img"), composerAdd: $("composer-add"), composerAddMenu: $("composer-add-menu"), fileInput: $("file-input"), imgPreview: $("img-preview"),
   setReducedMotion: $("set-reduced-motion"), setThinking: $("set-thinking"), setLook: $("set-look"),
+  setBubble: $("set-bubble"), bubbleChoiceName: $("bubble-choice-name"),
   modelVisibilityList: $("model-visibility-list"), modelVisibilityRefresh: $("model-visibility-refresh"),
   modelListToolbar: $("model-list-toolbar"),
   modelAgentList: $("model-agent-list"), modelAgentSignin: $("model-agent-signin"), modelAgentSigninText: $("model-agent-signin-text"),
@@ -895,6 +896,9 @@ function applyAppearance() {
   html.dataset.themePreference = settings.theme;
   html.dataset.designTheme = DESIGN_THEME_IDS.has(settings.designTheme) ? settings.designTheme : DEFAULT_SETTINGS.designTheme;
   html.dataset.look = settings.look === "classic" ? "classic" : "bold";
+  // Your own messages keep the theme's colour unless you chose another.
+  if (BUBBLE_COLORS.includes(settings.bubble) && settings.bubble !== "auto") html.dataset.bubble = settings.bubble;
+  else delete html.dataset.bubble;
   html.style.setProperty("--oc-sidebar", `${settings.sidebarWidth}px`);
   html.style.fontSize = `${settings.fontScale}%`;
   document.body.classList.toggle("compact", !!settings.compact);
@@ -15947,6 +15951,42 @@ function renderThemeChoices() {
   if (el.themeCurrentSwatches && current) el.themeCurrentSwatches.dataset.themeSwatch = current.id;
   el.themeChoicesToggle?.setAttribute("aria-expanded", String(!el.setDesignTheme.hidden));
 }
+// Your messages: a round swatch for each colour, the theme's own first.
+const BUBBLE_LABELS = Object.freeze({ auto: "settings.bubbleAuto", blue: "settings.bubbleBlue", purple: "settings.bubblePurple", green: "settings.bubbleGreen",
+  teal: "settings.bubbleTeal", orange: "settings.bubbleOrange", pink: "settings.bubblePink", graphite: "settings.bubbleGraphite" });
+function renderBubbleChoices() {
+  if (!el.setBubble) return;
+  const chosen = BUBBLE_COLORS.includes(settings.bubble) ? settings.bubble : "auto";
+  el.setBubble.replaceChildren(...BUBBLE_COLORS.map((id) => {
+    const button = document.createElement("button"), label = tKey(BUBBLE_LABELS[id]);
+    button.type = "button";
+    button.className = "bubble-choice" + (id === chosen ? " selected" : "");
+    button.dataset.bubbleChoice = id;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(id === chosen));
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.tabIndex = id === chosen ? 0 : -1;
+    return button;
+  }));
+  if (el.bubbleChoiceName) el.bubbleChoiceName.textContent = tKey(BUBBLE_LABELS[chosen]);
+}
+function chooseBubble(id) {
+  if (!BUBBLE_COLORS.includes(id)) return;
+  settings = saveSettings({ bubble: id });
+  applyAppearance();
+  renderBubbleChoices();
+  el.setBubble?.querySelector(`[data-bubble-choice="${id}"]`)?.focus({ preventScroll: true });
+}
+el.setBubble?.addEventListener("click", (event) => { const button = event.target.closest("[data-bubble-choice]"); if (button) chooseBubble(button.dataset.bubbleChoice); });
+// A radio group moves with the arrow keys, as the system's own does.
+el.setBubble?.addEventListener("keydown", (event) => {
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+  if (!step) return;
+  event.preventDefault();
+  const at = BUBBLE_COLORS.indexOf(BUBBLE_COLORS.includes(settings.bubble) ? settings.bubble : "auto");
+  chooseBubble(BUBBLE_COLORS[(at + step + BUBBLE_COLORS.length) % BUBBLE_COLORS.length]);
+});
 el.themeChoicesToggle?.addEventListener("click", () => {
   if (!el.setDesignTheme) return;
   el.setDesignTheme.hidden = !el.setDesignTheme.hidden;
@@ -17389,6 +17429,7 @@ function renderSettings() {
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;
   if (el.setLook) el.setLook.value = settings.look;
+  renderBubbleChoices();
   renderThemeChoices();
   if (el.setSidebarWidth) el.setSidebarWidth.value = settings.sidebarWidth;
   if (el.setSidebarWidthValue) el.setSidebarWidthValue.textContent = `${settings.sidebarWidth}px`;
@@ -18981,7 +19022,7 @@ el.harnessUpdateList?.addEventListener("change", (event) => {
 // data, not interface defaults, so they survive a reset.
 // The reset sits on the Appearance page and resets that page's options only.
 // Language, projects, model choices and list filters are kept.
-const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "look", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
+const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "look", "bubble", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
 el.btnResetSettings?.addEventListener("click", () => {
   if (!confirm(tKey("settings.resetConfirm"))) return;
   settings = saveSettings(Object.fromEntries(RESET_APPEARANCE_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]])));

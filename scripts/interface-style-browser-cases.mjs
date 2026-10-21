@@ -5,7 +5,9 @@
 //     has no frame and a step row is a plain line that says what it did;
 //   - choosing Classic in Settings → Appearance turns all three to Classic
 //     at once, without reloading the Workspace or the conversation;
-//   - choosing Bold again brings it back the same way, and it is saved.
+//   - choosing Bold again brings it back the same way, and it is saved;
+//   - a colour for your own messages applies at once, keys move it, and the
+//     theme's own colour comes back.
 // Desktop 1280 and phone 390.
 import assert from "node:assert/strict";
 import { workspaceReady, openFromSidebar, openWorkspaceSettings } from "./workspace-browser-helpers.mjs";
@@ -87,8 +89,33 @@ export async function runInterfaceStyleBrowserCases(browser) {
         } else assert.deepEqual({ composer: now.pane.composer, search: now.shell.search, frame: now.shell.frame }, { composer: bold.pane.composer, search: bold.shell.search, frame: bold.shell.frame }, "Bold is back as it was");
         assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("stepsemble.settings.v2")).look), value, "the choice is saved");
       }
+      stage = "Your messages: a colour of your own, at once in every frame";
+      const bubbleColor = () => pane.evaluate(() => getComputedStyle(document.querySelector("#messages .msg.user .bubble")).backgroundColor);
+      // On a phone the conversation sits behind the list while Settings is open.
+      await pane.locator("#messages .msg.user .bubble").first().waitFor({ state: "attached" });
+      const themeColor = await bubbleColor();
+      const swatches = settings.locator("#set-bubble [data-bubble-choice]");
+      assert.deepEqual(await swatches.evaluateAll(nodes => nodes.map(node => [node.dataset.bubbleChoice, node.getAttribute("aria-label"), node.getAttribute("aria-checked")])),
+        [["auto", "Theme colour", "true"], ["blue", "Blue", "false"], ["purple", "Purple", "false"], ["green", "Green", "false"], ["teal", "Teal", "false"],
+          ["orange", "Orange", "false"], ["pink", "Pink", "false"], ["graphite", "Graphite", "false"]]);
+      await settings.locator('#set-bubble [data-bubble-choice="green"]').click();
+      await pane.waitForFunction(() => document.documentElement.dataset.bubble === "green");
+      assert.equal(await bubbleColor(), "rgb(34, 133, 74)", "green on dark");
+      assert.equal(await settings.locator(".bubble-preview").evaluate(node => getComputedStyle(node).backgroundColor), "rgb(34, 133, 74)", "Settings shows the message as it will look");
+      assert.equal(await settings.locator("#bubble-choice-name").textContent(), "Green");
+      // A radio group: the arrow keys move the choice.
+      await settings.locator('#set-bubble [data-bubble-choice="green"]').focus();
+      await page.keyboard.press("ArrowRight");
+      await pane.waitForFunction(() => document.documentElement.dataset.bubble === "teal");
+      assert.equal(await settings.locator('#set-bubble [aria-checked="true"]').getAttribute("data-bubble-choice"), "teal");
+      assert.equal(await settings.evaluate(() => document.activeElement?.dataset.bubbleChoice), "teal", "the focus follows the choice");
+      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("stepsemble.settings.v2")).bubble), "teal", "the choice is saved");
+      await settings.locator('#set-bubble [data-bubble-choice="auto"]').click();
+      await pane.waitForFunction(() => !document.documentElement.dataset.bubble);
+      assert.equal(await bubbleColor(), themeColor, "the theme's own colour again");
+      assert.equal((await shellLook()).mark, 1, "the Workspace was not reloaded"); assert.equal((await paneLook()).mark, 1, "the conversation was not reloaded");
       assert.deepEqual(errors, []);
-      console.log(JSON.stringify({ case: "Interface style", width: viewport.width, result: "passed" }));
+      console.log(JSON.stringify({ case: "Interface style", width: viewport.width, result: "passed", bubbleColours: true }));
     } catch (error) {
       throw new Error(`Interface style at ${viewport.width} (${stage}): ${error.message}`);
     } finally { await context.close(); await preview.close(); }
