@@ -361,7 +361,7 @@ export async function runStatusColorBrowserCases(browser) {
       const signOut = getComputedStyle(document.querySelector("#btn-logout strong")).color, errInk = getComputedStyle(html).getPropertyValue("--err-ink").trim();
       return { themes: themes.length, failures, signOut: rgb(signOut).join(","), errInk: errInk && rgb(errInk).join(",") };
     });
-    assert.ok(result.themes >= 6, JSON.stringify(result));
+    assert.equal(result.themes, 3, JSON.stringify(result));
     assert.deepEqual(result.failures, [], "status text is too faint in some themes");
     assert.equal(result.signOut, result.errInk, "Sign out uses the readable red");
     assert.deepEqual(errors, []);

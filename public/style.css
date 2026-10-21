@@ -4,12 +4,12 @@
   /* The status bar inset. A Workspace pane sets it to 0: the Workspace keeps
      the pane below the status bar itself. */
   --safe-top: env(safe-area-inset-top, 0px);
-  --paper: #FAF7F0;
-  --ink: #1C1C1C;
+  --paper: #EAE5DA;
+  --ink: #1B1A18;
   --pine: #1A1A1A;
-  --pine-soft: #66635D;
-  --milk: #FFFFFF;
-  --line: rgba(0, 0, 0, 0.12);
+  --pine-soft: #58544C;
+  --milk: #F3EFE6;
+  --line: rgba(27, 26, 24, 0.13);
   --accent: #1A1A1A;
   --gold: #333333;
   --ok: #2E7D4F;
@@ -17,12 +17,12 @@
   --err: #A8402F;
   /* Status colours as text: at least 4.5:1 on the page, cards and bubbles of
      every theme. The plain colours above stay for dots, fills and borders. */
-  --ok-ink: #2B7448;
-  --warn-ink: #80600F;
-  --err-ink: #A8402F;
-  --bubble-user: #ECE9E2;
-  --bubble-ai: #F5F2EB;
-  --sheet-bg: rgba(28, 28, 28, 0.28);
+  --ok-ink: #22663D;
+  --warn-ink: #6B500C;
+  --err-ink: #923725;
+  --bubble-user: #DED8CB;
+  --bubble-ai: #EEE9DF;
+  --sheet-bg: rgba(27, 26, 24, 0.30);
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   /* One type scale, in rem so the Text size setting scales it. md is the
      interface's body text; glyphs, avatar initials and display numbers keep
@@ -3390,26 +3390,20 @@ html.reduced-motion .session-running-dot { animation: none; }
   .topbar, .agent-hub-card, .sheet { background: var(--paper); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
-/* Nine optional design themes with readable light and dark variants. */
-html[data-design-theme="pine-milk"][data-theme="dark"] {
-  --paper: #12211A; --ink: #E9F1EA; --pine: #7FB894; --pine-soft: #9BB5A4;
-  --milk: #1A2E24; --line: rgba(233,241,234,.12); --accent: #7FB894;
-  --bubble-user: #24402F; --bubble-ai: #17271F; --sheet-bg: rgba(7,18,13,.68); --gold: #A7D3B6;
-}
-html[data-design-theme="pine-milk"][data-theme="light"] {
-  --paper: #F3F7F1; --ink: #1E3327; --pine: #2F5D43; --pine-soft: #5F7D6B;
-  --milk: #FCFEFB; --line: rgba(30,51,39,.14); --accent: #2F5D43;
-  --bubble-user: #DFEBE1; --bubble-ai: #F7FBF6; --sheet-bg: rgba(30,51,39,.28); --gold: #4A7D5E;
-}
+/* Three design themes. Their light variants are tinted paper rather than
+   white: the page a step below the cards, the cards a step below white, and
+   status text darkened to keep 4.5:1 on both. Their dark variants are
+   unchanged. */
 html[data-design-theme="warm-paper"][data-theme="dark"] {
   --paper: #211F1B; --ink: #EEE8DC; --pine: #C4A570; --pine-soft: #A98C58;
   --milk: #2B2823; --line: rgba(238,232,220,.12); --accent: #C4A570;
   --bubble-user: #343029; --bubble-ai: #2A2722; --sheet-bg: rgba(14,13,11,.62); --gold: #D0B482;
 }
 html[data-design-theme="warm-paper"][data-theme="light"] {
-  --paper: #F0EADF; --ink: #2D2923; --pine: #8C6E43; --pine-soft: #6F5734;
-  --milk: #FAF6EE; --line: rgba(78,68,56,.14); --accent: #8C6E43;
-  --bubble-user: #E8E0D4; --bubble-ai: #F1EADF; --sheet-bg: rgba(45,41,35,.32); --gold: #A98C58;
+  --paper: #E9E0D0; --ink: #29241D; --pine: #6F532B; --pine-soft: #5C4A32;
+  --milk: #F2EBDF; --line: rgba(70,56,36,.15); --accent: #6F532B;
+  --bubble-user: #DCD0BB; --bubble-ai: #EEE6D9; --sheet-bg: rgba(41,36,29,.32); --gold: #8C6E43;
+  --ok-ink: #22663D; --warn-ink: #6B500C; --err-ink: #923725;
 }
 html[data-design-theme="graphite"][data-theme="dark"] {
   --paper: #15171A; --ink: #E8EAED; --pine: #9AA7B0; --pine-soft: #8B939A;
@@ -3417,9 +3411,10 @@ html[data-design-theme="graphite"][data-theme="dark"] {
   --bubble-user: #23272B; --bubble-ai: #181B1E; --sheet-bg: rgba(10,11,13,.64); --gold: #C3CCD2;
 }
 html[data-design-theme="graphite"][data-theme="light"] {
-  --paper: #F4F5F6; --ink: #26292D; --pine: #3E4A54; --pine-soft: #66727A;
-  --milk: #FBFCFC; --line: rgba(40,45,50,.13); --accent: #3E4A54;
-  --bubble-user: #E9EBED; --bubble-ai: #F1F3F4; --sheet-bg: rgba(38,41,45,.30); --gold: #66727A;
+  --paper: #E1E4E8; --ink: #1E2227; --pine: #323D48; --pine-soft: #515B65;
+  --milk: #ECEEF1; --line: rgba(30,34,39,.14); --accent: #323D48;
+  --bubble-user: #D4D8DE; --bubble-ai: #E7EAED; --sheet-bg: rgba(30,34,39,.30); --gold: #515B65;
+  --ok-ink: #22663D; --warn-ink: #6B500C; --err-ink: #923725;
 }
 html[data-design-theme="ink-ivory"][data-theme="dark"] {
   --paper: #121212; --ink: #EDEDED; --pine: #EDEDED; --pine-soft: #9E9E9E;
@@ -3427,69 +3422,10 @@ html[data-design-theme="ink-ivory"][data-theme="dark"] {
   --bubble-user: #282828; --bubble-ai: #171717; --sheet-bg: rgba(0,0,0,.68); --gold: #EDEDED;
 }
 html[data-design-theme="ink-ivory"][data-theme="light"] {
-  --paper: #FAF7F0; --ink: #1C1C1C; --pine: #1A1A1A; --pine-soft: #66635D;
-  --milk: #FFFFFF; --line: rgba(0,0,0,.12); --accent: #1A1A1A;
-  --bubble-user: #ECE9E2; --bubble-ai: #F5F2EB; --sheet-bg: rgba(28,28,28,.28); --gold: #333333;
-}
-html[data-design-theme="plum-milk"][data-theme="dark"] {
-  --paper: #381932; --ink: #FFF3E6; --pine: #FFF3E6; --pine-soft: #D9B8C9;
-  --milk: #4A2542; --line: rgba(255,243,230,.14); --accent: #FFF3E6;
-  --bubble-user: #5A304F; --bubble-ai: #41203A; --sheet-bg: rgba(35,14,30,.70); --gold: #F1C8D9;
-  /* Status text on these mid-tone backgrounds needs lighter tints. */
-  --err-ink: #E28172;
-}
-html[data-design-theme="plum-milk"][data-theme="light"] {
-  --paper: #FFF3E6; --ink: #381932; --pine: #381932; --pine-soft: #704B67;
-  --milk: #FFF9F2; --line: rgba(56,25,50,.14); --accent: #381932;
-  --bubble-user: #F2DDD4; --bubble-ai: #FFF9F2; --sheet-bg: rgba(56,25,50,.28); --gold: #704B67;
-}
-html[data-design-theme="ocean-ivory"][data-theme="dark"] {
-  --paper: #0B5497; --ink: #FFFEF9; --pine: #FFFEF9; --pine-soft: #B9D4ED;
-  --milk: #1766AA; --line: rgba(255,254,249,.16); --accent: #FFFEF9;
-  --bubble-user: #2878B8; --bubble-ai: #0E5D9F; --sheet-bg: rgba(4,35,68,.70); --gold: #D7E9F8;
-  /* Status text on these mid-tone backgrounds needs lighter tints. */
-  --ok-ink: #CBE9D8; --warn-ink: #EEE1C2; --err-ink: #F7DCD9;
-}
-html[data-design-theme="ocean-ivory"][data-theme="light"] {
-  --paper: #FFFEF9; --ink: #0B5497; --pine: #0B5497; --pine-soft: #477EAF;
-  --milk: #FFFFFF; --line: rgba(11,84,151,.15); --accent: #0B5497;
-  --bubble-user: #DCECF8; --bubble-ai: #F5FAFE; --sheet-bg: rgba(11,84,151,.25); --gold: #477EAF;
-}
-html[data-design-theme="cloud-jet"][data-theme="dark"] {
-  --paper: #312F2C; --ink: #FAFAFA; --pine: #FAFAFA; --pine-soft: #C5C2BE;
-  --milk: #403D39; --line: rgba(250,250,250,.14); --accent: #FAFAFA;
-  --bubble-user: #4D4A46; --bubble-ai: #383633; --sheet-bg: rgba(24,23,21,.70); --gold: #E2DDD7;
-  /* Status text on these mid-tone backgrounds needs lighter tints. */
-  --warn-ink: #CDA447; --err-ink: #E69589;
-}
-html[data-design-theme="cloud-jet"][data-theme="light"] {
-  --paper: #FAFAFA; --ink: #312F2C; --pine: #312F2C; --pine-soft: #6B6863;
-  --milk: #FFFFFF; --line: rgba(49,47,44,.14); --accent: #312F2C;
-  --bubble-user: #E9E8E6; --bubble-ai: #FFFFFF; --sheet-bg: rgba(49,47,44,.24); --gold: #6B6863;
-}
-html[data-design-theme="cloud-smog"][data-theme="dark"] {
-  --paper: #5C636D; --ink: #F4F4F4; --pine: #F4F4F4; --pine-soft: #D0D4D8;
-  --milk: #68717C; --line: rgba(244,244,244,.16); --accent: #F4F4F4;
-  --bubble-user: #747D87; --bubble-ai: #626A74; --sheet-bg: rgba(38,42,47,.68); --gold: #E0E4E7;
-  /* Status text on these mid-tone backgrounds needs lighter tints. */
-  --ok-ink: #F0F9F4; --warn-ink: #FBF7EF; --err-ink: #FDF6F5;
-}
-html[data-design-theme="cloud-smog"][data-theme="light"] {
-  --paper: #F4F4F4; --ink: #5C636D; --pine: #5C636D; --pine-soft: #7D858E;
-  --milk: #FFFFFF; --line: rgba(92,99,109,.16); --accent: #5C636D;
-  --bubble-user: #E1E4E7; --bubble-ai: #FFFFFF; --sheet-bg: rgba(92,99,109,.24); --gold: #7D858E;
-}
-html[data-design-theme="etoile"][data-theme="dark"] {
-  --paper: #082052; --ink: #F8F0E5; --pine: #F8F0E5; --pine-soft: #C9C4C0;
-  --milk: #112E68; --line: rgba(248,240,229,.16); --accent: #F8F0E5;
-  --bubble-user: #1E417C; --bubble-ai: #0D285C; --sheet-bg: rgba(3,14,40,.72); --gold: #E8D8C2;
-  /* Status text on these mid-tone backgrounds needs lighter tints. */
-  --err-ink: #E17F71;
-}
-html[data-design-theme="etoile"][data-theme="light"] {
-  --paper: #F8F0E5; --ink: #082052; --pine: #082052; --pine-soft: #56647E;
-  --milk: #FFFDFC; --line: rgba(8,32,82,.15); --accent: #082052;
-  --bubble-user: #E7E8EF; --bubble-ai: #FFFDFC; --sheet-bg: rgba(8,32,82,.25); --gold: #56647E;
+  --paper: #EAE5DA; --ink: #1B1A18; --pine: #1A1A1A; --pine-soft: #58544C;
+  --milk: #F3EFE6; --line: rgba(27,26,24,.13); --accent: #1A1A1A;
+  --bubble-user: #DED8CB; --bubble-ai: #EEE9DF; --sheet-bg: rgba(27,26,24,.30); --gold: #333333;
+  --ok-ink: #22663D; --warn-ink: #6B500C; --err-ink: #923725;
 }
 
 /* Theme settings: theme cards + adjustable desktop rail. */
@@ -3530,22 +3466,12 @@ html[data-design-theme="etoile"][data-theme="light"] {
 .theme-swatch { flex: 1; display: block; }
 .theme-swatch.light { background: #F3EEE4; }
 .theme-swatch.dark { background: #111A16; }
-[data-theme-swatch="warm-paper"] .theme-swatch.light { background: #F0EADF; }
+[data-theme-swatch="warm-paper"] .theme-swatch.light { background: #E9E0D0; }
 [data-theme-swatch="warm-paper"] .theme-swatch.dark { background: #211F1B; }
-[data-theme-swatch="graphite"] .theme-swatch.light { background: #F4F5F6; }
+[data-theme-swatch="graphite"] .theme-swatch.light { background: #E1E4E8; }
 [data-theme-swatch="graphite"] .theme-swatch.dark { background: #15171A; }
-[data-theme-swatch="ink-ivory"] .theme-swatch.light { background: #FAF7F0; }
+[data-theme-swatch="ink-ivory"] .theme-swatch.light { background: #EAE5DA; }
 [data-theme-swatch="ink-ivory"] .theme-swatch.dark { background: #121212; }
-[data-theme-swatch="plum-milk"] .theme-swatch.light { background: #FFF3E6; }
-[data-theme-swatch="plum-milk"] .theme-swatch.dark { background: #381932; }
-[data-theme-swatch="ocean-ivory"] .theme-swatch.light { background: #FFFEF9; }
-[data-theme-swatch="ocean-ivory"] .theme-swatch.dark { background: #0B5497; }
-[data-theme-swatch="cloud-jet"] .theme-swatch.light { background: #FAFAFA; }
-[data-theme-swatch="cloud-jet"] .theme-swatch.dark { background: #312F2C; }
-[data-theme-swatch="cloud-smog"] .theme-swatch.light { background: #F4F4F4; }
-[data-theme-swatch="cloud-smog"] .theme-swatch.dark { background: #5C636D; }
-[data-theme-swatch="etoile"] .theme-swatch.light { background: #F8F0E5; }
-[data-theme-swatch="etoile"] .theme-swatch.dark { background: #082052; }
 .range-control { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .range-control input { width: 112px; accent-color: var(--accent); }
 .range-control output { min-width: 42px; color: var(--pine-soft); font-size: var(--text-sm); font-variant-numeric: tabular-nums; text-align: right; }
@@ -5818,7 +5744,7 @@ html.reduced-motion .thinking-control.is-dragging .effort-knob { transform: none
   }
 }
 
-/* Design theme: the row shows the current palette; all nine open on demand. */
+/* Design theme: the row shows the current palette; all three open on demand. */
 .settings-theme-row { align-items: center; }
 /* The theme button is drawn as the selects beside it are. */
 .theme-current {

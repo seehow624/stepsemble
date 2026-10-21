@@ -250,22 +250,12 @@ html[data-look="bold"] #view-chat .md-body :is(th, td) { padding: 10px 14px; bor
 html[data-look="bold"] #view-chat .md-body th { background: color-mix(in srgb, var(--ink) 5%, var(--milk)); font-size: var(--text-sm); font-weight: 680; }
 
 /* A user's message: white on a confident colour with a soft lift, never on
-   white. A theme whose accent has a hue lends it, deepened as far as white
-   text needs for 4.5:1; one drawn in ink and paper alone (Ink & Ivory,
-   Graphite, Cloud & Jet, Cloud & Smog) takes a deep blue, as Messages does,
-   a shade brighter on black. Where the dark page is the theme's own colour,
-   the bubble is that colour lifted off it. test/bubble-contrast.test.js
-   holds each to 4.5:1. */
-html[data-look="bold"][data-design-theme="pine-milk"][data-theme="light"] { --bold-bubble: #2F5D43; }
-html[data-look="bold"][data-design-theme="pine-milk"][data-theme="dark"] { --bold-bubble: #40805A; }
+   white. Warm Paper lends its golden brown, deep enough for white text at
+   4.5:1; Ink & Ivory and Graphite, drawn in ink and paper alone, take a deep
+   blue, as Messages does, a shade brighter on black.
+   test/bubble-contrast.test.js holds each to 4.5:1. */
 html[data-look="bold"][data-design-theme="warm-paper"][data-theme="light"] { --bold-bubble: #8C6E43; }
 html[data-look="bold"][data-design-theme="warm-paper"][data-theme="dark"] { --bold-bubble: #8E7041; }
-html[data-look="bold"][data-design-theme="plum-milk"][data-theme="light"] { --bold-bubble: #381932; }
-html[data-look="bold"][data-design-theme="plum-milk"][data-theme="dark"] { --bold-bubble: #9B608F; }
-html[data-look="bold"][data-design-theme="ocean-ivory"][data-theme="light"] { --bold-bubble: #0B5497; }
-html[data-look="bold"][data-design-theme="ocean-ivory"][data-theme="dark"] { --bold-bubble: #2277CA; }
-html[data-look="bold"][data-design-theme="etoile"][data-theme="light"] { --bold-bubble: #082052; }
-html[data-look="bold"][data-design-theme="etoile"][data-theme="dark"] { --bold-bubble: #3C6ED0; }
 html[data-look="bold"] #view-chat .msg.user .bubble { border: 0; border-radius: 24px 24px 8px 24px; background: var(--bold-bubble); color: var(--bold-on-bubble);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 10px 22px -16px color-mix(in srgb, var(--bold-bubble) 85%, #000); }
 html[data-look="bold"][data-theme="dark"] #view-chat .msg.user .bubble { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 12px 26px -16px rgba(0, 0, 0, .8); }

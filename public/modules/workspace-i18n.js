@@ -1942,7 +1942,7 @@
   }
   /* Mirrors app-foundation so the shell renders with the same palette, type
      scale, density and sidebar width the conversation views already use. */
-  const DESIGN_THEME_IDS = new Set(["pine-milk", "warm-paper", "graphite", "ink-ivory", "plum-milk", "ocean-ivory", "cloud-jet", "cloud-smog", "etoile"]);
+  const DESIGN_THEME_IDS = new Set(["warm-paper", "graphite", "ink-ivory"]);
   const DEFAULT_DESIGN_THEME = "ink-ivory";
   function clampNumber(value, fallback, min, max) {
     const number = Number(value);

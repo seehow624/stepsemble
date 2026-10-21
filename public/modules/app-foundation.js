@@ -18,15 +18,9 @@
   const LEGACY_SETTINGS_KEY = LEGACY_SETTINGS_KEYS[0];
   const SETTINGS_VERSION = 3;
   const DESIGN_THEMES = Object.freeze([
-    { id: "pine-milk", label: "Pine Milk" },
     { id: "warm-paper", label: "Warm Paper" },
     { id: "graphite", label: "Graphite" },
     { id: "ink-ivory", label: "Ink & Ivory" },
-    { id: "plum-milk", label: "Plum & Milk" },
-    { id: "ocean-ivory", label: "Ocean & Ivory" },
-    { id: "cloud-jet", label: "Cloud & Jet" },
-    { id: "cloud-smog", label: "Cloud & Smog" },
-    { id: "etoile", label: "Our Étoile" },
   ]);
   const DESIGN_THEME_IDS = new Set(DESIGN_THEMES.map((theme) => theme.id));
   const DEFAULT_SETTINGS = Object.freeze({
@@ -70,9 +64,10 @@
       const raw = v2 || LEGACY_SETTINGS_KEYS.map((key) => global.localStorage.getItem(key)).find(Boolean) || "{}";
       const parsed = JSON.parse(raw);
       const out = { ...DEFAULT_SETTINGS, ...parsed };
-      // Ink & Ivory is the default for anyone who never picked a theme. A saved
-      // choice is always kept, including Pine Milk, which now has its own
-      // palette instead of silently falling back to the default colours.
+      // Ink & Ivory is the default for anyone who never picked a theme, and
+      // for a choice that is no longer offered (Pine Milk, Plum & Milk, Ocean
+      // & Ivory, Cloud & Jet, Cloud & Smog, Our Étoile). The other three are
+      // kept as chosen.
       if (!parsed.designTheme) out.designTheme = DEFAULT_SETTINGS.designTheme;
       out.settingsVersion = SETTINGS_VERSION;
       out.locale = global.stepsembleI18n?.normalizeLocale(out.locale) || "en";
