@@ -47,6 +47,62 @@ async function fixture(t, options = {}) {
   return f;
 }
 
+test("a routed gateway can prepare Claude work without probing a locked native keychain", unix, async t => {
+  let nativeChecks = 0, reachable = true;
+  const nativeStatus = { credential: { state: "unknown", liveVerified: false }, canStart: false, blockedReason: null, login: null };
+  const f = await fixture(t, {
+    authFactory: () => ({ status: async () => { nativeChecks++; return nativeStatus; }, isBusy: () => false, close() {} }),
+    fetchImpl: async () => reachable ? Response.json({ data: [{ id: "claude/fixture" }] }) : Response.json({}, { status: 503 }),
+  });
+  const routing = path.join(f.home, ".config", "stepsemble", "claude-gateway.json");
+  await fs.mkdir(path.dirname(routing), { recursive: true, mode: 0o700 });
+  await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: true, baseUrl: "http://127.0.0.1:3425" }), { mode: 0o600 });
+  const prepareStructured = () => f.raw("structured/prepare", { cwd: f.project, sessionId: null, permissionPromptTool: null, startedAt: Date.now() });
+  assert.equal((await f.raw("task/prepare", f.task())).status, 200);
+  assert.equal((await prepareStructured()).status, 200);
+  assert.equal(nativeChecks, 0, "launch checks never read native sign-in for the opted-in gateway");
+  reachable = false;
+  assert.equal((await prepareStructured()).body.code, "desktop_gateway_unavailable");
+  assert.equal((await f.raw("task/prepare", f.task())).body.code, "desktop_gateway_unavailable");
+  assert.equal(nativeChecks, 0, "an offline gateway must not fall back to native credentials");
+  const lock = await f.client.prepareUpgrade();
+  await assert.rejects(f.client.launchStructured({ cwd: f.project }), /active_tasks/);
+  await f.client.cancelUpgrade(lock.token, lock.instance);
+  await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: false, baseUrl: "http://127.0.0.1:3425" }));
+  assert.equal((await prepareStructured()).body.code, "desktop_sign_in_required");
+  assert.equal(nativeChecks, 1, "direct Claude still requires its native authentication");
+  assert.equal((await f.client.status()).credential.state, "unknown", "gateway availability is not native authentication proof");
+});
+
+test("a changed gateway route rejects a prepared task without leaving an uncertain launch", unix, async t => {
+  let launches = 0;
+  const f = await fixture(t, { fetchImpl: async () => Response.json({ data: [{ id: "fixture" }] }), launch: async () => { launches++; throw new Error("must not launch"); } });
+  const routing = path.join(f.home, ".config", "stepsemble", "claude-gateway.json");
+  await fs.mkdir(path.dirname(routing), { recursive: true, mode: 0o700 });
+  await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: true, baseUrl: "http://127.0.0.1:3425" }));
+  const ticket = (await f.raw("task/prepare", f.task())).body;
+  const rename = fs.rename;
+  let changed = false;
+  fs.rename = async (source, destination) => {
+    const result = await rename(source, destination);
+    if (!changed && destination === f.helper.paths.state) {
+      changed = true;
+      await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: false, baseUrl: "http://127.0.0.1:3425" }));
+    }
+    return result;
+  };
+  let result;
+  try { result = await f.raw("task/launch", ticket); } finally { fs.rename = rename; }
+  assert.equal(changed, true);
+  assert.equal(result.body.code, "stale_intent");
+  assert.equal(result.body.uncertain, false);
+  assert.equal(launches, 0);
+  assert.deepEqual(JSON.parse(await fs.readFile(f.helper.paths.state, "utf8")).launches, []);
+  assert.equal((await f.client.status()).credential.state, "detected");
+  await f.restart();
+  assert.equal((await f.client.status()).credential.state, "detected");
+});
+
 test("desktop broker rejects non-Aqua context before reading state or starting a child", async () => {
   await assert.rejects(createDesktopHelper({ contextCheck: async () => false }), /desktop_required/);
 });
@@ -193,3 +249,24 @@ test("the desktop terminal runs only Claude's fixed auth commands and pauses tas
   assert.match(text, /synthetic Claude account/);
 });
 
+
+test("Aqua quota IPC is authenticated metadata-only and does not block the launch admission lane", unix, async t => {
+  let release, started = false;
+  const f = await fixture(t, { readQuotaToken: async () => "quota-secret",
+    fetchImpl: async url => {
+      if (url.endsWith("usage")) { started = true; await new Promise(resolve => { release = resolve; }); }
+      return Response.json(url.endsWith("profile") ? { account: { uuid: "11111111-1111-4111-8111-111111111111", email: "private@example.test" } }
+        : { five_hour: { utilization: 12 }, seven_day: { utilization: 56 } });
+    } });
+  assert.equal((await f.client.health()).quotaVersion, 1); assert.equal(await f.client.quotaSupported(), true);
+  assert.equal((await f.raw("quota", {}, { authorization: "Bearer " + "a".repeat(64) })).status, 403);
+  assert.equal((await f.raw("quota", { url: "https://evil.test" })).status, 409);
+  const pending = f.client.quota();
+  await until(() => started);
+  try {
+    const prepare = await Promise.race([f.raw("task/prepare", f.task()), sleep(2000).then(() => { throw new Error("quota blocked launch lane"); })]);
+    assert.equal(prepare.status, 200);
+  } finally { release(); }
+  const result = await pending; assert.equal(result.status, "ready"); assert.equal(result.windows[0].usedPercent, 12);
+  assert(!/quota-secret|private|11111111/.test(JSON.stringify(result)));
+});

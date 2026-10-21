@@ -10,6 +10,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { boundedJson } = require("./provider-live-catalog");
 
 const VERSION = 1;
 
@@ -49,6 +50,28 @@ function readClaudeSessionRouting(home) {
   }
 }
 
+// A person opted these sessions into a local gateway. Its model endpoint is
+// a readiness check, NOT proof of provider authentication. The CLI still owns
+// its settings and credentials; no key is read, copied or sent by this probe.
+// An unavailable gateway must never silently select native subscription auth.
+async function claudeGatewayReadiness(home, { fetchImpl = globalThis.fetch, timeoutMs = 2500 } = {}) {
+  const routing = readClaudeSessionRouting(home);
+  if (!routing.enabled) return null;
+  try {
+    const origin = new URL(routing.baseUrl);
+    if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") return { ready: false };
+    const response = await fetchImpl(origin.origin + "/v1/models", {
+      signal: AbortSignal.timeout(timeoutMs), redirect: "error", headers: { accept: "application/json" },
+    });
+    if (!response.ok) { await response.body?.cancel?.().catch(() => {}); return { ready: false }; }
+    const value = await boundedJson(response);
+    const current = readClaudeSessionRouting(home);
+    return { ready: current.enabled && current.baseUrl === routing.baseUrl
+      && Array.isArray(value?.data) && value.data.length > 0 && value.data.length <= 10000
+      && value.data.every(row => typeof row?.id === "string" && row.id.length > 0 && row.id.length <= 256) };
+  } catch { return { ready: false }; }
+}
+
 function claudeSessionEnvOverrides(home) {
   const routing = readClaudeSessionRouting(home);
   if (!routing.enabled) return {};
@@ -65,5 +88,6 @@ module.exports = {
   readClaudeSessionRouting,
   claudeSessionEnvOverrides,
   isLoopbackGatewayUrl,
+  claudeGatewayReadiness,
   VERSION,
 };

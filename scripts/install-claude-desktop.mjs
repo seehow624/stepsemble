@@ -26,7 +26,7 @@ const SAFE_UPGRADE_CODES = new Set([
   "upgrade_helper_unavailable", "upgrade_helper_recovery_required", "upgrade_active_login",
   "upgrade_active_tasks", "upgrade_active_structured", "upgrade_structured_stream_unsupported",
   "upgrade_launchctl", "upgrade_stage_failed", "upgrade_plist_failed", "upgrade_bootstrap_failed",
-  "upgrade_verify_failed", "upgrade_rollback_failed", "upgrade_failed", "upgrade_terminal_unsupported",
+  "upgrade_verify_failed", "upgrade_rollback_failed", "upgrade_failed", "upgrade_terminal_unsupported", "upgrade_quota_unsupported",
 ]);
 
 const xml = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char]);
@@ -176,7 +176,8 @@ export function validateUpgradePreflight({ status, health, allowMaintenance = fa
   if (typeof status.instance !== "string" || !state.UUID.test(status.instance) || typeof health.instance !== "string" || !state.UUID.test(health.instance) || status.instance !== health.instance) throw upgradeError("upgrade_helper_unavailable");
   if (!isRecord(status.credential) || typeof status.credential.state !== "string" || !status.credential.state || status.credential.liveVerified !== false) throw upgradeError("upgrade_helper_unavailable");
   if (!["detected", "signed_out", "other_auth"].includes(status.credential.state)) throw upgradeError("upgrade_helper_unavailable");
-  if (!allowMaintenance && status.canStart !== true) throw upgradeError("upgrade_active_tasks");
+  if (status.canStart !== true && !(allowMaintenance && status.credential.state !== "other_auth")
+    && !state.canMaintainOtherAuth(status, health, { leased: allowMaintenance })) throw upgradeError("upgrade_active_tasks");
   validateLogin(status);
   rejectBusyFields(status, "status", { allowMaintenance });
   rejectBusyFields(health, "health", { allowMaintenance });
@@ -194,6 +195,7 @@ export function validateUpgradedHelper({ status, health } = {}) {
   const result = validateUpgradePreflight({ status, health });
   if (health.structuredStreamVersion !== STRUCTURED_STREAM_VERSION) throw upgradeError("upgrade_structured_stream_unsupported");
   if (health.terminalVersion !== TERMINAL_VERSION) throw upgradeError("upgrade_terminal_unsupported");
+  if (health.quotaVersion !== 1) throw upgradeError("upgrade_quota_unsupported");
   if (!own(health, "activeStructured") || health.activeStructured !== 0) throw upgradeError("upgrade_active_structured");
   return result;
 }
@@ -360,8 +362,9 @@ async function prepareMaintenance(client, health) {
   if (health?.maintenanceVersion !== 1 || typeof client?.prepareUpgrade !== "function") return null;
   let lock;
   try { lock = await client.prepareUpgrade(); } catch (error) { throw upgradeError("upgrade_active_tasks", { cause: error }); }
-  if (!isRecord(lock) || typeof lock.token !== "string" || !lock.token || typeof lock.instance !== "string" || !state.UUID.test(lock.instance)) throw upgradeError("upgrade_helper_recovery_required");
-  return { token: lock.token, instance: lock.instance };
+  if (!isRecord(lock) || lock.maintenanceVersion !== 1 || !state.UUID.test(lock.token) || lock.instance !== health.instance
+    || !Number.isSafeInteger(lock.expiresAt) || lock.expiresAt < Date.now() + 5000 || lock.expiresAt > Date.now() + 60000) throw upgradeError("upgrade_helper_recovery_required");
+  return { token: lock.token, instance: lock.instance, expiresAt: lock.expiresAt };
 }
 
 async function cancelMaintenance(client, lock) {
@@ -467,12 +470,14 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
     // New helpers provide a short owner-only maintenance lease. Acquire it
     // only after staging (so its bounded TTL covers the destructive window).
     // v1 helpers have no lease; the repeated read below is their last fence.
-    const maintenanceHealth = (await oldState(oldClient)).health;
-    maintenance = await prepareMaintenance(oldClient, maintenanceHealth);
+    const maintenanceState = await oldState(oldClient);
+    maintenance = await prepareMaintenance(oldClient, maintenanceState.health);
+    if (maintenanceState.status.canStart === false && !maintenance) throw upgradeError("upgrade_active_tasks");
     // Re-read immediately before the only destructive operation. The Web
     // maintenance barrier and lease close the normal race; this second read
     // handles a legacy v1 helper which has no maintenance lock of its own.
-    await oldState(oldClient, { allowMaintenance: maintenance !== null });
+    const finalState = await oldState(oldClient, { allowMaintenance: maintenance !== null });
+    if (maintenance && (finalState.health.instance !== maintenance.instance || finalState.health.maintenance?.active !== true)) throw upgradeError("upgrade_helper_recovery_required");
     // Config, IPC key and the verified old plist are immutable inputs. If a
     // concurrent updater changes any of them, abort before bootout rather than
     // replacing a file whose provenance is no longer the one we checked.
@@ -482,6 +487,7 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
       || !oldPlistBytes.equals(await fs.readFile(plistFile))) throw upgradeError("upgrade_invalid_installation");
     const priorService = await servicePrint(`gui/${uid}/${label}`, runImpl);
     const priorPid = Number(priorService?.stdout?.match(/^\s*pid = (\d+)\s*$/m)?.[1]) || null;
+    if (maintenance && maintenance.expiresAt < Date.now() + 5000) throw upgradeError("upgrade_active_tasks");
     await launchctl("bootout", [`gui/${uid}/${label}`], runImpl); bootedOut = true;
     await waitForServiceRemoval(`gui/${uid}/${label}`, runImpl, priorPid);
     oldClient.close(); oldClient = null;

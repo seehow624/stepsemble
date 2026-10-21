@@ -32,7 +32,7 @@ async function fixture(t, options = {}) {
   await fs.writeFile(command, `#!/bin/sh\nexec "${process.execPath}" "${path.resolve(__dirname, "../test-support/desktop-claude-structured-peer.cjs")}" "$@"\n`, { mode: 0o700 });
   const env = { HOME: home, DESKTOP_FIXTURE_HOME: home, DESKTOP_FIXTURE_CONTEXT: "aqua", DESKTOP_STRUCTURED_MARKER: "structured-aqua",
     PATH: [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter), ...(options.immediateExit ? { DESKTOP_STRUCTURED_EXIT_IMMEDIATELY: "1" } : {}) };
-  const helper = await createDesktopHelper({ home, configDir, claudeCommand: command, roots: [project], env, contextCheck: async () => true });
+  const helper = await createDesktopHelper({ home, configDir, claudeCommand: command, roots: [project], env, contextCheck: async () => true, ...options.helper });
   await helper.start();
   const client = createDesktopClaudeClient({ configDir });
   t.after(async () => {
@@ -96,6 +96,38 @@ test("Aqua structured upgrade uses fixed helper environment and full adapter con
   const health = await f.client.health();
   assert.equal(health.structuredStreamVersion, 1);
   assert.equal(health.activeStructured, 0);
+});
+
+test("a gateway-backed structured conversation sends and replies without native authentication", unix, async t => {
+  const f = await fixture(t, { helper: {
+    authFactory: () => ({ status: async () => { assert.fail("native keychain must not be queried"); }, isBusy: () => false, close() {} }),
+    fetchImpl: async () => Response.json({ data: [{ id: "fixture" }] }),
+  } });
+  const routing = path.join(f.home, ".config", "stepsemble", "claude-gateway.json");
+  await fs.mkdir(path.dirname(routing), { recursive: true, mode: 0o700 });
+  await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: true, baseUrl: "http://127.0.0.1:3425" }));
+  const stale = (await rawPrepare(f)).value;
+  await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: false, baseUrl: "http://127.0.0.1:3425" }));
+  const key = await fs.readFile(desktopPaths(f.configDir).key, "utf8");
+  const rejection = await new Promise((resolve, reject) => {
+    const req = http.request({ socketPath: f.helper.paths.socket, method: "GET", path: "/v1/structured/stream", headers: {
+      authorization: `Bearer ${key}`, connection: "Upgrade", upgrade: "stepsemble-structured-v1",
+      "x-stepsemble-ticket": stale.ticket, "x-stepsemble-instance": stale.instance,
+    } });
+    req.on("response", response => { let text = ""; response.on("data", chunk => { text += chunk; }); response.on("end", () => resolve(JSON.parse(text))); });
+    req.on("upgrade", (_response, socket) => { socket.destroy(); reject(new Error("stale route launched a child")); });
+    req.on("error", reject); req.end();
+  });
+  assert.equal(rejection.code, "stale_intent");
+  assert.equal((await f.client.health()).activeStructured, 0);
+  await fs.writeFile(routing, JSON.stringify({ version: 1, enabled: true, baseUrl: "http://127.0.0.1:3425" }));
+  const child = await f.client.launchStructured({ cwd: f.project });
+  const session = createClaudeStructuredSession({ command: f.command, cwd: f.project, spawnImpl: () => child, requestTimeoutMs: 1000 });
+  t.after(() => session.close());
+  await session.models();
+  assert.equal((await session.send("gateway regression")).kind, "sent");
+  await until(() => session.text().includes("fixture:gateway regression"));
+  assert.equal((await session.close()).cleanupConfirmed, true);
 });
 
 test("a branch reaches Claude through the helper: the conversation resumed as a new one up to the entry", unix, async t => {

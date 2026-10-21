@@ -69,3 +69,51 @@ test("OpenCodex Claude quota uses a bound per-account reading; old or mismatched
   assert(!JSON.stringify(result).includes("private-")); assert.equal(result[1].accountKey, undefined);
   await write("rotated"); assert.equal((await read())[0].accountKey, undefined);
 });
+
+test("two Hosts with the same official Claude UUID select the freshest complete native sample, not totals", () => {
+  const key = accountKey("claude", "11111111-1111-4111-8111-111111111111");
+  const mini = host("mini", key, 20, 900, { sampledAt: 100, source: "native", windows: [{ usedPercent: 20, windowDurationMins: 300 }, { usedPercent: 35, windowDurationMins: 10080 }] });
+  const mbp = host("mbp", key, 21, 800, { sampledAt: 200, source: "native", windows: [{ usedPercent: 21, windowDurationMins: 300 }, { usedPercent: 39, windowDurationMins: 10080 }] });
+  const result = combineQuotas([mini, mbp]); assert.equal(result.length, 1);
+  assert.deepEqual(result[0].windows.map(w => w.usedPercent), [21, 39]); assert.equal(result[0].hosts.length, 2);
+  const cached = host("cache", key, 99, 1000, { sampledAt: 1000, status: "cached" });
+  assert.deepEqual(combineQuotas([cached, mini, mbp])[0].windows.map(w => w.usedPercent), [21, 39]);
+  mbp.unavailable = true;
+  assert.deepEqual(combineQuotas([mini, mbp])[0].windows.map(w => w.usedPercent), [20, 35]);
+  const changed = host("mbp", accountKey("claude", "22222222-2222-4222-8222-222222222222"), 20);
+  assert.equal(combineQuotas([mini, changed]).length, 2);
+  const emailDerived = host("magpie", accountKey("claude", "private@example.test", "email"), 20);
+  assert.equal(combineQuotas([mini, emailDerived]).length, 2, "email and UUID are not verified aliases");
+});
+
+test("official UUID profile email alias merges native and Magpie across Hosts using freshest complete sample", () => {
+  const uuid = accountKey("claude", "11111111-1111-4111-8111-111111111111");
+  const email = accountKey("claude", "private@example.test", "email");
+  const native = host("mini", uuid, 23, 100, { source: "native", accountAliases: [email], sampledAt: 100,
+    windows: [{ usedPercent: 23, windowDurationMins: 300 }, { usedPercent: 47, windowDurationMins: 10080 }] });
+  const magpie = host("mbp", email, 24, 200, { source: "magpie", sampledAt: 200,
+    windows: [{ usedPercent: 24, windowDurationMins: 300 }, { usedPercent: 48, windowDurationMins: 10080 }] });
+  for (const rows of [[native, magpie], [magpie, native]]) {
+    const combined = combineQuotas(rows); assert.equal(combined.length, 1); assert.equal(combined[0].accountKey, uuid);
+    assert.deepEqual(combined[0].windows.map(w => w.usedPercent), [24, 48]); assert.equal(combined[0].hosts.length, 2);
+  }
+  assert.equal(magpie.quota.providers[0].accountKey, email, "inputs remain unchanged");
+  magpie.unavailable = true;
+  assert.deepEqual(combineQuotas([native, magpie])[0].windows.map(w => w.usedPercent), [23, 47]);
+  delete magpie.unavailable; magpie.quota.providers[0].status = "cached";
+  assert.deepEqual(combineQuotas([native, magpie])[0].windows.map(w => w.usedPercent), [23, 47]);
+});
+test("conflicting UUID aliases, unverified claims and unknown CLI identities never bind an email-only reading", () => {
+  const a = accountKey("claude", "uuid-a"), b = accountKey("claude", "uuid-b"), alias = accountKey("claude", "private@example.test", "email");
+  const magpie = host("mbp", alias, 20, 10, { source: "magpie" });
+  const native = extra => host("mini", a, 20, 9, { source: "native", accountAliases: [alias], ...extra });
+  const conflicting = host("other", b, 20, 8, { source: "native", accountAliases: [alias], status: "cached" });
+  assert.equal(combineQuotas([native(), conflicting, magpie]).length, 3, "two UUID claimants make the alias ambiguous");
+  assert.equal(combineQuotas([native(), host("same-uuid", a, 20, 8, { source: "native", accountAliases: [alias] }), magpie]).length, 1);
+  for (const extra of [{ accountKey: null }, { source: "magpie" }, { source: "signin" }, { accountAliases: ["invalid"] },
+    { accountAliases: [alias, "v1:" + "c".repeat(64)] }, { windows: [] }, { status: "unavailable" }]) {
+    assert.equal(combineQuotas([native(extra), magpie]).length, 2);
+  }
+  const anonymous = host("cli-cache", null, 20, 1, { source: "native", status: "cached", accountAliases: [alias] });
+  assert.equal(combineQuotas([native(), magpie, anonymous]).length, 2, "anonymous cache remains unbound even alongside verified evidence");
+});

@@ -1,5 +1,20 @@
 # macOS Claude 桌面執行元件
 
+## 配額唯讀能力（`quotaVersion: 1`）
+
+health／status 的 `quotaVersion: 1` 表示支援 owner-only IPC `POST /v1/quota`（只接受空物件）。
+助手在 Aqua 以既有固定 `/usr/bin/security` reader 讀取 Claude 原生 Keychain；不回退到可能屬於舊帳號的
+legacy credentials 檔。只 GET 官方 OAuth `/usage`、`/profile` metadata，不 refresh、不寫憑證、不送模型請求。
+回應只保留已驗證的配額視窗、採樣時間、由官方帳號 UUID 雜湊得到的 opaque accountKey，
+以及同一官方 profile 的 `account.email` 所驗證的一個 opaque alias；沒有 token、email 原文或 raw profile。
+跨 Host 只有唯一 native UUID 驗證該 alias 時才可合併 Magpie 的 email-kind key；多 UUID 衝突、匿名及未知身份維持分開。
+請求合併、至少間隔 15 秒；每個回應最多 64 KiB、整體 deadline 12 秒，不允許 redirect，且回傳前重讀 token 防止切換帳號誤標。
+失敗時只保留同 token 的明確 cached snapshot；身份無法確認時 unavailable，CLI 的匿名快取永遠不附加目前身份。
+Quota 不佔用 auth/task serial admission lane。舊助手回 unsupported；新能力列入既有 idle 升級偵測，沒有自動安裝的新增入口。
+已知 `other_auth` 的 `canStart: false` 只代表不能原生登入；僅在明確無登入／工作且有 maintenance v1 的情況可進入升級，
+實際 bootout 前仍必須取得同 instance、至少剩 5 秒的有效 maintenance lease；unknown、busy、recovery 不放寬。
+
+
 > 3.6.0（2026-09-25）：health／status 另外回報 `bypassVersion: 1`，表示助手啟動 Claude Code
 > 時，會替列出 `--allow-dangerously-skip-permissions` 的 CLI 加上這個選項，讓對話之後能切換到
 > 略過權限（Bypass permissions）；對話仍以 Claude 自己設定的模式開始。沒有這個欄位的舊助手

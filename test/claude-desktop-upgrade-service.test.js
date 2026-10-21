@@ -6,13 +6,13 @@ function fixture(extra = {}) {
   const status = { context: "Aqua", instance: "same-helper", credential: { state: "signed_out" }, canStart: true };
   const health = { context: "Aqua", instance: "same-helper" };
   const service = createClaudeDesktopUpgradeService({ platform: "darwin",
-    desktopClient: { status: async () => status, health: async () => ({ ...health, ...(upgraded ? { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 } : {}) }) },
+    desktopClient: { status: async () => status, health: async () => ({ ...health, ...(upgraded ? { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 } : {}) }) },
     runUpgrade: async () => { attempts++; upgraded = true; }, ...extra });
   return { service, status, health, attempts: () => attempts };
 }
 test("explicit helper repair accepts signed-out metadata without starting a login", async () => {
   const f = fixture();
-  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, rootsAdded: 0, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 });
+  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, rootsAdded: 0, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
   assert.equal(f.attempts(), 1); assert.equal(f.service.isRunning(), false);
   assert.equal((await f.service.upgrade({ confirm: true })).upgraded, false);
   assert.equal(f.attempts(), 1);
@@ -21,7 +21,7 @@ test("a helper without Bypass permissions is updated and a current helper is lef
   const withoutBypass = fixture(); Object.assign(withoutBypass.health, { structuredStreamVersion: 1, terminalVersion: 1 });
   assert.equal((await withoutBypass.service.upgrade({ confirm: true })).upgraded, true);
   assert.equal(withoutBypass.attempts(), 1);
-  const current = fixture(); Object.assign(current.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 });
+  const current = fixture(); Object.assign(current.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
   assert.equal((await current.service.upgrade({ confirm: true })).upgraded, false);
   assert.equal(current.attempts(), 0);
 });
@@ -105,7 +105,7 @@ test("a current helper without a folder this Host allows is installed again with
   let held = [home], received = null;
   const f = fixture({ helperRoots: () => held, wantedRoots: () => [home, volumes],
     runUpgrade: async roots => { received = roots; held = [...held, ...roots]; } });
-  Object.assign(f.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 });
+  Object.assign(f.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
   assert.deepEqual(f.service.missingRoots(), [volumes]);
   const result = await f.service.upgrade({ confirm: true });
   assert.deepEqual(received, [volumes]);
@@ -117,7 +117,7 @@ test("a current helper without a folder this Host allows is installed again with
   assert.equal(received, null);
   // An installer that did not add the folder is not reported as done.
   const stuck = fixture({ helperRoots: () => [home], wantedRoots: () => [volumes], runUpgrade: async () => {} });
-  Object.assign(stuck.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 });
+  Object.assign(stuck.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
   await assert.rejects(stuck.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
 });
 
@@ -191,4 +191,41 @@ test("a helper with room for four working conversations is updated, and must hav
   });
   await auto.run();
   assert.equal(upgrades, 1, "Stepsemble's update brings the helper up to date");
+});
+
+test("helpers missing only the read-only quota feature are upgraded only when idle and must advertise it afterwards", async () => {
+  const current = { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 };
+  const old = fixture(); Object.assign(old.health, current);
+  assert.equal((await old.service.upgrade({ confirm: true })).upgraded, true);
+  assert.equal(old.attempts(), 1);
+  const busy = fixture({ isBusy: () => true }); Object.assign(busy.health, current);
+  await assert.rejects(busy.service.upgrade({ confirm: true }), /active_tasks/); assert.equal(busy.attempts(), 0);
+  const stuck = fixture({ runUpgrade: async () => {} }); Object.assign(stuck.health, current);
+  await assert.rejects(stuck.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
+  const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
+  let upgrades = 0;
+  const auto = createClaudeHelperAutoUpdate({ desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true,
+    forkSupported: async () => true, pinnedSupported: async () => true, capacitySupported: async () => true, quotaSupported: async () => false },
+    upgradeService: { upgrade: async () => { upgrades++; } } });
+  await auto.run(); assert.equal(upgrades, 1);
+});
+
+test("other_auth login unavailability is not activity only with explicit lease-capable idle metadata", async () => {
+  const instance = "11111111-1111-4111-8111-111111111111";
+  const metadata = { version: 1, context: "Aqua", instance, activeStructured: 0, maintenanceVersion: 1, maintenance: { active: false, expiresAt: null } };
+  const current = { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 };
+  const prepare = () => {
+    const f = fixture(); Object.assign(f.status, metadata, { credential: { state: "other_auth", liveVerified: false }, canStart: false, blockedReason: null, login: null });
+    Object.assign(f.health, metadata, current); return f;
+  };
+  const idle = prepare(); assert.equal((await idle.service.upgrade({ confirm: true })).upgraded, true); assert.equal(idle.attempts(), 1);
+  for (const mutate of [
+    f => { delete f.health.maintenanceVersion; }, f => { delete f.status.maintenanceVersion; },
+    f => { f.status.credential.state = "unknown"; }, f => { f.status.blockedReason = "active_tasks"; },
+    f => { f.status.login = { state: "waiting" }; }, f => { f.health.activeStructured = 1; },
+    f => { delete f.status.activeStructured; }, f => { f.health.maintenance = { active: true }; },
+    f => { f.status.uncertain = true; },
+  ]) {
+    const f = prepare(); mutate(f); await assert.rejects(f.service.upgrade({ confirm: true })); assert.equal(f.attempts(), 0);
+  }
 });
