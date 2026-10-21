@@ -47,16 +47,42 @@ test("every badge uses only inert, local, offline-cached SVG assets", () => {
   const assets = [...new Set([...css.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]))];
   assert.equal(assets.length, 12);
   for (const asset of assets) {
-    assert.match(asset, /^\/agent-logos\/v1\/[a-z]+\.svg$/);
+    assert.match(asset, /^\/agent-logos\/v2\/[a-z-]+\.svg$/);
     const svg = read(asset.slice(1));
     assert.match(svg, /<svg\b/);
-    assert.doesNotMatch(svg, /<(?:script|foreignObject|image|use|a)\b|\son\w+=|(?:href|src)=|url\(/i);
+    // A colour mark may point at its own gradient, mask or filter (url(#id)),
+    // never at anything outside the file.
+    assert.doesNotMatch(svg, /<(?:script|foreignObject|image|use|a|style)\b|\son\w+=|(?:href|src)=|url\((?!#)/i);
     assert.ok(worker.includes(JSON.stringify(asset)), `${asset} must be cached`);
   }
-  assert.notEqual(read("agent-logos/v1/codex.svg"), read("agent-logos/v1/openai.svg"));
+  assert.notEqual(read("agent-logos/v2/codex.svg"), read("agent-logos/v2/openai.svg"));
   for (const file of ["modules/agent-identity.js", "modules/agent-identity.css"]) {
     assert.ok(worker.includes(`/${file}?v=`)); assert.ok(read("index.html").includes(`/${file}?v=`));
   }
+});
+test("a mark keeps its own colours in light and dark: the theme never tints it", () => {
+  const css = read("modules/agent-identity.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const assets = [...new Set([...css.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]))];
+  for (const asset of assets) {
+    const svg = read(asset.slice(1));
+    assert.doesNotMatch(svg, /currentColor|prefers-color-scheme/i, `${asset} draws in fixed colours`);
+    assert.match(svg, /fill="#|stroke="#|stop-color="#/i, `${asset} names its colours`);
+  }
+  const marks = css.split("\n").filter(line => line.includes(".agent-logo")).join("\n");
+  assert.doesNotMatch(css, /mask|currentColor|data-theme/, "no mask or theme rule draws a mark");
+  assert.doesNotMatch(marks, /var\(--(?:ink|text|pine|accent|paper|milk)/, "no theme colour draws a mark");
+  assert.doesNotMatch(css, /\.agent-logo\[data-agent-id="[\w-]+"\][^{]*\{[^}]*\bcolor:/, "no mark is coloured by the text colour");
+  // Provider marks in the limits capsule and sheet follow the same rule.
+  const workspace = read("modules/workspace.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const provider = workspace.split("\n").filter(line => line.includes(".workspace-provider-logo") && !line.includes(".workspace-limit") && !line.includes(".usage-")).join("\n");
+  assert.doesNotMatch(provider, /mask|currentColor|color:\s*var\(--/, "provider marks are drawn as images");
+  for (const [logo, file] of [["codex", "codex.svg"], ["openai", "openai.svg"], ["claude", "claude.svg"], ["opencode", "opencode.svg"], ["grok", "grok.svg"], ["minimax", "minimax.png"]])
+    assert.ok(provider.includes(`[data-logo="${logo}"] { --workspace-provider-mark: url("/agent-logos/v2/${file}"); }`), logo);
+  assert.match(read("modules/workspace.js"), /logo\.dataset\.logo = value\.includes\("codex"\) \? "codex" : value\.includes\("openai"\) \? "openai"/, "Codex limits show the Codex mark");
+});
+test("clients from before v2 still find their v1 marks", () => {
+  for (const file of ["pi", "claude", "codex", "opencode", "grok", "antigravity", "cline", "kilo", "hermes", "omp", "openai", "agent"]) assert.match(read(`agent-logos/v1/${file}.svg`), /<svg\b/);
+  assert.ok(fs.existsSync(path.join(root, "agent-logos/v1/minimax.png")));
 });
 test("chat identity changes and clearing do not alter the conversation title", () => {
   const source = read("app.js");

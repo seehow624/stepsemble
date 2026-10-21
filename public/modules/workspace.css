@@ -415,13 +415,17 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
 .workspace-limit-period { color: var(--pine-soft); font-size: var(--text-2xs); }
 .workspace-limit-alert[data-stale=true] .workspace-limit-period { text-decoration: underline dotted; text-underline-offset: 3px; }
 .workspace-limits-compact .workspace-limit-period { display: none; }
-.workspace-provider-logo { width: 16px; height: 16px; flex: 0 0 16px; display: grid; place-items: center; color: var(--ink); font-size: .56rem; font-weight: 800; }
-.workspace-provider-logo::before { content: ""; width: 100%; height: 100%; background: currentColor; -webkit-mask: var(--workspace-provider-mark) center / contain no-repeat; mask: var(--workspace-provider-mark) center / contain no-repeat; }
-.workspace-provider-logo[data-logo="openai"] { --workspace-provider-mark: url("/agent-logos/v1/openai.svg"); }
-.workspace-provider-logo[data-logo="claude"] { --workspace-provider-mark: url("/agent-logos/v1/claude.svg"); color: #c66b45; }
-.workspace-provider-logo[data-logo="opencode"] { --workspace-provider-mark: url("/agent-logos/v1/opencode.svg"); }
-.workspace-provider-logo[data-logo="grok"] { --workspace-provider-mark: url("/agent-logos/v1/grok.svg"); }
-.workspace-provider-logo[data-logo="minimax"]::before { background: url("/agent-logos/v1/minimax.png") center / contain no-repeat; -webkit-mask: none; mask: none; }
+/* A provider's own mark in its own colours, the same in light and dark (see
+   agent-identity.css); an app icon fills the space, cut to its corners. */
+.workspace-provider-logo { width: 16px; height: 16px; flex: 0 0 16px; display: grid; place-items: center; font-size: .56rem; font-weight: 800; }
+.workspace-provider-logo::before { content: ""; width: 100%; height: 100%; background: var(--workspace-provider-mark) center / contain no-repeat; }
+.workspace-provider-logo:is([data-logo="codex"], [data-logo="openai"], [data-logo="opencode"], [data-logo="grok"], [data-logo="minimax"])::before { border-radius: 26%; background-size: cover; box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .3); }
+.workspace-provider-logo[data-logo="codex"] { --workspace-provider-mark: url("/agent-logos/v2/codex.svg"); }
+.workspace-provider-logo[data-logo="openai"] { --workspace-provider-mark: url("/agent-logos/v2/openai.svg"); }
+.workspace-provider-logo[data-logo="claude"] { --workspace-provider-mark: url("/agent-logos/v2/claude.svg"); }
+.workspace-provider-logo[data-logo="opencode"] { --workspace-provider-mark: url("/agent-logos/v2/opencode.svg"); }
+.workspace-provider-logo[data-logo="grok"] { --workspace-provider-mark: url("/agent-logos/v2/grok.svg"); }
+.workspace-provider-logo[data-logo="minimax"] { --workspace-provider-mark: url("/agent-logos/v2/minimax.png"); }
 .workspace-provider-logo[data-logo="unknown"]::before { display: none; }
 /* Hovering a provider answers the follow-up questions in place: which window,
    how long until it resets, and the exact local time that happens. */

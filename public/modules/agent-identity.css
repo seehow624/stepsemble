@@ -1,4 +1,6 @@
-/* Fixed local masks: no model metadata, remote requests, or layout shifts. */
+/* Each agent's own mark in its own colours, from local files: the same in
+   light and dark, never tinted by the theme. An app icon brings its tile and
+   fills the badge; a mark without one stands on the page. */
 .agent-logo {
   position: relative;
   display: inline-flex;
@@ -8,32 +10,38 @@
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: var(--text, currentColor);
-  background: color-mix(in srgb, currentColor 6%, transparent);
   vertical-align: middle;
 }
 .agent-logo-mark {
   display: block;
   width: 20px;
   height: 20px;
-  background: currentColor;
-  -webkit-mask: var(--agent-mark) center / contain no-repeat;
-  mask: var(--agent-mark) center / contain no-repeat;
+  background: var(--agent-mark) center / contain no-repeat;
 }
-.agent-logo[data-agent-id="pi"] { --agent-mark: url("/agent-logos/v1/pi.svg"); }
+.agent-logo:is([data-agent-id="codex"], [data-agent-id="opencode"], [data-agent-id="grok-build"], [data-agent-id="cline"], [data-agent-id="kilo"],
+  [data-agent-id="hermes"], [data-agent-id="omp"], [data-agent-id="gpt"], [data-agent-id="chatgpt"]) .agent-logo-mark {
+  width: 100%;
+  height: 100%;
+  border-radius: 26%;
+  background-size: cover;
+  /* One fixed hairline, as an app icon has: a dark tile keeps its edge on
+     black, a white one on white. */
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .3);
+}
+.agent-logo[data-agent-id="pi"] { --agent-mark: url("/agent-logos/v2/pi.svg"); }
 /* Pi's official artwork includes a generous square canvas. */
-.agent-logo[data-agent-id="pi"] .agent-logo-mark { -webkit-mask-size: 160%; mask-size: 160%; }
-.agent-logo[data-agent-id="claude-code"] { --agent-mark: url("/agent-logos/v1/claude.svg"); color: #c66b45; }
-.agent-logo[data-agent-id="codex"] { --agent-mark: url("/agent-logos/v1/codex.svg"); }
-.agent-logo[data-agent-id="opencode"] { --agent-mark: url("/agent-logos/v1/opencode.svg"); }
-.agent-logo[data-agent-id="grok-build"] { --agent-mark: url("/agent-logos/v1/grok.svg"); }
-.agent-logo[data-agent-id="antigravity"] { --agent-mark: url("/agent-logos/v1/antigravity.svg"); color: #6c63ff; }
-.agent-logo[data-agent-id="cline"] { --agent-mark: url("/agent-logos/v1/cline.svg"); color: #9b8cff; }
-.agent-logo[data-agent-id="kilo"] { --agent-mark: url("/agent-logos/v1/kilo.svg"); color: #f09a55; }
-.agent-logo[data-agent-id="hermes"] { --agent-mark: url("/agent-logos/v1/hermes.svg"); color: #62b6cb; }
-.agent-logo[data-agent-id="omp"] { --agent-mark: url("/agent-logos/v1/omp.svg"); color: #e07ab0; }
-.agent-logo[data-agent-id="gpt"], .agent-logo[data-agent-id="chatgpt"] { --agent-mark: url("/agent-logos/v1/openai.svg"); }
-.agent-logo[data-agent-id="agent"] { --agent-mark: url("/agent-logos/v1/agent.svg"); }
+.agent-logo[data-agent-id="pi"] .agent-logo-mark { background-size: 160%; }
+.agent-logo[data-agent-id="claude-code"] { --agent-mark: url("/agent-logos/v2/claude-code.svg"); }
+.agent-logo[data-agent-id="codex"] { --agent-mark: url("/agent-logos/v2/codex.svg"); }
+.agent-logo[data-agent-id="opencode"] { --agent-mark: url("/agent-logos/v2/opencode.svg"); }
+.agent-logo[data-agent-id="grok-build"] { --agent-mark: url("/agent-logos/v2/grok.svg"); }
+.agent-logo[data-agent-id="antigravity"] { --agent-mark: url("/agent-logos/v2/antigravity.svg"); }
+.agent-logo[data-agent-id="cline"] { --agent-mark: url("/agent-logos/v2/cline.svg"); }
+.agent-logo[data-agent-id="kilo"] { --agent-mark: url("/agent-logos/v2/kilo.svg"); }
+.agent-logo[data-agent-id="hermes"] { --agent-mark: url("/agent-logos/v2/hermes.svg"); }
+.agent-logo[data-agent-id="omp"] { --agent-mark: url("/agent-logos/v2/omp.svg"); }
+.agent-logo[data-agent-id="gpt"], .agent-logo[data-agent-id="chatgpt"] { --agent-mark: url("/agent-logos/v2/openai.svg"); }
+.agent-logo[data-agent-id="agent"] { --agent-mark: url("/agent-logos/v2/agent.svg"); }
 .agent-task-row, .agent-task-center-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
 .agent-logo > .agent-task-dot { position: absolute; right: -1px; bottom: -1px; margin: 0; }
 .session-item-main { gap: 8px; }
@@ -41,7 +49,7 @@
 .agent-connector-chip .agent-logo { width: 18px; height: 18px; flex-basis: 18px; background: none; }
 .agent-connector-chip .agent-logo-mark { width: 16px; height: 16px; }
 .agent-connector-chip.more { color: var(--pine-soft); border-style: dashed; }
+/* Forced colours keep the artwork: it is an image, named by the badge. */
 @media (forced-colors: active) {
-  .agent-logo { color: CanvasText; background: Canvas; }
-  .agent-logo-mark { forced-color-adjust: none; background: CanvasText; }
+  .agent-logo, .agent-logo-mark { forced-color-adjust: none; }
 }
