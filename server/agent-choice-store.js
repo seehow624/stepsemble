@@ -3,7 +3,8 @@
 // Remembers the model and reasoning level last chosen for each agent, and for
 // each conversation. A new conversation starts with the agent's last choice,
 // and a conversation opened again keeps its own, so neither quietly falls back
-// to the agent's configured default. It holds model and level ids only.
+// to the agent's configured default. Speed is always session-only; its route
+// fingerprint must be revalidated before a paid turn.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -24,6 +25,9 @@ function cleanChoice(value) {
     const item = value[key];
     if (typeof item === "string" && VALUE.test(item.trim())) out[key] = item.trim();
   }
+  if (["standard", "fast"].includes(value.speed)) out.speed = value.speed;
+  if (typeof value.speedModel === "string" && VALUE.test(value.speedModel)) out.speedModel = value.speedModel;
+  if (typeof value.speedFingerprint === "string" && value.speedFingerprint.length <= 1024) out.speedFingerprint = value.speedFingerprint;
   return Object.keys(out).length ? out : null;
 }
 
@@ -38,7 +42,10 @@ function createAgentChoiceStore({ file = null } = {}) {
         const value = JSON.parse(raw);
         for (const [agentId, choice] of Object.entries(value?.agents && typeof value.agents === "object" ? value.agents : {})) {
           const clean = cleanChoice(choice);
-          if (AGENT.test(agentId) && clean) agents.set(agentId, clean);
+          if (AGENT.test(agentId) && clean) {
+            delete clean.speed; delete clean.speedModel; delete clean.speedFingerprint;
+            agents.set(agentId, clean);
+          }
         }
         for (const row of Array.isArray(value?.sessions) ? value.sessions.slice(-MAX_SESSIONS) : []) {
           const key = String(row?.key || ""), clean = cleanChoice(row?.choice);
@@ -49,14 +56,15 @@ function createAgentChoiceStore({ file = null } = {}) {
     } catch {}
   }
   function save() {
-    if (!file) return;
+    if (!file) return true;
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       const temporary = file + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
       const value = { version: 1, agents: Object.fromEntries(agents), sessions: [...sessions].map(([key, choice]) => ({ key, choice })) };
       fs.writeFileSync(temporary, JSON.stringify(value) + "\n", { encoding: "utf8", mode: 0o600 });
       fs.renameSync(temporary, file);
-    } catch {}
+      return true;
+    } catch { return false; }
   }
   function sessionKey(agentId, sessionId) {
     const agent = String(agentId || ""), session = String(sessionId || "");
@@ -85,15 +93,29 @@ function createAgentChoiceStore({ file = null } = {}) {
       const clean = cleanChoice(choice);
       if (!AGENT.test(agent) || !clean) return false;
       const key = sessionKey(agent, sessionId);
-      if (!forAgent && !key) return false;
-      if (forAgent) agents.set(agent, { ...(agents.get(agent) || {}), ...clean });
+      if (!forAgent && !key || !key && clean.speed && !clean.model && !clean.effort && !clean.provider) return false;
+      const previousAgents = new Map(agents), previousSessions = new Map(sessions);
+      if (forAgent) {
+        const { speed, speedModel, speedFingerprint, ...defaults } = clean;
+        if (Object.keys(defaults).length) agents.set(agent, { ...(agents.get(agent) || {}), ...defaults });
+      }
       if (key) {
-        const previous = sessions.get(key) || {};
+        const previous = { ...(sessions.get(key) || {}) };
+        if (previous.speed === "fast" && ((clean.model && previous.speedModel && clean.model !== previous.speedModel)
+          || (clean.provider && clean.provider !== previous.provider))) {
+          previous.speed = "standard";
+          delete previous.speedFingerprint; delete previous.speedModel;
+        }
         sessions.delete(key);
         sessions.set(key, { ...previous, ...clean });
         while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
       }
-      save();
+      if (!save()) {
+        agents.clear(); sessions.clear();
+        for (const [id, value] of previousAgents) agents.set(id, value);
+        for (const [id, value] of previousSessions) sessions.set(id, value);
+        return false;
+      }
       return true;
     },
   });

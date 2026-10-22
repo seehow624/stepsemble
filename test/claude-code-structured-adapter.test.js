@@ -414,7 +414,8 @@ test("Claude structured controls use exact initialize/set_model wire and update 
   assert.deepEqual(catalog, { models: [
     { id: "sonnet", name: "Claude Sonnet", description: "Balanced", supportsEffort: true },
     { id: "opus", name: "Claude Opus", description: "Deep" },
-  ], currentModel: "sonnet", currentEffort: null });
+  ], currentModel: "sonnet", currentEffort: null, speed: { support: "unknown", choices: ["standard"], requested: "standard", effective: "unknown",
+    reason: "speed_runtime_unverified", appliesNextTurn: true, model: "sonnet" } });
   assert.deepEqual(requests[0], { type: "control_request", request_id: requests[0].request_id, request: { subtype: "initialize" } });
 
   let resolveModelRequest;

@@ -470,6 +470,7 @@ function createCodexNativeHistoryAdapter({
   includeKnownPaths = true,
   launch = launchCodexAppServer,
   transportFactory = null,
+  speedGateway = null,
   clock = () => Date.now(),
   journalFile,
   contextSnapshotFile,
@@ -912,7 +913,7 @@ function createCodexNativeHistoryAdapter({
       let instance;
       try {
         const compatibility = await verifyExecutableVersion();
-        const options = { executable: config.executable, cwd: config.cwd, env: { ...env }, nativeVersion: compatibility.nativeVersion,
+        const options = { executable: config.executable, cwd: config.cwd, env: { ...env }, nativeVersion: compatibility.nativeVersion, speedGateway,
           onEvent: event => {
             // A shared history reader may exit between requests. Stop
             // advertising it as ready so the Host's bounded retry can replace
@@ -1334,6 +1335,7 @@ function createCodexNativeHistoryAdapter({
     listThreadItems,
     getThreadGoal,
     listModels,
+    async speedStatus(model = null) { requireReady(); return typeof transport?.speedStatus === "function" ? transport.speedStatus(model) : require("./agent-speed").unknownSpeed(); },
     async rateLimits() { requireReady(); if (typeof transport?.rateLimits !== "function") throw new Error("quota_unavailable"); return transport.rateLimits(); },
     contextUsage,
     listTasks,

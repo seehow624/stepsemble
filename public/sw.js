@@ -68,6 +68,7 @@ const SHELL = [
   "/modules/opencode-context.js?v=3.9.44",
   "/modules/model-presentation.js?v=3.9.44",
   "/modules/effort-slider.js?v=3.9.44",
+  "/modules/agent-speed.js?v=3.9.44",
   "/modules/agent-terminal.js?v=3.9.44",
   "/modules/claude-structured-rendering.js?v=3.9.44",
   "/modules/agent-transcript-presentation.js?v=3.9.44",

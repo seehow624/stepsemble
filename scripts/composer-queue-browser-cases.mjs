@@ -59,7 +59,9 @@ async function runCodexQueueBrowserCase(browser) {
     await ui.getByText("Queued for Codex", { exact: true }).first().waitFor();
     stage = "Codex: the next message when the turn ends";
     await send(ui, "Next for Codex");
-    await ui.waitForFunction(() => document.querySelectorAll("#composer-queue .cq-chip").length === 1);
+    // The previous chip can still be animating out while send preflight is
+    // pending. Wait for this message, not a stale leaving chip.
+    await ui.waitForFunction(() => [...document.querySelectorAll("#composer-queue .cq-chip:not(.cq-leaving) .cq-text")].some(node => node.textContent === "Next for Codex"));
     await context.request.post(preview.origin + "/__fixture/codex/finish", { data: {} });
     await ui.waitForFunction(() => !document.querySelector("#composer-queue .cq-chip:not(.cq-leaving)"));
     assert.deepEqual(preview.state.codexQueueDeliveries.map(row => [row.text, row.jump]), [["Queued for Codex", true], ["Next for Codex", false]]);
@@ -149,7 +151,7 @@ export async function runComposerQueueBrowserCases(browser) {
 
       stage = "Pi: the next message goes when the turn ends";
       await send(ui, "Third message");
-      await ui.waitForFunction(() => document.querySelectorAll("#composer-queue .cq-chip").length === 1);
+      await ui.waitForFunction(() => [...document.querySelectorAll("#composer-queue .cq-chip:not(.cq-leaving) .cq-text")].some(node => node.textContent === "Third message"));
       await rpcCmd(sid, { type: "fixture_finish" });
       await ui.waitForFunction(() => [...document.querySelectorAll("#messages .msg.user")].some(node => node.textContent.includes("Third message")));
       await ui.waitForFunction(() => document.querySelector("#composer-queue")?.hidden === true);

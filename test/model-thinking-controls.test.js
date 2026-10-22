@@ -59,7 +59,7 @@ function harness() {
   };
   const changes = [], access = { live: true };
   const context = vm.createContext({
-    el, changes,
+    el, changes, composerSpeed: null,
     document: { createElement: () => ({ value: "", textContent: "", dataset: {} }), querySelector: () => label },
     window: { stepsembleI18n: { t: key => key }, stepsembleEffortSlider: { attachLine: ({ slider, commit }) => ({ set(state) { slider.drawn = state; slider.commit = commit; } }) } },
     rpc: { nativeClaudeStructured: true },

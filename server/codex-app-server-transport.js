@@ -11,6 +11,7 @@ const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const { createLineDecoder } = require("./stream-safety");
 const { MAX_BASE64_BYTES } = require("./prompt-attachments");
+const { speedValue, unknownSpeed, codexSpeedVersion, codexSpeedCapability } = require("./agent-speed");
 
 const CODEX_NATIVE_VERSION = "0.153.4";
 const CODEX_NATIVE_VERSION_RE = /^\d{1,8}\.\d{1,8}\.\d{1,8}(?:-(?:alpha|beta)(?:\.\d{1,8}){0,2})?$/;
@@ -38,7 +39,7 @@ const APPROVAL_METHODS = Object.freeze([
 const CLIENT_METHODS = Object.freeze([
   "initialize", "account/rateLimits/read", "thread/start", "thread/resume", "thread/read", "thread/list",
   "thread/turns/list", "thread/items/list", "thread/goal/get", "thread/goal/set", "thread/goal/clear", "thread/name/set", "thread/compact/start",
-  "model/list", "turn/start", "turn/steer", "turn/interrupt",
+  "model/list", "config/read", "turn/start", "turn/steer", "turn/interrupt",
 ]);
 const NATIVE_LIFECYCLE_NOTIFICATIONS = Object.freeze(new Set([
   "thread/started", "turn/started", "turn/completed", "item/started", "item/completed",
@@ -548,6 +549,8 @@ function validateFrame(value) {
 
 function createCodexAppServerTransport({
   child,
+  env = {},
+  speedGateway = null,
   nativeVersion = CODEX_NATIVE_VERSION,
   trustedNative = false,
   onEvent = null,
@@ -568,6 +571,24 @@ function createCodexAppServerTransport({
   let state = "new";
   let threadId = null;
   let turnId = null;
+  let speedContext = {};
+  let speedDispatch = null;
+  async function speedStatus(model = null, cwd = null) {
+    if (!codexSpeedVersion(nativeVersion)) return unknownSpeed();
+    try {
+      const response = await request("config/read", { includeLayers: false, ...(cwd || speedContext.cwd ? { cwd: cwd || speedContext.cwd } : {}) }, { check: value => plain(value?.config) });
+      const catalog = await listModels({});
+      const selected = model || speedContext.model || response.config.model;
+      let capability = codexSpeedCapability({ version: nativeVersion, config: response.config, env,
+        provider: speedContext.modelProvider, model: selected, models: catalog.data });
+      if (capability.reason === "speed_route_unverified" && typeof speedGateway === "function") {
+        const provider = speedContext.modelProvider || response.config.model_provider || "openai";
+        const baseUrl = response.config.model_providers?.[provider]?.base_url || env.OPENAI_BASE_URL || response.config.openai_base_url;
+        capability = await speedGateway({ baseUrl, model: selected, api: "openai-responses" });
+      }
+      return { ...capability, configuredTier: speedContext.serviceTier ?? null, dispatched: speedDispatch };
+    } catch { return unknownSpeed(); }
+  }
   // A thread this process started has no history until its first turn, and
   // Codex refuses history reads for it with reasons that vary by state.
   let firstTurnPending = false;
@@ -1040,6 +1061,9 @@ function createCodexAppServerTransport({
     if (!initialized || !["ready", "thread_started"].includes(state) || threadId || threadStartInFlight) return reject("native_lifecycle_conflict");
     if (!plain(params)) return reject("invalid_native_params");
     const detached = bounded(params, 128 * 1024); if (detached === null) return reject("invalid_native_params");
+    // A new conversation must not inherit a configured paid tier. Paid speed
+    // is sent only as a per-turn override, never as a child/thread default.
+    if (codexSpeedVersion(nativeVersion)) detached.serviceTier = "default";
     threadStartInFlight = true;
     try {
       const auth = await authorize("thread.start", { params: detached });
@@ -1049,6 +1073,7 @@ function createCodexAppServerTransport({
       if (closed || failure || !initialized || state !== "ready" || threadId) return reject("native_lifecycle_conflict");
       const result = await request("thread/start", detached, { check: value => nativeId(value?.thread?.id) });
       if (threadId && threadId !== result.thread.id) { fail("native_thread_mismatch"); return reject("native_thread_mismatch"); }
+      speedContext = { model: result.model, modelProvider: result.modelProvider, cwd: result.cwd, serviceTier: result.serviceTier };
       threadId = result.thread.id; state = "thread_started"; firstTurnPending = true;
       report({ type: "thread.started", threadId, authorization: auth });
       return { kind: "started", threadId, response: clone(result), dispatch: auth };
@@ -1115,6 +1140,7 @@ function createCodexAppServerTransport({
     const requested = resumeParams.threadId;
     if (threadId && threadId !== requested) return reject("native_thread_mismatch");
     const detached = bounded(resumeParams, 128 * 1024); if (detached === null) return reject("invalid_native_params");
+    if (codexSpeedVersion(nativeVersion)) detached.serviceTier = "default";
     resumeInFlight = true;
     try {
       // Codex answers a resume with the conversation's whole history unless
@@ -1135,6 +1161,8 @@ function createCodexAppServerTransport({
         if (valid && !listed) resumingTurns = new Set(value.thread.turns.slice(-32).map(turn => turn.id));
         return valid;
       } });
+      speedContext = { model: result.model, modelProvider: result.modelProvider, cwd: result.cwd, serviceTier: result.serviceTier };
+      speedDispatch = null;
       const turns = listed ? (await lastTurns(requested)) || listed : result.thread.turns;
       const status = nativeThreadStatus(result.thread.status);
       const active = turns.filter(turn => turn.status === "inProgress");
@@ -1177,12 +1205,30 @@ function createCodexAppServerTransport({
     const detached = bounded(body, MAX_TURN_REQUEST_BYTES); if (detached === null) return reject("invalid_native_params");
     turnStartInFlight = true;
     try {
+      let speed;
+      try { speed = speedValue(params.speed ?? "standard"); } catch { return reject("speed_invalid"); }
+      delete detached.speed;
+      delete detached.speedFingerprint;
+      // Never let an unvalidated wire tier bypass the shared contract.
+      delete detached.serviceTier;
+      delete detached.serviceTierForTurn;
+      if (codexSpeedVersion(nativeVersion)) {
+        detached.serviceTier = "default";
+        detached.serviceTierForTurn = "default";
+      }
+      if (speed === "fast") {
+        const capability = await speedStatus(params.model, params.cwd);
+        if (capability.support !== "supported" || params.speedFingerprint !== capability.fingerprint) return reject("speed_revalidation_required");
+        detached.serviceTierForTurn = capability.tier;
+      }
       const auth = await authorize("turn.start", { threadId: activeThreadId, params: detached }); if (auth.kind === "reject") return auth;
       if (closed || failure || !initialized || threadId !== activeThreadId || state !== "thread_started" || turnId || approvals.size) return reject("native_lifecycle_conflict");
       const result = await request("turn/start", detached, { writeMaxBytes: MAX_TURN_FRAME_BYTES, writeMaxQueueBytes: MAX_TURN_QUEUE_BYTES,
         check: value => plain(value) && nativeId(value?.turn?.id)
         && TURN_STATUSES.has(value.turn.status)
         && (!Object.hasOwn(value.turn, "threadId") || value.turn.threadId === activeThreadId) });
+      speedContext = { ...speedContext, ...(params.model ? { model: params.model } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) };
+      speedDispatch = { requested: speed, tier: detached.serviceTierForTurn || null, confirmed: "dispatch", effective: "unknown" };
       firstTurnPending = false;
       if (turnId && turnId !== result.turn.id) { fail("native_turn_mismatch"); return reject("native_turn_mismatch"); }
       // stdout can contain the RPC response and lifecycle notifications in a
@@ -1352,6 +1398,7 @@ function createCodexAppServerTransport({
     listThreadItems,
     getThreadGoal,
     listModels,
+    speedStatus,
     async rateLimits() {
       if (!ensureInitialized()) return reject("native_lifecycle_conflict");
       return request("account/rateLimits/read", {}, { check: value => plain(value) });
@@ -1378,7 +1425,7 @@ function launchCodexAppServer({ executable, cwd, env = process.env, ...options }
   if (options.nativeVersion !== undefined && !validNativeVersion(options.nativeVersion)) throw new Error("unsupported_codex_native_version");
   if (options.authorizeNative !== undefined && typeof options.authorizeNative !== "function") throw new TypeError("native_authorizer_required");
   const child = spawn(executable, ["app-server", "--listen", "stdio://"], { cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"] });
-  return createCodexAppServerTransport({ child, ...options });
+  return createCodexAppServerTransport({ child, env, ...options });
 }
 
 module.exports = {

@@ -14,6 +14,9 @@ const { definition, scheduleSpec, nextOccurrence } = createRequire(import.meta.u
 const { createProjectFilesService } = createRequire(import.meta.url)("../server/project-files.js");
 const { createGitChangesService } = createRequire(import.meta.url)("../server/git-changes.js");
 const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = createRequire(import.meta.url)("../server/composer-queue.js");
+const { createAgentSpeedRoutes } = createRequire(import.meta.url)("../server/agent-speed-routes.js");
+const { createAgentChoiceStore } = createRequire(import.meta.url)("../server/agent-choice-store.js");
+const { codexSpeedCapability, unknownSpeed } = createRequire(import.meta.url)("../server/agent-speed.js");
 // The page reloads itself when the Host reports another version, so the
 // preview reports the page's own version.
 const { version: APP_VERSION } = createRequire(import.meta.url)("../package.json");
@@ -381,7 +384,7 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false, agentSpeed = false } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
@@ -393,6 +396,15 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   const projectFiles = projectReview ? createProjectFilesService({ validateProject: cwd => cwd === projectReview.root ? cwd : null }) : null;
   const gitChanges = projectReview ? createGitChangesService({ validateRepository: cwd => cwd === projectReview.root ? cwd : null }) : null;
   const imageLookups = new Map();
+  state.speedRequests = []; state.speedFailure = false;
+  const speedChoices = createAgentChoiceStore();
+  const speedRoutes = createAgentSpeedRoutes({ choices: speedChoices, ensureCodex: async () => {},
+    codex: { speedStatus: async (id, model) => {
+      const cap = agentSpeed ? codexSpeedCapability({ version: "0.163.0", config: {}, model: model || state.codexModel,
+        models: codexModels.map((row, index) => ({ ...row, serviceTiers: index === 0 ? [{ id: "priority", name: "Fast" }] : [] })) }) : unknownSpeed();
+      return agentSpeed === "magpie" ? { ...cap, route: "magpie", fingerprint: JSON.stringify(["magpie", "synthetic-owned-gateway", model || state.codexModel, cap.tier]) } : cap;
+    } },
+    readJSON: async req => { const body = await parseJsonBody(req); state.speedRequests.push(body); return body; }, sendJSON: json });
   state.codexControlUnavailable = false;
   state.codexTurns.length = 0; state.codexModel = codexModels[0].id;
   // Opt-in: messages sent while the fixture's Codex works wait in the Host's
@@ -403,8 +415,8 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
     available: () => true,
     busy: () => !state.codexIdle,
     async deliver(id, item, payload, { jump }) {
-      state.codexQueueDeliveries.push({ itemId: item.id, text: payload.text, jump });
-      state.codexTurns.push({ text: payload.text, images: payload.images, turnId: `fixture-turn-${state.codexTurns.length + 1}`, receivedAt: Date.now(), queued: true });
+      state.codexQueueDeliveries.push({ itemId: item.id, text: payload.text, jump, speed: item.speed, speedFingerprint: item.speedFingerprint });
+      state.codexTurns.push({ text: payload.text, images: payload.images, speed: item.speed, speedFingerprint: item.speedFingerprint, turnId: `fixture-turn-${state.codexTurns.length + 1}`, receivedAt: Date.now(), queued: true });
       if (!jump) state.codexIdle = false;
       return { kind: "delivered" };
     },
@@ -550,6 +562,8 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       }
       if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
+      if (pathname === "/api/agent-speed" && req.method === "POST" && state.speedFailure) return json(res, 409, { error: "speed_not_confirmed" });
+      if (await speedRoutes(req, res, requestUrl)) return;
       if (queueRoutes && await queueRoutes(req, res, requestUrl)) return;
       if (pathname === "/api/codex/mutation" && req.method === "GET") return json(res, 200, { adapter: { mutationReady: !state.codexControlUnavailable },
         ...(queue ? { composerQueue: queue.snapshotOf("codex", CODEX_THREAD) } : {}), pendingApprovals: state.codexFailure || state.projectReview || queue ? [] : [{
@@ -566,7 +580,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       if (pathname === "/api/codex/mutation/turn" && req.method === "POST") {
         let body;
         try { body = await parseJsonBody(req); } catch { return json(res, 400, { error: "invalid_request" }); }
-        if (queue && !state.codexIdle) return json(res, 200, { kind: "queued", queued: true, ...queue.add("codex", body.threadId, { text: body.text, images: body.images, model: body.model, effort: body.effort }) });
+        if (queue && !state.codexIdle) return json(res, 200, { kind: "queued", queued: true, ...queue.add("codex", body.threadId, { text: body.text, images: body.images, model: body.model, effort: body.effort, speed: body.speed, speedFingerprint: body.speedFingerprint }) });
         const turnId = `fixture-turn-${state.codexTurns.length + 1}`;
         state.codexTurns.push({ ...body, turnId, status: state.codexFailure ? "completed" : undefined,
           receivedAt: Date.now(), imageCount: Array.isArray(body?.images) ? body.images.length : 0 });

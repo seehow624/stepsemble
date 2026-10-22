@@ -22,6 +22,7 @@ import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs
 import { runComposerEffortBrowserCases } from "./composer-effort-browser-cases.mjs";
 import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.mjs";
 import { runComposerQueueBrowserCases } from "./composer-queue-browser-cases.mjs";
+import { runAgentSpeedBrowserCases } from "./agent-speed-browser-cases.mjs";
 import { runScrollbarBrowserCases } from "./scrollbar-browser-cases.mjs";
 import { runWorkspaceReorderBrowserCases } from "./workspace-reorder-browser-cases.mjs";
 import { runWorkspacePanesBrowserCases } from "./workspace-panes-browser-cases.mjs";
@@ -198,6 +199,7 @@ try {
   else if (suite === "conversation-ux") {
     await runConversationUxBrowserCases(browser);
     await runComposerQueueBrowserCases(browser);
+    for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });
   }
   else if (suite === "workspace") {
     await runScrollbarBrowserCases(browser);

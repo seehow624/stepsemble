@@ -54,7 +54,7 @@ test("native composer HTTP forwards image-only prompts, per-turn model and exact
   assert.deepEqual(f.calls.shift(), ["models", { cursor: "next", limit: 20 }]);
   const response = await f.request("/api/codex/mutation/turn", { threadId: "thread-a", cwd: "/owned/project", images: [{ mimeType: "image/png", data: "cGljdHVyZQ==" }], model: "model-a", effort: "high" });
   assert.equal(response.status, 200);
-  assert.deepEqual(f.calls.pop(), ["turn", [{ type: "image", url: "data:image/png;base64,cGljdHVyZQ==" }], { cwd: "/owned/project", model: "model-a", effort: "high" }, "thread-a"]);
+  assert.deepEqual(f.calls.pop(), ["turn", [{ type: "image", url: "data:image/png;base64,cGljdHVyZQ==" }], { cwd: "/owned/project", model: "model-a", effort: "high", speed: "standard" }, "thread-a"]);
   const context = await f.request("/api/codex/context?threadId=thread-a");
   assert.equal(context.data.contextPercent, 45);
   assert.deepEqual(f.calls.pop(), ["context", "thread-a"]);
@@ -64,7 +64,7 @@ test("the approval mode chosen for a Codex thread travels with each turn", async
   const f = await fixture(t, { codexPermissions: id => id === "thread-a" ? { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } } : null });
   const response = await f.request("/api/codex/mutation/turn", { threadId: "thread-a", text: "plan it" });
   assert.equal(response.status, 200);
-  assert.deepEqual(f.calls.pop(), ["turn", [{ type: "text", text: "plan it" }], { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } }, "thread-a"]);
+  assert.deepEqual(f.calls.pop(), ["turn", [{ type: "text", text: "plan it" }], { speed: "standard", approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly" } }, "thread-a"]);
 });
 
 test("Codex context falls back to persisted observation when the independent native process has no live state", async t => {
@@ -195,7 +195,7 @@ test("a message sent while Codex works joins the thread's queue with its model a
   const response = await f.request("/api/codex/mutation/turn", { threadId: "thread-a", text: "and then this", model: "model-a", effort: "high", deviceId: "phone-1" });
   assert.equal(response.status, 200);
   assert.equal(response.data.kind, "queued"); assert.equal(response.data.queued, true); assert.equal(response.data.item.id, "item-1");
-  assert.deepEqual(queued, [{ agent: "codex", id: "thread-a", input: { text: "and then this", images: undefined, model: "model-a", effort: "high", deviceId: "phone-1" } }]);
+  assert.deepEqual(queued, [{ agent: "codex", id: "thread-a", input: { text: "and then this", images: undefined, model: "model-a", effort: "high", speed: "standard", speedFingerprint: undefined, deviceId: "phone-1" } }]);
   assert.equal(f.calls.some(call => call[0] === "turn"), false, "no second turn while one runs");
   await f.request("/api/codex/mutation/interrupt", { threadId: "thread-a" });
   assert.deepEqual(paused, [["codex", "thread-a"]]);

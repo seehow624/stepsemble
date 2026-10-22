@@ -16,6 +16,7 @@ const { execFile } = require("node:child_process");
 const { boundedJson } = require("./provider-live-catalog");
 const { routingFilePath, gatewaySettingsPath, gatewayCatalogPath, readClaudeSessionRouting } = require("./claude-session-routing");
 const { accountKey } = require("./quota-identity");
+const { unknownSpeed } = require("./agent-speed");
 
 const DEFAULT_PORT = 3425;
 const EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
@@ -95,6 +96,11 @@ function modelRow(row) {
     name: String(row.display_name || id).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 200) || id,
     contextWindow: Number.isSafeInteger(context) && context > 0 ? context : null,
     efforts: [...new Set(efforts)],
+    // Preserve the gateway's explicit wire capability, never infer it from
+    // provider/model labels or from the native endpoint alone.
+    speedOwner: row.owned_by === "codex" ? "codex" : null,
+    speedResponses: Array.isArray(row.native_endpoints) && row.native_endpoints.includes("/v1/responses"),
+    speedPriority: Array.isArray(row.service_tiers) && row.service_tiers.some(tier => tier?.id === "priority"),
   };
 }
 
@@ -190,6 +196,19 @@ function createMagpieGatewayService({
     try { text = fs.readFileSync(codexConfigPath, "utf8"); } catch { return { mode: "unknown", currentModel: null, baseUrl: null }; }
     const baseUrl = tomlTopLevelString(text, "openai_base_url");
     return { mode: !baseUrl ? "direct" : pointsHere(baseUrl) ? "magpie" : "other", currentModel: tomlTopLevelString(text, "model"), baseUrl };
+  }
+
+  async function speedCapability({ baseUrl, model, api = "openai-responses" } = {}) {
+    let url;
+    try { url = new URL(baseUrl); } catch { return unknownSpeed("speed_route_unverified"); }
+    if (!installed() || !pointsHere(baseUrl) || !["/v1", "/v1/"].includes(url.pathname)
+      || url.username || url.password || url.search || url.hash || api !== "openai-responses") return unknownSpeed("speed_route_unverified");
+    const snapshot = await catalog({ maxAgeMs: 0 });
+    if (!snapshot || snapshot.stale) return unknownSpeed("speed_route_unverified");
+    const row = snapshot.rows.find(row => row.id === model);
+    if (!row?.speedPriority || !row.speedResponses || row.speedOwner !== "codex") return unknownSpeed("speed_not_offered");
+    return { ...unknownSpeed("speed_gateway_requested"), support: "supported", choices: ["standard", "fast"], route: "magpie",
+      model: row.id, tier: "priority", fingerprint: JSON.stringify(["magpie", origin, row.id, "priority"]) };
   }
 
   function claudeState() {
@@ -379,6 +398,7 @@ function createMagpieGatewayService({
     refreshClaudeGatewayCache,
     quotaReports,
     quotaSource,
+    speedCapability,
     origin,
   };
 }

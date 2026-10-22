@@ -679,6 +679,11 @@ function createCodexNativePool({
   }
 
   async function listModels(params = {}) { return historyCall("listModels", [params]); }
+  async function speedStatus(threadId, model = null) {
+    const entry = byThread.get(threadId);
+    if (!entry || entry.closeRequested) return require("./agent-speed").unknownSpeed("speed_reopen_required");
+    return invokeEntry(entry, "speedStatus", [model]);
+  }
 
   // A name is written by the process that owns the thread, like a turn.
   async function setThreadName(threadId, name) {
@@ -1084,6 +1089,7 @@ function createCodexNativePool({
     listThreadTurns,
     listThreadItems,
     listModels,
+    speedStatus,
     async rateLimits() {
       const source = await getHistory();
       if (typeof source?.rateLimits !== "function") throw new Error("quota_unavailable");

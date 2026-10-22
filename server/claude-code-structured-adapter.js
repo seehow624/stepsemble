@@ -1,4 +1,5 @@
 "use strict";
+const { speedValue, claudeSpeedReport, claudeSpeedCapability } = require("./agent-speed");
 
 // Structured Claude Code bridge. This module only uses Claude Code's public
 // print-mode stream contract (`-p`, `--input-format stream-json`,
@@ -653,6 +654,77 @@ function createClaudeStructuredSession({
   let availableModels = [];
   let selectedModel = null;
   let selectedEffort = null;
+  let speedReport = claudeSpeedReport();
+  let speedChanging = false, speedUncertain = false, speedTimedOut = false, appliedSpeed = null;
+  let settingsTail = Promise.resolve();
+  function serializeSettings(operation) {
+    const next = settingsTail.catch(() => {}).then(operation);
+    settingsTail = next;
+    return next;
+  }
+  function speedStatus() {
+    if (speedTimedOut) return { ...claudeSpeedReport(), reason: "speed_reopen_required" };
+    return claudeSpeedCapability({ report: speedReport, version: initializationResult?.claude_code_version,
+      model: catalogModelId(selectedModel) || selectedModel, models: availableModels, env });
+  }
+  async function applySpeed(speed, fingerprint) {
+    const requested = speedValue(speed);
+    if (speedTimedOut) throw controlError("speed_reopen_required");
+    let capability = speedStatus();
+    // Result metadata is optional. An automatic queued send has no browser
+    // GET to refresh it: read the verified runtime before rejecting a stale
+    // unknown report. This is read-only; an unknown/refused reply still
+    // blocks Fast, and a timed-out flag write still requires reopening.
+    if (requested === "fast" && initializationResult?.claude_code_version === "2.1.308"
+      && capability.reason === "speed_runtime_unverified" && speedReport.state === "unknown") {
+      if (speedChanging || pendingControls.size || spanOpen || ["running", "interrupting"].includes(state)) throw controlError("speed_busy");
+      const observed = await requestControl("initialize");
+      speedReport = claudeSpeedReport(observed.response);
+      refreshAvailableModels(observed.response || {});
+      capability = speedStatus();
+    }
+    if (requested === "fast" && (capability.support !== "supported" || fingerprint !== capability.fingerprint)) throw controlError("speed_revalidation_required");
+    if (!capability.controlVerified && !speedUncertain && appliedSpeed === null) {
+      if (requested === "fast") throw controlError("speed_runtime_unverified");
+      return capability;
+    }
+    if (speedChanging || pendingControls.size || spanOpen || ["running", "interrupting"].includes(state)) throw controlError("speed_busy");
+    speedChanging = true;
+    speedUncertain = true;
+    try {
+      await requestControl("apply_flag_settings", { settings: { fastMode: requested === "fast" } });
+      const readback = await requestControl("get_settings");
+      if (readback?.response?.effective?.fastMode !== (requested === "fast")) throw controlError("speed_not_confirmed");
+      // Re-initialize is a read-only handshake: unlike an ACK, it reports the
+      // native on/off/cooldown state and the account/policy refusal reason.
+      const observed = await requestControl("initialize");
+      speedReport = claudeSpeedReport(observed.response);
+      refreshAvailableModels(observed.response || {});
+      if (requested === "standard" && speedReport.state !== "off") throw controlError("speed_not_confirmed");
+      if (requested === "fast" && speedStatus().support !== "supported") {
+        await requestControl("apply_flag_settings", { settings: { fastMode: false } });
+        const rollback = await requestControl("get_settings");
+        speedUncertain = rollback?.response?.effective?.fastMode !== false;
+        appliedSpeed = speedUncertain ? null : "standard";
+        const reason = speedReport.reason;
+        speedReport = { ...speedReport, effective: "unknown" };
+        throw controlError(reason === "speed_runtime_unverified" ? "speed_revalidation_required" : reason);
+      }
+      appliedSpeed = requested;
+      speedUncertain = false;
+      return { ...speedStatus(), requested, confirmed: "setting" };
+    } catch (error) {
+      // Timeout may have applied. A later turn must reapply/read back its
+      // snapshot; never send a possibly paid prompt after an uncertain ACK.
+      if (error.code === "claude_control_timeout") speedTimedOut = true;
+      if (speedUncertain) speedReport = claudeSpeedReport();
+      throw error;
+    } finally { speedChanging = false; }
+  }
+  async function setSpeed(speed, fingerprint) {
+    await initializeNative();
+    return applySpeed(speed, fingerprint);
+  }
   // Claude left to choose its own level ("auto"), and the level its
   // settings name for it, when it reports one.
   let autoEffort = false;
@@ -1004,6 +1076,7 @@ function createClaudeStructuredSession({
     initializationPromise = requestControl("initialize").then(result => {
       const response = plain(result?.response) ? clone(result.response) : {};
       refreshAvailableModels(response);
+      speedReport = claudeSpeedReport(response);
       selectedModel = modelId(response.currentModel || response.current_model || response.model || response.initialModel) || selectedModel;
       selectedEffort = effortId(response.effort || response.currentEffort || response.current_effort || response.effortLevel) || selectedEffort;
       permissionMode = permissionModeId(response.current_permission_mode ?? response.currentPermissionMode) || permissionMode;
@@ -1034,7 +1107,7 @@ function createClaudeStructuredSession({
   }
 
   function ensureModelSwitchAllowed() {
-    if (["running", "interrupting"].includes(state)) return controlError("claude_model_switch_active");
+    if (speedChanging || ["running", "interrupting"].includes(state)) return controlError("claude_model_switch_active");
     return null;
   }
   async function applyPermissionMode(requested) {
@@ -1112,6 +1185,9 @@ function createClaudeStructuredSession({
       // makes itself, such as leaving plan mode once a plan is approved.
       if (event.type === "system" && event.permissionMode !== undefined) permissionMode = permissionModeId(event.permissionMode) || permissionMode;
       // init names the running model in full, such as "claude-opus-5-5[1m]".
+      if (!event.isReplay && !event.parentToolUseId && (event.type === "result" || event.type === "system" && event.subtype === "init")) {
+        speedReport = claudeSpeedReport(event);
+      }
       if (event.type === "system" && event.subtype === "init" && modelId(event.model)) selectedModel = modelId(event.model);
       if (event.type === "system" && event.isReplay !== true) {
         if (event.subtype === "status") autoCompacting = event.status === "compacting";
@@ -1260,7 +1336,7 @@ function createClaudeStructuredSession({
   function enqueueJson(value, timeoutCode = "claude_input_timeout") {
     return enqueueFrame(encodeInputFrame(value), timeoutCode);
   }
-  async function sendUser(text, { images = [], uuid = null, priority = null, origin = null } = {}) {
+  async function sendUser(text, { images = [], uuid = null, priority = null, origin = null, speed = "standard", speedFingerprint = null } = {}) {
     const failure = ensureOpen(); if (failure) return Promise.resolve(failure);
     const value = safeText(text, MAX_PROMPT);
     const blocks = claudeImageBlocks(images);
@@ -1288,6 +1364,8 @@ function createClaudeStructuredSession({
     catch (error) { return reject(error?.code || "claude_initialize_failed"); }
     const afterInitialize = ensureOpen();
     if (afterInitialize) return Promise.resolve(afterInitialize);
+    try { await applySpeed(speed, speedFingerprint); }
+    catch (error) { return reject(error.code || "speed_not_confirmed"); }
     interruptRequested = false;
     beginTurn({ person: true });
     lastActivityAt = Date.now();
@@ -1306,9 +1384,15 @@ function createClaudeStructuredSession({
   }
   async function models() {
     await initializeNative();
+    if (initializationResult?.claude_code_version === "2.1.308" && !speedChanging && !speedTimedOut && !pendingControls.size) {
+      try {
+        const observed = await requestControl("initialize");
+        speedReport = claudeSpeedReport(observed.response);
+      } catch { speedReport = claudeSpeedReport(); }
+    }
     refreshAvailableModels(initializationResult);
     // The catalog's own entry for the model Claude names in full or bare.
-    return { models: clone(availableModels), currentModel: catalogModelId(selectedModel) || selectedModel || null, ...currentEffort() };
+    return { models: clone(availableModels), currentModel: catalogModelId(selectedModel) || selectedModel || null, speed: speedStatus(), ...currentEffort() };
   }
   async function setModel(model) {
     const failure = ensureOpen();
@@ -1323,6 +1407,8 @@ function createClaudeStructuredSession({
     const activeAfterInitialize = ensureModelSwitchAllowed();
     if (activeAfterInitialize) throw activeAfterInitialize;
     const previous = selectedModel || null;
+    const speedKnown = speedStatus().controlVerified;
+    if (requested !== previous && (appliedSpeed === "fast" || speedUncertain)) await applySpeed("standard");
     const fields = requested === undefined ? {} : { model: requested };
     const acknowledged = await requestControl("set_model", fields);
     const response = plain(acknowledged?.response) ? acknowledged.response : {};
@@ -1349,6 +1435,11 @@ function createClaudeStructuredSession({
     }
     // The level Claude now runs with can differ by model.
     await readAppliedSettings();
+    if (changed) {
+      appliedSpeed = null;
+      const observed = speedKnown ? await requestControl("initialize") : null;
+      speedReport = claudeSpeedReport(observed?.response);
+    }
     return { kind: changed ? "changed" : "ok", model: selectedModel, effort: selectedEffort || null };
   }
   async function setEffort(effort) {
@@ -1476,14 +1567,15 @@ function createClaudeStructuredSession({
     send(text, options) {
       if (compactionPending) return Promise.resolve(reject("compaction_busy"));
       pendingUserInputs++;
-      return sendUser(text, options).finally(() => { pendingUserInputs--; });
+      return serializeSettings(() => sendUser(text, options)).finally(() => { pendingUserInputs--; });
     },
     isIdle,
     suspend: () => isIdle() ? close() : Promise.resolve(reject("claude_session_busy")),
     compact,
     models,
-    setModel,
-    setEffort,
+    setModel: model => serializeSettings(() => setModel(model)),
+    setEffort: effort => serializeSettings(() => setEffort(effort)),
+    setSpeed: (speed, fingerprint) => serializeSettings(() => setSpeed(speed, fingerprint)),
     setPermissionMode,
     permissionState,
     contextUsage,
@@ -1496,7 +1588,7 @@ function createClaudeStructuredSession({
       return { ...current, closed, compacting: !!compactionPending, failed: current.failed || processError?.code || null,
         // A branch is its own conversation from the start.
         nativeSessionId: current.sessionId || (fork ? fork.sessionId : sessionId), state: current.failed || processError ? "failed" : state,
-        model: selectedModel || null, effort: selectedEffort || null, permissionMode: permissionMode || null, contextUsage: contextUsage(),
+        model: selectedModel || null, effort: selectedEffort || null, speed: speedStatus(), permissionMode: permissionMode || null, contextUsage: contextUsage(),
         turnError: turnError ? { ...turnError } : null,
         // working: a span of work is under way, also while Claude waits
         // between turns on the background work it started (background).

@@ -31,6 +31,8 @@ const { piImageInputs } = require("./server/prompt-attachments");
 const PROMPT_ROUTE_BYTES = 28 * 1024 * 1024;
 const ACP_PROMPT_ROUTE_BYTES = 12 * 1024 * 1024;
 const { createNativeComposerRoutes, withObservedContext } = require("./server/native-composer-routes");
+const { createAgentSpeedRoutes } = require("./server/agent-speed-routes");
+const { createPiSpeed } = require("./server/pi-speed");
 const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = require("./server/composer-queue");
 const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver } = require("./server/composer-queue-drivers");
 const { createAgentModeStore } = require("./server/agent-mode-store");
@@ -2201,6 +2203,7 @@ const subagentApprovalUnavailable = new Set();
 const idleReleaseMs = idleReleaseDelay(settingFromEnv("IDLE_RELEASE_SECONDS"));
 const codexNative = createCodexNativePool({ adapterOptions: {
   env: process.env,
+  speedGateway: params => magpieGateway.speedCapability(params),
   cwd: APP_HOME,
   journalFile: path.join(CONFIG_DIR, "codex-native-mutations.json"),
 }, journalRoot: path.join(CONFIG_DIR, "codex-native-threads"),
@@ -3067,6 +3070,7 @@ function entryToWire(e) {
 
 /** sid → {proc, clients:Set<res>, events:[], state:{}, meta:{}, stderrTail, exited} */
 const rpcSessions = new Map();
+const piSpeed = createPiSpeed({ command: rpcCommand, write: rpcWrite });
 // Workspace entries whose Pi is being started again, one start at a time.
 const piRestarting = new Set();
 const MAX_BUFFERED_EVENTS = 8000;
@@ -3808,7 +3812,8 @@ async function openRpc({ file, cwd, name }) {
   }
   const sid = crypto.randomUUID();
   await refreshRemoteModelCatalogs();
-  const args = ["--mode", "rpc", "--extension", path.join(__dirname, "server", "pi-catalog-extension.mjs")];
+  const args = ["--mode", "rpc", "--extension", path.join(__dirname, "server", "pi-catalog-extension.mjs"),
+    "--extension", path.join(__dirname, "server", "pi-speed-extension.mjs")];
   let spawnCwd = APP_HOME;
   let parsed = null;
   if (file) {
@@ -3953,7 +3958,7 @@ async function openRpc({ file, cwd, name }) {
     });
     for (const res of sess.clients) { try { res.end(); } catch {} }
     sess.clients.clear();
-    setTimeout(() => rpcSessions.delete(sid), 10 * 60 * 1000); // 10 分鐘後清理
+    setTimeout(() => { rpcSessions.delete(sid); piSpeed.forget(sid); }, 10 * 60 * 1000); // 10 分鐘後清理
   });
 
   // A new conversation starts with the model and level chosen last; one opened
@@ -5363,7 +5368,12 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
           // then on the conversation keeps the model and level it runs with.
           if (launchedClaude && !agentChoices.session("claude-code", event.sessionId)) {
             const status = launchedClaude.status();
-            agentChoices.record("claude-code", event.sessionId, { model: status.model, effort: status.effort }, { agent: false });
+            // Before its first user frame Claude has only the Host's local
+            // id. Carry only this conversation's explicit speed choice over
+            // when Claude finally names its durable session, never agent.last.
+            const opening = agentChoices.session("claude-code", localId);
+            agentChoices.record("claude-code", event.sessionId, { model: status.model, effort: status.effort,
+              ...(opening?.speed ? { speed: opening.speed, speedModel: opening.speedModel, speedFingerprint: opening.speedFingerprint } : {}) }, { agent: false });
           }
         } } catch {} } }).catch(error => { throw claudeFolderFailure(error); });
       launchedClaude = session;
@@ -5615,7 +5625,7 @@ const workflows = require("./server/workflows").createWorkflows({
         } finally { workflowDispatches.delete(run.id); settled(); }
       };
       const send = async () => {
-        if (agent === "pi") { if (!rpcWrite(id, { type: "prompt", message: prompt })) throw new Error("Pi is unavailable"); workflowOwnedTurns.add(run.id); }
+        if (agent === "pi") { if (!(await piSpeed.send(id, { type: "prompt", message: prompt }, { speed: "standard", fireAndForget: true }))?.success) throw new Error("Pi is unavailable"); workflowOwnedTurns.add(run.id); }
         else if (agent === "claude-code") await dispatch(() => resolveClaudeStructuredSession(id).session.send(prompt));
         else if (agent === "codex") {
           await dispatch(() => codexNative.startTurn([{ type: "text", text: prompt }], { cwd: r.cwd, ...codexTurnPermissions(agentModes.get("codex", id)) }, id));
@@ -5759,7 +5769,8 @@ function savedClaudeConversation(value) {
 }
 // Messages sent while an agent works (server/composer-queue.js). The Host
 // sends them one per turn when a turn ends, with or without a page open.
-const piQueueDriver = createPiQueueDriver({ sessions: rpcSessions, command: rpcCommand, sessionFileOf: rpcSessionFileOf });
+const piQueueDriver = createPiQueueDriver({ sessions: rpcSessions, command: rpcCommand, sessionFileOf: rpcSessionFileOf,
+  send: (sid, cmd, item) => piSpeed.send(sid, cmd, item) });
 // The workspace entry of a queued conversation, for its Goal and compaction locks.
 function composerQueueEntry(agent, id) {
   const sids = agent === "pi" ? new Set(piQueueDriver.liveSids(id)) : null;
@@ -5797,6 +5808,8 @@ const handleComposerQueueRoute = createComposerQueueRoutes({ queue: composerQueu
 function composerQueueSnapshot(agent, ref) {
   try { return composerQueue.snapshot(agent, ref); } catch { return null; }
 }
+const handleAgentSpeedRoute = createAgentSpeedRoutes({ codex: codexNative, ensureCodex: ensureCodexNativeProbe,
+  choices: agentChoices, readJSON, sendJSON, resolveClaude: resolveClaudeStructuredSession, piSpeed });
 const handleNativeComposerRoute = createNativeComposerRoutes({
   codex: codexNative, ensureCodex: ensureCodexNativeProbe, resolveClaude: resolveClaudeStructuredSession, composerQueue,
   codexPermissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)),
@@ -6771,6 +6784,7 @@ const server = http.createServer(async (req, res) => {
       if (await handleCompactionRoute(req, res, url)) return;
       if (await handleSubagentDetailRoute(req, res, url)) return;
       if (await handleHandoffRoute(req, res, url)) return;
+      if (await handleAgentSpeedRoute(req, res, url)) return;
       if (await handleNativeComposerRoute(req, res, url)) return;
       if (await handleComposerQueueRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
@@ -6830,10 +6844,10 @@ const server = http.createServer(async (req, res) => {
           // A message sent while Claude works waits in the queue for the turn
           // to end, unless the person sends it into the turn from its chip.
           if (resolveClaudeStructuredSession(body?.sessionId || "") && await composerQueue.shouldQueue("claude-code", body.sessionId).catch(() => false)) {
-            sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("claude-code", body.sessionId, { text, images: body?.images, deviceId: body?.deviceId }) });
+            sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("claude-code", body.sessionId, { text, images: body?.images, speed: body?.speed, speedFingerprint: body?.speedFingerprint, deviceId: body?.deviceId }) });
             return;
           }
-          const result = await sendToClaudeStructured(body?.sessionId, text, { images: body?.images });
+          const result = await sendToClaudeStructured(body?.sessionId, text, { images: body?.images, speed: body?.speed, speedFingerprint: body?.speedFingerprint });
           if (result?.kind === "sent") composerQueue.noteDirectSend("claude-code", result.nativeSessionId || body?.sessionId);
           sendJSON(res, result?.kind === "reject" ? 409 : 200, result?.kind === "reject" ? { ...result, error: result.error || result.code } : result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_prompt_failed", ...(error.code ? { code: error.code } : {}) }); }
@@ -8344,7 +8358,7 @@ const server = http.createServer(async (req, res) => {
       if (p === "/api/rpc-cmd" && req.method === "POST") {
         const body = await readJSON(req);
         const before = rpcSessions.get(body.sid)?.state || {};
-        rpcCommand(body.sid, body.command)
+        piSpeed.command(body.sid, body.command)
           .then(async (r) => {
             await piChoice.afterCommand(body.sid, body.command, r, { sessionId: before.sessionId || null, levelBefore: before.thinkingLevel || null });
             sendJSON(res, 200, r);
@@ -8522,7 +8536,7 @@ const server = http.createServer(async (req, res) => {
         // the next turn. A slash command keeps Pi's own handling: an
         // extension command runs at once even while Pi works.
         if (!message.trimStart().startsWith("/") && await composerQueue.shouldQueue("pi", body.sid).catch(() => false)) {
-          try { sendJSON(res, 200, { queued: true, ...composerQueue.add("pi", body.sid, { text: message, images: body.images, deviceId: body.deviceId }) }); }
+          try { sendJSON(res, 200, { queued: true, ...composerQueue.add("pi", body.sid, { text: message, images: body.images, speed: body.speed, speedFingerprint: body.speedFingerprint, deviceId: body.deviceId }) }); }
           catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "queue_unavailable", code: error.code || "queue_unavailable" }); }
           return;
         }
@@ -8531,9 +8545,12 @@ const server = http.createServer(async (req, res) => {
         const images = piImageInputs(body.images);
         if (images.length) cmd.images = images;
         if (s.state.isStreaming) cmd.streamingBehavior = "followUp"; // streaming 中自動排隊
-        const ok = rpcWrite(body.sid, cmd);
-        if (ok && !s.state.isStreaming) composerQueue.noteDirectSend("pi", body.sid);
-        sendJSON(res, ok ? 200 : 409, ok ? { queued: s.state.isStreaming } : { error: "process gone" });
+        try {
+          const result = await piSpeed.send(body.sid, cmd, { speed: body.speed, speedFingerprint: body.speedFingerprint, fireAndForget: true });
+          if (!result?.success) throw new Error(result?.error || "process gone");
+          if (!s.state.isStreaming) composerQueue.noteDirectSend("pi", body.sid);
+          sendJSON(res, 200, { queued: result.data?.disposition === "queued" || result.data?.disposition === "submitted" && s.state.isStreaming });
+        } catch (error) { sendJSON(res, 409, { error: error.code || error.message || "speed_not_confirmed" }); }
         return;
       }
 

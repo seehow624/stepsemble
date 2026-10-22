@@ -261,6 +261,7 @@ const collapsedProjects = new Set();
 const expandedProjectSessions = new Set();
 const PROJECT_SESSION_PREVIEW_LIMIT = 3;
 let rpc = null;              // {sid, es, streaming, queued}
+let composerSpeed = null, speedSendWaiting = false;
 // The chips of messages queued while the agent works, and the pictures this
 // page sent with them, shown with each message once the agent takes it.
 let composerQueueView = null;
@@ -11955,8 +11956,9 @@ function composerQueueRoute(connection, text) {
 }
 // Codex takes the model and level chosen as the message was sent.
 function composerQueueChoice(connection) {
+  if (connection && (!connection.generic || connection.nativeClaudeStructured)) return { ...composerSpeed?.snapshot() };
   if (!connection?.nativeCodexMutation) return {};
-  return { ...(connection.codexModel?.id ? { model: connection.codexModel.id } : {}),
+  return { ...composerSpeed?.snapshot(), ...(connection.codexModel?.id ? { model: connection.codexModel.id } : {}),
     ...(connection.codexEffort && connection.codexEffort !== "off" ? { effort: connection.codexEffort } : {}) };
 }
 function composerQueueViewOf() {
@@ -12092,6 +12094,14 @@ async function sendCurrent() {
   if (!text && !pendingImages.length && !sessionReferences?.count()) return;
   // Sent before the conversation has connected: it goes as soon as it has.
   if (!rpc) { sendOnceConnected(); return; }
+  if ((!rpc.generic || rpc.nativeCodexMutation || rpc.nativeClaudeStructured) && composerSpeed) {
+    if (speedSendWaiting) return;
+    const connection = rpc, generation = viewGeneration, draft = el.input.value;
+    speedSendWaiting = true;
+    try { await composerSpeed.ready(); await composerSpeed.refresh(); }
+    finally { speedSendWaiting = false; }
+    if (rpc !== connection || generation !== viewGeneration || el.input.value !== draft) return;
+  }
   const generic = !!rpc.generic;
   const inputBlock = genericInputBlock();
   // Claude or Codex still opening the conversation: the same wait as above.
@@ -12242,7 +12252,7 @@ async function sendCurrent() {
           : rpc?.nativeAcp
             ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeClaudeStructured
-            ? await post("/api/claude/structured/prompt", { sessionId: rpc.claudeNativeSessionId || rpc.nativeSessionId, cwd: rpc.cwd, text, images })
+            ? await post("/api/claude/structured/prompt", { sessionId: rpc.claudeNativeSessionId || rpc.nativeSessionId, cwd: rpc.cwd, text, images, ...composerSpeed?.snapshot() })
           : rpc?.nativeAntigravityStructured
               ? await post("/api/antigravity/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
             : rpc?.nativeCodexMutation
@@ -12251,11 +12261,12 @@ async function sendCurrent() {
                 cwd: rpc.cwd,
                 text,
                 images,
+                ...composerSpeed?.snapshot(),
                 ...(rpc.codexModel?.id ? { model: rpc.codexModel.id } : {}),
                 ...(rpc.codexEffort && rpc.codexEffort !== "off" ? { effort: rpc.codexEffort } : {}),
               })
           : await post("/api/agent/send", { taskId: sendSid, message: text }))
-      : await post("/api/send", { sid: sendSid, message: text, images }); // /skill:xxx 等直接透傳，pi 原生處理
+      : await post("/api/send", { sid: sendSid, message: text, images, ...composerSpeed?.snapshot() }); // /skill:xxx 等直接透傳，pi 原生處理
     accepted = true;
     clearSentDraft(sendDraft);
     if (referencesSent) sessionReferences?.clear();
@@ -12465,6 +12476,7 @@ function resetComposerSummary() {
 // reasoning: { levels, note, effective } — the model's own levels, why it has
 // none to show, and the level an "auto" runs at; each kept until changed.
 function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
+  void composerSpeed?.sync();
   if (modelName !== undefined) composerModelName = String(modelName || "");
   // An empty level is the explicit "this model has no thinking control"
   // signal, so it must clear the chip instead of leaving the level the
@@ -12540,6 +12552,7 @@ function rememberAgentChoice(agentId, sessionId, choice) {
 }
 function applyComposerState(data) {
   const model = data?.model;
+  if (rpc && !rpc.generic) { rpc.speedModel = model?.id || ""; rpc.speedProvider = model?.provider || ""; }
   const modelName = modelTitle(model);
   const level = data?.thinkingLevel || "off";
   if (data && Object.prototype.hasOwnProperty.call(data, "model")) {
@@ -12822,6 +12835,7 @@ async function loadApprovalModes(connection = rpc) {
 }
 
 function syncApprovalControl() {
+  void composerSpeed?.sync();
   const connection = rpc;
   if (connection && !connection.approvalLoaded && approvalTarget(connection)) {
     connection.approvalLoaded = true;
@@ -13227,6 +13241,7 @@ async function syncAcpConfig(connection) {
 }
 
 async function openModelSheet({ preserveSearch = false } = {}) {
+  void composerSpeed?.refresh();
   const connection = rpc;
   const expectedSid = connection?.sid;
   const expectedGeneration = viewGeneration;
@@ -13811,6 +13826,16 @@ async function changeThinkingLevel(level, { quiet = false } = {}) {
     }
   } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
+composerSpeed = window.StepsembleAgentSpeed?.create({ root: $("agent-speed-control"), chip: $("composer-speed"),
+  context: () => {
+    if (!rpc || rpc.readOnly || rpc.nativeHistoryReadonly) return null;
+    const agentId = conversationAgentId(), sessionId = rpc.nativeThreadId || rpc.claudeNativeSessionId || rpc.nativeSessionId || rpc.sid;
+    if (!agentId || !sessionId) return null;
+    const model = rpc.codexModel?.id || rpc.claudeModel?.id || rpc.speedModel || "";
+    return { agentId, sessionId, model, key: [apiBase, viewGeneration, agentId, sessionId, model, rpc.speedProvider || ""].join(":") };
+  }, get: api, post, locale: () => window.stepsembleI18n?.getLocale?.() || "en", onError: message => toast(message, true) });
+$("composer-speed")?.addEventListener("click", () => { void openModelSheet(); });
+window.addEventListener("focus", () => { void composerSpeed?.refresh(); });
 el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinkingSelect.value));
 // The level is picked on a line from the weakest to the strongest; the select
 // stays as its record, so everything above reads and writes it as before.
