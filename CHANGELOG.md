@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.46
+
+- Open a long Pi conversation again. Since 3.9.45, opening one with many screenshots ended Pi straight away: the check for the conversation's speed read the whole conversation back on one line, past the Host's limit. It now reads only what was added after the last saved entry.
+
 ## 3.9.45
 
 - Choose Standard or Fast separately from your model and thinking level. Fast is offered only when the active agent, model, and connection have a verified speed control.
