@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.44
+
+- See the model and thinking level every subagent runs with: Pi's workflows and background runs, kept up to date while they run; Codex's and OpenCode's as soon as they start; and Claude Code's, also in conversations started before their project folder moved.
+- Press Enter to confirm text typed through an input method (Chinese, or English typed through a Chinese one) without sending or saving it: in a Bot's message box and a group's, when renaming a session, and in every other text field. The Mac app and Safari send that Enter in a way these fields used to miss; the conversation's message box already handled it.
+- Click into a Bot's message box and see no ring inside it; the box's border still shows where you are typing.
+
 ## 3.9.43
 
 - See one Claude card per account even while a Mac cannot read Claude's limits live. The snapshot Claude Code keeps now says which account it belongs to, when Claude Code knew the account before taking it, so another computer's live reading of that account takes its place instead of standing beside it as an old card.
