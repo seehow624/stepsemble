@@ -155,7 +155,7 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await ui.evaluate(() => {
         subagentTracker.reset();
         subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
-          { index: 0, agent: "reviewer", task: "Check the child result", status: "running", model: "reported-pi-child", thinkingLevel: "off" },
+          { index: 0, agent: "reviewer", task: "Check the child result", status: "running", model: "reported-pi-child", thinking: "off" },
         ] } } });
       });
       await ui.locator(".subagent-bubble").click(); await ui.locator(".subagent-item").click();
@@ -163,7 +163,7 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await shot("pi"); await ui.locator(".subagent-close").click();
       await ui.evaluate(() => {
         subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
-          { index: 0, agent: "reviewer", task: "Long metadata", status: "running", model: "reported-model-" + "x".repeat(100), thinkingLevel: "high" },
+          { index: 0, agent: "reviewer", task: "Long metadata", status: "running", model: "reported-model-" + "x".repeat(100), thinking: "high" },
         ] } } });
       });
       await ui.locator(".subagent-item").click(); await shot("long-model"); await ui.locator(".subagent-close").click();
@@ -180,6 +180,33 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await ui.waitForFunction(() => document.querySelector(".subagent-drawer .subagent-execution-model")?.textContent === "reported-saved-child");
       assert.deepEqual(await values(ui), ["Claude Code", "reported-saved-child", "medium"]);
       await ui.locator(".subagent-close").click();
+      // A Pi workflow runs on its own: its children, their models and thinking
+      // levels come from the run's own status, which the Host reads, until
+      // the run ends.
+      const piRun = "95390287-c784-484f-b32e-f2c4b2261406", piReads = [];
+      await context.route("**/api/subagent/pi-run?**", async route => {
+        piReads.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+        const done = piReads.length > 1;
+        await route.fulfill({ json: { state: done ? "completed" : "running", children: [
+          { key: "gap-scout", name: "scout", task: "Read-only audit", status: "completed", model: "gpt-6.1-sol", thinking: "low", log: [{ kind: "tool", name: "read", summary: "README.md" }] },
+          { key: "fix", name: "worker", task: "Apply the fix", status: done ? "completed" : "running", model: "gpt-6.1-sol", thinking: "high", activity: done ? "" : "bash npm test" }] } });
+      });
+      await ui.evaluate(run => {
+        subagentTracker.reset();
+        subagentTracker.pi({ type: "tool_execution_start", toolCallId: "call_ui|fc_ui", toolName: "subagent", args: { workflowScript: "await runs.all([])", async: true } });
+        subagentTracker.pi({ type: "tool_execution_end", toolCallId: "call_ui|fc_ui", toolName: "subagent", result: { details: { mode: "workflow", asyncId: run, toolCallId: "call_ui|fc_ui", results: [], workflowChildren: { children: [] } } } });
+      }, piRun);
+      if (await ui.locator(".subagent-bubble").getAttribute("aria-expanded") !== "true") await ui.locator(".subagent-bubble").click();
+      await ui.waitForFunction(() => [...document.querySelectorAll(".subagent-item .subagent-execution-thinking")].map(node => node.textContent).join() === "low,high");
+      assert.deepEqual(await listed(ui), ["Pi Agent", "gpt-6.1-sol", "low", "Pi Agent", "gpt-6.1-sol", "high"]);
+      assert.deepEqual(piReads[0], { entry: keys["claude-code"], run: piRun, call: "call_ui|fc_ui" }, "the Host is asked for this conversation's run of this call");
+      await ui.waitForFunction(() => subagentTracker.piPending().length === 0, null, { timeout: 15_000 });
+      const settled = piReads.length; await ui.waitForTimeout(4500);
+      assert.equal(piReads.length, settled, "a finished run is not read again");
+      await ui.locator(".subagent-item").nth(1).click();
+      assert.deepEqual(await values(ui), ["Pi Agent", "gpt-6.1-sol", "high"]);
+      assert.equal(await ui.locator(".subagent-drawer .subagent-status").first().getAttribute("data-state"), "completed");
+      await shot("pi-workflow"); await ui.locator(".subagent-close").click();
       assert.deepEqual([...new Set(reads.map(read => read.id))].sort(), ["ui-claude-background", "ui-claude-child", "ui-claude-saved"],
         "only subagents whose agent keeps their settings are read; Pi's and a record's own say are shown as they are");
       assert.ok(reads.every(read => read.entry === keys["claude-code"]));

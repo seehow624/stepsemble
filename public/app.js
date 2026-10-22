@@ -11639,6 +11639,8 @@ el.btnModel.addEventListener("click", () => { if (el.btnModel.getAttribute("aria
 let conversationGoal = null;
 let agentCompaction = null;
 let subagentTracker = null, subagentPanel = null;
+// Reading pi-subagents background runs (see readPiRuns).
+let piRunReading = false, piRunTimer = 0;
 let sessionReferences = null;
 const REFERENCE_SOURCES = new Set(["pi", "claude-code", "codex", "opencode"]);
 // Tool names whose card is a subagent: Claude Code, Pi (pi-subagents), Codex and OpenCode.
@@ -20186,6 +20188,8 @@ function revealSubagentCard(card) {
     subagentTracker.remember({ toolId: id, name: card.__tool?.name, args: card.__tool?.args, result: TOOL_PLACEHOLDERS.has(output) ? "" : output,
       isError: card.classList.contains("err"), record: card.__subagentRecord || null, harness: conversationAgentId() });
   open.hidden = !subagentTracker.byTool(id).length;
+  // A saved background run's children are read as they stand now.
+  schedulePiRuns();
   open.textContent = subagentCopy("details");
 }
 function syncSubagentCards() {
@@ -20202,7 +20206,30 @@ subagentPanel = subagentTracker && subagentBar && window.StepsembleSubagentPanel
     if (!id || !WORKSPACE_ENTRY_KEY) throw new Error("subagent_detail_unavailable");
     return api(`/api/subagent/detail?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}&id=${encodeURIComponent(id)}`);
   } }) || null;
-subagentTracker?.onChange(() => { subagentPanel?.render(subagentTracker.list()); syncSubagentCards(); });
+subagentTracker?.onChange(() => { subagentPanel?.render(subagentTracker.list()); subagentPanel?.refresh?.(id => subagentTracker.get(id)); syncSubagentCards(); schedulePiRuns(); });
+// pi-subagents runs a workflow, or a subagent started with async, on its own:
+// its children's agent, model, thinking level and progress are in the run's
+// status, which the Host reads for this conversation's own tool call. Read
+// while the page is shown, until the run ends or is gone.
+function schedulePiRuns(delay = 0) {
+  if (piRunTimer || !subagentTracker?.piPending?.().length || !WORKSPACE_ENTRY_KEY) return;
+  piRunTimer = setTimeout(() => { piRunTimer = 0; void readPiRuns(); }, delay);
+}
+async function readPiRuns() {
+  if (piRunReading) return;
+  if (document.hidden) { schedulePiRuns(4000); return; }
+  piRunReading = true;
+  try {
+    for (const run of subagentTracker.piPending().slice(0, 4)) {
+      try {
+        subagentTracker.piRun(run.toolId, await api(`/api/subagent/pi-run?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}&run=${encodeURIComponent(run.id)}&call=${encodeURIComponent(run.call)}`));
+      } catch (error) {
+        // Gone (cleaned up after it ended), or not this conversation's: what is shown stays.
+        if ([400, 404, 409].includes(Number(error?.status))) subagentTracker.piRun(run.toolId, null);
+      }
+    }
+  } finally { piRunReading = false; schedulePiRuns(4000); }
+}
 // The Goal, Codex goal and subagent chips sit side by side; one of their
 // panels opens at a time, below them.
 subagentBar?.addEventListener("click", event => {

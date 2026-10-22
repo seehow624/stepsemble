@@ -205,3 +205,111 @@ test("OpenCode: session ids with underscores are read", async () => {
   const result = await detail.read(ENTRY, "ses_child");
   assert.deepEqual([result.harness, result.model, result.reasoningEffort, result.log[0]?.text], ["opencode", "child-model", "low", "Done."]);
 });
+
+test("Claude Code: a conversation from before its project moved finds its subagents in the old folder", async t => {
+  const { dir, detail } = claudeFixture(t);
+  // The session and its subagents stayed where Claude Code first kept them.
+  const old = path.join(dir, "projects", "-old-place", CLAUDE_SESSION, "subagents");
+  fs.mkdirSync(old, { recursive: true });
+  fs.writeFileSync(path.join(dir, "projects", "-old-place", CLAUDE_SESSION + ".jsonl"), "{}\n");
+  fs.writeFileSync(path.join(old, "agent-moved.meta.json"), JSON.stringify({ toolUseId: "toolu_Moved" }));
+  fs.writeFileSync(path.join(old, "agent-moved.jsonl"), JSON.stringify(assistant("claude-opus-5-5", [{ type: "text", text: "found" }], "xhigh")) + "\n");
+  assert.deepEqual(Object.values(await detail.read(ENTRY, "toolu_Moved")).slice(1), ["claude-code", "claude-opus-5-5", "xhigh"]);
+  // Two folders with the same session is no answer at all.
+  fs.mkdirSync(path.join(dir, "projects", "-third-place"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "projects", "-third-place", CLAUDE_SESSION + ".jsonl"), "{}\n");
+  const fresh = createSubagentDetail({ resolve: key => key === ENTRY ? { key, record: { agentId: "claude-code", nativeSessionId: CLAUDE_SESSION, cwd: "/owned/project" } } : null, codex: {}, openCode: {}, claudeDir: () => dir });
+  await assert.rejects(fresh.read(ENTRY, "toolu_Moved"), error => error.code === "subagent_not_owned");
+});
+
+// pi-subagents: a background run's status.json under its own temporary root.
+const { piSubagentsRoot, createSubagentDetailRoutes } = require("../server/subagent-detail");
+const RUN = "95390287-c784-484f-b32e-f2c4b2261406", CALL = "call_35d7cb47e8644327a584d1f0d464766b|fc_000569c1477fbea8016ad62d8487dc8191801354f6662a3e83";
+function piFixture(t, { status, record } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-pi-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const sessions = path.join(dir, "sessions"), runs = path.join(dir, "runs"), file = "--owned--/2026-10-19T08-36-36-617Z_owned.jsonl";
+  fs.mkdirSync(path.join(sessions, "--owned--"), { recursive: true }); fs.writeFileSync(path.join(sessions, file), "{}\n");
+  const write = (value, run = RUN) => { fs.mkdirSync(path.join(runs, run), { recursive: true }); fs.writeFileSync(path.join(runs, run, "status.json"), typeof value === "string" ? value : JSON.stringify(value)); };
+  const base = { runId: RUN, toolCallId: CALL, sessionId: path.join(sessions, file), mode: "workflow", state: "running" };
+  if (status !== null) write({ ...base, ...status });
+  const detail = createSubagentDetail({ resolve: key => key === ENTRY ? { key, record: record || { agentId: "pi", kind: "pi", file, cwd: "/owned" } } : null,
+    codex: {}, openCode: {}, piSessionsDir: sessions, piRunsDir: () => runs });
+  return { dir, sessions, runs, base, write, detail };
+}
+const step = (fields) => ({ agent: "scout", status: "running", recentTools: [{ tool: "read", args: "README.md", endMs: 1 }], recentOutput: ["Reading."], ...fields });
+
+test("Pi: a background run's children show the agent, model, thinking level and work their own status reports", async t => {
+  const { detail } = piFixture(t, { status: {
+    steps: [
+      step({ workflowKey: "gap-scout", runId: "r1", sessionName: "scout: Read-only audit", model: "gpt-6.1-sol", thinking: "low", status: "completed", durationMs: 90578, tokens: { input: 10, output: 5, total: 15 } }),
+      step({ agent: "worker", workflowKey: "fix", runId: "r2", label: "Apply the fix", model: "openai-codex/gpt-6.1-sol:high", thinking: "high", currentTool: "bash", currentToolArgs: "npm test" }),
+    ],
+    workflowChildren: { version: 1, inventoryComplete: true, workflowState: "running", children: [
+      { childId: "gap-scout", runId: "r1", agent: "scout", state: "completed", model: "gpt-6.1-sol", thinking: "low" },
+      { childId: "fix", runId: "r2", agent: "worker", state: "running", model: "gpt-6.1-sol", thinking: "high" },
+      { childId: "review", agent: "reviewer", state: "pending", sessionName: "reviewer: Review the fix", model: "claude-opus-5-5", thinking: "xhigh" },
+    ] } } });
+  const run = await detail.piRun(ENTRY, RUN, CALL);
+  assert.equal(run.state, "running");
+  assert.deepEqual(run.children.map(child => [child.key, child.name, child.task, child.status, child.model, child.thinking]), [
+    ["gap-scout", "scout", "Read-only audit", "completed", "gpt-6.1-sol", "low"],
+    ["fix", "worker", "Apply the fix", "running", "openai-codex/gpt-6.1-sol", "high"],
+    ["review", "reviewer", "Review the fix", "pending", "claude-opus-5-5", "xhigh"]], "a model's level suffix is the thinking level, not part of the model");
+  assert.equal(run.children[0].tokens, 15); assert.equal(run.children[0].durationMs, 90578); assert.equal(run.children[0].activity, "", "a finished child does nothing now");
+  assert.equal(run.children[1].activity, "bash npm test");
+  assert.deepEqual(run.children[1].log, [{ kind: "tool", name: "read", summary: "README.md" }, { kind: "text", text: "Reading." }]);
+});
+
+test("Pi: a run that ended leaves no child still working", async t => {
+  const { detail } = piFixture(t, { status: { state: "failed", steps: [step({ workflowKey: "fix", status: "running", currentTool: "bash" })],
+    workflowChildren: { children: [{ childId: "fix", state: "running" }, { childId: "later", agent: "reviewer", state: "pending" }] } } });
+  const run = await detail.piRun(ENTRY, RUN, CALL);
+  assert.equal(run.state, "failed");
+  assert.deepEqual(run.children.map(child => [child.key, child.status, child.activity]), [["fix", "failed", ""], ["later", "failed", ""]]);
+  const { detail: done } = piFixture(t, { status: { state: "complete", steps: [step({ status: "running" })] } });
+  assert.deepEqual((await done.piRun(ENTRY, RUN, CALL)).children.map(child => [child.key, child.status]), [["0", "completed"]], "an unkeyed step is keyed by its place");
+});
+
+test("Pi: only a run this conversation's own tool call started, from its own session, is read", async t => {
+  const { detail, base, write, sessions, runs } = piFixture(t, { status: {} });
+  assert.equal((await detail.piRun(ENTRY, RUN, CALL)).state, "running");
+  for (const status of [{ toolCallId: "call_other|fc_other" }, { runId: "00000000-0000-4000-8000-000000000009" }, { sessionId: path.join(sessions, "--owned--", "other.jsonl") }, { sessionId: "relative.jsonl" }, { sessionId: null }]) {
+    write({ ...base, ...status });
+    await assert.rejects(detail.piRun(ENTRY, RUN, CALL), error => error.code === "subagent_not_owned" && error.statusCode === 404, JSON.stringify(status));
+  }
+  write("{not json");
+  await assert.rejects(detail.piRun(ENTRY, RUN, CALL), error => error.code === "subagent_run_unreadable");
+  await assert.rejects(detail.piRun(ENTRY, "00000000-0000-4000-8000-0000000000aa", CALL), error => error.code === "subagent_run_gone" && error.statusCode === 404);
+  // Never through a link.
+  const outside = path.join(runs, "..", "outside.json"); fs.writeFileSync(outside, JSON.stringify(base));
+  fs.rmSync(path.join(runs, RUN, "status.json")); fs.symlinkSync(outside, path.join(runs, RUN, "status.json"));
+  await assert.rejects(detail.piRun(ENTRY, RUN, CALL), error => error.code === "subagent_run_gone");
+  for (const [entry, run, call] of [["nope", RUN, CALL], [ENTRY, "../x", CALL], [ENTRY, RUN, "../call"], [ENTRY, RUN, ""]])
+    await assert.rejects(detail.piRun(entry, run, call), error => error.statusCode === 400, `${entry} ${run} ${call}`);
+});
+
+test("Pi: a conversation of another agent, or a session outside Pi's folder, has no run to read", async t => {
+  for (const record of [{ agentId: "claude-code", nativeSessionId: CLAUDE_SESSION, cwd: "/owned" }, { agentId: "pi", file: "../outside.jsonl" }, { agentId: "pi" }]) {
+    const { detail } = piFixture(t, { status: {}, record });
+    await assert.rejects(detail.piRun(ENTRY, RUN, CALL), error => [404, 409].includes(error.statusCode) && error.code !== "subagent_run_gone", JSON.stringify(record));
+  }
+});
+
+test("Pi: the run folder is the one pi-subagents itself chooses", () => {
+  assert.equal(piSubagentsRoot({ env: { PI_SUBAGENTS_TEMP_ROOT: " /custom/root " }, tmpdir: "/tmp", getuid: () => 501 }), path.resolve("/custom/root"));
+  assert.equal(piSubagentsRoot({ env: {}, tmpdir: "/var/T", getuid: () => 501 }), path.join("/var/T", "pi-subagents-uid-501"));
+  assert.equal(piSubagentsRoot({ env: { USERNAME: "Jerome Teng" }, tmpdir: "C:\\T", getuid: undefined }), path.join("C:\\T", "pi-subagents-user-Jerome-Teng"));
+  assert.equal(piSubagentsRoot({ env: {}, tmpdir: "/t", getuid: undefined }), path.join("/t", "pi-subagents-shared"));
+});
+
+test("Pi: the run route answers with the run's children", async t => {
+  const { detail } = piFixture(t, { status: { steps: [step({ workflowKey: "k", model: "m", thinking: "high" })] } });
+  const sent = [], handle = createSubagentDetailRoutes({ detail, sendJSON: (res, status, body) => sent.push([status, body]) });
+  const url = new URL(`http://h/api/subagent/pi-run?entry=${ENTRY}&run=${RUN}&call=${encodeURIComponent(CALL)}`);
+  assert.equal(await handle({ method: "GET" }, {}, url), true);
+  assert.equal(sent[0][0], 200); assert.deepEqual(sent[0][1].children.map(child => [child.key, child.model, child.thinking]), [["k", "m", "high"]]);
+  assert.equal(await handle({ method: "POST" }, {}, url), false);
+  await handle({ method: "GET" }, {}, new URL(`http://h/api/subagent/pi-run?entry=${ENTRY}&run=bad&call=x`));
+  assert.deepEqual(sent[1], [400, { error: "subagent_detail_invalid", code: "subagent_detail_invalid" }]);
+});

@@ -140,10 +140,16 @@
       if(openId!==null)renderDrawer();
       for(const id of new Set([...loaded.keys(),...loadedStatus.keys()]))if(!rows.some(row=>row.id===id)&&!extra.has(id)&&id!==openId){loaded.delete(id);loadedStatus.delete(id);loadedAt.delete(id);failed.delete(id);}
     }
+    // An earlier turn's subagents shown here, as they now stand.
+    function refresh(get){
+      let changed=false;
+      for(const id of extra.keys()){const row=get(id);if(row){extra.set(id,row);changed=true;}}
+      if(changed&&openId!==null)renderDrawer();
+    }
     // Another panel above the message box opening closes the list.
     function collapse(){if(list.hidden)return;list.hidden=true;bubble.setAttribute("aria-expanded","false");}
     function destroy(){document.removeEventListener("keydown",onKey);drawer.remove?.();bubble.remove?.();list.remove?.();}
-    return {render,open,show,close,collapse,destroy,isOpen:()=>openId!==null};
+    return {render,refresh,open,show,close,collapse,destroy,isOpen:()=>openId!==null};
   }
   return {mount,elapsed};
 });

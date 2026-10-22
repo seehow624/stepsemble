@@ -1,16 +1,20 @@
 "use strict";
 
 // Read-only details of a subagent that an agent keeps as its own thread or
-// session (Codex, OpenCode) or transcript (Claude Code). Only a descendant of
-// the conversation's own thread or session is read; nothing else is listed or
-// returned.
+// session (Codex, OpenCode) or transcript (Claude Code), and the children of
+// a pi-subagents background run. Only a descendant of the conversation's own
+// thread or session, or a run its own tool call started, is read; nothing
+// else is listed or returned.
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const presentation = require("../public/modules/agent-transcript-presentation.js");
 const { claudeConfigDir, claudeTranscriptFile } = require("./claude-fork-point");
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 // OpenCode's session ids and Claude's tool ids carry underscores (ses_, toolu_, call_).
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
+// Pi's tool call ids pair a call with its response item: call_…|fc_….
+const PI_CALL = /^[A-Za-z0-9][A-Za-z0-9_.:|-]{0,255}$/;
 const MAX_DEPTH = 4, MAX_LOG = 200, MAX_TEXT = 4000;
 // Claude Code keeps each subagent as subagents/agent-<id>.jsonl beside the
 // conversation's transcript, with agent-<id>.meta.json naming the tool call
@@ -19,6 +23,64 @@ const CLAUDE_AGENT = /^agent-([A-Za-z0-9_-]{1,128})\.meta\.json$/;
 const MAX_AGENTS = 2000, MAX_META = 64 * 1024, MAX_TAIL = 4 * 1024 * 1024, MAX_FOLDERS = 32;
 const failure = (code, statusCode) => Object.assign(new Error(code), { code, statusCode });
 const clip = (value, limit = MAX_TEXT) => typeof value === "string" ? value.slice(0, limit) : "";
+
+// pi-subagents keeps a background run (a workflow, or a subagent started with
+// async) in <its temporary root>/async-subagent-runs/<run id>/status.json and
+// rewrites it as the run goes: each child's agent, model, thinking level,
+// state and recent work. The root is the one pi-subagents itself chooses
+// (src/shared/types.ts, TEMP_ROOT_DIR); Pi inherits this Host's environment.
+function piSubagentsRoot(options = {}) {
+  const { env = process.env, tmpdir = os.tmpdir() } = options;
+  // Windows has no uid; a caller may say so with getuid: undefined.
+  const getuid = Object.hasOwn(options, "getuid") ? options.getuid : process.getuid?.bind(process);
+  const configured = typeof env.PI_SUBAGENTS_TEMP_ROOT === "string" ? env.PI_SUBAGENTS_TEMP_ROOT.trim() : "";
+  if (configured) return path.resolve(configured);
+  const segment = value => String(value).trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+  let scope = "shared";
+  if (typeof getuid === "function") scope = `uid-${getuid()}`;
+  else {
+    const user = [env.USERNAME, env.USER, env.LOGNAME].find(Boolean), home = env.USERPROFILE || env.HOME;
+    if (user) scope = `user-${segment(user)}`; else if (home) scope = `home-${segment(home)}`;
+  }
+  return path.join(tmpdir, `pi-subagents-${scope}`);
+}
+const MAX_STATUS = 2 * 1024 * 1024, MAX_PI_CHILDREN = 64, MAX_PI_LOG = 40;
+const PI_STATE = { pending: "pending", queued: "pending", running: "running", paused: "running", detached: "running",
+  complete: "completed", completed: "completed", failed: "failed", partial: "failed", stopped: "failed", rejected: "failed" };
+const PI_LEVEL = /:(?:off|minimal|low|medium|high|xhigh|max)$/;
+const plainObject = value => !!value && typeof value === "object" && !Array.isArray(value);
+const firstLine = value => clip(value).split("\n").map(line => line.trim()).find(Boolean) || "";
+function piTokens(value) {
+  if (Number.isSafeInteger(value)) return value;
+  if (!plainObject(value)) return null;
+  if (Number.isSafeInteger(value.total)) return value.total;
+  return Number.isSafeInteger(value.input) && Number.isSafeInteger(value.output) ? value.input + value.output : null;
+}
+// The run's children: what each has done (its step), and the workflow's
+// inventory for those not started yet. A child is keyed as the launch's
+// record keys it: its workflow key, else its child id, else its place.
+function piRunChildren(status) {
+  const steps = (Array.isArray(status.steps) ? status.steps : []).filter(plainObject).slice(0, MAX_PI_CHILDREN);
+  const listed = (Array.isArray(status.workflowChildren?.children) ? status.workflowChildren.children : []).filter(plainObject).slice(0, MAX_PI_CHILDREN);
+  const children = new Map();
+  const add = (key, step, child) => {
+    const agent = clip(step?.agent || child?.agent, 80), name = firstLine(step?.description || step?.label || step?.sessionName || child?.sessionName);
+    const running = PI_STATE[step?.status] || PI_STATE[child?.state] || "running";
+    const log = [...(Array.isArray(step?.recentTools) ? step.recentTools : []).filter(plainObject).map(tool => ({ kind: "tool", name: clip(tool.tool, 80) || "tool", summary: clip(tool.args, 300) })),
+      ...(Array.isArray(step?.recentOutput) ? step.recentOutput : []).filter(line => typeof line === "string" && line.trim()).map(line => ({ kind: "text", text: clip(line) }))].slice(-MAX_PI_LOG);
+    children.set(key, { key, name: agent || "subagent", task: agent && name.startsWith(agent + ": ") ? name.slice(agent.length + 2) : name, status: running,
+      model: clip(step?.model || child?.model, 120).replace(PI_LEVEL, ""), thinking: clip(step?.thinking || child?.thinking, 64),
+      tokens: piTokens(step?.tokens), durationMs: Number.isSafeInteger(step?.durationMs) ? step.durationMs : null,
+      activity: running === "running" && step?.currentTool ? clip(`${step.currentTool} ${step.currentToolArgs || ""}`.trim(), 300) : "",
+      error: clip(step?.error, 2000), log });
+  };
+  steps.forEach((step, index) => {
+    const child = listed.find(row => row.runId && row.runId === step.runId || row.childId && (row.childId === step.workflowKey || row.childId === step.childId));
+    add(clip(step.workflowKey || child?.childId || step.childId, 128) || String(index), step, child);
+  });
+  listed.forEach((child, index) => { const key = clip(child.childId, 128) || String(index); if (!children.has(key)) add(key, null, child); });
+  return [...children.values()];
+}
 
 function toolEntry(tool) {
   const args = tool.args && typeof tool.args === "object" ? tool.args : {};
@@ -51,7 +113,33 @@ function claudeRows(text) {
   return rows;
 }
 
-function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = () => false, claudeDir = () => claudeConfigDir() }) {
+function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = () => false, claudeDir = () => claudeConfigDir(),
+  piSessionsDir = null, piRunsDir = () => path.join(piSubagentsRoot(), "async-subagent-runs") }) {
+  // A conversation started before its project moved stays in the folder named
+  // after its old path; Claude Code finds it by its id alone, and so does
+  // this, when exactly one folder has it.
+  const claudeMoved = new Map();
+  async function claudeTranscript(record) {
+    const configDir = claudeDir(), file = claudeTranscriptFile(record.nativeSessionId, record.cwd, { configDir });
+    if (!file) return null;
+    try { if ((await fs.promises.lstat(file)).isFile()) return file; } catch {}
+    const name = path.basename(file), known = claudeMoved.get(name);
+    if (known) { try { if ((await fs.promises.lstat(known)).isFile()) return known; } catch {} claudeMoved.delete(name); }
+    const projects = path.join(configDir, "projects");
+    let folders;
+    try { folders = await fs.promises.readdir(projects, { withFileTypes: true }); } catch { return file; }
+    const found = [];
+    for (const folder of folders.slice(0, MAX_AGENTS)) {
+      if (!folder.isDirectory()) continue;
+      const candidate = path.join(projects, folder.name, name);
+      try { if ((await fs.promises.lstat(candidate)).isFile()) found.push(candidate); } catch {}
+      if (found.length > 1) return file;
+    }
+    if (found.length !== 1) return file;
+    claudeMoved.set(name, found[0]);
+    while (claudeMoved.size > MAX_FOLDERS) claudeMoved.delete(claudeMoved.keys().next().value);
+    return found[0];
+  }
   // Per subagents folder: the tool call each agent answers, read once.
   const claudeFolders = new Map();
   async function claudeAgent(folder, id) {
@@ -174,20 +262,47 @@ function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = 
       if (id === record.nativeSessionId) throw failure("subagent_not_owned", 404);
       return openCodeDetail(record.nativeSessionId, id, record.cwd || null);
     }
-    const transcript = record.agentId === "claude-code" ? claudeTranscriptFile(record.nativeSessionId, record.cwd, { configDir: claudeDir() }) : null;
+    const transcript = record.agentId === "claude-code" ? await claudeTranscript(record) : null;
     if (transcript) return claudeDetail(transcript, id);
     throw failure("subagent_detail_unavailable", 409);
   }
-  return { read };
+  // A pi-subagents background run's children, read from the run's own status:
+  // only a run the conversation's own tool call started, from its own session.
+  async function piRun(entryKey, runId, call) {
+    if (!UUID.test(String(entryKey || "")) || !UUID.test(String(runId || "")) || !PI_CALL.test(String(call || ""))) throw failure("subagent_detail_invalid", 400);
+    const entry = resolve(entryKey);
+    if (!entry?.record) throw failure("workspace_entry_not_found", 404);
+    const record = entry.record;
+    if (record.agentId !== "pi" || typeof record.file !== "string" || !record.file || !piSessionsDir) throw failure("subagent_detail_unavailable", 409);
+    const sessions = path.resolve(piSessionsDir), session = path.resolve(sessions, record.file);
+    if (!session.startsWith(sessions + path.sep)) throw failure("subagent_not_owned", 404);
+    const text = await readBounded(path.join(piRunsDir(), runId, "status.json"), MAX_STATUS, false);
+    if (text === null) throw failure("subagent_run_gone", 404);
+    let status;
+    try { status = JSON.parse(text); } catch { throw failure("subagent_run_unreadable", 502); }
+    if (!plainObject(status) || status.runId !== runId || status.toolCallId !== call) throw failure("subagent_not_owned", 404);
+    const same = async (a, b) => { if (a === b) return true; try { return await fs.promises.realpath(a) === await fs.promises.realpath(b); } catch { return false; } };
+    if (typeof status.sessionId !== "string" || !path.isAbsolute(status.sessionId) || !await same(path.resolve(status.sessionId), session)) throw failure("subagent_not_owned", 404);
+    // A child the run's end left unfinished (stopped, or never started) is
+    // not still working: it ends as the run did.
+    const state = PI_STATE[status.state] || "running", ended = state === "completed" || state === "failed";
+    const children = piRunChildren(status).map(child => ended && (child.status === "running" || child.status === "pending")
+      ? { ...child, status: state === "completed" ? "completed" : "failed", activity: "" } : child);
+    return { state, children };
+  }
+  return { read, piRun };
 }
 
 function createSubagentDetailRoutes({ detail, sendJSON }) {
   return async function handle(req, res, url) {
-    if (url.pathname !== "/api/subagent/detail" || req.method !== "GET") return false;
-    try { sendJSON(res, 200, await detail.read(url.searchParams.get("entry"), url.searchParams.get("id"))); }
+    if (!["/api/subagent/detail", "/api/subagent/pi-run"].includes(url.pathname) || req.method !== "GET") return false;
+    const read = url.pathname === "/api/subagent/pi-run"
+      ? () => detail.piRun(url.searchParams.get("entry"), url.searchParams.get("run"), url.searchParams.get("call"))
+      : () => detail.read(url.searchParams.get("entry"), url.searchParams.get("id"));
+    try { sendJSON(res, 200, await read()); }
     catch (error) { const code = typeof error?.code === "string" && /^[a-z_]+$/.test(error.code) ? error.code : "subagent_detail_failed"; sendJSON(res, error?.statusCode || 502, { error: code, code }); }
     return true;
   };
 }
 
-module.exports = { createSubagentDetail, createSubagentDetailRoutes };
+module.exports = { createSubagentDetail, createSubagentDetailRoutes, piSubagentsRoot, piRunChildren };
