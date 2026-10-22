@@ -2,7 +2,7 @@
 const test = require("node:test"), assert = require("node:assert/strict"), crypto = require("node:crypto");
 const fs = require("node:fs/promises"), os = require("node:os"), path = require("node:path");
 const { accountKey, boundAnthropicKey, createClaudeIdentityReader } = require("../server/quota-identity");
-const { createWorkspaceUsage, opencodexQuotas } = require("../server/workspace-usage");
+const { createWorkspaceUsage, opencodexQuotas, claudeCache, claudeWindows } = require("../server/workspace-usage");
 const { combineQuotas } = require("../public/modules/usage-data");
 test("quota comparison keys hide identities and isolate providers and credential kinds", () => {
   const a = accountKey("claude", "account-one");
@@ -43,6 +43,45 @@ test("unknown, different, and switched accounts never merge just because quotas 
     assert.equal(combineQuotas([host("mini", keys[0], 10), host("mbp", keys[1], 10)]).length, 2);
   }
   assert.equal(combineQuotas([host("mini", a, 10)]).length, 1);
+});
+test("Claude Code's own snapshot names its account only when that sign-in came before it", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-claude-cache-"));
+  const uuid = "0b5f2c4e-1a2b-4c3d-8e9f-0123456789ab", key = accountKey("claude", uuid), now = 1_700_000_000_000;
+  const snapshot = (account, fetchedAtMs = now - 60_000) => fs.writeFile(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: account,
+    cachedUsageUtilization: { fetchedAtMs, utilization: { seven_day: { utilization: 59, resets_at: new Date(now + 86_400_000).toISOString() } } } }));
+  try {
+    await snapshot({ accountUuid: uuid.toUpperCase(), profileFetchedAt: now - 3_600_000, emailAddress: "private@example.com" });
+    const read = await claudeCache(home, now);
+    assert.equal(read.accountKey, key, "the same key a verified live reading of the account carries");
+    assert.equal(read.observedAt, now - 60_000); assert.deepEqual(read.windows.map(w => w.usedPercent), [59]);
+    assert(!JSON.stringify(read).includes("private") && !JSON.stringify(read).includes(uuid), "neither the email nor the UUID leaves the file");
+    // A sign-in after the snapshot (an account switch) leaves it anonymous, as
+    // does an account it cannot place in time or a malformed one.
+    for (const account of [{ accountUuid: uuid, profileFetchedAt: now - 1_000 }, { accountUuid: uuid }, { accountUuid: uuid, profileFetchedAt: "1" },
+      { accountUuid: "not-a-uuid", profileFetchedAt: now - 3_600_000 }, null]) {
+      await snapshot(account); assert.equal((await claudeCache(home, now)).accountKey, null, JSON.stringify(account));
+    }
+    await snapshot({ accountUuid: uuid, profileFetchedAt: now - 3_600_000 }, "later");
+    assert.equal((await claudeCache(home, now)).accountKey, null, "an undated snapshot stays anonymous");
+  } finally { await fs.rm(home, { recursive: true, force: true }); }
+});
+test("an offline Aqua helper's fallback keeps the snapshot's own account, never the helper's", async () => {
+  const own = accountKey("claude", "0b5f2c4e-1a2b-4c3d-8e9f-0123456789ab"), helper = "v1:" + "a".repeat(64);
+  for (const [cacheKey, expected] of [[own, own], [null, null], ["v1:not-a-key", null]]) {
+    const service = createWorkspaceUsage({ now: () => 1700000000000, codex: async () => ({}), readProviderQuotas: async () => [], readOpenCodex: async () => [],
+      readSignIn: async () => null, readDesktopClaudeQuota: async () => ({ quotaVersion: 1, status: "unavailable", accountKey: helper, windows: [] }),
+      readClaudeCache: async () => ({ observedAt: 1699999000000, accountKey: cacheKey, windows: claudeWindows({ seven_day: { utilization: 59 } }) }) });
+    const claude = (await service.read()).providers.find(p => p.service === "claude");
+    assert.equal(claude.status, "cached"); assert.equal(claude.accountKey, expected); assert.equal(claude.observedAt, 1699999000000);
+  }
+  // Identified, it gives way to another computer's live reading of the account.
+  const cached = { host: "mini", name: "Mac Mini", quota: { updatedAt: 2, providers: [{ service: "claude", provider: "Claude", source: "native", status: "cached",
+    accountKey: own, observedAt: 1, windows: [{ windowDurationMins: 10080, usedPercent: 59 }] }] } };
+  const live = { host: "mbp", name: "MacBook Pro", quota: { updatedAt: 3, providers: [{ service: "claude", provider: "Claude", source: "native", status: "ready",
+    accountKey: own, windows: [{ windowDurationMins: 300, usedPercent: 2 }, { windowDurationMins: 10080, usedPercent: 59 }] }] } };
+  const [card, ...rest] = combineQuotas([cached, live]);
+  assert.equal(rest.length, 0, "one card for the account"); assert.equal(card.cached, false); assert.equal(card.windows.length, 2);
+  assert.deepEqual(card.hosts.map(h => h.name), ["Mac Mini", "MacBook Pro"]);
 });
 test("Codex account changes during a native quota request cannot inherit the old identity", async () => {
   const quiet = { codex: async () => ({ rateLimits: { primary: { usedPercent: 12 } } }), readOpenCodex: async () => [], readProviderQuotas: async () => [],
