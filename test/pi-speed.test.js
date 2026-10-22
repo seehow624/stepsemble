@@ -1,9 +1,11 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), path = require("node:path");
-const { createPiSpeed, receiptOf } = require("../server/pi-speed");
+const fs = require("node:fs"), os = require("node:os");
+const { createPiSpeed, receiptOf, lastEntryId } = require("../server/pi-speed");
 const extensionPath = path.resolve(__dirname, "../server/pi-speed-extension.mjs");
 const catalogPath = path.resolve(__dirname, "../server/pi-catalog-extension.mjs");
-async function fixture() {
+// file: Pi's session file, written as Pi does; seed: entries already in it.
+async function fixture({ file = null, seed = [] } = {}) {
   const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
   const entries = [], hooks = {}, commands = {}, calls = [];
   let leafId = null, streaming = false;
@@ -11,7 +13,9 @@ async function fixture() {
   const cap = { support: "supported", choices: ["standard", "fast"], effective: "unknown", model: model.id, tier: "priority", route: "magpie", fingerprint: "verified-magpie-model" };
   const ctx = { model, isIdle: () => !streaming, sessionManager: { getBranch: () => entries } };
   const pi = { on: (name, fn) => { hooks[name] = fn; }, registerCommand: (name, spec) => { commands[name] = spec.handler; },
-    appendEntry: (customType, data) => { const id = "entry-" + entries.length; entries.push({ id, parentId: leafId, type: "custom", customType, data }); leafId = id; } };
+    appendEntry: (customType, data) => { const id = "entry-" + entries.length; const entry = { type: "custom", customType, data, id, parentId: leafId };
+      entries.push(entry); leafId = id; if (file) fs.appendFileSync(file, JSON.stringify(entry) + "\n"); } };
+  for (const entry of seed) { entries.push({ ...entry, parentId: leafId }); leafId = entry.id; if (file) fs.appendFileSync(file, JSON.stringify(entries.at(-1)) + "\n"); }
   const read = async selected => selected.provider === "magpie" && selected.id === model.id ? cap : { support: "unknown", choices: ["standard"], effective: "unknown" };
   installPiSpeed(pi, { capability: read }); hooks.session_start({}, ctx);
   const control = { missing: false, wrongPath: false, noReceipt: false, wrongBranch: false, exit: false };
@@ -21,8 +25,12 @@ async function fixture() {
       { name: "stepsemble-speed", source: "extension", sourceInfo: { path: control.wrongPath ? "/other/plugin.mjs" : extensionPath } },
       { name: "stepsemble-refresh-models", source: control.catalogSource || "extension", sourceInfo: { path: control.wrongCatalogPath ? "/other/plugin.mjs" : catalogPath } },
     ] } };
-    if (cmd.type === "get_state") return { success: true, data: { sessionId: "native-pi-session", isStreaming: streaming, model: ctx.model } };
-    if (cmd.type === "get_entries") return { success: true, data: { entries, leafId: control.wrongBranch ? "unrelated" : leafId } };
+    if (cmd.type === "get_state") return { success: true, data: { sessionId: "native-pi-session", isStreaming: streaming, model: ctx.model, ...(file ? { sessionFile: file } : {}) } };
+    if (cmd.type === "get_entries") {
+      const at = cmd.since === undefined ? -1 : entries.findIndex(entry => entry.id === cmd.since);
+      if (cmd.since !== undefined && (at < 0 || control.unknownCursor)) return { success: false, error: "unknown entry" };
+      return { success: true, data: { entries: entries.slice(at + 1), leafId: control.wrongBranch ? "unrelated" : leafId } };
+    }
     if (cmd.type === "prompt" && cmd.message.startsWith("/stepsemble-speed ")) {
       if (!control.noReceipt) await commands["stepsemble-speed"](cmd.message.slice("/stepsemble-speed ".length), ctx);
       return { success: true, data: { disposition: "handled" } };
@@ -109,4 +117,44 @@ test("pi-speed: receipt on another branch or with a stale nonce is never proof",
   assert.equal(receiptOf({ entries: [entry], leafId: "a" }, "n").ok, true);
   assert.equal(receiptOf({ entries: [entry], leafId: "a" }, "old"), null);
   assert.equal(receiptOf({ entries: [entry, { id: "b", parentId: null }], leafId: "b" }, "n"), null);
+});
+// A long conversation, screenshots and all, is tens of MB in one get_entries
+// line, past the Host's frame limit, which ended Pi as the conversation opened.
+test("pi-speed: a long conversation is read only after its last saved entry, never whole", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-speed-")), file = path.join(dir, "session.jsonl");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(file, JSON.stringify({ type: "session", version: 3, id: "header" }) + "\n");
+  const screenshot = { role: "toolResult", content: [{ type: "image", data: "x".repeat(9 * 1024 * 1024), mimeType: "image/png" }] };
+  const f = await fixture({ file, seed: [{ type: "message", id: "m1", message: screenshot }, { type: "message", id: "m2", message: { role: "assistant", content: [] } }] });
+  assert.equal((await f.host.status("sid")).support, "supported");
+  const reads = f.calls.filter(cmd => cmd.type === "get_entries");
+  assert.deepEqual(reads, [{ type: "get_entries", since: "m2" }], "the receipt alone, not the 9 MB before it");
+  const cap = await f.host.status("sid");
+  await f.host.send("sid", { type: "prompt", message: "synthetic user" }, { speed: "fast", speedFingerprint: cap.fingerprint });
+  assert.equal(f.calls.some(cmd => cmd.type === "get_entries" && cmd.since === undefined), false);
+  assert.equal(f.calls.at(-1).message, "synthetic user");
+  // A cursor Pi does not know never falls back to the whole long list.
+  f.control.unknownCursor = true; const before = f.calls.length;
+  await assert.rejects(f.host.send("sid", { type: "prompt", message: "must not send" }, { speed: "fast", speedFingerprint: cap.fingerprint }), /speed_not_confirmed/);
+  assert.equal(f.calls.slice(before).some(cmd => cmd.type === "get_entries" && cmd.since === undefined), false);
+});
+test("pi-speed: a conversation Pi has not saved yet, or a short one, may be read whole", async t => {
+  const f = await fixture(); assert.equal((await f.host.status("sid")).support, "supported");
+  assert.deepEqual(f.calls.filter(cmd => cmd.type === "get_entries"), [{ type: "get_entries" }]);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-speed-")), file = path.join(dir, "session.jsonl");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(file, JSON.stringify({ type: "session", version: 3, id: "header" }) + "\n");
+  const short = await fixture({ file });
+  assert.equal((await short.host.status("sid")).support, "supported", "the header is no entry; a small list is read whole");
+});
+test("pi-speed: the last saved entry skips a line still being written", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-speed-")), file = path.join(dir, "session.jsonl");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.deepEqual(await lastEntryId(file), { id: null, size: 0 }, "no file yet");
+  assert.deepEqual(await lastEntryId("relative.jsonl"), { id: null, size: 0 });
+  const big = JSON.stringify({ type: "message", id: "big", message: { content: "y".repeat(3 * 1024 * 1024) } });
+  fs.writeFileSync(file, JSON.stringify({ type: "message", id: "a" }) + "\n" + big + "\n" + '{"type":"message","id":"partial","mess');
+  const read = await lastEntryId(file);
+  assert.equal(read.id, "big", "a line longer than one read chunk, before a partial one"); assert.equal(read.size, fs.statSync(file).size);
+  fs.writeFileSync(file, "not json\n"); assert.equal((await lastEntryId(file)).id, null);
 });
