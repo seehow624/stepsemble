@@ -253,8 +253,9 @@ html[data-look="bold"] #view-chat .md-body .code-copy-button { border-radius: va
 html[data-look="bold"] #view-chat .md-body pre code { padding: 0; border: 0; background: none; color: inherit; font-size: inherit; }
 html[data-look="bold"][data-theme="dark"] #view-chat .md-body .code-block { background: color-mix(in srgb, var(--paper) 62%, #000); }
 html[data-look="bold"] #view-chat .md-body .code-block pre { margin: 0; padding: 10px 16px 16px; border: 0; border-radius: 0; background: transparent; font-size: .84rem; line-height: 1.65; }
-html[data-look="bold"] #view-chat .md-body .md-table { margin: 1em 0; }
-html[data-look="bold"] #view-chat .md-body .md-table-scroll { border: 0; border-radius: 16px; background: var(--milk); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
+/* Fade into the table's own surface, not the page behind its rounded card. */
+html[data-look="bold"] #view-chat .md-body .md-table { margin: 1em 0; --md-table-radius: 16px; --md-table-fade: var(--milk); }
+html[data-look="bold"] #view-chat .md-body .md-table-scroll { border: 0; border-radius: var(--md-table-radius); background: var(--milk); box-shadow: inset 0 0 0 .5px var(--bold-hairline); }
 html[data-look="bold"] #view-chat .md-body table { border: 0; }
 html[data-look="bold"] #view-chat .md-body :is(th, td) { padding: 10px 14px; border-color: var(--bold-hairline); }
 html[data-look="bold"] #view-chat .md-body th { background: color-mix(in srgb, var(--ink) 5%, var(--milk)); font-size: var(--text-sm); font-weight: 680; }
@@ -301,7 +302,7 @@ html[data-look="bold"] #view-chat .msg.user .bubble .md-body blockquote { border
 html[data-look="bold"] #view-chat .msg.user .bubble .md-body hr { border-top-color: color-mix(in srgb, var(--bold-on-bubble) 30%, transparent); }
 html[data-look="bold"] #view-chat .msg.user .bubble .md-body :is(.code-block, .md-table-scroll) { background: rgba(0, 0, 0, .22); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .12); }
 html[data-look="bold"] #view-chat .msg.user .bubble .md-body :is(.code-block-header, .code-copy-button) { color: color-mix(in srgb, var(--bold-on-bubble) 78%, transparent); }
-html[data-look="bold"] #view-chat .msg.user .bubble .md-body .md-table { --md-table-fade: var(--bold-bubble); }
+html[data-look="bold"] #view-chat .msg.user .bubble .md-body .md-table { --md-table-fade: color-mix(in srgb, var(--bold-bubble) 78%, #000); }
 html[data-look="bold"] #view-chat .msg.user .bubble .md-body th { background: rgba(0, 0, 0, .12); }
 html[data-look="bold"] #view-chat .msg.user .bubble .md-body :is(th, td) { border-color: rgba(255, 255, 255, .2); }
 html[data-look="bold"] #view-chat .msg.user .bubble ::selection { background: rgba(255, 255, 255, .34); color: var(--bold-on-bubble); }

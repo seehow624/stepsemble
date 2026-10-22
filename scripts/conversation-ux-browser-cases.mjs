@@ -1273,6 +1273,60 @@ export async function runRenameImeBrowserCases(browser) {
   } finally { await context.close(); await preview.close(); }
 }
 
+// Run against a real rendered table: the hint belongs to its card, not the
+// page behind it, and disappears at the last column. Reused by focused probes.
+export async function verifyTableScrollEdges(ui) {
+  const scroller = ui.locator("#messages .md-table-scroll").last();
+  const original = await scroller.evaluate(node => ({ theme: document.documentElement.dataset.theme, design: document.documentElement.dataset.designTheme,
+    look: document.documentElement.dataset.look, width: node.parentElement.style.maxWidth, inlineWidth: node.parentElement.style.width, left: node.scrollLeft, message: node.closest(".msg").className }));
+  try {
+    for (const design of ["ink-ivory", "warm-paper", "graphite"]) for (const theme of ["light", "dark"]) for (const look of ["classic", "bold"]) for (const role of ["assistant", "user"]) {
+      await scroller.evaluate((node, { design, theme, look, role }) => {
+        const root = document.documentElement; root.dataset.theme = theme; root.dataset.designTheme = design; root.dataset.look = look;
+        const message = node.closest(".msg"); message.classList.toggle("user", role === "user"); message.classList.toggle("assistant", role === "assistant");
+        node.parentElement.style.maxWidth = "260px"; node.scrollLeft = 0;
+      }, { design, theme, look, role });
+      await ui.waitForFunction(() => { const node = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1);
+        return node.scrollWidth > node.clientWidth + 1 && node.parentElement.classList.contains("more-right") && !node.parentElement.classList.contains("more-left"); });
+      const colors = await scroller.evaluate(node => {
+        const frame = node.parentElement, style = getComputedStyle, canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+        const ctx = canvas.getContext("2d"), rgb = color => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
+        const probe = document.createElement("i"); probe.style.color = "var(--md-table-fade, var(--paper))"; frame.append(probe);
+        const fade = rgb(style(probe).color); probe.remove();
+        const background = element => {
+          if (!element) return [255, 255, 255];
+          const color = rgb(style(element).backgroundColor), alpha = color[3] / 255, behind = background(element.parentElement);
+          return color.slice(0, 3).map((n, i) => n * alpha + behind[i] * (1 - alpha));
+        };
+        return { fade: fade.slice(0, 3), surface: background(node), radius: parseFloat(style(node).borderTopRightRadius),
+          fadeRadius: parseFloat(style(frame, "::after").borderTopRightRadius), pointer: style(frame, "::after").pointerEvents };
+      });
+      const label = `${design}/${theme}/${look}/${role}`;
+      assert.ok(colors.fade.every((n, i) => Math.abs(n - colors.surface[i]) <= 1), label + ": fade matches the composited table surface " + JSON.stringify(colors));
+      assert.equal(colors.fadeRadius, colors.radius - 1, label + ": rounded hint stays inside the card");
+      assert.equal(colors.pointer, "none", label + ": hint never intercepts scrolling");
+      await scroller.evaluate(node => { node.scrollLeft = node.scrollWidth; });
+      await ui.waitForFunction(() => { const node = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1), frame = node.parentElement;
+        return frame.classList.contains("more-left") && !frame.classList.contains("more-right") && Number(getComputedStyle(frame, "::after").opacity) === 0; });
+      const end = await scroller.evaluate(node => ({ remaining: node.scrollWidth - node.clientWidth - node.scrollLeft,
+        lastCell: node.querySelector("tr").lastElementChild.getBoundingClientRect().right, edge: node.getBoundingClientRect().right }));
+      assert.ok(Math.abs(end.remaining) <= 1 && end.lastCell <= end.edge + 1, label + ": last column fully reachable");
+    }
+    // Resizing to fit removes both hints; the observer, not a manual update.
+    await scroller.evaluate(node => { node.parentElement.style.maxWidth = "none"; node.parentElement.style.width = (node.scrollWidth + 30) + "px"; });
+    await ui.waitForFunction(() => { const node = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1);
+      return node.scrollWidth <= node.clientWidth + 1 && !node.parentElement.classList.contains("more-left") && !node.parentElement.classList.contains("more-right"); });
+  } finally {
+    await scroller.evaluate((node, original) => {
+      const root = document.documentElement;
+      for (const [key, value] of [["theme", original.theme], ["designTheme", original.design], ["look", original.look]]) {
+        if (value === undefined) delete root.dataset[key]; else root.dataset[key] = value;
+      }
+      node.closest(".msg").className = original.message; node.parentElement.style.maxWidth = original.width; node.parentElement.style.width = original.inlineWidth; node.scrollLeft = original.left;
+    }, original);
+  }
+}
+
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
   await runRenameImeBrowserCases(browser);
@@ -1508,6 +1562,12 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       assert(table.heads.every(height => height < table.line * 2 + 24), "headers on one line: " + JSON.stringify(table));
       assert.equal(table.pageFits, true, "the page itself never scrolls sideways");
       out.table = table.wider ? "scrolls" : "fits";
+      stage = "table hints match their surface and clear at the end";
+      // The final Markdown chunk can precede turn completion. Wait before
+      // changing a fixture frame that the streaming renderer could replace.
+      await ui.waitForFunction(() => document.getElementById("btn-abort")?.classList.contains("hidden"));
+      await verifyTableScrollEdges(ui);
+      out.tableEdges = "theme, bubble, corners, scroll end and resize";
 
       stage = "Claude sign-in failure offers an explanation and retry in its pane";
       const denied = "**/api/claude/structured/events?*";
