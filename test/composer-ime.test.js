@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { createGuard } = require("../public/modules/composer-ime.js");
+const ime = require("../public/modules/composer-ime.js"), { createGuard } = ime;
 
 const plainEnter = { key: "Enter", keyCode: 13, isComposing: false };
 const allowed = { ime: false, preventDefault: false };
@@ -60,7 +60,8 @@ function composer({ desktop = true } = {}) {
   const listeners = {}, sent = [];
   const input = { value: "", addEventListener: (type, listener) => { listeners[type] = listener; } };
   vm.runInNewContext(app.slice(start, end), {
-    window: { stepsembleComposerIme: { createGuard } }, el: { input }, slashState: null,
+    // The composer reads Enter through the page's shared check (app.js isEnter).
+    window: { stepsembleComposerIme: ime }, isEnter: event => ime.isEnter(event), el: { input }, slashState: null,
     matchMedia: () => ({ matches: desktop }),
     sendCurrent: () => { sent.push(input.value); input.value = ""; },
   });

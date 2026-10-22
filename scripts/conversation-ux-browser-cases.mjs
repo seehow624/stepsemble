@@ -155,7 +155,7 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await ui.evaluate(() => {
         subagentTracker.reset();
         subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
-          { index: 0, agent: "reviewer", task: "Check the child result", status: "running", model: "reported-pi-child", thinkingLevel: "off" },
+          { index: 0, agent: "reviewer", task: "Check the child result", status: "running", model: "reported-pi-child", thinking: "off" },
         ] } } });
       });
       await ui.locator(".subagent-bubble").click(); await ui.locator(".subagent-item").click();
@@ -163,7 +163,7 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await shot("pi"); await ui.locator(".subagent-close").click();
       await ui.evaluate(() => {
         subagentTracker.pi({ type: "tool_execution_update", toolCallId: "ui-pi-child", toolName: "subagent", partialResult: { details: { progress: [
-          { index: 0, agent: "reviewer", task: "Long metadata", status: "running", model: "reported-model-" + "x".repeat(100), thinkingLevel: "high" },
+          { index: 0, agent: "reviewer", task: "Long metadata", status: "running", model: "reported-model-" + "x".repeat(100), thinking: "high" },
         ] } } });
       });
       await ui.locator(".subagent-item").click(); await shot("long-model"); await ui.locator(".subagent-close").click();
@@ -180,6 +180,33 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await ui.waitForFunction(() => document.querySelector(".subagent-drawer .subagent-execution-model")?.textContent === "reported-saved-child");
       assert.deepEqual(await values(ui), ["Claude Code", "reported-saved-child", "medium"]);
       await ui.locator(".subagent-close").click();
+      // A Pi workflow runs on its own: its children, their models and thinking
+      // levels come from the run's own status, which the Host reads, until
+      // the run ends.
+      const piRun = "95390287-c784-484f-b32e-f2c4b2261406", piReads = [];
+      await context.route("**/api/subagent/pi-run?**", async route => {
+        piReads.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+        const done = piReads.length > 1;
+        await route.fulfill({ json: { state: done ? "completed" : "running", children: [
+          { key: "gap-scout", name: "scout", task: "Read-only audit", status: "completed", model: "gpt-6.1-sol", thinking: "low", log: [{ kind: "tool", name: "read", summary: "README.md" }] },
+          { key: "fix", name: "worker", task: "Apply the fix", status: done ? "completed" : "running", model: "gpt-6.1-sol", thinking: "high", activity: done ? "" : "bash npm test" }] } });
+      });
+      await ui.evaluate(run => {
+        subagentTracker.reset();
+        subagentTracker.pi({ type: "tool_execution_start", toolCallId: "call_ui|fc_ui", toolName: "subagent", args: { workflowScript: "await runs.all([])", async: true } });
+        subagentTracker.pi({ type: "tool_execution_end", toolCallId: "call_ui|fc_ui", toolName: "subagent", result: { details: { mode: "workflow", asyncId: run, toolCallId: "call_ui|fc_ui", results: [], workflowChildren: { children: [] } } } });
+      }, piRun);
+      if (await ui.locator(".subagent-bubble").getAttribute("aria-expanded") !== "true") await ui.locator(".subagent-bubble").click();
+      await ui.waitForFunction(() => [...document.querySelectorAll(".subagent-item .subagent-execution-thinking")].map(node => node.textContent).join() === "low,high");
+      assert.deepEqual(await listed(ui), ["Pi Agent", "gpt-6.1-sol", "low", "Pi Agent", "gpt-6.1-sol", "high"]);
+      assert.deepEqual(piReads[0], { entry: keys["claude-code"], run: piRun, call: "call_ui|fc_ui" }, "the Host is asked for this conversation's run of this call");
+      await ui.waitForFunction(() => subagentTracker.piPending().length === 0, null, { timeout: 15_000 });
+      const settled = piReads.length; await ui.waitForTimeout(4500);
+      assert.equal(piReads.length, settled, "a finished run is not read again");
+      await ui.locator(".subagent-item").nth(1).click();
+      assert.deepEqual(await values(ui), ["Pi Agent", "gpt-6.1-sol", "high"]);
+      assert.equal(await ui.locator(".subagent-drawer .subagent-status").first().getAttribute("data-state"), "completed");
+      await shot("pi-workflow"); await ui.locator(".subagent-close").click();
       assert.deepEqual([...new Set(reads.map(read => read.id))].sort(), ["ui-claude-background", "ui-claude-child", "ui-claude-saved"],
         "only subagents whose agent keeps their settings are read; Pi's and a record's own say are shown as they are");
       assert.ok(reads.every(read => read.entry === keys["claude-code"]));
@@ -1209,8 +1236,46 @@ export async function runHistoryPagesBrowserCases(browser) {
   }
 }
 
+// Renaming a session in the Workspace: the Enter an input method confirms
+// text with (Chinese, or English typed through it) neither saves nor closes;
+// the next Enter saves. Chrome's event order and WebKit's (keyCode 229 after
+// compositionend) both.
+export async function runRenameImeBrowserCases(browser) {
+  const preview = await createNativeComposerPreview();
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
+  try {
+    await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+    await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
+    const page = await context.newPage(), errors = [], renames = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+    page.on("request", request => { if (new URL(request.url()).pathname === "/api/workspace/rename") renames.push(request.postDataJSON()?.name); });
+    await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
+    const row = page.locator(".workspace-session-row", { hasText: "Codex composer fixture" }).first();
+    await row.hover(); await row.locator(".workspace-session-menu").click();
+    await page.locator(".workspace-menu-item", { hasText: "Rename" }).click();
+    const field = page.locator("#workspace-dialog input").first();
+    await field.fill("中文名字 review");
+    for (const order of ["chrome", "webkit"]) await field.evaluate((input, order) => {
+      const enter = (code, composing) => { const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, isComposing: composing });
+        Object.defineProperty(event, "keyCode", { get: () => code }); Object.defineProperty(event, "which", { get: () => code }); return event; };
+      input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      if (order === "chrome") { input.dispatchEvent(enter(229, true)); input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })); }
+      else { input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })); input.dispatchEvent(enter(229, false)); }
+    }, order);
+    await page.waitForTimeout(300);
+    assert.deepEqual(renames, [], "an input method's Enter does not save");
+    assert.equal(await page.locator("#workspace-dialog[open]").count(), 1, "nor close the dialog");
+    await field.press("Enter");
+    await page.waitForFunction(() => !document.querySelector("#workspace-dialog[open]"));
+    assert.deepEqual(renames, ["中文名字 review"], "the next Enter saves the name once");
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "Rename with an input method", result: "passed" }));
+  } finally { await context.close(); await preview.close(); }
+}
+
 export async function runConversationUxBrowserCases(browser, options = {}) {
   await runSubagentExecutionBrowserCases(browser, options);
+  await runRenameImeBrowserCases(browser);
   await runGoalChipBrowserCases(browser, options);
   await runPaneHeaderBrowserCases(browser, options);
   await runTouchTargetBrowserCases(browser, options);

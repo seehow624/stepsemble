@@ -7,6 +7,8 @@
   const N = window.StepsembleAssistantNavigation, A = window.StepsembleAssistantAvatars;
   const prefs = WI.preferences(localStorage, { prefersDark: matchMedia("(prefers-color-scheme: dark)").matches });
   const coarse = matchMedia("(pointer: coarse)").matches;
+  // Enter in a text field, unless an input method used it to confirm text (composer-ime.js).
+  const isEnter = event => !!window.stepsembleComposerIme?.isEnter(event);
   const t = (key, vars) => AI.t(key, vars, prefs.locale);
   const shell = document.getElementById("assistant-main"), listPane = document.getElementById("assistant-list"), main = document.getElementById("assistant-view");
   const top = document.querySelector(".assistant-top"), machineSelect = document.getElementById("assistant-machine");
@@ -773,7 +775,7 @@
     });
     input.addEventListener("input", () => { entry.draft = input.value; remember(entry); sync(); });
     input.addEventListener("keydown", event => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !coarse) { event.preventDefault(); form.requestSubmit(); }
+      if (isEnter(event) && !event.shiftKey && !coarse) { event.preventDefault(); form.requestSubmit(); }
     });
     form.addEventListener("submit", async event => {
       event.preventDefault(); if (chat !== entry || entry.sending) return;

@@ -5709,7 +5709,7 @@ const handleHandoffRoute = require("./server/handoff-summarizer").createHandoffR
   agents: () => { const available = handoffInstalled(); return handoffSummaries.agents.map(id => ({ id, installed: available.has(id) })); } });
 const handleSubagentDetailRoute = require("./server/subagent-detail").createSubagentDetailRoutes({ sendJSON,
   detail: require("./server/subagent-detail").createSubagentDetail({ resolve: key => workspaceRegistry.get(key), codex: codexNative, openCode: openCodeNative,
-    approvalUnavailable: id => subagentApprovalUnavailable.has(id) }) });
+    approvalUnavailable: id => subagentApprovalUnavailable.has(id), piSessionsDir: SESSIONS_DIR }) });
 
 // The last turn a conversation this Host knows recorded in its transcript.
 function knownClaudeTurn(nativeSessionId) {

@@ -329,3 +329,99 @@ test("the conversation's subagents, current and from earlier turns, newest first
   tracker.all()[0].name = "changed";
   assert.equal(pick(tracker, "second").name, "b", "values are copies");
 });
+
+const { piRecord } = require("../public/modules/subagents");
+const PI_RUN = "95390287-c784-484f-b32e-f2c4b2261406";
+test("Pi: each child shows its model and thinking level, as pi-subagents names them", () => {
+  const tracker = create();
+  tracker.pi({ type: "tool_execution_start", toolCallId: "fg", toolName: "subagent", args: { tasks: [{ agent: "scout", task: "Look" }, { agent: "worker", task: "Do" }] } });
+  tracker.pi({ type: "tool_execution_update", toolCallId: "fg", toolName: "subagent", partialResult: { details: { progress: [
+    { index: 0, agent: "scout", status: "running", task: "Look", model: "openai-codex/gpt-6.1-sol:low", thinking: "low", tokens: 10, durationMs: 5 },
+    { index: 1, agent: "worker", status: "running", task: "Do", model: "claude-opus-5-5", thinkingLevel: "high" }] } } });
+  assert.deepEqual(tracker.list().map(row => [row.id, row.model, row.reasoningEffort]), [["fg:0", "openai-codex/gpt-6.1-sol", "low"], ["fg:1", "claude-opus-5-5", "high"]],
+    "thinking is read, an older build's thinkingLevel too, and a model's level suffix is dropped");
+  tracker.pi({ type: "tool_execution_end", toolCallId: "fg", toolName: "subagent", result: { details: { mode: "parallel", results: [
+    { index: 0, agent: "scout", task: "Look", exitCode: 0, model: "gpt-6.1-sol", thinking: "medium", usage: { input: 1, output: 1 }, finalOutput: "seen" }] } } });
+  assert.deepEqual([pick(tracker, "fg:0").model, pick(tracker, "fg:0").reasoningEffort, pick(tracker, "fg:0").status], ["gpt-6.1-sol", "medium", "completed"]);
+  assert.deepEqual(piRecord({ results: [{ index: 0, agent: "a", task: "t", exitCode: 0, model: "m", thinking: "xhigh", usage: {} }] }).rows.map(row => [row.key, row.model, row.reasoningEffort]), [["0", "m", "xhigh"]]);
+});
+
+test("Pi: a workflow's children replace its launch, as the Host reads them, until the run ends", () => {
+  const tracker = create();
+  tracker.pi({ type: "tool_execution_start", toolCallId: "wf|fc", toolName: "subagent", args: { workflowScript: "await runs.all([])", async: true } });
+  tracker.pi({ type: "tool_execution_end", toolCallId: "wf|fc", toolName: "subagent", result: { details: { mode: "workflow", asyncId: PI_RUN, toolCallId: "wf|fc", results: [],
+    workflowChildren: { version: 1, inventoryComplete: false, workflowState: "running", children: [] } } } });
+  assert.deepEqual(tracker.list().map(row => [row.id, row.name, row.status, row.background]), [["wf|fc:0", "workflow", "running", true]], "a workflow names its children only as it runs them");
+  assert.deepEqual(tracker.piPending(), [{ toolId: "wf|fc", id: PI_RUN, call: "wf|fc" }]);
+  tracker.newTurn();
+  assert.equal(tracker.list().length, 1, "a background run outlives the turn that started it");
+  let calls = 0; tracker.onChange(() => calls++);
+  tracker.piRun("wf|fc", { state: "running", children: [
+    { key: "gap-scout", name: "scout", task: "Read-only audit", status: "completed", model: "gpt-6.1-sol", thinking: "low", tokens: 15, durationMs: 9, log: [{ kind: "tool", name: "read", summary: "README.md" }] },
+    { key: "fix", name: "worker", task: "Apply", status: "running", model: "gpt-6.1-sol:high", thinking: "high", activity: "bash npm test" }] });
+  assert.equal(calls, 1);
+  assert.deepEqual(tracker.list().map(row => [row.id, row.name, row.status, row.model, row.reasoningEffort, row.activity]), [
+    ["wf|fc:gap-scout", "scout", "completed", "gpt-6.1-sol", "low", ""], ["wf|fc:fix", "worker", "running", "gpt-6.1-sol", "high", "bash npm test"]]);
+  assert.deepEqual(pick(tracker, "wf|fc:gap-scout").log, [{ kind: "tool", name: "read", summary: "README.md", done: true }]);
+  assert.equal(tracker.piPending().length, 1, "still running");
+  tracker.piRun("wf|fc", { state: "completed", children: [{ key: "gap-scout", name: "scout", status: "completed" }, { key: "fix", name: "worker", status: "completed" }] });
+  assert.equal(pick(tracker, "wf|fc:fix").status, "completed"); assert.equal(pick(tracker, "wf|fc:fix").model, "gpt-6.1-sol", "a later read without a model keeps the one known");
+  assert.deepEqual(tracker.piPending(), [], "a finished run is not read again");
+  assert.equal(tracker.piRun("elsewhere", { state: "running", children: [] }), false, "only a run this view started or showed");
+});
+
+test("Pi: a run that is gone stays as last shown and is no longer read", () => {
+  const tracker = create();
+  tracker.pi({ type: "tool_execution_end", toolCallId: "bg", toolName: "subagent", result: { details: { mode: "single", background: true, asyncId: PI_RUN, results: [] } } });
+  tracker.piRun("bg", null);
+  assert.deepEqual(tracker.piPending(), []); assert.equal(pick(tracker, "bg:0").status, "running");
+  const other = create();
+  other.pi({ type: "tool_execution_end", toolCallId: "x", toolName: "subagent", result: { details: { mode: "single", background: true, asyncId: "not-a-run-id", results: [] } } });
+  assert.deepEqual(other.piPending(), [], "only a run id pi-subagents gives is asked for");
+});
+
+test("Pi: a saved workflow's record keeps its children and run, and the Host's reading updates what it shows", () => {
+  const record = piRecord({ mode: "workflow", asyncId: PI_RUN, toolCallId: "call_a|fc_b", results: [], workflowChildren: { children: [
+    { childId: "review", agent: "reviewer", state: "running", sessionName: "reviewer: Review the fix", model: "claude-opus-5-5", thinking: "xhigh" }] } });
+  assert.deepEqual(record.run, { id: PI_RUN, call: "call_a|fc_b" }); assert.equal(record.background, true);
+  assert.deepEqual(record.rows.map(row => [row.key, row.name, row.task, row.model, row.reasoningEffort]), [["review", "reviewer", "Review the fix", "claude-opus-5-5", "xhigh"]]);
+  const tracker = create();
+  assert.equal(tracker.remember({ toolId: "call_a|fc_b", name: "subagent", args: { workflowScript: "x" }, record, harness: "pi" }), true);
+  const saved = tracker.byTool("call_a|fc_b");
+  assert.deepEqual(saved.map(row => [row.id, row.status, row.model, row.background]), [["call_a|fc_b:review", "started", "claude-opus-5-5", true]], "how it stood at launch, not that it finished");
+  assert.deepEqual(tracker.piPending(), [{ toolId: "call_a|fc_b", id: PI_RUN, call: "call_a|fc_b" }]);
+  let calls = 0; tracker.onChange(() => calls++);
+  tracker.piRun("call_a|fc_b", { state: "completed", children: [{ key: "review", name: "reviewer", task: "Review the fix", status: "completed", model: "claude-opus-5-5", thinking: "xhigh", durationMs: 30 }] });
+  assert.equal(calls, 1, "an earlier turn's change is announced");
+  assert.deepEqual([tracker.get("call_a|fc_b:review").status, tracker.get("call_a|fc_b:review").durationMs], ["completed", 30]);
+  assert.deepEqual(tracker.list(), [], "it stays with the earlier turns");
+  // A workflow whose launch named no child still gives its card something to open.
+  const blank = create();
+  assert.equal(blank.remember({ toolId: "c2", name: "subagent", args: { workflowScript: "x" }, record: piRecord({ mode: "workflow", asyncId: PI_RUN, results: [], workflowChildren: { children: [] } }) }), true);
+  assert.equal(blank.get("c2:0").name, "workflow");
+});
+
+test("Codex: the model and effort a subagent's creation resolved to are shown", () => {
+  const tracker = create(), child = "01a14560-d5bc-7d03-b856-98c0587ba941";
+  const spawn = { type: "collabAgentToolCall", id: "call_spawn", tool: "spawnAgent", receiverThreadIds: [child], prompt: "Inspect", model: "requested-model", reasoningEffort: "low", agentsStates: {} };
+  tracker.codex([spawn, { type: "subAgentActivity", id: "a1", agentThreadId: child, agentPath: "root/reviewer", kind: "started", model: "gpt-6-luna", reasoningEffort: "max" }], "turn-1");
+  assert.deepEqual([pick(tracker, child).model, pick(tracker, child).reasoningEffort], ["gpt-6-luna", "max"]);
+  tracker.codex([spawn], "turn-1");
+  assert.deepEqual([pick(tracker, child).model, pick(tracker, child).reasoningEffort], ["gpt-6-luna", "max"], "a later snapshot keeps what the creation said, not the request");
+});
+
+test("OpenCode: a subtask shows the model it runs with", () => {
+  const tracker = create();
+  tracker.openCode([{ info: { role: "user" }, parts: [] }, { info: { role: "assistant" }, parts: [{ type: "subtask", id: "s1", agent: "general", description: "Notes", model: { providerID: "anthropic", modelID: "claude-sonnet-5-5" } }] }]);
+  assert.equal(pick(tracker, "s1").model, "claude-sonnet-5-5");
+});
+
+test("Pi: a status call that reports a run's children is no subagent of its own", () => {
+  const status = { mode: "single", results: [], workflowChildren: { children: [{ childId: "fix", agent: "worker", state: "completed", model: "gpt-6.1-sol", thinking: "high" }] } };
+  assert.equal(piRecord(status), null, "its launch already shows these children");
+  const tracker = create();
+  tracker.pi({ type: "tool_execution_start", toolCallId: "st", toolName: "subagent", args: { action: "status", id: "95390287" } });
+  tracker.pi({ type: "tool_execution_end", toolCallId: "st", toolName: "subagent", result: { details: status } });
+  assert.deepEqual(tracker.list(), []);
+  assert.equal(tracker.remember({ toolId: "st", name: "subagent", args: { action: "status", id: "95390287" }, record: piRecord(status), result: "Done" }), false);
+});
