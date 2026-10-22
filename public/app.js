@@ -884,6 +884,9 @@ const post = (path, body, opts = {}) => api(path, {
 function tKey(key, vars = {}) {
   return window.stepsembleI18n?.tKey?.(key, vars) || window.stepsembleI18n?.t?.(key, vars) || key;
 }
+// Enter in a text field, unless an input method used it to confirm text
+// (composer-ime.js). Every field reads the key through this.
+const isEnter = event => !!window.stepsembleComposerIme?.isEnter(event);
 
 /** 通用 RPC 指令（模型切換 / thinking level / compact 等） */
 function rpcCmd(sid, command) {
@@ -1708,7 +1711,7 @@ el.tokenCreateCancel?.addEventListener("click", () => {
 });
 el.tokenCreate?.addEventListener("click", () => void createToken());
 el.tokenLabel?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); void createToken(); }
+  if (isEnter(event)) { event.preventDefault(); void createToken(); }
 });
 el.tokenNewCopy?.addEventListener("click", async () => {
   try { await copyText(tokenNewValue); toast(tKey("tokens.copied")); }
@@ -4045,7 +4048,7 @@ el.saRename.addEventListener("click", () => {
 });
 document.getElementById("rename-save").addEventListener("click", doRename);
 el.renameCancel.addEventListener("click", () => { el.renameDialog.classList.add("hidden"); renameTarget = null; });
-el.renameInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) doRename(); });
+el.renameInput.addEventListener("keydown", (e) => { if (isEnter(e)) doRename(); });
 // The session being renamed. It is kept apart from actionTarget, which the
 // action sheet clears as it closes.
 let renameTarget = null;
@@ -4164,7 +4167,7 @@ el.projectActionEdit?.addEventListener("click", () => {
 });
 el.projectRenameCancel?.addEventListener("click", () => el.projectRenameDialog.classList.add("hidden"));
 el.projectRenameInput?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") el.projectRenameSave.click();
+  if (isEnter(event)) el.projectRenameSave.click();
 });
 el.projectRenameSave?.addEventListener("click", () => {
   const cwd = projectActionCwd();
@@ -11650,7 +11653,7 @@ el.input.addEventListener("compositionstart", () => composerIme?.compositionStar
 el.input.addEventListener("compositionend", () => composerIme?.compositionEnd());
 el.input.addEventListener("blur", () => composerIme?.blur());
 el.input.addEventListener("keydown", (e) => {
-  const imeEnter = composerIme?.classifyEnter(e) || { ime: e.key === "Enter" && e.isComposing, preventDefault: false };
+  const imeEnter = composerIme?.classifyEnter(e) || { ime: !!window.stepsembleComposerIme?.isImeEnter(e), preventDefault: false };
   if (imeEnter.ime) {
     if (imeEnter.preventDefault) e.preventDefault();
     return;
@@ -11663,7 +11666,7 @@ el.input.addEventListener("keydown", (e) => {
       [...el.slashMenu.children].forEach((c, i) => c.classList.toggle("hl", i === slashState.hl));
       return;
     }
-    if (e.key === "Tab" || e.key === "Enter") {
+    if (e.key === "Tab" || isEnter(e)) {
       e.preventDefault();
       pickSlash(slashState.items[slashState.hl]);
       return;
@@ -11674,7 +11677,7 @@ el.input.addEventListener("keydown", (e) => {
   // A touch keyboard keeps Enter for new lines and sends with the button.
   // The device decides, not the width: a Workspace pane on a computer is
   // often narrower than the phone breakpoint.
-  if (e.key === "Enter" && !e.shiftKey && enterSendsMessage()) { e.preventDefault(); sendCurrent(); }
+  if (isEnter(e) && !e.shiftKey && enterSendsMessage()) { e.preventDefault(); sendCurrent(); }
 });
 function enterSendsMessage() { return matchMedia("(hover: hover) and (pointer: fine)").matches; }
 el.input.addEventListener("input", () => {
@@ -13672,7 +13675,7 @@ function openSettingsSection(target, { root = false } = {}) {
 el.commandInput?.addEventListener("keydown", (event) => {
   if (event.key === "ArrowDown") { event.preventDefault(); moveCommandSelection(1); }
   else if (event.key === "ArrowUp") { event.preventDefault(); moveCommandSelection(-1); }
-  else if (event.key === "Enter") {
+  else if (isEnter(event)) {
     event.preventDefault();
     const query = String(el.commandInput?.value || "").trim().toLocaleLowerCase();
     const matches = commandItems.filter((item) => !query || item.label.toLocaleLowerCase().includes(query));

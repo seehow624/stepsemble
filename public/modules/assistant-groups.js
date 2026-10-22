@@ -1,5 +1,7 @@
 (function (root) {
   "use strict";
+  // Enter in a text field, unless an input method used it to confirm text (composer-ime.js).
+  const isEnter = event => !!root.stepsembleComposerIme?.isEnter(event);
 
   // Group chats: Hermes hosted rooms of local Bots. Hermes decides who speaks
   // and reads @mentions; this view shows the room log, sends messages, and
@@ -132,7 +134,7 @@
           name.textContent = state.room.name;
           input.replaceWith(name);
         };
-        input.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); void save(); } });
+        input.addEventListener("keydown", event => { if (isEnter(event)) { event.preventDefault(); void save(); } });
         input.addEventListener("blur", () => void save());
         name.replaceWith(input);
         input.focus();
@@ -190,7 +192,7 @@
         } catch (error) { failed(error); } finally { send.disabled = false; }
       });
       input.addEventListener("keydown", event => {
-        if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !matchMedia("(pointer: coarse)").matches) { event.preventDefault(); form.requestSubmit(); }
+        if (isEnter(event) && !event.shiftKey && !matchMedia("(pointer: coarse)").matches) { event.preventDefault(); form.requestSubmit(); }
       });
       wrap.append(head, transcript, live, form);
       container.replaceChildren(wrap);

@@ -95,7 +95,24 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       stage = "Bot Chat";
       const input = page.getByPlaceholder("Message Luna");
       await input.waitFor();
+      // The capsule shows the focus; the field draws no ring inside it.
+      await input.click();
+      assert.deepEqual(await input.evaluate(node => { const style = getComputedStyle(node); return [document.activeElement === node, style.outlineStyle, style.boxShadow]; }), [true, "none", "none"]);
+      // The Enter an input method confirms text with (Chinese, or English typed
+      // through it) is the input method's: in Chrome's order, and in WebKit's,
+      // where it follows compositionend marked only by keyCode 229.
       await input.fill("plan my day");
+      const users = await page.locator(".assistant-msg.user").count();
+      for (const order of ["chrome", "webkit"]) await input.evaluate((field, order) => {
+        const enter = (code, composing) => { const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, isComposing: composing });
+          Object.defineProperty(event, "keyCode", { get: () => code }); Object.defineProperty(event, "which", { get: () => code }); return event; };
+        field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+        if (order === "chrome") { field.dispatchEvent(enter(229, true)); field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })); }
+        else { field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })); field.dispatchEvent(enter(229, false)); }
+      }, order);
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator(".assistant-msg.user").count(), users, "an input method's Enter does not send");
+      assert.equal(await input.inputValue(), "plan my day", "and keeps the text");
       await send();
       await page.locator(".assistant-msg.assistant", { hasText: "Echo: plan my day" }).waitFor();
       await page.locator(".assistant-stop").waitFor({ state: "hidden" });

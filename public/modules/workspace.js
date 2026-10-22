@@ -3,6 +3,8 @@
 (() => {
   const L = window.StepsembleLayout, I = window.StepsembleWorkspaceI18n, O = window.StepsembleWorkspaceOrder, $ = id => document.getElementById(id);
   const WAM = window.StepsembleWorkspaceAssistantModel;
+  // Enter in a text field, unless an input method used it to confirm text (composer-ime.js).
+  const isEnter = event => !!window.stepsembleComposerIme?.isEnter(event);
   // Created once the helpers below exist; the first preferences pass runs before.
   let assistantUI = null;
   const prefersDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
@@ -285,7 +287,7 @@
         channel?.postMessage({ type: "refresh" });
       } catch (error) { toast(error.message); save.disabled = false; }
     }, t("save"), "btn primary workspace-rename-save");
-    input.addEventListener("keydown", event => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); save.click(); } });
+    input.addEventListener("keydown", event => { if (isEnter(event)) { event.preventDefault(); save.click(); } });
     const fields = node("div", "", "workspace-rename-fields"); fields.append(input, save); body.append(fields);
     requestAnimationFrame(() => { input.focus(); input.select(); });
   }
@@ -1551,7 +1553,7 @@
     forward.append(icon("M5 12h14m-6-6 6 6-6 6"));
     up.append(icon("M12 19V5m-6 6 6-6 6 6"));
     const go = button(t("go"), () => { if (pathInput.value.trim()) void navigate(pathInput.value); }, t("goToFolder"), "btn workspace-folder-go");
-    pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); if (pathInput.value.trim()) void navigate(pathInput.value); } });
+    pathInput.addEventListener("keydown", event => { if (isEnter(event)) { event.preventDefault(); if (pathInput.value.trim()) void navigate(pathInput.value); } });
     pathInput.addEventListener("input", () => {
       select.disabled = !current || pathInput.value !== current.path || current.selectable === false;
       go.disabled = !pathInput.value.trim() || pathInput.value === current?.path;
@@ -1787,7 +1789,7 @@
         toast(folder ? t(folder) : error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain")));
       }
     }, t("create"), "btn primary workspace-new-session-create"); start.disabled = true;
-    name.addEventListener("keydown", event => { if (event.key === "Enter" && !event.isComposing && !start.disabled) { event.preventDefault(); start.click(); } });
+    name.addEventListener("keydown", event => { if (isEnter(event) && !start.disabled) { event.preventDefault(); start.click(); } });
     select.addEventListener("change", () => { if (!signInFrame) notice.hidden = true; });
     fields.append(select, name); actions.append(worktree, start); body.append(fields, actions, notice);
     try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (window.StepsembleAgentIdentity?.startsConversations ? window.StepsembleAgentIdentity.startsConversations(agent) : agent.installed && agent.category !== "personal") { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); capabilities.set(agent.id, agent.capabilities); } syncWorktree(); start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
