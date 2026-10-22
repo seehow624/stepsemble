@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.45
+
+- Choose Standard or Fast separately from your model and thinking level. Fast is offered only when the active agent, model, and connection have a verified speed control.
+- Use Fast with supported native Codex and Claude Code sessions, or with supported Codex models through Magpie in Codex and Pi. Connections without a verified control clearly show that speed is unavailable or unknown.
+- Keep the choice in the current conversation. Queued messages keep their own speed choice, while new conversations and workflows do not inherit a paid preference.
+- Confirm possible extra cost before enabling Fast, and see requested speed separately from the provider's reported state. Native subagents and gateway overrides may affect usage.
+- Keep automatic Claude Fast queues working when a reply omits speed metadata, and allow Pi's local model-catalog refresh while a turn is running.
+
 ## 3.9.44
 
 - See the model and thinking level every subagent runs with: Pi's workflows and background runs, kept up to date while they run; Codex's and OpenCode's as soon as they start; and Claude Code's, also in conversations started before their project folder moved.

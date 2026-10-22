@@ -49,4 +49,4 @@ Magpie 證據：官方 `yetone/magpie` v0.1.1294 的 `models_tiers_test.go`、`f
 
 額外把整套舊 queue 案例搬到 WebKit，桌面 Pi→Claude 切換會產生 protocol handshake access-control pageerror；相同測試在未改功能的 v3.9.44 與候選版皆重現。Codex queue 的 WebKit 案例通過；這項舊 suite 的 WebKit 問題尚未定位，不能宣稱所有 WebKit 佇列案例全綠。
 
-所有測試命令均清除 `STEPSEMBLE_CODEX_NATIVE`、`STEPSEMBLE_CODEX_NATIVE_MUTATIONS`。本輪 log／截圖位於 gitignored `.tmp-cua/agent-speed/`（最新 `npm-test-parent-final.log`、`rolling-parent-final.log`、`browser-parent-final.log`；額外 WebKit 對照 `queue-webkit-compare.log`）。未合併、未推送、未發布、未部署；未變更全域設定、憑證或已安裝 Agent。尚未使用真付費推論驗證 served tier、Magpie 回退或 CLI 原生子代理的費用繼承；Pi 其他後置 extension 若改寫路由仍是限制。
+所有測試命令均清除 `STEPSEMBLE_CODEX_NATIVE`、`STEPSEMBLE_CODEX_NATIVE_MUTATIONS`。本輪 log／截圖位於 gitignored `.tmp-cua/agent-speed/`（最新 `npm-test-parent-final.log`、`rolling-parent-final.log`、`browser-parent-final.log`；額外 WebKit 對照 `queue-webkit-compare.log`）。功能驗證未變更全域設定、憑證或已安裝 Agent。尚未使用真付費推論驗證 served tier、Magpie 回退或 CLI 原生子代理的費用繼承；Pi 其他後置 extension 若改寫路由仍是限制。
