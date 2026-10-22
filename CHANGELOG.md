@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.43
+
+- See one Claude card per account even while a Mac cannot read Claude's limits live. The snapshot Claude Code keeps now says which account it belongs to, when Claude Code knew the account before taking it, so another computer's live reading of that account takes its place instead of standing beside it as an old card.
+- Paste an image and see "Image added" at once, without "Adding image…" first.
+- Every notice is the same small glass pill: a confirmation with a tick, an error in red with a mark, in conversations, the Workspace and the Bots alike. Undo after moving a conversation to the Trash can be pressed again, and a long notice on a phone uses the screen's width before it wraps.
+
 ## 3.9.42
 
 - Show the Bots and their groups as one card in the Workspace's list: the groups sit in it under a hairline, move with the Bots and fold when the Bots fold.
