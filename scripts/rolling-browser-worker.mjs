@@ -198,9 +198,9 @@ try {
   }
   else if (suite === "conversation-ux") {
     await runConversationUxBrowserCases(browser);
-    await runComposerQueueBrowserCases(browser);
   }
   else if (suite === "agent-speed") {
+    await runComposerQueueBrowserCases(browser);
     for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });
   }
   else if (suite === "workspace") {
