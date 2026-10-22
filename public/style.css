@@ -943,9 +943,14 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 .model-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- Toast ---- */
+/* Every notice is the same small glass pill, the one that confirms an added
+   image: a confirmation leads with a tick, an error is red with a mark, and
+   other notices are their text alone. The Workspace's and the Bots' notices
+   share it (workspace.css, assistant.css). */
+/* Across the whole width, so a long notice can use it before it wraps. */
 #toast-wrap {
   position: fixed;
-  left: 50%; transform: translateX(-50%);
+  left: 0; right: 0;
   bottom: calc(84px + env(safe-area-inset-bottom));
   z-index: 60;
   display: flex; flex-direction: column; gap: 8px;
@@ -953,40 +958,42 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
   pointer-events: none;
 }
 .toast {
-  background: var(--pine);
-  color: var(--paper);
-  font-size: var(--text-md);
-  padding: 10px 18px;
-  border-radius: var(--radius-pill);
-  animation: toastIn 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
-  max-width: 86vw;
-  text-align: center;
-}
-.toast { display: inline-flex; align-items: center; gap: 12px; }
-.toast-action {
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: var(--radius-pill);
-  padding: 5px 12px;
-  background: color-mix(in srgb, var(--paper) 22%, transparent);
-  color: inherit;
-  font: 650 var(--text-sm)/1 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-  cursor: pointer;
-}
-.toast-action:active { transform: scale(0.96); }
-.toast.err { background: var(--err); color: #fff; }
-.toast.quiet {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding: 5px 11px 5px 8px;
-  font-size: var(--text-xs);
-  font-weight: 550;
-  letter-spacing: .01em;
+  max-width: 86vw;
+  padding: 5px 11px;
+  border-radius: 14px;
+  color: var(--paper);
   background: color-mix(in srgb, var(--pine) 84%, transparent);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, .14);
+  font-size: var(--text-xs);
+  font-weight: 550;
+  letter-spacing: .01em;
+  line-height: 1.35;
+  text-align: center;
+  animation: toastIn 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
-.toast.quiet svg { width: 13px; height: 13px; flex: 0 0 auto; opacity: .85; }
+.toast:has(> svg) { padding-left: 8px; }
+.toast > svg { width: 13px; height: 13px; flex: 0 0 auto; opacity: .85; }
+.toast > span { text-wrap: balance; }
+/* The wrap lets clicks through to the page; its action takes its own. */
+.toast-action {
+  flex: 0 0 auto;
+  margin: -2px -6px -2px 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 3px 9px;
+  background: color-mix(in srgb, var(--paper) 22%, transparent);
+  color: inherit;
+  font: 650 var(--text-xs)/1.2 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.toast-action:active { transform: scale(0.96); }
+.toast.err { background: color-mix(in srgb, var(--err) 92%, transparent); color: #fff; }
 @keyframes toastIn { from { transform: translateY(12px); opacity: 0; } }
 .toast.out { transition: opacity 0.3s; opacity: 0; }
 

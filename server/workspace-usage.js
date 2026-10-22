@@ -203,14 +203,26 @@ function keychainHome(home, { osHome = os.homedir(), realpath = fss.realpathSync
 // Claude Code caches its own utilization snapshot next to its settings. Reading
 // that file needs no credential and no keychain prompt, but it is only as
 // current as its own timestamp, so it travels with the time it was observed.
+// The same file names the account Claude Code signed in to. The snapshot is
+// that account's only if Claude Code knew the account before it took the
+// snapshot: a sign-in after it (a switch) leaves the snapshot anonymous. With
+// an identity, another computer's live reading of the account is shown in its
+// place instead of beside it.
+const CLAUDE_ACCOUNT_UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+function claudeCacheAccount(account, observedAt) {
+  const uuid = account?.accountUuid, known = account?.profileFetchedAt;
+  if (typeof uuid !== "string" || !CLAUDE_ACCOUNT_UUID.test(uuid) || !Number.isFinite(observedAt) || !Number.isFinite(known) || known > observedAt) return null;
+  return accountKey("claude", uuid.toLowerCase());
+}
 async function claudeCache(home, now) {
   if (!home) return null;
   try {
     const raw = await fs.readFile(path.join(home, ".claude.json"), "utf8");
-    const cache = JSON.parse(raw)?.cachedUsageUtilization;
+    const data = JSON.parse(raw), cache = data?.cachedUsageUtilization;
     const windows = currentWindows(claudeWindows(cache?.utilization), now);
     if (!windows.length) return null;
-    return { windows, observedAt: typeof cache?.fetchedAtMs === "number" ? cache.fetchedAtMs : null };
+    const observedAt = typeof cache?.fetchedAtMs === "number" ? cache.fetchedAtMs : null;
+    return { windows, observedAt, accountKey: claudeCacheAccount(data?.oauthAccount, observedAt) };
   } catch { return null; }
 }
 // The management API needs the admin token and the port the service actually
@@ -423,7 +435,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     if (on("agents") && !DEFAULT_ORDER.some(id => on(id) && readings[id].has("claude"))) {
       try {
         const cache = await readClaudeCache();
-        if (cache?.windows?.length) readings.agents.set("claude", { windows: cache.windows, observedAt: cache.observedAt ?? null, cached: true, source: "native" });
+        if (cache?.windows?.length) readings.agents.set("claude", { windows: cache.windows, observedAt: cache.observedAt ?? null, cached: true, source: "native",
+          accountKey: typeof cache.accountKey === "string" && /^v1:[a-f0-9]{64}$/.test(cache.accountKey) ? cache.accountKey : null });
       } catch {}
     }
     const label = service => SERVICE_LABELS[service] || labels.get(service) || service;
@@ -474,5 +487,5 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     invalidate() { cached = null; cachedFull = null; expires = 0; expiresFull = 0; },
   };
 }
-module.exports = { createWorkspaceUsage, windowUsage, codexWindows, chatgptWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas,
+module.exports = { createWorkspaceUsage, windowUsage, codexWindows, chatgptWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas, claudeCache,
   configuredProviderQuotas, providerCredentials, storedSignIn, codexSignIn, QUOTA_PROBES };
