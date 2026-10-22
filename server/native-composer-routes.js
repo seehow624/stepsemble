@@ -1,6 +1,7 @@
 "use strict";
 
 const { codexImageInputs } = require("./prompt-attachments");
+const { speedValue } = require("./agent-speed");
 // Matches the Codex turn frame: 24 MiB of images plus the text allowance.
 const PROMPT_BODY_BYTES = 28 * 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -140,10 +141,12 @@ function createNativeComposerRoutes({ codex, ensureCodex, observeCodex, resolveC
       if (body.cwd !== undefined) params.cwd = validateDirectory(body.cwd, "Codex");
       if (body.model !== undefined) params.model = modelValue(body.model);
       if (body.effort !== undefined) params.effort = modelValue(body.effort);
+      params.speed = speedValue(body.speed ?? "standard");
+      if (typeof body.speedFingerprint === "string" && body.speedFingerprint.length <= 1024) params.speedFingerprint = body.speedFingerprint;
       // A message sent while Codex works waits in the thread's queue and goes
       // as the next turn, with the model and level chosen as it was sent.
       const queue = () => sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("codex", threadId,
-        { text, images: body.images, model: params.model, effort: params.effort, deviceId: body.deviceId }) });
+        { text, images: body.images, model: params.model, effort: params.effort, speed: params.speed, speedFingerprint: params.speedFingerprint, deviceId: body.deviceId }) });
       if (composerQueue && await composerQueue.shouldQueue("codex", threadId).catch(() => false)) { queue(); return true; }
       // The approval mode chosen for this thread travels with every turn, so
       // it holds even after Codex resumes the thread with its config defaults.

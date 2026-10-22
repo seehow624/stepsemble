@@ -797,6 +797,13 @@
     // One rounded field holds what is attached, the text and its buttons.
     const field = el("div", "assistant-composer-field"), row = el("div", "assistant-composer-row");
     row.append(attach, input, stop, send); field.append(chips, row); form.append(hint, field, file);
+    const speedCopy = window.StepsembleAgentSpeed;
+    if (speedCopy) {
+      const language = window.stepsembleI18n?.getLocale?.() || "en";
+      const speed = el("p", "assistant-speed-note");
+      speed.textContent = speedCopy.t("title", language) + ": " + speedCopy.t("unknown", language) + " · " + speedCopy.t("unverified", language);
+      form.append(speed);
+    }
     entry.sync = sync; queueMicrotask(() => { renderChips(); sync(); }); return form;
   }
 

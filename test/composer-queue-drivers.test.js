@@ -114,7 +114,7 @@ test("Codex: a turn that changed is read again once; with no turn under way the 
   // model and level chosen as the message was sent.
   codex.calls.length = 0; codex.state.turnId = null; codex.state.state = "thread_started";
   assert.deepEqual(await driver.deliver("thread-1", item({ model: "gpt-6", effort: "high" }), { text: "go", images: [] }, { jump: true }), { kind: "delivered" });
-  assert.deepEqual(codex.calls, [["start", [{ type: "text", text: "go" }], { model: "gpt-6", effort: "high" }, "thread-1"]]);
+  assert.deepEqual(codex.calls, [["start", [{ type: "text", text: "go" }], { model: "gpt-6", effort: "high", speed: "standard", speedFingerprint: undefined }, "thread-1"]]);
   // A thread no Codex holds is resumed first, as an ordinary send does.
   codex.calls.length = 0; codex.state.threadId = null;
   await driver.deliver("thread-1", item(), { text: "resumed", images: [] }, { jump: false });
@@ -141,7 +141,7 @@ test("Claude: a queued message is a user frame with its uuid, from a person, tak
   assert.equal(driver.resolve("local-1"), "native-1");
   assert.equal(driver.busy("native-1"), true);
   assert.deepEqual(await driver.deliver("native-1", item(), { text: "steer", images: [] }, { jump: true }), { kind: "accepted", confirmWithin: 15000 });
-  assert.deepEqual(sends[0], { id: "native-1", text: "steer", options: { images: [], uuid: "11111111-2222-4333-8444-555555555555", priority: "next", origin: { kind: "human" } } });
+  assert.deepEqual(sends[0], { id: "native-1", text: "steer", options: { images: [], uuid: "11111111-2222-4333-8444-555555555555", priority: "next", origin: { kind: "human" }, speed: "standard", speedFingerprint: undefined } });
   const uuid = "11111111-2222-4333-8444-555555555555";
   assert.deepEqual(driver.fromEvent("local-1", { type: "command_lifecycle", command_uuid: uuid, state: "queued" }), { id: "native-1", native: uuid });
   assert.deepEqual(driver.fromEvent("local-1", { type: "command_lifecycle", command_uuid: uuid, state: "started" }), { id: "native-1", delivered: uuid });

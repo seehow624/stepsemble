@@ -353,6 +353,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
 
   function view(entry, extra) {
     return { sessionId: entry.storedId, profile: entry.profile, running: entry.running, cursor: nextEvent,
+      speed: require("./agent-speed").unknownSpeed("speed_runtime_unverified"),
       asks: [...asks.values()].filter(ask => ask.sessionId === entry.storedId).map(ask => ({ ...ask })), ...extra };
   }
 

@@ -316,6 +316,7 @@
           <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-label="Model &amp; reasoning"><span class="composer-model-copy"><span id="composer-model-name" class="composer-model-name" data-i18n-ignore>Choose model</span></span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
           <!-- The thinking level, drawn along the message box's top edge. -->
           <div id="composer-effort" class="composer-effort-line" role="slider" tabindex="-1" aria-label="Thinking level" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-orientation="horizontal" hidden><span class="effort-line-track" aria-hidden="true"><span class="effort-line-fill"></span><span class="effort-line-ticks"></span><span class="effort-line-tip"></span></span><span class="effort-line-label" aria-hidden="true"></span></div>
+          <button id="composer-speed" class="composer-control composer-speed" type="button" aria-controls="agent-speed-control" data-i18n-ignore>Speed: Unknown</button>
           <button id="btn-abort" class="btn primary composer-send composer-stop hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
           <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
         </div>
@@ -975,6 +976,7 @@
       </div>
       <input id="model-search" class="model-search" type="search" autocomplete="off" placeholder="Search models…" aria-label="Search models">
       <div id="model-list"><p style="padding:12px 4px;color:var(--pine-soft);font-size:var(--text-md)">Loading…</p></div>
+      <div id="agent-speed-control" class="agent-speed-control" data-i18n-ignore></div>
       <div id="thinking-control" class="thinking-control">
         <div class="thinking-head">
           <span id="thinking-label" class="field-label">Thinking level</span>
@@ -1151,6 +1153,7 @@
 <script src="/modules/opencode-context.js?v=3.9.44"></script>
 <script src="/modules/model-presentation.js?v=3.9.44"></script>
 <script src="/modules/effort-slider.js?v=3.9.44"></script>
+<script src="/modules/agent-speed.js?v=3.9.44"></script>
 <script src="/modules/agent-terminal.js?v=3.9.44"></script>
 <script src="/modules/claude-structured-rendering.js?v=3.9.44"></script>
 <script src="/modules/agent-transcript-presentation.js?v=3.9.44"></script>

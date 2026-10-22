@@ -15,7 +15,7 @@ const textOf = content => typeof content === "string" ? content
 
 // Pi: conversations are known by their session file, which outlives the RPC
 // process; a page names the live process it has open.
-function createPiQueueDriver({ sessions, command, sessionFileOf = () => null }) {
+function createPiQueueDriver({ sessions, command, sessionFileOf = () => null, send = null }) {
   const keyOf = (sid, session) => sessionFileOf(session) || session?.meta?.file || `sid:${sid}`;
   const live = session => !!session && !session.exited && !session.closeReason && !session.protocolFailed;
   function liveSid(id) {
@@ -42,13 +42,18 @@ function createPiQueueDriver({ sessions, command, sessionFileOf = () => null }) 
       if (!sid) return reject("pi_unavailable");
       const images = piImageInputs(payload.images), streaming = !!sessions.get(sid)?.state?.isStreaming;
       const message = { message: payload.text, ...(images.length ? { images } : {}) };
+      const run = async cmd => {
+        try { return send ? await send(sid, cmd, item) : await command(sid, cmd); }
+        catch (error) { return { success: false, error: error.code || error.message }; }
+      };
       if (jump && streaming) {
         // Delivered after the current tool calls, before Pi's next model call.
-        const response = await command(sid, { type: "steer", ...message });
-        return response?.success ? { kind: "accepted" } : reject("pi_steer_rejected");
+        const response = await run({ type: "steer", ...message });
+        if (response?.error === "speed_busy") return { kind: "unsupported" };
+        return response?.success ? { kind: "accepted" } : reject(response?.error || "pi_steer_rejected");
       }
       if (busy(id)) return { kind: "busy" };
-      const response = await command(sid, { type: "prompt", ...message });
+      const response = await run({ type: "prompt", ...message });
       if (response?.success) return { kind: "delivered" };
       return /stream/i.test(String(response?.error || "")) ? { kind: "busy" } : reject("pi_prompt_rejected");
     },
@@ -86,7 +91,8 @@ function createCodexQueueDriver({ codex, ensure = async () => {}, permissions = 
       if (resumed?.kind === "reject") return reject(resumed.code);
     }
     if (nativeState(id).turnId) return { kind: "busy" };
-    const params = { ...(item.model ? { model: item.model } : {}), ...(item.effort ? { effort: item.effort } : {}), ...(permissions(id) || {}) };
+    const params = { ...(item.model ? { model: item.model } : {}), ...(item.effort ? { effort: item.effort } : {}),
+      speed: item.speed || "standard", speedFingerprint: item.speedFingerprint, ...(permissions(id) || {}) };
     const result = await codex.startTurn(input, params, id);
     if (["started", "completed"].includes(result?.kind)) return { kind: "delivered" };
     if (result?.code === "native_lifecycle_conflict") return { kind: "busy" };
@@ -101,6 +107,8 @@ function createCodexQueueDriver({ codex, ensure = async () => {}, permissions = 
       await ensure();
       const input = [...(payload.text ? [{ type: "text", text: payload.text }] : []), ...codexImageInputs(payload.images)];
       if (!input.length) return reject("codex_turn_input_invalid");
+      // turn/steer cannot carry a speed snapshot; leave it for its own turn.
+      if (jump && item.speed && nativeState(id).turnId) return { kind: "unsupported" };
       if (jump) {
         // A turn that ended or changed between reading it and steering is
         // read again once; with no turn under way the message starts one.
@@ -143,10 +151,13 @@ function createClaudeQueueDriver({ resolveSession, send, saved = () => null, con
     available: id => !!resolveSession(id) || !!saved(id),
     busy(id) {
       const status = statusOf(resolveSession(id));
-      return !!status && (status.state === "running" || status.state === "interrupting" || !!status.compacting);
+      return !!status && (status.state === "running" || status.state === "interrupting" || !!status.compacting || !!status.working);
     },
-    async deliver(id, item, payload) {
-      const result = await send(id, payload.text, { images: payload.images, uuid: item.id, priority: "next", origin: { kind: "human" } });
+    async deliver(id, item, payload, { jump = false } = {}) {
+      const status = statusOf(resolveSession(id));
+      if (jump && (item.speed === "fast" || status?.speed?.controlVerified) && ["running", "interrupting"].includes(status?.state)) return { kind: "unsupported" };
+      const result = await send(id, payload.text, { images: payload.images, uuid: item.id, priority: "next", origin: { kind: "human" },
+        speed: item.speed || "standard", speedFingerprint: item.speedFingerprint });
       if (result?.kind === "sent") return { kind: "accepted", confirmWithin };
       if (result?.code === "compaction_busy") return { kind: "busy" };
       return reject(result?.code || "claude_prompt_failed");

@@ -1,4 +1,6 @@
 "use strict";
+const { speedValue } = require("./agent-speed");
+const cleanSpeedFingerprint = value => typeof value === "string" && value.length <= 1024 ? value : null;
 
 // Messages sent while an agent works wait on the Host, one queue per
 // conversation, shown as chips above the message box. When a turn ends the
@@ -103,8 +105,8 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
   }
 
   function storedItem(item) {
-    const { id, revision, state, mode, preview, length, imageCount, digest: hash, model, effort, createdAt, updatedAt, deviceId, error } = item;
-    return { id, revision, state, mode, preview, length, imageCount, digest: hash, model, effort, createdAt, updatedAt, deviceId, error };
+    const { id, revision, state, mode, preview, length, imageCount, digest: hash, model, effort, speed, speedFingerprint, createdAt, updatedAt, deviceId, error } = item;
+    return { id, revision, state, mode, preview, length, imageCount, digest: hash, model, effort, speed, speedFingerprint, createdAt, updatedAt, deviceId, error };
   }
   function save() {
     if (!file) return true;
@@ -137,6 +139,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
           mode: item.mode === "jump" ? "jump" : item.mode === "start" ? "start" : null, stage: null,
           preview: typeof item.preview === "string" ? item.preview.slice(0, PREVIEW_CHARS) : "", length: Number.isSafeInteger(item.length) ? item.length : 0,
           imageCount: Number.isSafeInteger(item.imageCount) ? item.imageCount : 0, digest: typeof item.digest === "string" ? item.digest : "",
+          speed: item.speed === "fast" ? "fast" : "standard", speedFingerprint: cleanSpeedFingerprint(item.speedFingerprint),
           model: cleanChoice(item.model), effort: cleanChoice(item.effort), createdAt: Number(item.createdAt) || now(), updatedAt: Number(item.updatedAt) || now(),
           deviceId: typeof item.deviceId === "string" && DEVICE.test(item.deviceId) ? item.deviceId : null,
           error: typeof item.error === "string" ? item.error.slice(0, 128) : null };
@@ -197,6 +200,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
   function publicItem(item) {
     return { id: item.id, revision: item.revision, state: item.state, stage: item.stage || null, mode: item.mode || null,
       text: item.preview, truncated: item.length > item.preview.length, imageCount: item.imageCount,
+      model: item.model, effort: item.effort, speed: item.speed, speedFingerprint: item.speedFingerprint,
       createdAt: item.createdAt, deviceId: item.deviceId, error: item.error };
   }
   function snapshot(agent, id) {
@@ -225,6 +229,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
     /** Queues a message. Pictures follow the agent's own prompt budget. */
     add(agent, id, input = {}) {
       if (!validConversation(agent, id)) fail("queue_conversation_invalid", 400);
+      const speed = speedValue(input.speed ?? "standard");
       const text = cleanText(input.text);
       const images = normalizeImages(input.images, { limit: IMAGE_LIMIT[agent] });
       if (!text.trim() && !images.length) fail("queue_text_invalid", 400);
@@ -232,7 +237,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
       if (conversation.items.length >= MAX_ITEMS) fail("queue_full", 429);
       const at = now();
       const item = { id: crypto.randomUUID(), revision: 1, state: "queued", mode: null, stage: null, preview: text.slice(0, PREVIEW_CHARS), length: text.length,
-        imageCount: images.length, digest: digest(text), model: cleanChoice(input.model), effort: cleanChoice(input.effort), createdAt: at, updatedAt: at,
+        imageCount: images.length, digest: digest(text), model: cleanChoice(input.model), effort: cleanChoice(input.effort), speed, speedFingerprint: cleanSpeedFingerprint(input.speedFingerprint), createdAt: at, updatedAt: at,
         deviceId: typeof input.deviceId === "string" && DEVICE.test(input.deviceId) ? input.deviceId : null, error: null };
       try { writePayload(item.id, { text, images }); }
       catch { fail("queue_unavailable", 503); }
@@ -616,7 +621,7 @@ function createComposerQueueRoutes({ queue, readJSON, sendJSON, admit = () => nu
         const refused = admit(agent, ref);
         if (refused) fail(refused, 409);
       }
-      const result = action === "add" ? queue.add(agent, ref, { text: body.text, images: body.images, model: body.model, effort: body.effort, deviceId: body.deviceId })
+      const result = action === "add" ? queue.add(agent, ref, { text: body.text, images: body.images, model: body.model, effort: body.effort, speed: body.speed, speedFingerprint: body.speedFingerprint, deviceId: body.deviceId })
         : action === "edit" ? queue.edit(agent, ref, itemId, revision, body.text)
           : action === "remove" ? queue.remove(agent, ref, itemId, revision)
             : action === "take" ? queue.take(agent, ref, itemId, revision)

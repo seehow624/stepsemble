@@ -25,14 +25,14 @@ function fixture() {
     makeMsgShell: () => { const wrap = node(); shells.push(wrap); return { wrap, bubble: node() }; },
     renderMarkdown: text => ({ text }), appendImageGallery: noop,
     msgActionsRow: (role, getText) => ({ role, getText }), renderImgPreview: noop, scrollBottom: noop,
-    post: () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
+    post: (route, body) => new Promise((resolve, reject) => requests.push({ resolve, reject, route, body })),
     approvalTarget: () => null, scheduleWorkLog: noop, resizeComposerInput: noop,
     composerImageBudget: () => ({ count: 8 }), tKey: key => key, toast: noop,
     BUILTIN_SLASH: { compact: () => new Promise(resolve => requests.push({ resolve })) }, showList: noop,
     // Outside a workspace tab Pi keeps its RPC compaction (BUILTIN_SLASH).
     WORKSPACE_ENTRY_KEY: "", agentCompaction: null, compactionCopy: key => key, compactionReason: key => key, subagentTracker: null, sessionReferences: null,
     // While the agent works a message waits in the queue (composer-queue tests); these sends go at once.
-    composerQueueRoute: () => null,
+    composerQueueRoute: () => null, composerSpeed: null, speedSendWaiting: false,
   });
   context.window = context;
   vm.runInContext(utilities, context); Object.assign(context, context.stepsembleSessionUtils);
@@ -132,6 +132,16 @@ test("a message typed while a compaction runs stays in the box", async () => {
   f.type("Next message"); await f.c.sendCurrent();
   assert.equal(f.requests.length, 0); assert.equal(f.shells.length, 0); assert.equal(f.c.el.input.value, "Next message");
   assert.equal(f.saved(), "Next message"); assert.deepEqual(toasts, [["waitForCompaction", true]]);
+});
+
+test("Pi send waits for speed readback and forwards the conversation snapshot without changing the draft", async () => {
+  const f = fixture(); f.type("Pi speed snapshot");
+  let read = 0;
+  f.c.composerSpeed = { ready: async () => {}, refresh: async () => { read++; }, snapshot: () => ({ speed: "fast", speedFingerprint: "magpie-model" }) };
+  const sending = f.c.sendCurrent(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(read, 1); assert.equal(f.requests[0].route, "/api/send");
+  assert.equal(f.requests[0].body.speed, "fast"); assert.equal(f.requests[0].body.speedFingerprint, "magpie-model");
+  assert.equal(f.requests[0].body.message, "Pi speed snapshot"); f.reply(0); await sending;
 });
 
 test("a send waiting for a reference summary sends once, can be cancelled, and never lands on another conversation", async () => {
