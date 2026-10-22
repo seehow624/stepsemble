@@ -1,7 +1,36 @@
 "use strict";
-const path = require("node:path"), crypto = require("node:crypto");
+const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
 const { unknownSpeed, speedValue } = require("./agent-speed");
 const COMMAND = "stepsemble-speed";
+// get_entries without a cursor returns the whole conversation on one line,
+// screenshots and all: tens of MB in a long one, past the RPC frame limit, and
+// the Host then ends Pi. Only a list this small is ever read whole.
+const FULL_ENTRIES_BYTES = 8 * 1024 * 1024, TAIL_CHUNK = 1024 * 1024, LINE_LIMIT = 16 * 1024 * 1024;
+// The id of the last complete entry Pi wrote to its session file, and the
+// file's size. A partial last line is still being written and is skipped. No
+// file (a conversation Pi has not saved yet) or no readable line: no id.
+async function lastEntryId(file) {
+  const none = { id: null, size: 0 };
+  if (typeof file !== "string" || !path.isAbsolute(file) || !file.endsWith(".jsonl")) return none;
+  let handle;
+  try { handle = await fs.promises.open(file, "r"); } catch { return none; }
+  try {
+    const { size } = await handle.stat();
+    let tail = Buffer.alloc(0), from = size;
+    for (;;) {
+      const end = tail.lastIndexOf(10), start = end > 0 ? tail.lastIndexOf(10, end - 1) : -1;
+      if (end >= 0 && (start >= 0 || from === 0)) {
+        try { const id = JSON.parse(tail.subarray(start + 1, end).toString("utf8"))?.id; return { id: typeof id === "string" && id ? id : null, size }; }
+        catch { return { id: null, size }; }
+      }
+      if (from === 0 || tail.length > LINE_LIMIT) return { id: null, size };
+      const begin = Math.max(0, from - TAIL_CHUNK), chunk = Buffer.alloc(from - begin);
+      await handle.read(chunk, 0, chunk.length, begin);
+      tail = Buffer.concat([chunk, tail]); from = begin;
+    }
+  } catch { return none; }
+  finally { await handle.close().catch(() => {}); }
+}
 const identity = model => JSON.stringify([model?.provider, model?.api, model?.baseUrl, model?.id]);
 const failure = code => Object.assign(new Error(code), { code, statusCode: 409 });
 // Follow only the active branch. An old/abandoned receipt cannot confirm a
@@ -25,6 +54,14 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
     const next = prior.catch(() => {}).then(run); lanes.set(sid, next);
     return next.finally(() => { if (lanes.get(sid) === next) lanes.delete(sid); });
   }
+  // Without a cursor Pi knows, the whole list is read only when it is small.
+  async function entriesAfter(sid, cursor) {
+    if (cursor.id) {
+      const after = await command(sid, { type: "get_entries", since: cursor.id });
+      if (after?.success) return after;
+    }
+    return cursor.size <= FULL_ENTRIES_BYTES ? command(sid, { type: "get_entries" }) : null;
+  }
   async function handshake(sid, input) {
     if (uncertain.has(sid)) throw failure("speed_reopen_required");
     try { return await handshakeOnce(sid, input); }
@@ -40,10 +77,13 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
     known.add(sid);
     const before = await command(sid, { type: "get_state" });
     if (!before?.success) throw failure("speed_runtime_unverified");
+    // The receipt is appended after everything Pi has now, so read only what
+    // follows the last entry: taken before the command, never the receipt.
+    const cursor = await lastEntryId(before.data.sessionFile);
     const nonce = crypto.randomUUID();
     const handled = await command(sid, { type: "prompt", message: "/" + COMMAND + " " + JSON.stringify({ ...input, nonce }) });
     if (!handled?.success || handled.data?.disposition !== "handled") throw failure("speed_not_confirmed");
-    const entries = await command(sid, { type: "get_entries" });
+    const entries = await entriesAfter(sid, cursor);
     const receipt = entries?.success ? receiptOf(entries.data, nonce) : null;
     if (!receipt?.ok || receipt.identity !== identity(before.data.model)) throw failure(receipt?.reason || "speed_not_confirmed");
     const after = await command(sid, { type: "get_state" });
@@ -89,4 +129,4 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
       : command(sid, cmd),
   });
 }
-module.exports = { createPiSpeed, receiptOf };
+module.exports = { createPiSpeed, receiptOf, lastEntryId };
