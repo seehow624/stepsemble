@@ -4,7 +4,10 @@
    stay legible over whatever scrolls behind. Its height follows the tab's
    content up to the top of the list. */
 .usage-sheet {
-  --usage-input: #7a9f93; --usage-output: #ccd8d1; --usage-cache: #496157; --usage-write: #99845d;
+  /* Distinct inks stay visible through the stack's resting opacity on light glass. */
+  --usage-input: #245c85; --usage-output: #086c62; --usage-cache: #684d90; --usage-write: #795410;
+  --usage-low: var(--warn-ink); --usage-critical: var(--err-ink); --usage-cached-opacity: .85;
+  --usage-segment-edge: linear-gradient(to bottom, var(--milk) 0 min(1px, 20%), transparent min(1px, 20%));
   position: absolute; z-index: 3; left: 2px; right: 2px; bottom: 0;
   display: flex; flex-direction: column; overflow: hidden;
   max-height: none; border: .5px solid var(--glass-rim); border-radius: var(--radius-glass);
@@ -13,6 +16,19 @@
   box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 -1px 0 var(--glass-rim), 0 26px 52px -18px rgba(0, 0, 0, .34), 0 4px 14px rgba(0, 0, 0, .08);
   color: var(--ink); outline: 0; pointer-events: auto; touch-action: pan-y;
   transition: height 480ms cubic-bezier(.32, .72, 0, 1), transform 420ms cubic-bezier(.32, .72, 0, 1);
+}
+/* Keep the original dark palette, including the pre-settings system fallback. */
+html[data-theme="dark"] .usage-sheet {
+  --usage-input: #7a9f93; --usage-output: #ccd8d1; --usage-cache: #496157; --usage-write: #99845d;
+  --usage-low: var(--warn); --usage-critical: var(--err); --usage-cached-opacity: .5;
+  --usage-segment-edge: none;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .usage-sheet {
+    --usage-input: #7a9f93; --usage-output: #ccd8d1; --usage-cache: #496157; --usage-write: #99845d;
+    --usage-low: var(--warn); --usage-critical: var(--err); --usage-cached-opacity: .5;
+    --usage-segment-edge: none;
+  }
 }
 .usage-sheet::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: .5;
@@ -90,6 +106,8 @@
 .usage-chart-stack > [data-token=output] { background: var(--usage-output); }
 .usage-chart-stack > [data-token=cacheRead] { background: var(--usage-cache); }
 .usage-chart-stack > [data-token=cacheWrite] { background: var(--usage-write); }
+/* Paint, not space: even a subpixel segment keeps at least 80% of its hue. */
+.usage-chart-stack > [data-token] + [data-token] { background-image: var(--usage-segment-edge); }
 .usage-chart-date { height: 20px; font-size: var(--text-4xs); text-align: center; color: var(--pine-soft); font-variant-numeric: tabular-nums; }
 .usage-tabs { display: flex; align-items: center; justify-content: space-between; gap: 0; border-bottom: .5px solid var(--line); margin-bottom: 7px; }
 .usage-tab { padding: 9px 2px 10px; border-bottom: 2px solid transparent; color: var(--pine-soft); font-size: var(--text-2xs); }
@@ -127,15 +145,15 @@
 .usage-quota-windows { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px 14px; min-width: 0; }
 .usage-quota-unknown, .usage-quota-observed { grid-column: 1 / -1; margin: 0; }
 .usage-quota-window { --level: var(--usage-input); display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.usage-quota-window[data-level=low] { --level: var(--warn); }
-.usage-quota-window[data-level=critical] { --level: var(--err); }
+.usage-quota-window[data-level=low] { --level: var(--usage-low); }
+.usage-quota-window[data-level=critical] { --level: var(--usage-critical); }
 .usage-quota-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: var(--text-2xs); line-height: 1.4; }
 .usage-quota-line > span { color: var(--pine-soft); overflow-wrap: anywhere; }
 .usage-quota-line strong { flex: none; font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 600; }
 .usage-quota-window:not([data-level=ok]) strong { color: var(--level); }
 .usage-quota-bar { height: 3px; overflow: hidden; border-radius: var(--radius-pill); background: var(--line); }
 .usage-quota-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--level); }
-.usage-quota-card[data-cached=true] .usage-quota-bar > span { opacity: .5; }
+.usage-quota-card[data-cached=true] .usage-quota-bar > span { opacity: var(--usage-cached-opacity); }
 .usage-quota-sources { display: block; min-height: 40px; margin: 2px 2px 0; padding: 6px 2px; color: var(--pine-soft); font: inherit; font-size: var(--text-xs); text-decoration: underline; text-underline-offset: 3px; }
 .usage-quota-empty { padding: 16px 0 4px; color: var(--pine-soft); font-size: var(--text-sm); }
 .usage-explanation { padding-top: 12px; margin-top: 18px; border-top: .5px solid var(--glass-rim); display: flex; flex-direction: column; gap: 5px; }
@@ -148,7 +166,7 @@
 .usage-sheet button:focus-visible, .usage-sheet select:focus-visible, .usage-chart-column:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .usage-sheet button:active { opacity: .75; }
 @media (pointer: coarse) { :is(.usage-refresh, .usage-settings) { width: 44px; height: 44px; } .usage-sheet-grip { height: 22px; } .usage-quota-toggle button, .usage-view-tabs button, .usage-periods button { min-height: 40px; } .usage-sheet select { min-height: 40px; } }
-@media (forced-colors: active) { .usage-chart-stack > span, .usage-row-track > span { forced-color-adjust: none; background: CanvasText; } }
+@media (forced-colors: active) { .usage-sheet { --usage-segment-edge: none; } .usage-chart-stack > span, .usage-row-track > span { forced-color-adjust: none; background: CanvasText; } }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .usage-sheet { background: color-mix(in srgb, var(--milk) 94%, transparent); } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .usage-sheet { background: var(--milk); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line); }

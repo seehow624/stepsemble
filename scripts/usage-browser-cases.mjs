@@ -7,8 +7,10 @@ import crypto from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createUsagePreview } from "./usage-preview.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
+import { runUsageContrastBrowserCases } from "./usage-contrast-browser-cases.mjs";
 
 export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}) {
+  await runUsageContrastBrowserCases(browser);
   for (const mobile of [false, true]) {
     const fixture = await createUsagePreview(0, { unpriced: mobile, nativeHistory: true });
     const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1280, height: mobile ? 844 : 1100 },
