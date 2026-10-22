@@ -36,12 +36,12 @@ test("browser matrix splits finite workers without losing or repeating any suite
   const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
   const runtime = path.resolve("owned-runtime"), helper = path.resolve("owned-helper");
   const jobs = browserWorkerJobs(runtime, helper);
-  assert.deepEqual(jobs.map(job => job.suite), ["core", "conversation-ux", "workspace", "assistant", "sources", "codex"]);
+  assert.deepEqual(jobs.map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace", "assistant", "sources", "codex"]);
   for (const job of jobs) {
     assert.equal(path.basename(job.args[0]), "rolling-browser-worker.mjs");
     assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(["sources", "codex"].includes(job.suite) ? [helper] : [])]);
   }
-  assert.deepEqual(browserWorkerJobs(runtime).map(job => job.suite), ["core", "conversation-ux", "workspace", "assistant"]);
+  assert.deepEqual(browserWorkerJobs(runtime).map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace", "assistant"]);
 });
 test("browser runner distinguishes process-budget cancellation from a case failure and waits for close", async () => {
   const { run } = await import("../scripts/check-rolling-clients.mjs"), { EventEmitter } = require("node:events");
@@ -69,8 +69,8 @@ test("browser runner distinguishes process-budget cancellation from a case failu
   }
 });
 
-test("rolling job leaves enough time for the five bounded suites and cold macOS setup", () => {
+test("rolling job leaves enough time for seven bounded suites and cold macOS setup", () => {
   const workflow = fs.readFileSync(path.resolve(".github/workflows/rolling-clients.yml"), "utf8");
   const minutes = Number(workflow.match(/timeout-minutes:\s*(\d+)/)?.[1]);
-  assert.ok(minutes >= 20 && minutes <= 30, "the whole-job budget must allow the complete suite without becoming unbounded");
+  assert.ok(minutes >= 25 && minutes <= 30, "the whole-job budget must allow the complete suite without becoming unbounded");
 });

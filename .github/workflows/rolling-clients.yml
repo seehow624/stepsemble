@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - 'scripts/agent-speed-browser-cases.mjs'
       - 'scripts/scrollbar-browser-cases.mjs'
       - '.gitattributes'
       - '.github/workflows/rolling-clients.yml'
@@ -56,6 +57,7 @@ on:
       - 'package.json'
   pull_request:
     paths:
+      - 'scripts/agent-speed-browser-cases.mjs'
       - 'scripts/scrollbar-browser-cases.mjs'
       - '.gitattributes'
       - '.github/workflows/rolling-clients.yml'
@@ -113,8 +115,9 @@ permissions:
 
 jobs:
   browser:
-    # Four separately bounded browser suites plus cold native-reader setup.
-    timeout-minutes: 20
+    # Seven separately bounded browser suites plus cold native-reader setup.
+    # Keep each worker at five minutes; allow the new speed suite its own time.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       # Historical Hosts use Unix native launch; Windows is not silently skipped

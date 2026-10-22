@@ -34,7 +34,9 @@ export function browserWorkerJobs(runtimeDirectory, historyHelper) {
   // Workspace polling cases have deliberate waits, the conversation
   // experience cases open many disposable Hosts, and the Bot cases are many;
   // each gets its own budget instead of spending another group's time.
-  return ["core", "conversation-ux", "workspace", "assistant", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
+  // Speed controls get a separate worker too: conversation UX already uses
+  // almost its full five-minute budget on the macOS CI runner.
+  return ["core", "conversation-ux", "agent-speed", "workspace", "assistant", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
     suite, args: [path.join(root, "scripts/rolling-browser-worker.mjs"), runtimeDirectory, suite,
       ...(["sources", "codex"].includes(suite) ? [historyHelper] : [])],
   }));
