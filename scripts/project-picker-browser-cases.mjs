@@ -37,6 +37,9 @@ export async function runProjectPickerBrowserCases(browser) {
         assert.ok(dims.scroll > dims.height * 5, 'the folder list scrolls on its own');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         const action = page.locator('.workspace-folder-add');
+        // A phone's dialog rises from the bottom edge (Bold, 0.34 s); where it
+        // comes to rest is what counts, however fast the folders arrive.
+        await page.locator('#workspace-dialog').evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)));
         const actionInView = async () => { const b = await action.boundingBox(); return !!b && b.y >= 0 && b.y + b.height <= viewport.height + 1; };
         assert.ok(await actionInView(), 'Add this folder is on screen');
         stage = 'inner wheel';
