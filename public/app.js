@@ -471,10 +471,22 @@ let machineCatalogStatus = "idle";
 // Toast
 // ===========================================================================
 
+// Every notice is the same small pill (see style.css): a confirmation leads
+// with a tick, an error with a mark, anything else is its text alone.
+function toastIcon(markup) {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = markup;
+  return icon;
+}
 function toast(msg, isError = false, action = null) {
   const t = document.createElement("div");
   t.className = "toast" + (isError ? " err" : "");
-  t.textContent = msg;
+  if (isError) t.appendChild(toastIcon('<circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.8v3.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.1" r=".95" fill="currentColor"/>'));
+  const text = document.createElement("span");
+  text.textContent = msg;
+  t.appendChild(text);
   if (action?.label && typeof action.run === "function") {
     // Undo-style toasts live longer and carry their own action button, so a
     // reversible step replaces a blocking confirm().
@@ -489,18 +501,14 @@ function toast(msg, isError = false, action = null) {
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, action ? 7000 : 2400);
 }
 
-// A small confirmation for routine steps, such as adding an image: the
-// thumbnail already shows the result, so it stays brief and out of the way.
+// A confirmation for routine steps, such as adding an image: the thumbnail
+// already shows the result, so it is brief.
 function quietToast(msg) {
   const t = document.createElement("div");
   t.className = "toast quiet";
-  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  icon.setAttribute("viewBox", "0 0 16 16");
-  icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = '<path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
   const text = document.createElement("span");
   text.textContent = msg;
-  t.append(icon, text);
+  t.append(toastIcon('<path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), text);
   el.toastWrap.appendChild(t);
   setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 350); }, 1600);
 }
@@ -11881,7 +11889,7 @@ async function handleImagePaste(event) {
     toast("瀏覽器沒有提供可讀取的圖片，請先點擊輸入框再貼上", true);
     return;
   }
-  toast("正在加入圖片…");
+  // No "adding" notice: the thumbnail and "Image added" follow at once.
   await addImageFiles(allFiles);
 }
 document.addEventListener("paste", (event) => { void handleImagePaste(event); });
