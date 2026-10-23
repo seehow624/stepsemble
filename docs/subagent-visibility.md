@@ -65,6 +65,13 @@ saved conversation still offers **Details**, built from what the record keeps:
 - Pi saves `pi-subagents` details with the tool result. The Host sends a
   bounded copy with the history (each child's name, task, state, result, model,
   tokens, duration and up to 20 recent tool lines), never the child messages.
+- A `subagent` call another tool made, such as a codemode script's, is not a
+  transcript card of its own: Pi saves only its id (`<caller>/<n>`), name,
+  status and small arguments in the caller's `nestedCalls`. Its caller's card
+  offers **Details** once the Host finds a run that call started (below). A
+  management or foreground call, a failed one, or one whose run is gone shows
+  nothing; the script's output text is never read for run ids. Live, the
+  nested call's own events show it as any other Pi subagent.
 - Claude Code and OpenCode cards use the call's own arguments and result. A
   Claude background Agent's saved result only says it started, so its state
   reads **Started**, not Done. A Claude Code card's panel also reads the
@@ -104,3 +111,15 @@ through `/session/:id/children`, Claude Code from the `subagents` folder of the
 conversation's own transcript, matched by the `.meta.json` `toolUseId`).
 Claude files are opened without following links; a subagent transcript is read
 from its last 4 MB.
+
+`GET /api/subagent/pi-run?entry=<workspace entry key>&run=<run id>&call=<Pi tool call id>`
+returns a `pi-subagents` background run's state and children from its own
+`status.json` (at most 2 MB, never through a link), only when its `toolCallId`
+is the call and its `sessionId` is the conversation's own Pi session file. For a
+nested call (`<caller>/<n>`, at most eight levels) `run` may be left out. The
+Host then takes candidates only from the indexes `pi-subagents` keeps itself:
+runs still active by that call (`.active-runs/tool-calls/<call>`, at most 8)
+and the session's newest 64 ended runs (`.terminal-runs/<session>`), named as
+`pi-subagents` 0.61 names them (URI-encoded, or a SHA-256 digest). It never
+lists every run. The one candidate that passes the same checks is answered with
+its `run` id; none is 404, more than one 409.

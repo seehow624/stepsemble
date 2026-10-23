@@ -207,6 +207,31 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       assert.deepEqual(await values(ui), ["Pi Agent", "gpt-6.1-sol", "high"]);
       assert.equal(await ui.locator(".subagent-drawer .subagent-status").first().getAttribute("data-state"), "completed");
       await shot("pi-workflow"); await ui.locator(".subagent-close").click();
+      // A codemode script's workflow, from a saved conversation: Pi keeps only
+      // the nested call's id, so its card asks the Host for the run by that call.
+      const nestedReads = [];
+      await context.route("**/api/subagent/pi-run?**", async route => {
+        const query = Object.fromEntries(new URL(route.request().url()).searchParams);
+        nestedReads.push(query);
+        if (query.call !== "call_cm|fc_cm/1") return route.fulfill({ status: 404, json: { error: "subagent_run_gone", code: "subagent_run_gone" } });
+        await route.fulfill({ json: { run: piRun, state: "completed", children: [{ key: "fix", name: "worker", task: "Apply the fix", status: "completed", model: "gpt-6-astra", thinking: "xhigh" }] } });
+      });
+      await ui.evaluate(() => {
+        subagentTracker.reset();
+        const messages = document.querySelector("#messages"), card = makeToolCard("codemode", { code: "await tools.subagent({ workflowScript: '…' })" }, null);
+        card.dataset.toolCallId = "call_cm|fc_cm"; messages.appendChild(card);
+        attachToolResult("codemode", false, "Script completed", messages, "call_cm|fc_cm", null,
+          [{ call: "call_cm|fc_cm/1", agent: "workflow", task: "" }, { call: "call_cm|fc_cm/2", agent: "", task: "" }]);
+      });
+      const nestedOpen = ui.locator('.tool-card[data-tool-call-id="call_cm|fc_cm"] .tool-subagent-open');
+      await nestedOpen.waitFor({ state: "visible" });
+      assert.deepEqual(nestedReads.map(read => [read.entry, read.run ?? null, read.call]), [[keys["claude-code"], null, "call_cm|fc_cm/1"], [keys["claude-code"], null, "call_cm|fc_cm/2"]],
+        "each nested call is asked for by itself, without a guessed run");
+      await nestedOpen.click();
+      assert.deepEqual(await values(ui), ["Pi Agent", "gpt-6-astra", "xhigh"]);
+      await shot("pi-nested"); await ui.locator(".subagent-close").click();
+      await ui.waitForTimeout(4500);
+      assert.equal(nestedReads.length, 2, "a found, finished run and a call that started none are not asked for again");
       assert.deepEqual([...new Set(reads.map(read => read.id))].sort(), ["ui-claude-background", "ui-claude-child", "ui-claude-saved"],
         "only subagents whose agent keeps their settings are read; Pi's and a record's own say are shown as they are");
       assert.ok(reads.every(read => read.entry === keys["claude-code"]));

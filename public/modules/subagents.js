@@ -57,6 +57,34 @@
     const run=RUN_ID.test(String(details.asyncId||""))?{id:String(details.asyncId),call:clip(details.toolCallId,256)}:null;
     return rows.length?{rows,...(background?{background:true}:{}),...(run?{run}:{})}:background?{rows,background:true,...(run?{run}:{})}:null;
   }
+  // A workflow script names its children only as it runs them.
+  function piLaunch(args,index){
+    const list=Array.isArray(args?.tasks)?args.tasks:null,value=list?list[index]:args,workflow=!!(args?.workflowScript||args?.workflowScriptPath||args?.workflow);
+    return {agent:clip(value?.agent,80)||(workflow?"workflow":""),task:firstLine(value?.task||"")};
+  }
+  // A call a tool makes itself, as a codemode script does, is its caller's id
+  // and its own place: <caller>/<n>, at most a few levels deep.
+  const PI_NESTED=/^[A-Za-z0-9][A-Za-z0-9_.:|-]{0,255}(?:\/[1-9][0-9]{0,5}){1,8}$/;
+  const MAX_NESTED=16;
+  // The subagent calls such a tool made, from what Pi keeps of them on its
+  // result (nestedCalls: id, name, status, the arguments when small) and never
+  // from its output. They hold no run id; the Host finds a run, if the call
+  // started one, by the call alone. A management call (status, steer…) or a
+  // foreground one starts none.
+  function piNested(message){
+    const parent=typeof message?.toolCallId==="string"?message.toolCallId:"";
+    const calls=plain(message?.nestedCalls)&&Array.isArray(message.nestedCalls.calls)?message.nestedCalls.calls:[];
+    const found=[];
+    for(const call of calls){
+      if(found.length>=MAX_NESTED)break;
+      if(!parent||!plain(call)||call.name!=="subagent"||call.status!=="ok"||typeof call.id!=="string"||!PI_NESTED.test(call.id)||!call.id.startsWith(parent+"/"))continue;
+      const args=plain(call.arguments)?call.arguments:null;
+      if(args&&(typeof args.action==="string"&&args.action||args.async===false))continue;
+      const launch=args?piLaunch(args,0):{agent:"",task:""};
+      found.push({call:call.id,agent:launch.agent,task:launch.task});
+    }
+    return found;
+  }
   function create({now=Date.now}={}){
     // Earlier turns' subagents stay reachable from their transcript cards.
     let rows=new Map(), signature="[]";
@@ -160,22 +188,20 @@
     }
     // Pi with pi-subagents: the subagent tool reports each child's progress.
     const PI_STATUS={pending:"pending",running:"running",completed:"completed",failed:"failed",detached:"running"};
-    // A workflow script names its children only as it runs them.
-    function piLaunch(args,index){
-      const list=Array.isArray(args?.tasks)?args.tasks:null,value=list?list[index]:args,workflow=!!(args?.workflowScript||args?.workflowScriptPath||args?.workflow);
-      return {agent:clip(value?.agent,80)||(workflow?"workflow":""),task:firstLine(value?.task||"")};
-    }
-    function trackPiRun(toolId,run){if(run&&RUN_ID.test(run.id)&&!piRuns.has(toolId))piRuns.set(toolId,{toolId,id:run.id,call:run.call||toolId,settled:false});}
+    function trackPiRun(toolId,run,parentToolId){if(run&&RUN_ID.test(run.id)&&!piRuns.has(toolId))piRuns.set(toolId,{toolId,id:run.id,call:run.call||toolId,settled:false,...(parentToolId?{parentToolId}:{})});}
     function pi(ev){
       if(!plain(ev))return;
       if(ev.type==="message_start"&&ev.message?.role==="user"){newTurn();return;}
       if(ev.toolName!=="subagent"||!ev.toolCallId)return;
       const call=String(ev.toolCallId);
+      // A call another tool made (a codemode script's) names its caller, whose
+      // saved card then offers these subagents too.
+      const parentToolId=typeof ev.parentToolCallId==="string"&&PI_NESTED.test(call)&&call.startsWith(ev.parentToolCallId+"/")?ev.parentToolCallId:undefined;
       if(ev.type==="tool_execution_start")piCalls.set(call,plain(ev.args)?ev.args:{});
       const details=plain(ev.partialResult?.details)?ev.partialResult.details:plain(ev.result?.details)?ev.result.details:null;
       for(const progress of Array.isArray(details?.progress)?details.progress:[]){
         if(!plain(progress)||!Number.isSafeInteger(progress.index))continue;
-        const row=upsert(`${call}:${progress.index}`,{source:"pi",toolId:call,name:clip(progress.agent,80)||"subagent",task:firstLine(progress.task),status:PI_STATUS[progress.status]||"running",
+        const row=upsert(`${call}:${progress.index}`,{source:"pi",toolId:call,parentToolId,name:clip(progress.agent,80)||"subagent",task:firstLine(progress.task),status:PI_STATUS[progress.status]||"running",
           background:progress.status==="detached"||undefined,model:piModel(progress.model),reasoningEffort:piThinking(progress.thinking,progress.thinkingLevel),tokens:Number.isSafeInteger(progress.tokens)?progress.tokens:undefined,
           durationMs:Number.isSafeInteger(progress.durationMs)?progress.durationMs:undefined,result:clip(progress.error)});
         if(!row)continue;
@@ -185,14 +211,14 @@
       }
       if(ev.type==="tool_execution_end"){
         const record=piRecord(details),results=record?.rows||[];
-        trackPiRun(call,record?.run);
+        trackPiRun(call,record?.run,parentToolId);
         for(const item of results){
-          const row=upsert(`${call}:${item.key}`,{source:"pi",toolId:call,name:item.name,task:item.task,prompt:item.prompt,status:item.status,result:item.result,model:item.model,reasoningEffort:item.reasoningEffort,tokens:item.tokens,durationMs:item.durationMs,background:record.background||undefined});
+          const row=upsert(`${call}:${item.key}`,{source:"pi",toolId:call,parentToolId,name:item.name,task:item.task,prompt:item.prompt,status:item.status,result:item.result,model:item.model,reasoningEffort:item.reasoningEffort,tokens:item.tokens,durationMs:item.durationMs,background:record.background||undefined});
           if(row&&!row.log.length)row.log=item.log;
         }
         if(!results.length&&record?.background){
           const {agent,task}=piLaunch(piCalls.get(call),0);
-          upsert(`${call}:0`,{source:"pi",toolId:call,name:agent||"subagent",task,status:"running",background:true});
+          upsert(`${call}:0`,{source:"pi",toolId:call,parentToolId,name:agent||"subagent",task,status:"running",background:true});
         }else if(!results.length)for(const row of rows.values())if(row.id.startsWith(call+":")&&!TERMINAL.has(row.status))row.status=ev.isError?"failed":"completed";
         piCalls.delete(call);
       }
@@ -205,13 +231,17 @@
       const run=piRuns.get(toolId);
       if(!run)return false;
       if(!plain(data)){run.settled=true;return false;}
-      const children=(Array.isArray(data.children)?data.children:[]).filter(child=>plain(child)&&clip(child.key,128)).slice(0,MAX_ROWS);
-      const live=[...rows.values()].some(row=>row.toolId===toolId)||!toolId||![...archive.values()].some(row=>row.toolId===toolId);
+      // A run found by its call alone: the Host says which it is.
+      if(!run.id&&RUN_ID.test(String(data.run||"")))run.id=String(data.run);
+      let children=(Array.isArray(data.children)?data.children:[]).filter(child=>plain(child)&&clip(child.key,128)).slice(0,MAX_ROWS);
+      // A saved card's nested launch shows the run even before it names a child.
+      if(run.history&&!children.length)children=[{key:"0",name:run.agent||"subagent",task:run.task,status:data.state}];
+      const live=!run.history&&([...rows.values()].some(row=>row.toolId===toolId)||!toolId||![...archive.values()].some(row=>row.toolId===toolId));
       const target=live?rows:archive,ids=new Set(children.map(child=>`${toolId}:${clip(child.key,128)}`));
       if(children.length)for(const [id,row] of [...target])if(row.toolId===toolId&&!ids.has(id))target.delete(id);
       for(const child of children){
         const id=`${toolId}:${clip(child.key,128)}`,status=TERMINAL.has(child.status)||child.status==="pending"?child.status:"running";
-        const fields={toolId,name:clip(child.name,80)||"subagent",task:firstLine(child.task),status,model:piModel(child.model),reasoningEffort:piThinking(child.thinking),
+        const fields={toolId,parentToolId:run.parentToolId,name:clip(child.name,80)||"subagent",task:firstLine(child.task),status,model:piModel(child.model),reasoningEffort:piThinking(child.thinking),
           tokens:Number.isSafeInteger(child.tokens)&&child.tokens>0?child.tokens:undefined,durationMs:Number.isSafeInteger(child.durationMs)?child.durationMs:undefined,result:clip(child.error),background:true};
         const log=(Array.isArray(child.log)?child.log:[]).filter(plain).slice(-MAX_LOG).map(entry=>entry.kind==="text"?{kind:"text",text:clip(entry.text)}:{kind:"tool",name:clip(entry.name,80)||"tool",summary:clip(entry.summary,300),done:true});
         let row;
@@ -230,7 +260,8 @@
       emit(!live);
       return true;
     }
-    // The background runs whose children may still change.
+    // The background runs whose children may still change; a nested launch
+    // from a saved card has no id until the Host finds its run.
     function piPending(){return [...piRuns.values()].filter(run=>!run.settled).map(run=>({toolId:run.toolId,id:run.id,call:run.call}));}
     // Codex: spawnAgent names the threads it starts; later collab calls carry
     // each thread's last state. Items are a snapshot of one turn, the newest.
@@ -295,9 +326,22 @@
     }
     // A card drawn from a saved conversation this view never saw live: only
     // what the record itself says, kept with the earlier turns' subagents.
-    function remember({toolId,name,args,result,isError=false,record=null,harness=""}={}){
+    function remember({toolId,name,args,result,isError=false,record=null,harness="",nested=null}={}){
       toolId=String(toolId||"");
-      if(!toolId||[...rows.values(),...archive.values()].some(row=>row.toolId===toolId))return false;
+      if(!toolId)return false;
+      // Subagent calls the tool made itself: rows come only from a run the
+      // Host finds for one of them, never from the call alone.
+      if(Array.isArray(nested)&&nested.length){
+        let asked=0;
+        for(const launch of nested.slice(0,MAX_NESTED)){
+          const call=typeof launch?.call==="string"?launch.call:"";
+          if(isError||!PI_NESTED.test(call)||!call.startsWith(toolId+"/")||piRuns.has(call))continue;
+          piRuns.set(call,{toolId:call,id:null,call,settled:false,history:true,parentToolId:toolId,agent:clip(launch.agent,80),task:firstLine(launch.task)});
+          asked+=1;
+        }
+        return asked>0;
+      }
+      if([...rows.values(),...archive.values()].some(row=>row.toolId===toolId))return false;
       const base={source:"history",history:true,harness:clip(harness,32),toolId,parentId:null,activity:"",log:[],model:"",reasoningEffort:"",tokens:null,durationMs:null,background:false,startedAt:null,endedAt:null};
       const input=plain(args)?args:{},text=clip(typeof result==="string"?result:""),found=[];
       // A background run's record says only how its children stood at launch;
@@ -333,8 +377,9 @@
     function onChange(fn){listeners.add(fn);return()=>listeners.delete(fn);}
     const copy=row=>row?JSON.parse(JSON.stringify(row)):null;
     function get(id){return copy(rows.get(id)||archive.get(id));}
-    function byTool(toolId){if(!toolId)return [];const found=[...rows.values()].filter(row=>row.toolId===toolId);return (found.length?found:[...archive.values()].filter(row=>row.toolId===toolId)).map(copy);}
+    // A card's own subagents, and those of the calls it made itself.
+    function byTool(toolId){if(!toolId)return [];const match=row=>row.toolId===toolId||row.parentToolId===toolId;const found=[...rows.values()].filter(match);return (found.length?found:[...archive.values()].filter(match)).map(copy);}
     return {claude,pi,piRun,piPending,codex,openCode,newTurn,reset,list,all,summary,onChange,get,byTool,remember};
   }
-  return {create,piRecord};
+  return {create,piRecord,piNested};
 });

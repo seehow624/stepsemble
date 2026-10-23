@@ -1,6 +1,6 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
-const { create } = require("../public/modules/subagents");
+const { create, piNested } = require("../public/modules/subagents");
 const pick = (tracker, id) => tracker.list().find(row => row.id === id);
 
 test("Claude: a Task call becomes a subagent whose own events are its activity, and its tool result ends it", () => {
@@ -424,4 +424,54 @@ test("Pi: a status call that reports a run's children is no subagent of its own"
   tracker.pi({ type: "tool_execution_end", toolCallId: "st", toolName: "subagent", result: { details: status } });
   assert.deepEqual(tracker.list(), []);
   assert.equal(tracker.remember({ toolId: "st", name: "subagent", args: { action: "status", id: "95390287" }, record: piRecord(status), result: "Done" }), false);
+});
+
+test("Pi: a codemode script's subagent call is followed live, and its caller's card offers it too", () => {
+  const tracker = create(), parent = "call_cm|fc_cm", call = parent + "/1";
+  tracker.pi({ type: "tool_execution_start", toolCallId: call, parentToolCallId: parent, toolName: "subagent", args: { workflowScript: "await runs.all([])" } });
+  tracker.pi({ type: "tool_execution_end", toolCallId: call, parentToolCallId: parent, toolName: "subagent", result: { details: { mode: "workflow", asyncId: PI_RUN, toolCallId: call, results: [], workflowChildren: { children: [] } } } });
+  assert.deepEqual(tracker.list().map(row => [row.id, row.name, row.status, row.parentToolId]), [[call + ":0", "workflow", "running", parent]]);
+  assert.deepEqual(tracker.piPending(), [{ toolId: call, id: PI_RUN, call }], "its run is read by its own nested call");
+  tracker.piRun(call, { run: PI_RUN, state: "running", children: [{ key: "fix", name: "worker", status: "running", model: "gpt-6-astra", thinking: "high" }] });
+  assert.deepEqual(tracker.byTool(parent).map(row => [row.id, row.parentToolId, row.model]), [[call + ":fix", parent, "gpt-6-astra"]]);
+  const other = create();
+  other.pi({ type: "tool_execution_end", toolCallId: "x/1", parentToolCallId: "y", toolName: "subagent", result: { details: { mode: "single", background: true, asyncId: PI_RUN, results: [] } } });
+  assert.equal(other.list()[0].parentToolId, undefined, "a caller is believed only when the call is its own");
+});
+
+test("Pi: a saved codemode card asks the Host for the runs its subagent calls started, and shows only what it finds", () => {
+  const parent = "call_cm|fc_cm";
+  const message = { role: "toolResult", toolCallId: parent, toolName: "codemode", nestedCalls: { complete: false, calls: [
+    { id: parent + "/1", name: "subagent", status: "ok", arguments: { workflowScript: "x", async: true } },
+    { id: parent + "/2", name: "subagent", status: "ok", argumentsBytes: 9486 },
+    { id: parent + "/3", name: "subagent", status: "ok", arguments: { action: "status", id: PI_RUN } },
+    { id: parent + "/4", name: "subagent", status: "ok", arguments: { agent: "worker", task: "Now", async: false } },
+    { id: parent + "/5", name: "subagent", status: "error", arguments: { agent: "worker", task: "Failed" } },
+    { id: parent + "/6", name: "bash", status: "ok", arguments: { command: "ls" } },
+    { id: "call_other|fc/1", name: "subagent", status: "ok" },
+    { id: parent + "/0", name: "subagent", status: "ok" },
+    { id: parent + "/1/2", name: "subagent", status: "ok", arguments: { agent: "scout", task: "Look\nmore" } }] } };
+  assert.deepEqual(piNested(message), [{ call: parent + "/1", agent: "workflow", task: "" }, { call: parent + "/2", agent: "", task: "" }, { call: parent + "/1/2", agent: "scout", task: "Look" }],
+    "launches only: no management, foreground, failed, other tool's, other caller's or malformed call");
+  assert.deepEqual(piNested({ role: "toolResult", toolCallId: parent, toolName: "codemode" }), []);
+  assert.equal(piNested({ ...message, nestedCalls: { calls: Array.from({ length: 40 }, (_, i) => ({ id: `${parent}/${i + 1}`, name: "subagent", status: "ok" })) } }).length, 16);
+  const tracker = create();
+  assert.equal(tracker.remember({ toolId: parent, name: "codemode", args: { code: "..." }, result: "Script completed", nested: piNested(message) }), true);
+  assert.deepEqual(tracker.byTool(parent), [], "a call alone shows nothing");
+  assert.deepEqual(tracker.piPending(), [parent + "/1", parent + "/2", parent + "/1/2"].map(call => ({ toolId: call, id: null, call })));
+  assert.equal(tracker.remember({ toolId: parent, name: "codemode", nested: piNested(message) }), false, "each call is asked for once");
+  tracker.piRun(parent + "/2", null); tracker.piRun(parent + "/1/2", null);
+  assert.deepEqual(tracker.byTool(parent), [], "a call that started no run leaves nothing");
+  let calls = 0; tracker.onChange(() => calls++);
+  tracker.piRun(parent + "/1", { run: PI_RUN, state: "running", children: [] });
+  assert.equal(calls, 1);
+  assert.deepEqual(tracker.byTool(parent).map(row => [row.id, row.name, row.status, row.history]), [[parent + "/1:0", "workflow", "running", true]], "a run that names no child yet still shows");
+  assert.deepEqual(tracker.piPending(), [{ toolId: parent + "/1", id: PI_RUN, call: parent + "/1" }], "then it is read by its run");
+  tracker.piRun(parent + "/1", { run: PI_RUN, state: "completed", children: [{ key: "fix", name: "worker", task: "Apply", status: "completed", model: "gpt-6-astra", thinking: "high" }] });
+  assert.deepEqual(tracker.byTool(parent).map(row => [row.id, row.status, row.model, row.reasoningEffort]), [[parent + "/1:fix", "completed", "gpt-6-astra", "high"]]);
+  assert.deepEqual(tracker.list(), [], "it stays with the earlier turns");
+  assert.deepEqual(tracker.piPending(), []);
+  assert.equal(create().remember({ toolId: parent, name: "codemode", isError: true, nested: piNested(message) }), false, "a failed script's calls are not asked for");
+  assert.equal(create().remember({ toolId: "call_x", name: "codemode", nested: [{ call: parent + "/1" }] }), false, "only the card's own calls");
+  assert.equal(create().remember({ toolId: parent, name: "codemode", args: { prompt: "not a subagent" }, nested: [{ call: "bad" }] }), false, "a card with calls is never a subagent by its arguments");
 });

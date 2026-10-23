@@ -223,7 +223,7 @@ test("Claude Code: a conversation from before its project moved finds its subage
 });
 
 // pi-subagents: a background run's status.json under its own temporary root.
-const { piSubagentsRoot, createSubagentDetailRoutes } = require("../server/subagent-detail");
+const { piSubagentsRoot, createSubagentDetailRoutes, piIndexSegments } = require("../server/subagent-detail");
 const RUN = "95390287-c784-484f-b32e-f2c4b2261406", CALL = "call_35d7cb47e8644327a584d1f0d464766b|fc_000569c1477fbea8016ad62d8487dc8191801354f6662a3e83";
 function piFixture(t, { status, record } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-pi-"));
@@ -312,4 +312,47 @@ test("Pi: the run route answers with the run's children", async t => {
   assert.equal(await handle({ method: "POST" }, {}, url), false);
   await handle({ method: "GET" }, {}, new URL(`http://h/api/subagent/pi-run?entry=${ENTRY}&run=bad&call=x`));
   assert.deepEqual(sent[1], [400, { error: "subagent_detail_invalid", code: "subagent_detail_invalid" }]);
+});
+
+test("Pi: index keys are named as pi-subagents names them", () => {
+  const crypto = require("node:crypto"), hashed = value => "~sha256-" + crypto.createHash("sha256").update(value).digest("hex");
+  assert.deepEqual(piIndexSegments("call_a|fc_b/1"), ["call_a%7Cfc_b%2F1"]);
+  assert.deepEqual(piIndexSegments("/Users/x/.pi/agent/sessions/s.jsonl"), [hashed("/Users/x/.pi/agent/sessions/s.jsonl"), "%2FUsers%2Fx%2F.pi%2Fagent%2Fsessions%2Fs.jsonl"],
+    "a session file's name ends in an extension, so its key is a digest, with the older readable name too");
+  assert.deepEqual(piIndexSegments("short.jsonl"), [hashed("short.jsonl"), "short.jsonl"], "with the older readable name too");
+  assert.deepEqual(piIndexSegments("a\\b"), [hashed("a\\b"), "a%5Cb"]);
+  assert.deepEqual(piIndexSegments("."), [hashed(".")]);
+  assert.deepEqual(piIndexSegments("x".repeat(300)), [hashed("x".repeat(300))]);
+});
+
+test("Pi: a nested call's run is found through pi-subagents' own indexes and still checked as this conversation's", async t => {
+  const NESTED = CALL + "/1", OTHER = "00000000-0000-4000-8000-0000000000b1", ELSE = "00000000-0000-4000-8000-0000000000b2";
+  const { detail, base: fixtureBase, write, sessions, runs } = piFixture(t, { status: { toolCallId: NESTED } });
+  const base = { ...fixtureBase, toolCallId: NESTED };
+  assert.equal((await detail.piRun(ENTRY, RUN, NESTED)).state, "running", "a known run of a nested call reads as any other");
+  await assert.rejects(detail.piRun(ENTRY, null, NESTED), error => error.code === "subagent_run_gone" && error.statusCode === 404, "a run no index names is not searched for");
+  const active = path.join(runs, ".active-runs", "tool-calls", piIndexSegments(NESTED)[0]);
+  fs.mkdirSync(active, { recursive: true });
+  for (const name of [RUN, "not-a-run", OTHER]) fs.writeFileSync(path.join(active, name), "");
+  write({ ...base, runId: OTHER, toolCallId: CALL + "/2" }, OTHER);
+  const found = await detail.piRun(ENTRY, null, NESTED);
+  assert.deepEqual([found.run, found.state], [RUN, "running"], "the index's other run is not this call's");
+  // Once ended, the run is among its session's ended runs.
+  fs.rmSync(path.join(runs, ".active-runs"), { recursive: true });
+  const ended = path.join(runs, ".terminal-runs", piIndexSegments(base.sessionId)[0]);
+  fs.mkdirSync(ended, { recursive: true });
+  write({ ...base, state: "complete", steps: [step({ workflowKey: "fix", status: "completed" })] });
+  write({ ...base, runId: ELSE, sessionId: path.join(sessions, "--owned--", "other.jsonl") }, ELSE);
+  for (const name of [`0001792747276016-${RUN}.json`, `0001792747276017-${ELSE}.json`, "0001-bad.json", `${RUN}.json`]) fs.writeFileSync(path.join(ended, name), "{}");
+  const done = await detail.piRun(ENTRY, "", NESTED);
+  assert.deepEqual([done.run, done.state, done.children.map(child => child.key)], [RUN, "completed", ["fix"]], "another session's run of the same call is not this one");
+  write({ ...base, runId: OTHER, state: "complete" }, OTHER);
+  fs.writeFileSync(path.join(ended, `0001792747276018-${OTHER}.json`), "{}");
+  await assert.rejects(detail.piRun(ENTRY, null, NESTED), error => error.code === "subagent_run_ambiguous" && error.statusCode === 409, "two runs of one call are not guessed between");
+  // The call alone is asked for only for a call a tool made.
+  for (const [run, call] of [[null, CALL], ["", CALL], [null, CALL + "/0"], [null, CALL + "//1"], [null, CALL + "/1/"], [null, CALL + "/a"], [null, CALL + "/1".repeat(9)], [null, "/1"], [null, CALL + "/1234567"], ["bad", NESTED]])
+    await assert.rejects(detail.piRun(ENTRY, run, call), error => error.statusCode === 400, `${run} ${call}`);
+  const sent = [], handle = createSubagentDetailRoutes({ detail, sendJSON: (res, status, body) => sent.push([status, body]) });
+  await handle({ method: "GET" }, {}, new URL(`http://h/api/subagent/pi-run?entry=${ENTRY}&call=${encodeURIComponent(CALL + "/3")}`));
+  assert.deepEqual(sent[0], [404, { error: "subagent_run_gone", code: "subagent_run_gone" }]);
 });

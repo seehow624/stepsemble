@@ -3043,6 +3043,10 @@ function entryToWire(e) {
       const record = subagentRecords.piRecord(m.details);
       if (record) wire.subagents = record;
     }
+    // Subagent calls the tool made itself (a codemode script's), as Pi
+    // records them; the Host finds a run any of them started.
+    const nested = subagentRecords.piNested(m);
+    if (nested.length) wire.nestedSubagents = nested;
   } else {
     wire.text = textOfContent(m.content);
   }

@@ -5,6 +5,7 @@
 // a pi-subagents background run. Only a descendant of the conversation's own
 // thread or session, or a run its own tool call started, is read; nothing
 // else is listed or returned.
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -13,8 +14,11 @@ const { claudeConfigDir, claudeTranscriptFile } = require("./claude-fork-point")
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 // OpenCode's session ids and Claude's tool ids carry underscores (ses_, toolu_, call_).
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
-// Pi's tool call ids pair a call with its response item: call_…|fc_….
-const PI_CALL = /^[A-Za-z0-9][A-Za-z0-9_.:|-]{0,255}$/;
+// Pi's tool call ids pair a call with its response item: call_…|fc_…. A
+// call a tool makes itself, as a codemode script does, is its caller's id and
+// its own place: <caller>/<n>, at most a few levels deep.
+const PI_CALL = /^[A-Za-z0-9][A-Za-z0-9_.:|-]{0,255}(?:\/[1-9][0-9]{0,5}){0,8}$/;
+const PI_NESTED_CALL = /\/[1-9][0-9]{0,5}$/;
 const MAX_DEPTH = 4, MAX_LOG = 200, MAX_TEXT = 4000;
 // Claude Code keeps each subagent as subagents/agent-<id>.jsonl beside the
 // conversation's transcript, with agent-<id>.meta.json naming the tool call
@@ -45,6 +49,24 @@ function piSubagentsRoot(options = {}) {
   return path.join(tmpdir, `pi-subagents-${scope}`);
 }
 const MAX_STATUS = 2 * 1024 * 1024, MAX_PI_CHILDREN = 64, MAX_PI_LOG = 40;
+// pi-subagents (0.61) keeps its own indexes beside the runs: the runs still
+// active by the call that started them, under .active-runs/tool-calls/<call>,
+// and each session's ended runs under .terminal-runs/<session> as
+// <end time>-<run id>.json. A key is URI-encoded when that is short and
+// portable, otherwise its SHA-256 digest (src/runs/background/index-segment.ts);
+// an older build wrote the URI-encoded name only.
+const PI_SEGMENT_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const PI_ENDED = /^\d{16}-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/i;
+const MAX_PI_ACTIVE = 8, MAX_PI_ENDED = 64, MAX_PI_FOUND = 256;
+function piIndexSegments(value) {
+  let encoded = null;
+  try { encoded = encodeURIComponent(value); } catch {}
+  const hashed = "~sha256-" + crypto.createHash("sha256").update(value).digest("hex");
+  const readable = typeof encoded === "string" && encoded.length > 0 && encoded !== "." && encoded !== ".." && !encoded.endsWith(".")
+    && !PI_SEGMENT_RESERVED.test(encoded) && Buffer.byteLength(encoded, "utf8") <= 255;
+  const current = readable && !/%5C/i.test(encoded) && !/\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(encoded) ? encoded : hashed;
+  return readable && encoded !== current ? [current, encoded] : [current];
+}
 const PI_STATE = { pending: "pending", queued: "pending", running: "running", paused: "running", detached: "running",
   complete: "completed", completed: "completed", failed: "failed", partial: "failed", stopped: "failed", rejected: "failed" };
 const PI_LEVEL = /:(?:off|minimal|low|medium|high|xhigh|max)$/;
@@ -266,29 +288,68 @@ function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = 
     if (transcript) return claudeDetail(transcript, id);
     throw failure("subagent_detail_unavailable", 409);
   }
+  const same = async (a, b) => { if (a === b) return true; try { return await fs.promises.realpath(a) === await fs.promises.realpath(b); } catch { return false; } };
+  // A run's own status, only when its call and session are this conversation's.
+  async function ownedPiStatus(runId, call, session) {
+    const text = await readBounded(path.join(piRunsDir(), runId, "status.json"), MAX_STATUS, false);
+    if (text === null) throw failure("subagent_run_gone", 404);
+    let status;
+    try { status = JSON.parse(text); } catch { throw failure("subagent_run_unreadable", 502); }
+    if (!plainObject(status) || status.runId !== runId || status.toolCallId !== call) throw failure("subagent_not_owned", 404);
+    if (typeof status.sessionId !== "string" || !path.isAbsolute(status.sessionId) || !await same(path.resolve(status.sessionId), session)) throw failure("subagent_not_owned", 404);
+    return status;
+  }
+  // The run a nested call started, which its saved conversation does not name:
+  // Pi keeps only the call's id for a call a tool made. Found through
+  // pi-subagents' own indexes, by the call while the run is active and among
+  // the session's ended runs after, never by listing every run; each candidate
+  // must still be this call's, from this session.
+  const piFound = new Map();
+  async function findPiRun(call, session) {
+    const key = session + "\n" + call, root = piRunsDir(), candidates = new Set();
+    if (piFound.has(key)) candidates.add(piFound.get(key));
+    const names = async dir => {
+      try { return (await fs.promises.readdir(dir, { withFileTypes: true })).filter(entry => entry.isFile()).map(entry => entry.name); } catch { return []; }
+    };
+    for (const segment of piIndexSegments(call))
+      for (const name of (await names(path.join(root, ".active-runs", "tool-calls", segment))).slice(0, MAX_PI_ACTIVE)) if (UUID.test(name)) candidates.add(name);
+    const keys = new Set([session]);
+    try { keys.add(await fs.promises.realpath(session)); } catch {}
+    for (const value of keys) for (const segment of piIndexSegments(value)) {
+      const ended = (await names(path.join(root, ".terminal-runs", segment))).filter(name => PI_ENDED.test(name)).sort().reverse();
+      for (const name of ended.slice(0, MAX_PI_ENDED)) candidates.add(PI_ENDED.exec(name)[1]);
+    }
+    const found = [];
+    for (const runId of candidates) {
+      try { found.push({ runId, status: await ownedPiStatus(runId, call, session) }); } catch (error) { if (error.statusCode !== 404 && error.statusCode !== 502) throw error; }
+    }
+    if (found.length > 1) throw failure("subagent_run_ambiguous", 409);
+    if (!found.length) { piFound.delete(key); throw failure("subagent_run_gone", 404); }
+    piFound.delete(key); piFound.set(key, found[0].runId);
+    while (piFound.size > MAX_PI_FOUND) piFound.delete(piFound.keys().next().value);
+    return found[0];
+  }
   // A pi-subagents background run's children, read from the run's own status:
   // only a run the conversation's own tool call started, from its own session.
+  // A nested call's run may be asked for by the call alone.
   async function piRun(entryKey, runId, call) {
-    if (!UUID.test(String(entryKey || "")) || !UUID.test(String(runId || "")) || !PI_CALL.test(String(call || ""))) throw failure("subagent_detail_invalid", 400);
+    const byCall = (runId === null || runId === undefined || runId === "") && PI_NESTED_CALL.test(String(call || ""));
+    if (!UUID.test(String(entryKey || "")) || !byCall && !UUID.test(String(runId || "")) || !PI_CALL.test(String(call || ""))) throw failure("subagent_detail_invalid", 400);
     const entry = resolve(entryKey);
     if (!entry?.record) throw failure("workspace_entry_not_found", 404);
     const record = entry.record;
     if (record.agentId !== "pi" || typeof record.file !== "string" || !record.file || !piSessionsDir) throw failure("subagent_detail_unavailable", 409);
     const sessions = path.resolve(piSessionsDir), session = path.resolve(sessions, record.file);
     if (!session.startsWith(sessions + path.sep)) throw failure("subagent_not_owned", 404);
-    const text = await readBounded(path.join(piRunsDir(), runId, "status.json"), MAX_STATUS, false);
-    if (text === null) throw failure("subagent_run_gone", 404);
     let status;
-    try { status = JSON.parse(text); } catch { throw failure("subagent_run_unreadable", 502); }
-    if (!plainObject(status) || status.runId !== runId || status.toolCallId !== call) throw failure("subagent_not_owned", 404);
-    const same = async (a, b) => { if (a === b) return true; try { return await fs.promises.realpath(a) === await fs.promises.realpath(b); } catch { return false; } };
-    if (typeof status.sessionId !== "string" || !path.isAbsolute(status.sessionId) || !await same(path.resolve(status.sessionId), session)) throw failure("subagent_not_owned", 404);
+    if (byCall) ({ runId, status } = await findPiRun(call, session));
+    else status = await ownedPiStatus(runId, call, session);
     // A child the run's end left unfinished (stopped, or never started) is
     // not still working: it ends as the run did.
     const state = PI_STATE[status.state] || "running", ended = state === "completed" || state === "failed";
     const children = piRunChildren(status).map(child => ended && (child.status === "running" || child.status === "pending")
       ? { ...child, status: state === "completed" ? "completed" : "failed", activity: "" } : child);
-    return { state, children };
+    return { run: runId, state, children };
   }
   return { read, piRun };
 }
@@ -305,4 +366,4 @@ function createSubagentDetailRoutes({ detail, sendJSON }) {
   };
 }
 
-module.exports = { createSubagentDetail, createSubagentDetailRoutes, piSubagentsRoot, piRunChildren };
+module.exports = { createSubagentDetail, createSubagentDetailRoutes, piSubagentsRoot, piRunChildren, piIndexSegments };

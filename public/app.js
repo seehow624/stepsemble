@@ -9371,16 +9371,7 @@ function makeToolCard(name, args, resultText, isError, running) {
   output.className = "tool-output";
   output.textContent = resultText || "（執行中…）";
   body.append(command, label, output);
-  if (SUBAGENT_TOOL_NAMES.has(name)) {
-    const open = document.createElement("button");
-    open.type = "button"; open.className = "tool-subagent-open"; open.hidden = true;
-    open.textContent = subagentCopy("details");
-    open.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); subagentPanel?.show(subagentTracker?.byTool(subagentCardTool(details))); });
-    summary.insertBefore(open, chevron);
-    // The caller sets the card's tool id right after this returns; a card
-    // drawn again from history then finds its subagents without a new event.
-    queueMicrotask(() => revealSubagentCard(details));
-  }
+  if (SUBAGENT_TOOL_NAMES.has(name)) makeSubagentOpen(details, summary, chevron);
   details.append(summary, body);
   renderToolStat(details);
   return details;
@@ -9552,7 +9543,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || "", { fork: piReplyFork({ entryId: m.id }) }));
     if (m.usage) attachMessageUsage(wrap, m.usage, activity);
   } else if (m.role === "toolResult") {
-    attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId, m.subagents);
+    attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId, m.subagents, m.nestedSubagents);
   }
   if (container === el.messages) {
     keepSessionUsageAtEnd();
@@ -9668,13 +9659,31 @@ function lastWorkActivity(bubble) {
   const groups = [...(bubble?.children || [])].filter(child => child.classList.contains("activity-group"));
   return groups[groups.length - 1]?.__activity || null;
 }
-function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null, subagents = null) {
+// A card's details button, for its own subagents or those of subagent calls
+// it made itself.
+function makeSubagentOpen(card, summary, chevron) {
+  const open = document.createElement("button");
+  open.type = "button"; open.className = "tool-subagent-open"; open.hidden = true;
+  open.textContent = subagentCopy("details");
+  open.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); subagentPanel?.show(subagentTracker?.byTool(subagentCardTool(card))); });
+  summary.insertBefore(open, chevron);
+  // The caller sets the card's tool id right after this returns; a card
+  // drawn again from history then finds its subagents without a new event.
+  queueMicrotask(() => revealSubagentCard(card));
+}
+function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null, subagents = null, nested = null) {
   // Parallel calls finish in their own order; match a result to its call
   // when the history names it.
   if (toolCallId) {
     const matched = [...container.querySelectorAll(".tool-card")].reverse().find(card => card.dataset.toolCallId === toolCallId);
     if (matched) {
       if (subagents) matched.__subagentRecord = subagents;
+      // A codemode script's subagent calls: the Host finds the runs they started.
+      const summary = matched.querySelector(".tool-head");
+      if (Array.isArray(nested) && nested.length && summary && !matched.querySelector(".tool-subagent-open")) {
+        matched.__nestedSubagents = nested; matched.dataset.subagentTool = "";
+        makeSubagentOpen(matched, summary, summary.querySelector(".tool-chevron"));
+      }
       setToolCardState(matched, { running: false, isError: !!isError, text });
       return;
     }
@@ -20221,7 +20230,7 @@ function revealSubagentCard(card) {
   const id = subagentCardTool(card), output = card.querySelector(".tool-output")?.textContent || "";
   if (id && !card.classList.contains("running") && output !== "（執行中…）" && !subagentTracker.byTool(id).length)
     subagentTracker.remember({ toolId: id, name: card.__tool?.name, args: card.__tool?.args, result: TOOL_PLACEHOLDERS.has(output) ? "" : output,
-      isError: card.classList.contains("err"), record: card.__subagentRecord || null, harness: conversationAgentId() });
+      isError: card.classList.contains("err"), record: card.__subagentRecord || null, nested: card.__nestedSubagents || null, harness: conversationAgentId() });
   open.hidden = !subagentTracker.byTool(id).length;
   // A saved background run's children are read as they stand now.
   schedulePiRuns();
@@ -20257,7 +20266,9 @@ async function readPiRuns() {
   try {
     for (const run of subagentTracker.piPending().slice(0, 4)) {
       try {
-        subagentTracker.piRun(run.toolId, await api(`/api/subagent/pi-run?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}&run=${encodeURIComponent(run.id)}&call=${encodeURIComponent(run.call)}`));
+        // A nested call's run, not yet known, is found by the call alone.
+        const known = run.id ? `&run=${encodeURIComponent(run.id)}` : "";
+        subagentTracker.piRun(run.toolId, await api(`/api/subagent/pi-run?entry=${encodeURIComponent(WORKSPACE_ENTRY_KEY)}${known}&call=${encodeURIComponent(run.call)}`));
       } catch (error) {
         // Gone (cleaned up after it ended), or not this conversation's: what is shown stays.
         if ([400, 404, 409].includes(Number(error?.status))) subagentTracker.piRun(run.toolId, null);
