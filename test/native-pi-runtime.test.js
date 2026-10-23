@@ -18,6 +18,17 @@ test("native runtime lock rejects changed version/source/hash or local links", a
     const broken = structuredClone(lock); mutate(broken); assert.throws(() => validateLock(manifest, broken));
   }
 });
+test("native runtime keeps reviewed security patch versions without ranges or missing overrides", async () => {
+  const { validateLock } = await import("../scripts/check-native-pi-runtime.mjs");
+  for (const [name, version] of [["brace-expansion", "5.0.11"], ["undici", "8.10.1"]]) {
+    const broken = structuredClone(lock);
+    broken.packages["node_modules/@earendil-works/pi-coding-agent/node_modules/" + name].version = version;
+    assert.throws(() => validateLock(manifest, broken));
+  }
+  for (const overrides of [undefined, {}, { "brace-expansion": "5.0.12", undici: "^8.10.2" }]) {
+    assert.throws(() => validateLock({ ...manifest, overrides }, lock));
+  }
+});
 test("native runtime installer disables install scripts and does not inherit npm credentials or use project node_modules", () => {
   const source = fs.readFileSync(require.resolve("../scripts/check-native-pi-runtime.mjs"), "utf8");
   for (const required of ["os.tmpdir()", '"--ignore-scripts"', '"--no-audit"', "--userconfig=", "--globalconfig=", "--cache=", "validateLock(manifest, lock)", 'env = {}']) assert.ok(source.includes(required), required);

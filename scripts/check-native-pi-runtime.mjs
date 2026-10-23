@@ -11,9 +11,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runtime = path.join(root, "scripts/native-pi-runtime");
 export function validateLock(manifest, lock) {
   const dependency = "@earendil-works/pi-coding-agent", expected = { [dependency]: "0.84.2" };
+  const overrides = { "brace-expansion": "5.0.12", undici: "8.10.2" };
   if (manifest.private !== true || JSON.stringify(manifest.dependencies) !== JSON.stringify(expected)
+    || JSON.stringify(manifest.overrides) !== JSON.stringify(overrides)
     || lock.lockfileVersion !== 3 || JSON.stringify(lock.packages?.[""]?.dependencies) !== JSON.stringify(expected)
     || lock.packages?.[`node_modules/${dependency}`]?.version !== "0.84.2") throw new Error("Invalid pinned native test runtime");
+  for (const [name, version] of Object.entries(overrides)) {
+    if (lock.packages?.[`node_modules/${dependency}/node_modules/${name}`]?.version !== version) throw new Error("Invalid patched native test runtime");
+  }
   for (const [name, pkg] of Object.entries(lock.packages)) {
     if (!name) continue;
     const reason = !name.startsWith("node_modules/") || name.includes("..") || pkg.link || typeof pkg.version !== "string" ? "entry"
@@ -63,11 +68,11 @@ export async function main(updateLock = false, auditOnly = false) {
   try {
     const manifest = JSON.parse(await fs.readFile(path.join(runtime, "package.json"), "utf8"));
     await fs.copyFile(path.join(runtime, "package.json"), path.join(temp, "package.json"));
-    if (!updateLock) {
-      const lock = JSON.parse(await fs.readFile(path.join(runtime, "package-lock.json"), "utf8"));
-      validateLock(manifest, lock);
-      await fs.copyFile(path.join(runtime, "package-lock.json"), path.join(temp, "package-lock.json"));
-    }
+    // Keep the reviewed patch resolutions: npm's upstream shrinkwrap otherwise
+    // restores vulnerable transitive versions despite the root overrides.
+    const reviewedLock = JSON.parse(await fs.readFile(path.join(runtime, "package-lock.json"), "utf8"));
+    validateLock(manifest, reviewedLock);
+    await fs.copyFile(path.join(runtime, "package-lock.json"), path.join(temp, "package-lock.json"));
     for (const name of ["user.npmrc", "global.npmrc"]) await fs.writeFile(path.join(temp, name), "", { mode: 0o600 });
     const npmCli = process.env.npm_execpath;
     if (process.platform === "win32" && !npmCli) throw new Error("Use npm run test:native:pi:runtime on Windows");
@@ -76,6 +81,12 @@ export async function main(updateLock = false, auditOnly = false) {
       `--globalconfig=${path.join(temp, "global.npmrc")}`, `--cache=${path.join(temp, "cache")}`], temp);
     if (updateLock) {
       const lock = JSON.parse(await fs.readFile(path.join(temp, "package-lock.json"), "utf8"));
+      // npm install reimports the published shrinkwrap. Retain only the two
+      // reviewed, exact patch entries, including their registry integrity.
+      for (const name of Object.keys(manifest.overrides)) {
+        const key = `node_modules/@earendil-works/pi-coding-agent/node_modules/${name}`;
+        lock.packages[key] = reviewedLock.packages[key];
+      }
       await completeRegistryIntegrity(lock);
       validateLock(manifest, lock);
       await fs.writeFile(path.join(runtime, "package-lock.json"), JSON.stringify(lock, null, 2) + "\n");
