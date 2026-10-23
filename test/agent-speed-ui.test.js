@@ -266,3 +266,17 @@ test("agent-speed UI: a paid tier is confirmed in place below the heading, and o
   f.reads[1].resolve(cap); await other; await f.ui.ready();
   assert.equal(f.writes.length, 1, "the closed confirmation authorized nothing");
 });
+
+test("agent-speed UI: a pending in-place confirmation is cancelled when its sheet closes, and readiness never waits on it", async t => {
+  const f = fixture(t, { inPlace: true }), cap = { ...supported, ...ultraCapability(["priority", "ultrafast"]) };
+  const read = f.ui.refresh(); f.reads[0].resolve(cap); await read;
+  assert.equal(f.ui.cancelConfirmation(), false, "nothing to cancel");
+  f.choices().find(e => e["data-speed"] === "fast").events.click(); await tick();
+  assert.equal(f.ask.hidden, false);
+  let ready = false; const waiting = f.ui.ready().then(() => { ready = true; }); await tick();
+  assert.equal(ready, false, "a send waits while the confirmation is open");
+  assert.equal(f.ui.cancelConfirmation(), true);
+  await waiting;
+  assert.deepEqual([ready, f.ask.hidden, f.writes.length, f.ui.snapshot().speed], [true, true, 0, "standard"], "closing confirms nothing and releases the send");
+  assert.equal(f.ui.cancelConfirmation(), false);
+});

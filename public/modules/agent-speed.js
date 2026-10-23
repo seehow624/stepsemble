@@ -255,7 +255,11 @@
     }
     select.addEventListener("change", change);
     render();
-    return Object.freeze({ sync, refresh, async ready() { if (saving && savingKey === context()?.key) await saving; await sync(); if (pending && pendingKey === context()?.key) await pending; },
+    return Object.freeze({ sync, refresh,
+      // The sheet that holds a pending confirmation is closing or asked to
+      // step back: the paid tier is not confirmed. True when one was pending.
+      cancelConfirmation() { if (!asking) return false; settle(false); return true; },
+      async ready() { if (saving && savingKey === context()?.key) await saving; await sync(); if (pending && pendingKey === context()?.key) await pending; },
       snapshot() { return context()?.key === key ? { speed: state?.requested || "standard", speedFingerprint: state?.preferenceFingerprint || null } : { speed: "standard" }; } });
   }
   return Object.freeze({ create, t, locales, copy });

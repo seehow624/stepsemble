@@ -292,6 +292,19 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
       }
       assert.deepEqual(preview.state.codexQueueDeliveries.map(row => row.speed), ["ultrafast", "standard", "fast"]);
       assert.notEqual(preview.state.codexQueueDeliveries[0].speedFingerprint, preview.state.codexQueueDeliveries[2].speedFingerprint);
+      stage = "a pending confirmation never outlives its sheet";
+      const requestsBefore = preview.state.speedRequests.length;
+      await open(); await choice("ultrafast").click(); await ui.locator("#agent-speed-confirm").waitFor();
+      await page.keyboard.press("Shift+Tab"); await page.keyboard.press("Escape");
+      await ui.locator("#agent-speed-confirm").waitFor({ state: "hidden" });
+      assert.equal(await ui.locator(".model-dialog").isVisible(), true, "Escape outside the card still steps back only from the confirmation");
+      await choice("ultrafast").click(); await ui.locator("#agent-speed-confirm").waitFor();
+      await ui.locator("#model-close").click();
+      await ui.evaluate(() => composerSpeed.ready());
+      assert.equal(preview.state.speedRequests.length, requestsBefore, "closing the sheet confirms nothing, and a send no longer waits on it");
+      await open(); assert.equal(await ui.locator("#agent-speed-confirm").isVisible(), false);
+      assert.equal(await choice("ultrafast").getAttribute("data-pending"), null);
+      await ui.locator("#model-close").click();
       stage = "model revocation hides Ultra instead of disabling it";
       await open(); await ui.locator(".model-row").filter({ hasText: "Fixture Codex Reasoning" }).click();
       await ui.waitForFunction(() => !document.querySelector('button.speed-choice[data-speed="ultrafast"]') && document.querySelector("#agent-speed-select").value === "standard");

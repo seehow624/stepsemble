@@ -13721,7 +13721,9 @@ el.commandResults?.addEventListener("click", (event) => {
   if (event.target === el.commandResults) closeCommandPalette();
 });
 
-function closeModelSheet() { el.modelSheet.classList.add("hidden"); }
+// A paid tier asked for in the sheet is never left waiting once it closes:
+// a send would wait for its answer.
+function closeModelSheet() { composerSpeed?.cancelConfirmation?.(); el.modelSheet.classList.add("hidden"); }
 function refreshVisibleModelCatalogs() {
   if (document.hidden) return;
   if (el.modelSheet && !el.modelSheet.classList.contains("hidden") && rpc?.sid
@@ -19835,7 +19837,8 @@ function dismissableLayers() {
     { element: el.providerDialog, close: closeProviderDialog },
     { element: el.machineDialog, close: closeMachineDialog },
     { element: el.newDialog, close: () => { cancelProjectFolderRequest(); el.newDialog.classList.add("hidden"); } },
-    { element: el.modelSheet, close: closeModelSheet },
+    // Escape first steps back from a pending paid confirmation, wherever focus is.
+    { element: el.modelSheet, close: () => { if (!composerSpeed?.cancelConfirmation?.()) closeModelSheet(); } },
     { element: el.projectActionSheet, close: closeProjectActions },
     { element: el.saSheet, close: closeSessionActions },
     { element: el.changesLayer, close: closeProjectChanges },
