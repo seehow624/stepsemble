@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
-import { installPiSpeed } from "../server/pi-speed-extension.mjs";
+import { installPiSpeed } from "../server/pi-speed-runtime.mjs";
 const { createMagpieGatewayService } = createRequire(import.meta.url)("../server/magpie-gateway-service");
 const dist = process.argv[2];
 assert(dist && path.isAbsolute(dist), "absolute installed pi-ai dist directory required");

@@ -6,7 +6,7 @@ const extensionPath = path.resolve(__dirname, "../server/pi-speed-extension.mjs"
 const catalogPath = path.resolve(__dirname, "../server/pi-catalog-extension.mjs");
 // file: Pi's session file, written as Pi does; seed: entries already in it.
 async function fixture({ file = null, seed = [] } = {}) {
-  const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  const { installPiSpeed } = await import("../server/pi-speed-runtime.mjs");
   const entries = [], hooks = {}, commands = {}, calls = [];
   let leafId = null, streaming = false, nativeSessionId = "native-pi-session";
   const model = { provider: "magpie", api: "openai-responses", baseUrl: "http://127.0.0.1:3425/v1", id: "codex/gpt-6.1-sol" };
@@ -73,7 +73,7 @@ test("pi-speed: chooser binds apply and rollback to the durable session observed
   }
 });
 test("pi-speed: the owned extension refuses a session switched during fresh offering discovery", async () => {
-  const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  const { installPiSpeed } = await import("../server/pi-speed-runtime.mjs");
   let nativeSessionId = "native-a", release, started;
   const entered = new Promise(resolve => { started = resolve; }), wait = new Promise(resolve => { release = resolve; });
   const commands = {}, receipts = [];
@@ -92,7 +92,7 @@ test("pi-speed: Ultra is refused by Host and owned extension without sending or 
   await assert.rejects(f.host.setSpeed("sid", "ultrafast", "forged"), /speed_revalidation_required/);
   await assert.rejects(f.host.send("sid", { type: "prompt", message: "not sent" }, { speed: "ultrafast" }), /speed_revalidation_required/);
   assert.equal(f.calls.length, before);
-  const receipts = []; const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  const receipts = []; const { installPiSpeed } = await import("../server/pi-speed-runtime.mjs");
   const commands = {}, hooks = {};
   installPiSpeed({ on: (name, fn) => { hooks[name] = fn; }, registerCommand: (name, spec) => { commands[name] = spec.handler; }, appendEntry: (_type, data) => receipts.push(data) }, { capability: async () => f.cap });
   hooks.session_start({}, f.ctx);
@@ -216,8 +216,8 @@ test("pi-speed: the last saved entry skips a line still being written", async t 
   assert.equal(read.id, "big", "a line longer than one read chunk, before a partial one"); assert.equal(read.size, fs.statSync(file).size);
   fs.writeFileSync(file, "not json\n"); assert.equal((await lastEntryId(file)).id, null);
 });
-test("pi-speed: direct native Codex provider remains explicitly unverified, never borrowing Magpie catalog evidence", async () => {
-  const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+test("pi-speed: native Codex without owning registry remains unverified, never borrowing Magpie catalog evidence", async () => {
+  const { installPiSpeed } = await import("../server/pi-speed-runtime.mjs");
   const hooks = {}, commands = {}, receipts = [];
   const ctx = { model: { provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", id: "gpt-6.1-sol" },
     abort: () => {}, isIdle: () => true, sessionManager: { getBranch: () => [] } };

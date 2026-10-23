@@ -148,18 +148,19 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       await ui.locator("#input").dispatchEvent("keydown", { key: "Enter", code: "Enter", keyCode: 229, isComposing: true });
       assert.equal(preview.state.claudePrompts.length, 0);
       await ui.locator("#input").dispatchEvent("compositionend");
-      stage = "Pi owned extension and real gateway capability routes";
+      stage = "Pi owned extension and native/gateway capability routes";
       const harness = await context.newPage();
       await harness.route("**/__speed-harness", request => request.fulfill({ contentType: "text/html", body: '<button id="model" aria-describedby="description">Pi model <svg id="bolt" hidden></svg></button><span id="description"></span><div id="speed"></div>' }));
       await harness.goto(preview.origin + "/__speed-harness");
       await harness.addScriptTag({ url: preview.origin + "/modules/agent-speed.js" });
-      await harness.evaluate(() => {
-        const target = { key: "pi-owned", agentId: "pi", sessionId: "fixture-pi-process", model: "codex/fixture-pi" };
+      await harness.evaluate(route => {
+        const target = { key: "pi-owned", agentId: "pi", sessionId: "fixture-pi-process", model: route === "magpie" ? "codex/fixture-pi" : "gpt-6-astra" };
         window.speedFixture = StepsembleAgentSpeed.create({ root: document.querySelector("#speed"), indicator: document.querySelector("#bolt"), button: document.querySelector("#model"), description: document.querySelector("#description"), context: () => target,
           get: async url => (await fetch(url)).json(), post: async (url, body) => (await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json(), confirm: async () => true });
         return speedFixture.refresh();
-      });
+      }, route);
       await harness.locator('[role="radio"][data-speed="standard"]:enabled').waitFor();
+      assert.equal(await harness.locator('[role="radio"][data-speed="ultrafast"]').count(), 0);
       await harness.locator('[role="radio"][data-speed="fast"]').click();
       await harness.waitForFunction(() => speedFixture.snapshot().speed === "fast");
       assert.match(await harness.locator("#description").textContent(), /Fast requested.*Reported state: Unknown/);

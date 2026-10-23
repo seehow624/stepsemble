@@ -18,7 +18,7 @@ const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes
 const { createAgentSpeedRoutes } = createRequire(import.meta.url)("../server/agent-speed-routes.js");
 const { createAgentChoiceStore } = createRequire(import.meta.url)("../server/agent-choice-store.js");
 const { createMagpieGatewayService } = createRequire(import.meta.url)("../server/magpie-gateway-service.js");
-const { claudeSpeedFixture, piSpeedFixture } = createRequire(import.meta.url)("../test-support/speed-runtime-fixtures.cjs");
+const { claudeSpeedFixture, piSpeedFixture, piNativeSpeedFixture } = createRequire(import.meta.url)("../test-support/speed-runtime-fixtures.cjs");
 const { codexSpeedCapability, unknownSpeed } = createRequire(import.meta.url)("../server/agent-speed.js");
 // The page reloads itself when the Host reports another version, so the
 // preview reports the page's own version.
@@ -410,7 +410,8 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
     { id: "codex/fixture-pi", owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: [{ id: "priority" }] }
   ] })) }) : null;
   const claudeSpeed = agentSpeed ? claudeSpeedFixture(composerClaudeModels, CLAUDE_SESSION, agentSpeed === "magpie" ? { env: { HOME: speedHome, ANTHROPIC_BASE_URL: speedGateway.origin }, gatewaySpeedCapability: speedGateway.speedCapability } : {}) : null;
-  const piSpeed = agentSpeed ? await piSpeedFixture(model => speedGateway.speedCapability({ baseUrl: model.baseUrl, model: model.id, api: model.api })) : null;
+  const piSpeed = !agentSpeed ? null : agentSpeed === "magpie"
+    ? await piSpeedFixture(model => speedGateway.speedCapability({ baseUrl: model.baseUrl, model: model.id, api: model.api })) : await piNativeSpeedFixture();
   const speedChoices = createAgentChoiceStore();
   const speedRoutes = createAgentSpeedRoutes({ choices: speedChoices, ensureCodex: async () => {},
     codex: { speedStatus: async (id, model) => {

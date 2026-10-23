@@ -24,7 +24,7 @@ function claudeSpeedFixture(models, sessionId, options = {}) {
   return { session: { models: () => session.models(), setSpeed: (...args) => session.setSpeed(...args), status: () => ({ ...session.status(), nativeSessionId: sessionId }) }, close: () => session.close() };
 }
 async function piSpeedFixture(capability) {
-  const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  const { installPiSpeed } = await import("../server/pi-speed-runtime.mjs");
   const model = { provider: "magpie", api: "openai-responses", baseUrl: "http://127.0.0.1:3425/v1", id: "codex/fixture-pi" };
   const entries = [], hooks = {}, commands = {}; let leafId = null;
   const ctx = { model, abort: () => {}, isIdle: () => true, sessionManager: { getBranch: () => entries, getSessionId: () => "fixture-pi-session" } };
@@ -43,4 +43,18 @@ async function piSpeedFixture(capability) {
     throw new Error("synthetic_speed_user_frame_forbidden");
   } });
 }
-module.exports = { claudeSpeedFixture, piSpeedFixture };
+async function piNativeSpeedFixture() {
+  const { nativeSpeedFixture } = await import("./pi-native-speed-fixture.mjs");
+  const f = await nativeSpeedFixture();
+  return createPiSpeed({ command: async (_sid, cmd) => {
+    if (cmd.type === "get_commands") return { success: true, data: { commands: [{ name: "stepsemble-speed", source: "extension", sourceInfo: { path: path.resolve(__dirname, "../server/pi-speed-extension.mjs") } }] } };
+    if (cmd.type === "get_state") return { success: true, data: { model: f.ctx.model, sessionId: f.control.sessionId } };
+    if (cmd.type === "get_entries") return { success: true, data: { entries: f.entries, leafId: f.entries.at(-1)?.id } };
+    if (cmd.type === "prompt" && cmd.message.startsWith("/stepsemble-speed ")) {
+      await f.commands["stepsemble-speed"](cmd.message.slice("/stepsemble-speed ".length), f.ctx);
+      return { success: true, data: { disposition: "handled" } };
+    }
+    throw new Error("synthetic_speed_user_frame_forbidden");
+  } });
+}
+module.exports = { claudeSpeedFixture, piSpeedFixture, piNativeSpeedFixture };
