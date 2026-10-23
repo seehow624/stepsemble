@@ -363,3 +363,13 @@ test("Pi: the longest accepted nested call id is read whole", async t => {
   assert.equal((await detail.piRun(ENTRY, RUN, LONGEST)).run, RUN);
   await assert.rejects(detail.piRun(ENTRY, RUN, "c".repeat(257) + "/1"), error => error.statusCode === 400);
 });
+
+test("Pi: an index folder is read only so far, whatever it holds", async t => {
+  const { detail, runs } = piFixture(t, { status: { toolCallId: CALL + "/1" } });
+  const real = fs.promises.opendir;
+  let yielded = 0;
+  t.mock.method(fs.promises, "opendir", async (dir, ...rest) => !String(dir).startsWith(runs) ? real(dir, ...rest) : {
+    async *[Symbol.asyncIterator]() { while (yielded < 100000) { yielded += 1; yield { name: "entry-" + yielded, isFile: () => false }; } } });
+  await assert.rejects(detail.piRun(ENTRY, null, CALL + "/1"), error => error.code === "subagent_run_gone");
+  assert.ok(yielded > 0 && yielded <= 5 * 4096, `folders holding no files are not walked to their end: ${yielded}`);
+});

@@ -308,11 +308,12 @@ function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = 
   async function findPiRun(call, session) {
     const key = session + "\n" + call, root = piRunsDir(), candidates = new Set();
     if (piFound.has(key)) candidates.add(piFound.get(key));
-    // An index folder is read only so far: pi-subagents prunes ended runs,
-    // and a folder past this is not walked to its end.
+    // An index folder is read only so far, whatever it holds: pi-subagents
+    // prunes ended runs, and a folder past this is not walked to its end.
     const names = async dir => {
       const found = [];
-      try { for await (const entry of await fs.promises.opendir(dir)) { if (entry.isFile()) found.push(entry.name); if (found.length >= MAX_PI_LISTED) break; } } catch {}
+      let seen = 0;
+      try { for await (const entry of await fs.promises.opendir(dir)) { if (entry.isFile()) found.push(entry.name); if (++seen >= MAX_PI_LISTED) break; } } catch {}
       return found;
     };
     for (const segment of piIndexSegments(call))
