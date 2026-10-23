@@ -22,7 +22,7 @@ async function launchClaudeStructuredSession({ desktopClient = null, platform = 
     child = await desktopClient.launchStructured(request);
   }
   try {
-    return sessionFactory({ ...options, spawnImpl: () => child });
+    return sessionFactory({ ...options, speedEnvironment: child.speedEnvironment || null, spawnImpl: () => child });
   } catch (error) {
     // The broker already owns a child. Constructor errors are not permission
     // to retry the launch; stop that exact child and retain the original error.

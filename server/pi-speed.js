@@ -77,6 +77,7 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
     known.add(sid);
     const before = await command(sid, { type: "get_state" });
     if (!before?.success) throw failure("speed_runtime_unverified");
+    if (input.expectedSessionId !== undefined && before.data.sessionId !== input.expectedSessionId) throw failure("speed_revalidation_required");
     // The receipt is appended after everything Pi has now, so read only what
     // follows the last entry: taken before the command, never the receipt.
     const cursor = await lastEntryId(before.data.sessionFile);
@@ -123,10 +124,10 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
   return Object.freeze({
     status: sid => serial(sid, () => status(sid)),
     forget: sid => { known.delete(sid); uncertain.delete(sid); },
-    setSpeed: (sid, speed, fingerprint) => serial(sid, () => {
+    setSpeed: (sid, speed, fingerprint, expectedSessionId) => serial(sid, () => {
       const requested = speedValue(speed);
       if (requested === "ultrafast") throw failure("speed_revalidation_required");
-      return handshake(sid, { action: "set", speed: requested, fingerprint });
+      return handshake(sid, { action: "set", speed: requested, fingerprint, expectedSessionId });
     }),
     send: (sid, cmd, input) => serial(sid, () => sendUnlocked(sid, cmd, input)),
     command: (sid, cmd) => ["prompt", "steer", "follow_up", "set_model", "set_thinking_level", "new_session", "switch_session", "fork", "navigate_tree"].includes(cmd?.type)

@@ -59,16 +59,23 @@ function claudeSpeedReport(value = {}) {
     support: reason ? "unavailable" : "unknown", state,
     effective: state === "on" ? "fast" : state === "off" ? "standard" : state };
 }
-function claudeSpeedCapability({ report, version, model, models, env = {} }) {
+function claudeSpeedCapability({ report, version, model, models, env = {}, gateway = null }) {
   const out = { ...report, model };
   const row = models.find(row => row.id === model);
   const direct = !env.ANTHROPIC_BASE_URL || /^https:\/\/api\.anthropic\.com\/?$/.test(env.ANTHROPIC_BASE_URL);
-  if (!direct || ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"].some(key => ["1", "true"].includes(env[key]))) return { ...unknownSpeed("speed_route_unverified"), model };
+  if ((!direct && gateway?.support !== "supported") || ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_DISABLE_FAST_MODE"].some(key => ["1", "true"].includes(env[key]))) return { ...unknownSpeed("speed_route_unverified"), model };
   // This handler and its effective-settings readback were verified without a
   // user prompt on 2.1.308. Unknown implementations remain unavailable.
   if (version !== "2.1.308" || report.state === "unknown") return { ...unknownSpeed(), model };
   out.controlVerified = true;
-  out.fingerprint = JSON.stringify(["anthropic", model]);
+  out.fingerprint = gateway?.fingerprint || JSON.stringify(["anthropic", model]);
+  if (!direct && gateway?.support === "supported") {
+    // The native state reports the Messages request flag; the translated
+    // gateway/provider served tier remains unknown even when it says on.
+    return { ...out, ...gateway, controlVerified: true,
+      ...(report.support === "unavailable" && report.reason !== "speed_sdk_opt_in_required"
+        ? { support: "unavailable", choices: ["standard"], reason: report.reason } : {}) };
+  }
   if (row?.supportsFastMode !== true) return { ...out, support: row?.supportsFastMode === false ? "unavailable" : "unknown", reason: "speed_not_offered" };
   if (["speed_runtime_unverified", "speed_sdk_opt_in_required"].includes(report.reason)) {
     return { ...out, support: "supported", choices: ["standard", "fast"], tier: "fast", reason: "speed_next_turn" };

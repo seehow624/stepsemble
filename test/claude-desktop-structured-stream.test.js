@@ -31,7 +31,7 @@ async function fixture(t, options = {}) {
   await fs.writeFile(desktopPaths(configDir).key, crypto.randomBytes(32).toString("hex"), { mode: 0o600 });
   await fs.writeFile(command, `#!/bin/sh\nexec "${process.execPath}" "${path.resolve(__dirname, "../test-support/desktop-claude-structured-peer.cjs")}" "$@"\n`, { mode: 0o700 });
   const env = { HOME: home, DESKTOP_FIXTURE_HOME: home, DESKTOP_FIXTURE_CONTEXT: "aqua", DESKTOP_STRUCTURED_MARKER: "structured-aqua",
-    PATH: [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter), ...(options.immediateExit ? { DESKTOP_STRUCTURED_EXIT_IMMEDIATELY: "1" } : {}) };
+    PATH: [bin, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter), ...(options.env || {}), ...(options.immediateExit ? { DESKTOP_STRUCTURED_EXIT_IMMEDIATELY: "1" } : {}) };
   const helper = await createDesktopHelper({ home, configDir, claudeCommand: command, roots: [project], env, contextCheck: async () => true, ...options.helper });
   await helper.start();
   const client = createDesktopClaudeClient({ configDir });
@@ -226,4 +226,15 @@ test("immediate Aqua child exit after READY reaches the adapter close listener",
   const closed = await session.close();
   assert.equal(closed.cleanupConfirmed, true);
   assert.equal(session.status().exitCode, 0);
+});
+
+test("Aqua READY carries only actual child speed environment, never Host settings or secrets", unix, async t => {
+  const f = await fixture(t, { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:3425", CLAUDE_CODE_MODEL_CAPABILITIES: "desktop=reasoning", ANTHROPIC_API_KEY: "synthetic-secret" } });
+  let child;
+  await launchClaudeStructuredSession({ command: f.command, cwd: f.project, desktopClient: f.client,
+    env: { ANTHROPIC_BASE_URL: "https://host.invalid", CLAUDE_CODE_MODEL_CAPABILITIES: "host=-fast_mode" },
+    sessionFactory: options => { child = options.spawnImpl(); assert.equal(options.speedEnvironment.ANTHROPIC_BASE_URL, "http://127.0.0.1:3425");
+      assert.equal(options.speedEnvironment.CLAUDE_CODE_MODEL_CAPABILITIES, "desktop=reasoning");
+      assert.equal(Object.hasOwn(options.speedEnvironment, "ANTHROPIC_API_KEY"), false); return child; } });
+  t.after(() => child.kill("SIGTERM"));
 });

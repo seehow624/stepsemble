@@ -402,11 +402,14 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   state.speedRequests = []; state.speedFailure = false; state.speedRuntimeReady = true; state.speedObservations = [];
   const speedHome = agentSpeed ? await fs.mkdtemp(path.join(os.tmpdir(), "speed-preview-")) : null;
   if (speedHome) await fs.mkdir(path.join(speedHome, ".config", "magpie"), { recursive: true });
+  const composerClaudeModels = agentSpeed === "magpie" ? claudeModels.map(row => ({ ...row, id: "codex/" + row.id })) : claudeModels;
+  state.claudeModel = composerClaudeModels[0].id;
   const speedGateway = agentSpeed ? createMagpieGatewayService({ home: speedHome, env: { HOME: speedHome, PATH: "" }, fetchImpl: async () => new Response(JSON.stringify({ data: [
     ...codexModels.map((row, index) => ({ id: "codex/" + row.id, owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: index === 0 ? [{ id: "priority" }] : [] })),
+    ...composerClaudeModels.map(row => ({ id: row.id, owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: [{ id: "priority" }] })),
     { id: "codex/fixture-pi", owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: [{ id: "priority" }] }
   ] })) }) : null;
-  const claudeSpeed = agentSpeed ? claudeSpeedFixture(claudeModels, CLAUDE_SESSION) : null;
+  const claudeSpeed = agentSpeed ? claudeSpeedFixture(composerClaudeModels, CLAUDE_SESSION, agentSpeed === "magpie" ? { env: { HOME: speedHome, ANTHROPIC_BASE_URL: speedGateway.origin }, gatewaySpeedCapability: speedGateway.speedCapability } : {}) : null;
   const piSpeed = agentSpeed ? await piSpeedFixture(model => speedGateway.speedCapability({ baseUrl: model.baseUrl, model: model.id, api: model.api })) : null;
   const speedChoices = createAgentChoiceStore();
   const speedRoutes = createAgentSpeedRoutes({ choices: speedChoices, ensureCodex: async () => {},
@@ -621,12 +624,12 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         { type: "assistant", message: { id: "fixture-claude-answer", content: [{ type: "text", text: "### Synthetic Claude response\n\nNo provider was called." }] } },
       ], status: { state: "waiting", closed: false, failed: null, nativeSessionId: CLAUDE_SESSION, startedAt, lastActivityAt: Date.now() } });
       if (pathname === "/api/claude/structured/pending" && req.method === "GET") return json(res, 200, { permissions: [] });
-      if (pathname === "/api/claude/structured/models" && req.method === "GET") return json(res, 200, { models: claudeModels, currentModel: state.claudeModel });
+      if (pathname === "/api/claude/structured/models" && req.method === "GET") return json(res, 200, { models: composerClaudeModels, currentModel: state.claudeModel });
       if (pathname === "/api/claude/structured/context" && req.method === "GET") return json(res, 200, claudeContext());
       if (pathname === "/api/claude/structured/model" && req.method === "POST") {
         let body;
         try { body = await parseJsonBody(req); } catch { return json(res, 400, { error: "invalid_request" }); }
-        if (!claudeModels.some(model => model.id === body?.model)) return json(res, 400, { kind: "reject", error: "unknown_fixture_model" });
+        if (!composerClaudeModels.some(model => model.id === body?.model)) return json(res, 400, { kind: "reject", error: "unknown_fixture_model" });
         state.claudeModel = body.model;
         return json(res, 200, { kind: "changed", model: state.claudeModel });
       }

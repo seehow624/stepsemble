@@ -1,4 +1,5 @@
 "use strict";
+const { claudeSpeedEnvironment } = require("./claude-gateway-speed");
 
 const http = require("node:http"), fs = require("node:fs/promises"), path = require("node:path");
 const { EventEmitter } = require("node:events");
@@ -245,6 +246,7 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
               try { hello = decodeJson(frame.payload); } catch { return failStream("desktop_structured_stream_failed"); }
               if (hello.version !== 1 || hello.structuredStreamVersion !== STRUCTURED_STREAM_VERSION || (hello.pid !== null && hello.pid !== undefined && !Number.isSafeInteger(hello.pid))) return failStream("desktop_structured_stream_failed");
               ready = true; child.pid = Number.isSafeInteger(hello.pid) ? hello.pid : null;
+              child.speedEnvironment = hello.speedEnvironment && typeof hello.speedEnvironment === "object" ? claudeSpeedEnvironment(hello.speedEnvironment) : null;
               if (!settled) { settled = true; clearTimeout(timer); requests.delete(req); resolve(child); }
             } else if (frame.type === FRAME_TYPES.ACK) {
               const pending = pendingAcks.shift();

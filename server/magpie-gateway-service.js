@@ -202,8 +202,12 @@ function createMagpieGatewayService({
     let url;
     try { url = new URL(baseUrl); } catch { return unknownSpeed("speed_route_unverified"); }
     const backend = api === "codex-native-backend";
+    // native_endpoints describes the upstream, while api identifies the
+    // client protocol translated by Magpie 0.1.1330 into that same route.
+    const messages = ["anthropic-messages", "claude-messages"].includes(api);
+    const inputPath = messages ? url.pathname === "/" : ["openai-responses", "openai-completions"].includes(api) && ["/v1", "/v1/"].includes(url.pathname);
     if (!installed() || !pointsHere(baseUrl) || url.username || url.password || url.search || url.hash
-      || (backend ? url.pathname !== "/backend-api/codex" : api !== "openai-responses" || !["/v1", "/v1/"].includes(url.pathname))) return unknownSpeed("speed_route_unverified");
+      || (backend ? url.pathname !== "/backend-api/codex" : !inputPath)) return unknownSpeed("speed_route_unverified");
     // Magpie v0.1.1294 codex_backend.go: CodexPath + codexAccounts map only
     // native no-slash ids to codex/<id>, retaining Responses service_tier.
     // This separate contract needs the owning app-server's own tier evidence;
@@ -215,11 +219,11 @@ function createMagpieGatewayService({
     if (!snapshot || snapshot.stale) return unknownSpeed("speed_route_unverified");
     const resolved = backend ? "codex/" + model : model;
     const row = snapshot.rows.find(row => row.id === resolved);
-    if (!row?.speedPriority || !row.speedResponses || row.speedOwner !== "codex") return unknownSpeed("speed_catalog_identity_unverified");
+    if (!/^codex\/[A-Za-z0-9][A-Za-z0-9._-]{0,249}$/.test(resolved || "") || !row?.speedPriority || !row.speedResponses || row.speedOwner !== "codex") return unknownSpeed("speed_catalog_identity_unverified");
     return { ...unknownSpeed("speed_gateway_requested"), support: "supported", choices: ["standard", "fast"], route: "magpie",
-      model: backend ? model : row.id, tier: "priority", fingerprint: JSON.stringify(backend
+      model: backend ? model : row.id, api, providerOwner: row.speedOwner, tier: "priority", fingerprint: JSON.stringify(backend
         ? ["magpie-codex-native-v1", origin, url.pathname, provider, model, resolved, "priority"]
-        : ["magpie", origin, row.id, "priority"]) };
+        : ["magpie-input-v2", origin, url.pathname, api, row.speedOwner, row.id, "priority"]) };
   }
 
   function claudeState() {

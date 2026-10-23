@@ -99,3 +99,9 @@ test("non-broker local Linux and desktop development launches preserve existing 
       sessionFactory: input => { assert.deepEqual(input, options); return "direct"; } }), "direct");
   }
 });
+
+test("old desktop helpers without a child speed environment cannot borrow Host gateway authority", async () => {
+  await launchClaudeStructuredSession({ cwd: "/project", env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:3425" },
+    desktopClient: { launchStructured: async () => ({}) },
+    sessionFactory: options => assert.equal(options.speedEnvironment, null) });
+});
