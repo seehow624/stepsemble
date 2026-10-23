@@ -31,7 +31,7 @@ export function installPiSpeed(pi, { capability } = {}) {
       if (input.action === "set") {
         let requested;
         try { requested = speedValue(input.speed); } catch { append({ nonce: input.nonce, ok: false, reason: "speed_invalid" }); return; }
-        if (!ctx.isIdle() || requested === "fast" && (cap.support !== "supported" || input.fingerprint !== cap.fingerprint)) {
+        if (requested === "ultrafast" || !ctx.isIdle() || requested === "fast" && (cap.support !== "supported" || input.fingerprint !== cap.fingerprint)) {
           append({ nonce: input.nonce, ok: false, reason: "speed_revalidation_required" }); return;
         }
         state = { requested, identity: current, fingerprint: cap.fingerprint || null };

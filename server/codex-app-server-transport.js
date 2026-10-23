@@ -11,7 +11,7 @@ const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const { createLineDecoder } = require("./stream-safety");
 const { MAX_BASE64_BYTES } = require("./prompt-attachments");
-const { speedValue, unknownSpeed, codexSpeedVersion, codexSpeedCapability } = require("./agent-speed");
+const { speedValue, paidSpeed, speedTier, speedFingerprint, unknownSpeed, codexSpeedVersion, codexSpeedCapability } = require("./agent-speed");
 
 const CODEX_NATIVE_VERSION = "0.153.4";
 const CODEX_NATIVE_VERSION_RE = /^\d{1,8}\.\d{1,8}\.\d{1,8}(?:-(?:alpha|beta)(?:\.\d{1,8}){0,2})?$/;
@@ -1235,10 +1235,11 @@ function createCodexAppServerTransport({
         detached.serviceTier = "default";
         detached.serviceTierForTurn = "default";
       }
-      if (speed === "fast") {
+      if (paidSpeed(speed)) {
         const capability = await speedStatus(params.model, params.cwd);
-        if (capability.support !== "supported" || params.speedFingerprint !== capability.fingerprint) return reject("speed_revalidation_required");
-        detached.serviceTierForTurn = capability.tier;
+        const tier = speedTier(capability, speed), fingerprint = speedFingerprint(capability, speed);
+        if (!tier || !fingerprint || params.speedFingerprint !== fingerprint) return reject("speed_revalidation_required");
+        detached.serviceTierForTurn = tier;
       }
       const auth = await authorize("turn.start", { threadId: activeThreadId, params: detached }); if (auth.kind === "reject") return auth;
       if (closed || failure || !initialized || threadId !== activeThreadId || state !== "thread_started" || turnId || approvals.size) return reject("native_lifecycle_conflict");

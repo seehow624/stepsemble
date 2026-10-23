@@ -669,6 +669,7 @@ function createClaudeStructuredSession({
   }
   async function applySpeed(speed, fingerprint) {
     const requested = speedValue(speed);
+    if (requested === "ultrafast") throw controlError("speed_revalidation_required");
     if (speedTimedOut) throw controlError("speed_reopen_required");
     let capability = speedStatus();
     // Result metadata is optional. An automatic queued send has no browser

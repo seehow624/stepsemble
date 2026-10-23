@@ -413,7 +413,7 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
     codex: { speedStatus: async (id, model) => {
       if (!state.speedRuntimeReady) { state.speedObservations.push({ model, support: "unknown" }); return unknownSpeed("speed_runtime_inactive"); }
       state.speedObservations.push({ model, support: "evaluated" });
-      const nativeModels = codexModels.map((row, index) => ({ ...row, serviceTiers: index === 0 ? [{ id: "priority", name: "Fast" }] : [] }));
+      const nativeModels = codexModels.map((row, index) => ({ ...row, serviceTiers: index === 0 ? [{ id: "priority", name: "Fast" }, ...(agentSpeed === "ultrafast" ? [{ id: "ultrafast", name: "Ultra Fast" }] : [])] : [] }));
       return agentSpeed === "magpie" ? speedGateway.speedCapability({ baseUrl: speedGateway.origin + "/backend-api/codex", model: model || state.codexModel,
         api: "codex-native-backend", provider: "openai", nativeModels })
         : agentSpeed ? codexSpeedCapability({ version: "0.163.0", config: {}, model: model || state.codexModel, models: nativeModels }) : unknownSpeed();

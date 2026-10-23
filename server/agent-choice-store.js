@@ -25,7 +25,7 @@ function cleanChoice(value) {
     const item = value[key];
     if (typeof item === "string" && VALUE.test(item.trim())) out[key] = item.trim();
   }
-  if (["standard", "fast"].includes(value.speed)) out.speed = value.speed;
+  if (["standard", "fast", "ultrafast"].includes(value.speed)) out.speed = value.speed;
   if (typeof value.speedModel === "string" && VALUE.test(value.speedModel)) out.speedModel = value.speedModel;
   if (typeof value.speedFingerprint === "string" && value.speedFingerprint.length <= 1024) out.speedFingerprint = value.speedFingerprint;
   return Object.keys(out).length ? out : null;
@@ -101,7 +101,7 @@ function createAgentChoiceStore({ file = null } = {}) {
       }
       if (key) {
         const previous = { ...(sessions.get(key) || {}) };
-        if (previous.speed === "fast" && ((clean.model && previous.speedModel && clean.model !== previous.speedModel)
+        if (["fast", "ultrafast"].includes(previous.speed) && ((clean.model && previous.speedModel && clean.model !== previous.speedModel)
           || (clean.provider && clean.provider !== previous.provider))) {
           previous.speed = "standard";
           delete previous.speedFingerprint; delete previous.speedModel;

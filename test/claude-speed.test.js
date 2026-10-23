@@ -30,6 +30,13 @@ function fixture(t, options = {}) {
   const session = createClaudeStructuredSession({ command: "/synthetic/claude", cwd: "/tmp", env: options.env || {}, spawnImpl: () => child, requestTimeoutMs: 50, onEvent: options.onEvent });
   t.after(() => session.close()); return { session, frames, runtime, child };
 }
+test("claude-speed: Ultra is refused without flags or a user frame, never downgraded to false", async t => {
+  const { session, frames } = fixture(t); await session.models(); const before = frames.length;
+  await assert.rejects(session.setSpeed("ultrafast", "forged"), /speed_revalidation_required/);
+  const result = await session.send("not sent", { speed: "ultrafast", speedFingerprint: "forged" });
+  assert.equal(result.kind, "reject");
+  assert.equal(frames.slice(before).some(f => f.type === "user" || f.request?.subtype === "apply_flag_settings"), false);
+});
 test("claude-speed: fresh initialize catalog supersedes startup and omitted models preserve it", async t => {
   const { session, runtime } = fixture(t);
   assert.equal((await session.models()).speed.support, "supported");

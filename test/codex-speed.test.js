@@ -14,7 +14,7 @@ function fixture(t, options = {}) {
       if (f.method === "config/read") result = { config: data.config };
       if (f.method === "thread/read") result = { thread: { id: data.readThreadId || f.params.threadId, sessionId: f.params.threadId, cliVersion: "0.163.0", model: "m", modelProvider: options.threadProvider || "openai", cwd: "/thread/project", preview: "", createdAt: 1, updatedAt: 1, ephemeral: false, source: "cli", status: { type: "idle" }, turns: [] } };
       if (f.method === "model/list") result = { data: [{ id: "m", model: "m", displayName: "Model", description: "", hidden: false, isDefault: true,
-        defaultReasoningEffort: "medium", supportedReasoningEfforts: [], serviceTiers: [{ id: data.tier, name: "Fast" }] }], nextCursor: null };
+        defaultReasoningEffort: "medium", supportedReasoningEfforts: [], serviceTiers: (data.tiers || [data.tier]).map(id => ({ id, name: "Native tier" })) }], nextCursor: null };
       if (f.method === "thread/start" || f.method === "thread/resume") result = { thread: { id: "thread-a", status: { type: "idle" }, turns: [] }, model: "m", modelProvider: options.provider || "openai", cwd: "/synthetic", serviceTier: f.params.serviceTier };
       if (f.method === "thread/turns/list") result = { data: [] };
       if (f.method === "turn/start") result = { turn: { id: "turn-" + frames.length, status: "completed" } };
@@ -26,6 +26,24 @@ function fixture(t, options = {}) {
   t.after(() => transport.close());
   return { transport, frames, data };
 }
+test("codex-speed: Ultra is separately fingerprinted, per-turn, revalidated and never replaces model or effort", async t => {
+  const { transport: api, frames, data } = fixture(t); data.tiers = ["priority", "ultrafast"];
+  await api.initialize(); await api.startThread({ model: "m" }); const cap = await api.speedStatus();
+  assert.equal((await api.startTurn([{ type: "text", text: "blocked" }], { speed: "ultrafast", speedFingerprint: cap.fingerprint }, "thread-a")).kind, "reject");
+  for (const [speed, fingerprint, tier] of [["ultrafast", cap.fingerprints.ultrafast, "ultrafast"], ["standard", null, "default"], ["fast", cap.fingerprint, "priority"]]) {
+    assert.equal((await api.startTurn([{ type: "text", text: "synthetic" }], { model: "m", effort: "high", speed, speedFingerprint: fingerprint }, "thread-a")).kind, "completed");
+    const wire = frames.filter(f => f.method === "turn/start").at(-1).params;
+    assert.equal(wire.serviceTierForTurn, tier); assert.equal(wire.serviceTier, "default"); assert.equal(wire.model, "m"); assert.equal(wire.effort, "high");
+  }
+  data.tiers = ["priority"];
+  assert.equal((await api.startTurn([{ type: "text", text: "revoked" }], { speed: "ultrafast", speedFingerprint: cap.fingerprints.ultrafast }, "thread-a")).kind, "reject");
+  assert.equal(frames.filter(f => f.method === "turn/start").length, 3);
+  for (const options of [{ tier: "ultrafast", config: { openai_base_url: "http://localhost:3425/v1" } }, { tier: "ultrafast", version: "0.162.0" }]) {
+    const f = fixture(t, options); await f.transport.initialize(); await f.transport.startThread({ model: "m" });
+    assert.equal((await f.transport.startTurn([{ type: "text", text: "blocked" }], { speed: "ultrafast", speedFingerprint: cap.fingerprints.ultrafast }, "thread-a")).kind, "reject");
+    assert.equal(f.frames.some(row => row.method === "turn/start"), false);
+  }
+});
 test("codex-speed: startup/resume standard, priority only for one turn, explicit off never inherits", async t => {
   const { transport: api, frames } = fixture(t);
   await api.initialize(); await api.startThread({ model: "m", serviceTier: "priority" });

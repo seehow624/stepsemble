@@ -32,7 +32,16 @@
     inactive: ["The owning runtime is inactive or its conversation identity could not be verified.", "所属运行时未激活或无法验证对话身份。", "所屬執行環境未啟用或無法驗證對話身分。", "実行環境が未起動か会話の識別を確認できません。", "런타임이 비활성 상태이거나 대화 신원을 확인하지 못했습니다.", "Çalışma zamanı etkin değil veya sohbet kimliği doğrulanamadı.", "Runtime inactif ou identité de conversation non vérifiée.", "Laufzeit inaktiv oder Unterhaltungsidentität nicht bestätigt.", "Runtime inactivo o identidad de conversación sin verificar.", "Runtime inativo ou identidade da conversa não verificada.", "Runtime inattivo o identità della conversazione non verificata."],
     requested: ["Fast requested", "已请求 Fast", "已請求 Fast", "Fast を要求", "Fast 요청됨", "Fast istendi", "Fast demandé", "Fast angefordert", "Fast solicitado", "Fast solicitado", "Fast richiesto"]
   };
-  Object.assign(copy, reasonCopy);
+  Object.assign(copy, reasonCopy, {
+    ultrafast: locales.map(() => "Ultra Fast"),
+    info: ["Speed details", "速度详情", "速度資訊", "速度の詳細", "속도 정보", "Hız ayrıntıları", "Détails de vitesse", "Geschwindigkeitsdetails", "Detalles de velocidad", "Detalhes de velocidade", "Dettagli velocità"]
+  });
+  const paid = speed => speed === "fast" || speed === "ultrafast";
+  const offered = (state, speed) => state?.support === "supported" && (speed === "fast"
+    ? (!state.choices || state.choices.includes(speed))
+    : speed === "ultrafast" && state.route === "openai-native" && state.choices?.includes(speed)
+      && state.tiers?.ultrafast === "ultrafast" && !!state.fingerprints?.ultrafast);
+  const fingerprintFor = (state, speed) => speed === "ultrafast" ? state?.fingerprints?.ultrafast : state?.fingerprint;
   const t = (key, locale = "en") => copy[key]?.[Math.max(0, locales.indexOf(locale))] || key;
   function reasonLabel(state) {
     if (state?.support === "supported") return "next";
@@ -48,37 +57,84 @@
   function create({ root, indicator, button, description, context, get, post, locale = () => "en", confirm = text => window.confirm(text), onError = () => {} }) {
     let key = null, state = null, generation = 0, pending = null, pendingKey = null, saving = null, savingKey = null;
     const label = document.createElement("label"), select = document.createElement("select"), note = document.createElement("p");
-    label.htmlFor = "agent-speed-select"; select.id = "agent-speed-select";
-    note.id = "agent-speed-note"; note.setAttribute("role", "status");
-    select.setAttribute("aria-describedby", note.id);
-    for (const value of ["standard", "fast"]) { const option = document.createElement("option"); option.value = value; select.append(option); }
-    root.append(label, select, note);
+    label.id = "agent-speed-label"; select.id = "agent-speed-select";
+    select.hidden = true; select.tabIndex = -1; select.setAttribute("aria-hidden", "true");
+    note.id = "agent-speed-note";
+    const group = document.createElement("div"), details = document.createElement("details"), summary = document.createElement("summary"), status = document.createElement("span");
+    group.className = "speed-options"; group.setAttribute("role", "radiogroup"); group.setAttribute("aria-labelledby", label.id);
+    details.className = "speed-details"; summary.className = "speed-info"; summary.textContent = "i";
+    status.className = "speed-status"; status.setAttribute("role", "status");
+    details.append(summary, note); root.append(label, select, group, details, status);
+    const controls = new Map();
+    function addChoice(value) {
+      const option = document.createElement("option"), choice = document.createElement("button");
+      option.value = value; select.append(option);
+      choice.type = "button"; choice.className = "speed-choice"; choice.setAttribute("role", "radio"); choice.setAttribute("data-speed", value);
+      choice.addEventListener("click", () => {
+        if (choice.disabled || choice.getAttribute("aria-disabled") === "true") return;
+        select.value = value; void change();
+      });
+      choice.addEventListener("keydown", event => {
+        const direction = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 0;
+        if (!direction && !["Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        if (choice.getAttribute("aria-disabled") === "true") return;
+        const enabled = [...controls.values()].filter(row => !row.choice.hidden && !row.choice.disabled);
+        const index = enabled.findIndex(row => row.choice === choice);
+        const next = enabled[event.key === "Home" ? 0 : event.key === "End" ? enabled.length - 1 : (index + direction + enabled.length) % enabled.length];
+        next?.choice.focus(); if (next) { select.value = next.option.value; void change(); }
+      });
+      group.append(choice); controls.set(value, { option, choice });
+    }
+    addChoice("standard"); addChoice("fast");
     function render({ committed = false } = {}) {
       const language = locale(), current = (context()?.key || null) === key;
       const shown = current ? state : null;
       label.textContent = t("title", language);
-      for (const option of select.options) {
-        const text = t(option.value, language);
-        if (option.textContent !== text) option.textContent = text;
-        const disabled = option.value === "fast" && shown?.support !== "supported";
-        if (option.disabled !== disabled) option.disabled = disabled;
+      if (offered(shown, "ultrafast")) { if (!controls.has("ultrafast")) addChoice("ultrafast"); }
+      else if (controls.has("ultrafast")) {
+        const row = controls.get("ultrafast"); row.choice.remove(); row.option.remove(); controls.delete("ultrafast");
+      }
+      for (const [speed, row] of controls) {
+        const text = speed === "fast" ? "Fast" : t(speed, language);
+        if (row.option.textContent !== text) row.option.textContent = text;
+        row.option.disabled = paid(speed) && !offered(shown, speed);
+        row.choice.textContent = text;
+        row.choice.hidden = paid(speed) && !offered(shown, speed);
       }
       const value = shown?.requested || "standard";
       if (select.value !== value && (committed || document.activeElement !== select || saving && savingKey === key || shown?.support !== "supported")) select.value = value;
       // A background GET must not close a native picker on window focus.
       // POST still revalidates the cached revision, fingerprint and support.
-      const disabled = !!saving && savingKey === key || shown?.support !== "supported" && !shown?.controlVerified && shown?.requested !== "fast";
+      const busy = !!saving && savingKey === key;
+      const unavailable = shown?.support !== "supported" && !shown?.controlVerified && !paid(shown?.requested);
+      const disabled = busy || unavailable;
       if (select.disabled !== disabled) select.disabled = disabled;
-      const effective = ["standard", "fast", "cooldown"].includes(shown?.effective) ? shown.effective : "unknown";
+      group.setAttribute("aria-busy", String(busy));
+      const selected = controls.get(value);
+      const focusValue = selected && !selected.choice.hidden && !selected.option.disabled ? value : "standard";
+      for (const [speed, row] of controls) {
+        // Native disabled blurs the active radio during a delayed save. Keep
+        // its focus ownership; aria-disabled plus activation guards block repeats.
+        row.choice.disabled = unavailable || row.option.disabled;
+        row.choice.setAttribute("aria-disabled", String(disabled || row.option.disabled));
+        row.choice.setAttribute("aria-checked", String(speed === value));
+        row.choice.tabIndex = speed === focusValue ? 0 : -1;
+      }
+      summary.setAttribute("aria-label", t("info", language)); summary.title = t("info", language);
+      status.textContent = shown?.reason === "speed_load_failed" ? t("unknown", language) : shown?.effective === "cooldown" ? t("cooldown", language) : "";
+      status.hidden = !status.textContent;
+      const effective = ["standard", "fast", "ultrafast", "cooldown"].includes(shown?.effective) ? shown.effective : "unknown";
       note.textContent = (shown?.support === "supported" ? "" : t(shown?.support === "unavailable" ? "unavailable" : "unknown", language) + " · ")
         + t(reasonLabel(shown), language)
         + " · " + t("effective", language) + ": " + t(effective, language)
         + (shown?.route === "magpie" ? " · " + t("gateway", language) : "");
-      const fast = shown?.requested === "fast";
-      if (indicator) indicator.toggleAttribute("hidden", !fast);
-      const details = t("title", language) + (fast ? ": " + t("requested", language) : "") + ". " + note.textContent;
-      if (description) description.textContent = details;
-      if (button) button.title = [button.getAttribute("aria-label"), details].filter(Boolean).join(". ");
+      const fast = paid(shown?.requested);
+      if (indicator) { indicator.toggleAttribute("hidden", !fast); indicator.setAttribute("data-speed", shown?.requested || "standard"); }
+      const requested = t("requested", language).replace("Fast", shown?.requested === "ultrafast" ? "Ultra Fast" : "Fast");
+      const explanation = t("title", language) + (fast ? ": " + requested : "") + ". " + note.textContent;
+      if (description) description.textContent = explanation;
+      if (button) button.title = [button.getAttribute("aria-label"), explanation].filter(Boolean).join(". ");
     }
     async function refresh({ afterPending = false } = {}) {
       const target = context(), targetKey = target?.key || null;
@@ -116,18 +172,19 @@
       render();
     }
     select.addEventListener("blur", () => { if (!saving || savingKey !== key) render({ committed: true }); });
-    select.addEventListener("change", async () => {
+    async function change() {
       const speed = select.value, target = context(), previous = state;
-      if (!target || target.key !== key || !previous || saving && savingKey === target.key || speed === "fast" && previous.support !== "supported") { render(); return; }
+      if (!target || target.key !== key || !previous || saving && savingKey === target.key || paid(speed) && !offered(previous, speed)) { render({ committed: true }); return; }
+      if (speed === previous.requested) { render({ committed: true }); return; }
       // Lock before confirmation: dismissing a native dialog may fire focus.
       const current = ++generation;
       let failed = false;
       const operation = Promise.resolve().then(async () => {
-        if (speed === "fast" && !await confirm(t("confirm", locale()) + "\n\n" + t("subagents", locale()))) return;
+        if (paid(speed) && !await confirm(t("confirm", locale()).replace("Fast", speed === "ultrafast" ? "Ultra Fast" : "Fast") + "\n\n" + t("subagents", locale()))) return;
         if (current !== generation || context()?.key !== target.key) return;
         try {
           const { key: ignored, ...params } = target;
-          const result = await post("/api/agent-speed", { ...params, speed, confirmCost: speed === "fast", revision: previous.revision, fingerprint: previous.fingerprint });
+          const result = await post("/api/agent-speed", { ...params, speed, confirmCost: paid(speed), revision: previous.revision, fingerprint: fingerprintFor(previous, speed) });
           if (current === generation && context()?.key === target.key) state = result;
         } catch {
           if (current === generation && context()?.key === target.key) { failed = true; onError(t("failed", locale())); }
@@ -141,7 +198,8 @@
         pending = null; pendingKey = null;
         if (failed) await refresh(); else render({ committed: true });
       }
-    });
+    }
+    select.addEventListener("change", change);
     render();
     return Object.freeze({ sync, refresh, async ready() { if (saving && savingKey === context()?.key) await saving; await sync(); if (pending && pendingKey === context()?.key) await pending; },
       snapshot() { return context()?.key === key ? { speed: state?.requested || "standard", speedFingerprint: state?.preferenceFingerprint || null } : { speed: "standard" }; } });
