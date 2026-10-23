@@ -310,6 +310,12 @@ html.reduced-motion .workspace-search-row .workspace-row-action { transition: no
 .workspace-session-goal[hidden] { display: none; }
 .workspace-session-goal[data-state="paused"] { color: var(--pine-soft); border-style: dashed; }
 .workspace-session-goal[data-state="attention"] { color: #cd9855; }
+html[data-theme="light"] .workspace-session-goal[data-state="attention"] { color: var(--warn-ink); }
+html[data-theme="light"] .workspace-session-status[data-state="attention"]::after { border-color: var(--warn-ink); }
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) .workspace-session-goal[data-state="attention"] { color: var(--warn-ink); }
+  html:not([data-theme="dark"]) .workspace-session-status[data-state="attention"]::after { border-color: var(--warn-ink); }
+}
 @keyframes workspace-session-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .workspace-session-status[data-state="working"]::after { animation: none; } }
 .workspace-session[data-open=true] { background: var(--bubble-user); border-color: var(--line); }
@@ -422,7 +428,14 @@ html.reduced-motion .workspace-limits-note .workspace-limits-dot { animation: no
 }
 .workspace-limit-alert[data-level="critical"] { --level: var(--err); }
 .workspace-limit-alert .workspace-provider-logo { width: 15px; height: 15px; flex-basis: 15px; }
-.workspace-limit-percent { color: var(--level); font-size: var(--text-sm); font-weight: 650; font-variant-numeric: tabular-nums; }
+.workspace-limit-percent { color: var(--level-ink, var(--level)); font-size: var(--text-sm); font-weight: 650; font-variant-numeric: tabular-nums; }
+/* Keep the alert tint; only its small percentage needs a darker ink. */
+html[data-theme="light"] .workspace-limit-alert { --level-ink: var(--warn-ink); }
+html[data-theme="light"] .workspace-limit-alert[data-level="critical"] { --level-ink: var(--err-ink); }
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) .workspace-limit-alert { --level-ink: var(--warn-ink); }
+  html:not([data-theme="dark"]) .workspace-limit-alert[data-level="critical"] { --level-ink: var(--err-ink); }
+}
 .workspace-limit-period { color: var(--pine-soft); font-size: var(--text-2xs); }
 .workspace-limit-alert[data-stale=true] .workspace-limit-period { text-decoration: underline dotted; text-underline-offset: 3px; }
 .workspace-limits-compact .workspace-limit-period { display: none; }

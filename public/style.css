@@ -20,6 +20,7 @@
   --ok-ink: #22663D;
   --warn-ink: #6B500C;
   --err-ink: #923725;
+  --context-warning: var(--warn-ink);
   --bubble-user: #DED8CB;
   --bubble-ai: #EEE9DF;
   --sheet-bg: rgba(27, 26, 24, 0.30);
@@ -68,6 +69,7 @@
   --ok-ink: #5DBB85;
   --warn-ink: #C79A33;
   --err-ink: #E07A6B;
+  --context-warning: var(--warn);
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -86,6 +88,7 @@
     --ok-ink: #5DBB85;
     --warn-ink: #C79A33;
     --err-ink: #E07A6B;
+    --context-warning: var(--warn);
     color-scheme: dark;
   }
 }
@@ -4965,7 +4968,7 @@ body.compact #view-list .project-group-items .session-item {
   stroke-linecap: round;
   transition: stroke-dashoffset .25s ease, stroke .25s ease;
 }
-#view-chat .context-dashboard[data-context-state="warning"] .context-ring-fill { stroke: var(--warn); }
+#view-chat .context-dashboard[data-context-state="warning"] .context-ring-fill { stroke: var(--context-warning); }
 #view-chat .context-dashboard[data-context-state="critical"] .context-ring-fill { stroke: var(--err); }
 #view-chat .context-dashboard[data-context-state="unknown"] .context-ring-fill { stroke: var(--pine-soft); opacity: .35; }
 
