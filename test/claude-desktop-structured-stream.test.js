@@ -230,6 +230,8 @@ test("immediate Aqua child exit after READY reaches the adapter close listener",
 
 test("Aqua READY carries only actual child speed environment, never Host settings or secrets", unix, async t => {
   const f = await fixture(t, { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:3425", CLAUDE_CODE_MODEL_CAPABILITIES: "desktop=reasoning", ANTHROPIC_API_KEY: "synthetic-secret" } });
+  assert.equal((await f.client.health()).speedEnvironmentVersion, 1);
+  assert.equal(await f.client.speedEnvironmentSupported(), true);
   let child;
   await launchClaudeStructuredSession({ command: f.command, cwd: f.project, desktopClient: f.client,
     env: { ANTHROPIC_BASE_URL: "https://host.invalid", CLAUDE_CODE_MODEL_CAPABILITIES: "host=-fast_mode" },

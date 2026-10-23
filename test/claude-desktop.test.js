@@ -270,3 +270,34 @@ test("Aqua quota IPC is authenticated metadata-only and does not block the launc
   const result = await pending; assert.equal(result.status, "ready"); assert.equal(result.windows[0].usedPercent, 12);
   assert(!/quota-secret|private|11111111/.test(JSON.stringify(result)));
 });
+
+test("speed receipt discovery requires authenticated Aqua v1 health and its explicit capability", unix, async t => {
+  const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-desktop-features-"));
+  const paths = desktopPaths(configDir), key = crypto.randomBytes(32).toString("hex");
+  await fs.mkdir(paths.directory, { mode: 0o700 });
+  await fs.mkdir(paths.socketDirectory, { recursive: true, mode: 0o700 });
+  await fs.writeFile(paths.key, key, { mode: 0o600 });
+  const current = { version: 1, context: "Aqua", instance: crypto.randomUUID(), structuredStreamVersion: 1,
+    terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 };
+  let health = current, calls = 0;
+  const server = http.createServer((req, res) => {
+    assert.equal(req.headers.authorization, `Bearer ${key}`); assert.equal(req.url, "/v1/health");
+    calls++; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(health));
+  });
+  const client = createDesktopClaudeClient({ configDir });
+  t.after(async () => {
+    client.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+    await fs.rm(configDir, { recursive: true, force: true });
+    await fs.unlink(paths.socket).catch(error => { if (error.code !== "ENOENT") throw error; });
+  });
+  await new Promise(resolve => server.listen(paths.socket, resolve)); await fs.chmod(paths.socket, 0o600);
+  assert.equal(await client.speedEnvironmentSupported(), false, "all earlier features do not imply a speed receipt");
+  assert.equal(await client.terminalSupported(), true); assert.equal(await client.quotaSupported(), true);
+  assert.equal(calls, 1, "feature checks share the health cache");
+  for (const extra of [{ speedEnvironmentVersion: 0 }, { speedEnvironmentVersion: 2 }, { speedEnvironmentVersion: "1" },
+    { speedEnvironmentVersion: 1, context: "SSH" }, { speedEnvironmentVersion: 1, version: 2 },
+    { speedEnvironmentVersion: 1, instance: "unverified" }, { speedEnvironmentVersion: 1 }]) {
+    health = { ...current, ...extra }; client.resetTerminalCheck();
+    assert.equal(await client.speedEnvironmentSupported(), Object.keys(extra).length === 1 && extra.speedEnvironmentVersion === 1);
+  }
+});

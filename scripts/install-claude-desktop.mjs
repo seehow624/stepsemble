@@ -26,7 +26,7 @@ const SAFE_UPGRADE_CODES = new Set([
   "upgrade_helper_unavailable", "upgrade_helper_recovery_required", "upgrade_active_login",
   "upgrade_active_tasks", "upgrade_active_structured", "upgrade_structured_stream_unsupported",
   "upgrade_launchctl", "upgrade_stage_failed", "upgrade_plist_failed", "upgrade_bootstrap_failed",
-  "upgrade_verify_failed", "upgrade_rollback_failed", "upgrade_failed", "upgrade_terminal_unsupported", "upgrade_quota_unsupported",
+  "upgrade_verify_failed", "upgrade_rollback_failed", "upgrade_failed", "upgrade_terminal_unsupported", "upgrade_quota_unsupported", "upgrade_speed_environment_unsupported",
 ]);
 
 const xml = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char]);
@@ -196,6 +196,7 @@ export function validateUpgradedHelper({ status, health } = {}) {
   if (health.structuredStreamVersion !== STRUCTURED_STREAM_VERSION) throw upgradeError("upgrade_structured_stream_unsupported");
   if (health.terminalVersion !== TERMINAL_VERSION) throw upgradeError("upgrade_terminal_unsupported");
   if (health.quotaVersion !== 1) throw upgradeError("upgrade_quota_unsupported");
+  if (health.speedEnvironmentVersion !== 1) throw upgradeError("upgrade_speed_environment_unsupported");
   if (!own(health, "activeStructured") || health.activeStructured !== 0) throw upgradeError("upgrade_active_structured");
   return result;
 }
@@ -503,7 +504,7 @@ export async function upgradeDesktop(argvOrOptions = ["--upgrade"], maybeOptions
     const verified = await upgradedState(newClient, options.verifyTimeoutMs ?? 45000);
     newClient.close(); newClient = null;
     maintenance = null; // bootout consumed the helper-owned lease.
-    return { upgraded: true, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, activeStructured: 0, credential: verified.status.credential.state, webHostChanged: false, rootsAdded: addedRoots.length };
+    return { upgraded: true, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, speedEnvironmentVersion: 1, activeStructured: 0, credential: verified.status.credential.state, webHostChanged: false, rootsAdded: addedRoots.length };
   } catch (error) {
     newClient?.close(); newClient = null;
     if (!bootedOut) await cancelMaintenance(oldClient, maintenance);
@@ -591,7 +592,7 @@ export async function installDesktop(argv = process.argv.slice(2), options = {})
     await run("/bin/launchctl", ["bootstrap", `gui/${uid}`, plistFile], { timeout: 5000 }); bootstrapped = true;
     const client = desktop.createDesktopClaudeClient({ configDir, timeoutMs: 45000 });
     try { let health; for (let n = 0; n < 10; n++) { health = await client.health().catch(() => null); if (health?.context === "Aqua") break; await new Promise(resolve => setTimeout(resolve, 250)); }
-      if (health?.context !== "Aqua") throw new Error("Desktop helper did not become ready."); const status = await client.status(); if (status.context !== "Aqua" || status.credential.state !== "detected") throw new Error("Desktop context/native metadata gate did not pass.");
+      if (health?.context !== "Aqua" || health.speedEnvironmentVersion !== 1) throw new Error("Desktop helper did not become ready."); const status = await client.status(); if (status.context !== "Aqua" || status.credential.state !== "detected") throw new Error("Desktop context/native metadata gate did not pass.");
       console.log(JSON.stringify({ installed: true, context: "Aqua", credential: status.credential.state, liveVerified: false, webHostChanged: false }));
     } finally { client.close(); }
   } catch {

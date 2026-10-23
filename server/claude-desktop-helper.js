@@ -24,6 +24,9 @@ const PINNED_VERSION = 1;
 // process only while it works (docs/session-idle-release.md), so the limit
 // counts working conversations, not opened ones.
 const CAPACITY_VERSION = 1;
+// Authenticated structured READY reports the actual child's sanitized speed
+// environment. Discovery alone never authorizes Fast; each child needs a receipt.
+const SPEED_ENVIRONMENT_VERSION = 1;
 const { claudeSessionEnvOverrides, claudeGatewayReadiness, readClaudeSessionRouting } = require("./claude-session-routing");
 const {
   STRUCTURED_STREAM_VERSION,
@@ -378,12 +381,12 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     if (op === "quota") return quota.read();
     if (maintenance && maintenance.expiresAt <= now()) maintenance = null;
     const maintenanceSummary = { maintenanceVersion: 1, maintenance: maintenance ? { active: true, expiresAt: maintenance.expiresAt } : { active: false, expiresAt: null } };
-    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, quotaVersion: QUOTA_VERSION,
+    if (op === "health") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, quotaVersion: QUOTA_VERSION, speedEnvironmentVersion: SPEED_ENVIRONMENT_VERSION,
       activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary };
     await reconcileAuth();
     await refreshTasks();
     if (closed) throw failure("service_closed");
-    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, quotaVersion: QUOTA_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
+    if (op === "status") return { version: 1, instance, context: "Aqua", structuredStreamVersion: STRUCTURED_STREAM_VERSION, terminalVersion: AUTH_TERMINAL_VERSION, bypassVersion: BYPASS_VERSION, forkVersion: FORK_VERSION, pinnedVersion: PINNED_VERSION, capacityVersion: CAPACITY_VERSION, quotaVersion: QUOTA_VERSION, speedEnvironmentVersion: SPEED_ENVIRONMENT_VERSION, activeStructured: structuredChildren.size + structuredLaunching, ...maintenanceSummary,
       ...(recoveryRequired ? unavailable() : await auth.status()) };
     if (op === "maintenance/cancel") {
       if (!maintenance || maintenance.instance !== body.instance || maintenance.token !== body.token || maintenance.expiresAt <= now()) throw failure("stale_intent");

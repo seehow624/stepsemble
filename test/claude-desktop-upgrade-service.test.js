@@ -6,13 +6,13 @@ function fixture(extra = {}) {
   const status = { context: "Aqua", instance: "same-helper", credential: { state: "signed_out" }, canStart: true };
   const health = { context: "Aqua", instance: "same-helper" };
   const service = createClaudeDesktopUpgradeService({ platform: "darwin",
-    desktopClient: { status: async () => status, health: async () => ({ ...health, ...(upgraded ? { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 } : {}) }) },
+    desktopClient: { status: async () => status, health: async () => ({ ...health, ...(upgraded ? { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1, speedEnvironmentVersion: 1 } : {}) }) },
     runUpgrade: async () => { attempts++; upgraded = true; }, ...extra });
   return { service, status, health, attempts: () => attempts };
 }
 test("explicit helper repair accepts signed-out metadata without starting a login", async () => {
   const f = fixture();
-  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, rootsAdded: 0, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
+  assert.deepEqual(await f.service.upgrade({ confirm: true }), { upgraded: true, rootsAdded: 0, context: "Aqua", structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1, speedEnvironmentVersion: 1 });
   assert.equal(f.attempts(), 1); assert.equal(f.service.isRunning(), false);
   assert.equal((await f.service.upgrade({ confirm: true })).upgraded, false);
   assert.equal(f.attempts(), 1);
@@ -21,7 +21,7 @@ test("a helper without Bypass permissions is updated and a current helper is lef
   const withoutBypass = fixture(); Object.assign(withoutBypass.health, { structuredStreamVersion: 1, terminalVersion: 1 });
   assert.equal((await withoutBypass.service.upgrade({ confirm: true })).upgraded, true);
   assert.equal(withoutBypass.attempts(), 1);
-  const current = fixture(); Object.assign(current.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
+  const current = fixture(); Object.assign(current.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1, speedEnvironmentVersion: 1 });
   assert.equal((await current.service.upgrade({ confirm: true })).upgraded, false);
   assert.equal(current.attempts(), 0);
 });
@@ -69,7 +69,7 @@ test("after an update the helper is brought current once, waiting while Claude i
   const timers = [], logs = [];
   let current = false, busy = true, upgrades = 0;
   const auto = createClaudeHelperAutoUpdate({
-    desktopClient: { terminalSupported: async () => current, bypassSupported: async () => current, resetTerminalCheck() {} },
+    desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => current, bypassSupported: async () => current, resetTerminalCheck() {} },
     upgradeService: { upgrade: async body => { assert.deepEqual(body, { confirm: true }); if (busy) throw Object.assign(new Error("active_tasks"), { code: "active_tasks" }); upgrades++; current = true; } },
     setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {}, log: (...event) => logs.push(event.join(":")),
   });
@@ -85,11 +85,11 @@ test("after an update the helper is brought current once, waiting while Claude i
 test("a current helper is left alone and repeated failures stop after six tries", async () => {
   const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
   let upgrades = 0;
-  const currentAuto = createClaudeHelperAutoUpdate({ desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true },
+  const currentAuto = createClaudeHelperAutoUpdate({ desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => true, bypassSupported: async () => true },
     upgradeService: { upgrade: async () => { upgrades++; } }, setTimer: () => 1, clearTimer: () => {} });
   await currentAuto.run(); assert.equal(upgrades, 0);
   const timers = [];
-  const failing = createClaudeHelperAutoUpdate({ desktopClient: { terminalSupported: async () => false, bypassSupported: async () => false },
+  const failing = createClaudeHelperAutoUpdate({ desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => false, bypassSupported: async () => false },
     upgradeService: { upgrade: async () => { throw Object.assign(new Error("desktop_required"), { code: "desktop_required" }); } },
     setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {} });
   await failing.run();
@@ -105,7 +105,7 @@ test("a current helper without a folder this Host allows is installed again with
   let held = [home], received = null;
   const f = fixture({ helperRoots: () => held, wantedRoots: () => [home, volumes],
     runUpgrade: async roots => { received = roots; held = [...held, ...roots]; } });
-  Object.assign(f.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
+  Object.assign(f.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1, speedEnvironmentVersion: 1 });
   assert.deepEqual(f.service.missingRoots(), [volumes]);
   const result = await f.service.upgrade({ confirm: true });
   assert.deepEqual(received, [volumes]);
@@ -117,7 +117,7 @@ test("a current helper without a folder this Host allows is installed again with
   assert.equal(received, null);
   // An installer that did not add the folder is not reported as done.
   const stuck = fixture({ helperRoots: () => [home], wantedRoots: () => [volumes], runUpgrade: async () => {} });
-  Object.assign(stuck.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 });
+  Object.assign(stuck.health, { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1, speedEnvironmentVersion: 1 });
   await assert.rejects(stuck.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
 });
 
@@ -139,7 +139,7 @@ test("a helper missing a folder is updated after a start, and a refused folder b
   const timers = [];
   let missing = ["/Volumes"], upgrades = 0;
   const auto = createClaudeHelperAutoUpdate({
-    desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true },
+    desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true },
     upgradeService: { missingRoots: () => missing, upgrade: async () => { upgrades++; missing = []; return { upgraded: true }; } },
     setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {},
   });
@@ -165,7 +165,7 @@ test("a helper that starts Claude with Claude's own updater on is updated, and m
   const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
   let upgrades = 0;
   const auto = createClaudeHelperAutoUpdate({
-    desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true, pinnedSupported: async () => false },
+    desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true, pinnedSupported: async () => false },
     upgradeService: { upgrade: async () => { upgrades++; return { upgraded: true }; } }, setTimer: () => 1, clearTimer: () => {},
   });
   await auto.run();
@@ -185,7 +185,7 @@ test("a helper with room for four working conversations is updated, and must hav
   const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
   let upgrades = 0;
   const auto = createClaudeHelperAutoUpdate({
-    desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true,
+    desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => true, bypassSupported: async () => true, forkSupported: async () => true,
       pinnedSupported: async () => true, capacitySupported: async () => false },
     upgradeService: { upgrade: async () => { upgrades++; return { upgraded: true }; } }, setTimer: () => 1, clearTimer: () => {},
   });
@@ -194,7 +194,7 @@ test("a helper with room for four working conversations is updated, and must hav
 });
 
 test("helpers missing only the read-only quota feature are upgraded only when idle and must advertise it afterwards", async () => {
-  const current = { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1 };
+  const current = { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1, forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, speedEnvironmentVersion: 1 };
   const old = fixture(); Object.assign(old.health, current);
   assert.equal((await old.service.upgrade({ confirm: true })).upgraded, true);
   assert.equal(old.attempts(), 1);
@@ -204,7 +204,7 @@ test("helpers missing only the read-only quota feature are upgraded only when id
   await assert.rejects(stuck.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
   const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
   let upgrades = 0;
-  const auto = createClaudeHelperAutoUpdate({ desktopClient: { terminalSupported: async () => true, bypassSupported: async () => true,
+  const auto = createClaudeHelperAutoUpdate({ desktopClient: { speedEnvironmentSupported: async () => true, terminalSupported: async () => true, bypassSupported: async () => true,
     forkSupported: async () => true, pinnedSupported: async () => true, capacitySupported: async () => true, quotaSupported: async () => false },
     upgradeService: { upgrade: async () => { upgrades++; } } });
   await auto.run(); assert.equal(upgrades, 1);
@@ -228,4 +228,46 @@ test("other_auth login unavailability is not activity only with explicit lease-c
   ]) {
     const f = prepare(); mutate(f); await assert.rejects(f.service.upgrade({ confirm: true })); assert.equal(f.attempts(), 0);
   }
+});
+
+// The deployed 3.9.48 helper can advertise every earlier feature and still
+// lack the authenticated READY speed environment receipt.
+const beforeSpeedReceipts = { structuredStreamVersion: 1, terminalVersion: 1, bypassVersion: 1,
+  forkVersion: 1, pinnedVersion: 1, capacityVersion: 1, quotaVersion: 1 };
+test("all earlier v1 features cannot bypass the speed receipt upgrade or its postverification", async () => {
+  for (const speedEnvironmentVersion of [undefined, 0, 2, "1", true]) {
+    const old = fixture(); Object.assign(old.health, beforeSpeedReceipts, { speedEnvironmentVersion });
+    assert.equal((await old.service.upgrade({ confirm: true })).upgraded, true);
+    assert.equal(old.attempts(), 1);
+    const stuck = fixture({ runUpgrade: async () => {} });
+    Object.assign(stuck.health, beforeSpeedReceipts, { speedEnvironmentVersion });
+    await assert.rejects(stuck.service.upgrade({ confirm: true }), /desktop_upgrade_unconfirmed/);
+  }
+});
+
+test("the speed receipt upgrade defers while busy, retries when idle and leaves a current helper alone", async () => {
+  const { createClaudeHelperAutoUpdate } = require("../server/claude-desktop-upgrade");
+  const timers = [], logs = [];
+  let busy = true;
+  const f = fixture({ isBusy: () => busy }); Object.assign(f.health, beforeSpeedReceipts);
+  const features = { terminalSupported: async () => true, bypassSupported: async () => true,
+    forkSupported: async () => true, pinnedSupported: async () => true,
+    capacitySupported: async () => true, quotaSupported: async () => true };
+  const auto = createClaudeHelperAutoUpdate({
+    desktopClient: { ...features, speedEnvironmentSupported: async () => f.attempts() > 0 }, upgradeService: f.service,
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {}, log: (...event) => logs.push(event),
+  });
+  await auto.run();
+  assert.equal(f.attempts(), 0); assert.equal(timers.at(-1).ms, 10 * 60 * 1000);
+  busy = false; await timers.at(-1).fn();
+  assert.equal(f.attempts(), 1); assert.deepEqual(logs, [["updated"]]);
+  await auto.run(); assert.equal(f.attempts(), 1);
+  let currentUpgrades = 0, discoveryUpgrades = 0;
+  const current = createClaudeHelperAutoUpdate({ desktopClient: { ...features, speedEnvironmentSupported: async () => true },
+    upgradeService: { upgrade: async () => { currentUpgrades++; } } });
+  await current.run(); assert.equal(currentUpgrades, 0, "current helper must not be reinstalled");
+  const unavailableDiscovery = createClaudeHelperAutoUpdate({ desktopClient: features,
+    upgradeService: { upgrade: async () => { discoveryUpgrades++; throw Object.assign(new Error("active_tasks"), { code: "active_tasks" }); } },
+    setTimer: (_fn, ms) => { assert.equal(ms, 10 * 60 * 1000); return 1; }, clearTimer: () => {} });
+  await unavailableDiscovery.run(); assert.equal(discoveryUpgrades, 1, "missing discovery cannot imply current support");
 });
