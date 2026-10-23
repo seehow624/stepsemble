@@ -138,7 +138,7 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       stage = "Claude native controls";
       ui = await openFromSidebar(page, "Claude composer fixture");
       await open(); await choose("fast");
-      assert.match(await ui.locator("#agent-speed-note").textContent(), /Reported state: Fast/);
+      assert.match(await ui.locator("#agent-speed-note").textContent(), route === "magpie" ? /Reported state: Unknown/ : /Reported state: Fast/);
       await choose("standard");
       assert.equal(await ui.locator("#composer-fast").getAttribute("hidden"), "");
       // The draft's IME handling must never submit while choosing speed.

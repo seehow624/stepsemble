@@ -122,3 +122,52 @@ test("agent-speed i18n: all eleven locales include costs, unknown and native sub
   for (const [key, values] of Object.entries(ui.copy)) { assert.equal(values.length, 11, key); assert.ok(values.every(text => typeof text === "string" && text.length)); }
   assert.match(ui.t("subagents", "zh-Hant"), /原生子 Agent/);
 });
+
+test("agent-speed: owner replacement during Claude save never writes preference or rolls back another child", async () => {
+  const choices = createAgentChoiceStore(), capability = { ...cap(), model: "model-a" }, calls = [];
+  const newer = { models: async () => ({ speed: capability }), status: () => ({ nativeSessionId: "new-id", state: "waiting" }), setSpeed: async speed => { calls.push("new:" + speed); return capability; } };
+  let active;
+  const old = { models: async () => ({ speed: capability }), status: () => ({ nativeSessionId: "old-id", state: "waiting" }),
+    setSpeed: async speed => { calls.push("old:" + speed); active = newer; return capability; } };
+  active = old;
+  const route = createAgentSpeedRoutes({ choices, resolveClaude: () => ({ session: active }), readJSON: async req => req.body, sendJSON: (res, status, data) => Object.assign(res, { status, data }) });
+  const query = { agentId: "claude-code", sessionId: "alias", model: "model-a" }, url = new URL("http://test/api/agent-speed?" + new URLSearchParams(query)), first = {}, result = {};
+  await route({ method: "GET" }, first, url);
+  await route({ method: "POST", body: { ...query, speed: "fast", confirmCost: true, fingerprint: first.data.fingerprint, revision: first.data.revision } }, result, url);
+  assert.equal(result.status, 409); assert.deepEqual(calls, ["old:fast"]);
+  assert.equal(choices.session("claude-code", "old-id"), null); assert.equal(choices.session("claude-code", "new-id"), null);
+});
+test("agent-speed: live catalog revocation clears saved Fast and persistence failure rolls back the same owned Claude", async () => {
+  let capability = { ...cap(), route: "magpie", model: "model-a" }, fail = false;
+  const store = createAgentChoiceStore(), calls = [];
+  const choices = { session: (...args) => store.session(...args), record: (...args) => fail ? false : store.record(...args) };
+  const session = { models: async () => ({ speed: capability }), status: () => ({ nativeSessionId: "a", state: "waiting" }), setSpeed: async speed => { calls.push(speed); return capability; } };
+  const route = createAgentSpeedRoutes({ choices, resolveClaude: () => ({ session }), readJSON: async req => req.body, sendJSON: (res, status, data) => Object.assign(res, { status, data }) });
+  const query = { agentId: "claude-code", sessionId: "a", model: "model-a" }, url = new URL("http://test/api/agent-speed?" + new URLSearchParams(query));
+  const request = async body => { const result = {}; await route({ method: body ? "POST" : "GET", body: { ...query, ...body } }, result, url); return result; };
+  let first = (await request()).data; fail = true;
+  assert.equal((await request({ speed: "fast", confirmCost: true, fingerprint: first.fingerprint, revision: first.revision })).status, 503);
+  assert.deepEqual(calls, ["fast", "standard"]); assert.equal(store.session("claude-code", "a"), null);
+  fail = false; first = (await request()).data;
+  await request({ speed: "fast", confirmCost: true, fingerprint: first.fingerprint, revision: first.revision });
+  capability = { support: "unknown", choices: ["standard"], reason: "speed_route_unverified" };
+  assert.equal((await request()).data.requested, "standard");
+});
+test("agent-speed: parallel saves serialize native apply and persistence before a stale CAS can mutate flags", async () => {
+  const choices = createAgentChoiceStore(), capability = { ...cap(), model: "model-a" }, calls = [];
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const session = { models: async () => ({ speed: capability }), status: () => ({ nativeSessionId: "durable", state: "waiting" }),
+    setSpeed: async speed => { calls.push(speed); if (speed === "fast") await blocked; return capability; } };
+  const handle = createAgentSpeedRoutes({ choices, resolveClaude: () => ({ session }), readJSON: async req => req.body, sendJSON: (res, status, data) => Object.assign(res, { status, data }) });
+  const query = { agentId: "claude-code", sessionId: "alias", model: "model-a" }, url = new URL("http://test/api/agent-speed?" + new URLSearchParams(query));
+  const first = {}; await handle({ method: "GET" }, first, url);
+  const fast = {}, standard = {}, fields = { ...query, revision: first.data.revision };
+  const a = handle({ method: "POST", body: { ...fields, speed: "fast", fingerprint: first.data.fingerprint, confirmCost: true } }, fast, url);
+  while (!calls.length) await new Promise(resolve => setImmediate(resolve));
+  const b = handle({ method: "POST", body: { ...fields, speed: "standard" } }, standard, url);
+  await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(calls, ["fast"]);
+  release(); await Promise.all([a, b]);
+  assert.equal(fast.status, 200); assert.equal(standard.status, 409); assert.deepEqual(calls, ["fast"]);
+  assert.equal(choices.session("claude-code", "durable").speed, "fast");
+});

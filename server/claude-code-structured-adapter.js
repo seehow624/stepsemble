@@ -1,5 +1,5 @@
 "use strict";
-const { speedValue, claudeSpeedReport, claudeSpeedCapability } = require("./agent-speed");
+const { speedValue, unknownSpeed, claudeSpeedReport, claudeSpeedCapability } = require("./agent-speed");
 
 // Structured Claude Code bridge. This module only uses Claude Code's public
 // print-mode stream contract (`-p`, `--input-format stream-json`,
@@ -8,6 +8,7 @@ const { speedValue, claudeSpeedReport, claudeSpeedCapability } = require("./agen
 // text. A caller must explicitly acknowledge each native permission request;
 // unknown or legacy frames fail closed.
 
+const { claudeSpeedEnvironment, grantFastCapability } = require("./claude-gateway-speed");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -512,6 +513,8 @@ function createClaudeStructuredSession({
   command,
   cwd,
   env = process.env,
+  speedEnvironment = env,
+  gatewaySpeedCapability = null,
   sessionId = null,
   name = null,
   permissionPromptTool = null,
@@ -656,6 +659,31 @@ function createClaudeStructuredSession({
   let selectedEffort = null;
   let speedReport = claudeSpeedReport();
   let speedChanging = false, speedUncertain = false, speedTimedOut = false, appliedSpeed = null;
+  let gatewayCapability = null, capabilityOriginal = null, capabilityApplied = null;
+  let speedEnv = speedEnvironment || {}, speedEnvironmentVerified = false;
+  const gatewayRead = gatewaySpeedCapability || require("./magpie-gateway-service").createMagpieGatewayService({ home: env.HOME, env }).speedCapability;
+  async function refreshGatewaySpeed() {
+    gatewayCapability = null;
+    speedEnvironmentVerified = false;
+    if (!speedEnvironment || initializationResult?.claude_code_version !== "2.1.308") return;
+    try {
+      // Native settings may override even an apparently official launch route.
+      // Read them before classifying the owner; a failed read grants nothing.
+      const settings = await requestControl("get_settings");
+      const effective = settings.response?.effective;
+      if (!plain(effective) || effective.env != null && !plain(effective.env)) throw controlError("speed_route_unverified");
+      speedEnv = claudeSpeedEnvironment({ ...speedEnvironment, ...(effective.env || {}) });
+      if (!speedEnv) throw controlError("speed_route_unverified");
+      speedEnvironmentVerified = true;
+      if (!speedEnv.ANTHROPIC_BASE_URL || /^https:\/\/api\.anthropic\.com\/?$/.test(speedEnv.ANTHROPIC_BASE_URL)) return;
+      const model = selectedModel;
+      const original = capabilityOriginal ?? speedEnv.CLAUDE_CODE_MODEL_CAPABILITIES ?? "";
+      if (grantFastCapability(original, model) === null) return;
+      gatewayCapability = await gatewayRead({ baseUrl: speedEnv.ANTHROPIC_BASE_URL, model, api: "claude-messages" });
+      if (gatewayCapability.support === "supported") gatewayCapability = { ...gatewayCapability,
+        fingerprint: JSON.stringify(["claude-2.1.308", model, gatewayCapability.fingerprint]) };
+    } catch { gatewayCapability = unknownSpeed("speed_route_unverified"); }
+  }
   let settingsTail = Promise.resolve();
   function serializeSettings(operation) {
     const next = settingsTail.catch(() => {}).then(operation);
@@ -664,13 +692,17 @@ function createClaudeStructuredSession({
   }
   function speedStatus() {
     if (speedTimedOut) return { ...claudeSpeedReport(), reason: "speed_reopen_required" };
+    if (!speedEnvironment) return { ...unknownSpeed("speed_route_unverified"), model: selectedModel };
+    if (initializationResult?.claude_code_version !== "2.1.308") return { ...unknownSpeed(), model: selectedModel };
+    if (!speedEnvironmentVerified) return { ...unknownSpeed("speed_route_unverified"), model: selectedModel };
     return claudeSpeedCapability({ report: speedReport, version: initializationResult?.claude_code_version,
-      model: catalogModelId(selectedModel) || selectedModel, models: availableModels, env });
+      model: catalogModelId(selectedModel) || selectedModel, models: availableModels, env: speedEnv, gateway: gatewayCapability });
   }
   async function applySpeed(speed, fingerprint) {
     const requested = speedValue(speed);
     if (requested === "ultrafast") throw controlError("speed_revalidation_required");
     if (speedTimedOut) throw controlError("speed_reopen_required");
+    await refreshGatewaySpeed();
     let capability = speedStatus();
     // Result metadata is optional. An automatic queued send has no browser
     // GET to refresh it: read the verified runtime before rejecting a stale
@@ -693,8 +725,24 @@ function createClaudeStructuredSession({
     speedChanging = true;
     speedUncertain = true;
     try {
-      await requestControl("apply_flag_settings", { settings: { fastMode: requested === "fast" } });
+      let settings = { fastMode: requested === "fast" };
+      if ((requested === "fast" && gatewayCapability?.support === "supported") || (requested === "standard" && capabilityApplied !== null)) {
+        const current = await requestControl("get_settings");
+        const effectiveEnv = current.response?.effective?.env || {};
+        const original = capabilityOriginal ?? effectiveEnv.CLAUDE_CODE_MODEL_CAPABILITIES ?? speedEnv.CLAUDE_CODE_MODEL_CAPABILITIES ?? "";
+        const granted = requested === "fast" ? grantFastCapability(original, selectedModel) : original;
+        if (granted === null) throw controlError("speed_revalidation_required");
+        const changedExternally = capabilityApplied !== null && effectiveEnv.CLAUDE_CODE_MODEL_CAPABILITIES !== capabilityApplied;
+        if (changedExternally && requested === "fast") throw controlError("speed_revalidation_required");
+        capabilityOriginal = original;
+        if (!changedExternally) {
+          capabilityApplied = granted;
+          settings.env = { ...effectiveEnv, CLAUDE_CODE_MODEL_CAPABILITIES: granted };
+        }
+      }
+      await requestControl("apply_flag_settings", { settings });
       const readback = await requestControl("get_settings");
+      if (settings.env && readback.response?.effective?.env?.CLAUDE_CODE_MODEL_CAPABILITIES !== capabilityApplied) throw controlError("speed_not_confirmed");
       if (readback?.response?.effective?.fastMode !== (requested === "fast")) throw controlError("speed_not_confirmed");
       // Re-initialize is a read-only handshake: unlike an ACK, it reports the
       // native on/off/cooldown state and the account/policy refusal reason.
@@ -702,16 +750,20 @@ function createClaudeStructuredSession({
       speedReport = claudeSpeedReport(observed.response);
       refreshAvailableModels(observed.response || {});
       if (requested === "standard" && speedReport.state !== "off") throw controlError("speed_not_confirmed");
-      if (requested === "fast" && speedStatus().support !== "supported") {
-        await requestControl("apply_flag_settings", { settings: { fastMode: false } });
+      if (requested === "fast" && (speedStatus().support !== "supported" || gatewayCapability?.support === "supported" && speedReport.state !== "on")) {
+        const rollbackSettings = { fastMode: false, ...(settings.env ? { env: { ...settings.env, CLAUDE_CODE_MODEL_CAPABILITIES: capabilityOriginal } } : {}) };
+        await requestControl("apply_flag_settings", { settings: rollbackSettings });
         const rollback = await requestControl("get_settings");
-        speedUncertain = rollback?.response?.effective?.fastMode !== false;
+        speedUncertain = rollback?.response?.effective?.fastMode !== false
+          || !!rollbackSettings.env && rollback.response?.effective?.env?.CLAUDE_CODE_MODEL_CAPABILITIES !== capabilityOriginal;
+        if (!speedUncertain) { capabilityApplied = null; capabilityOriginal = null; }
         appliedSpeed = speedUncertain ? null : "standard";
         const reason = speedReport.reason;
         speedReport = { ...speedReport, effective: "unknown" };
         throw controlError(reason === "speed_runtime_unverified" ? "speed_revalidation_required" : reason);
       }
       appliedSpeed = requested;
+      if (requested === "standard") { capabilityApplied = null; capabilityOriginal = null; }
       speedUncertain = false;
       return { ...speedStatus(), requested, confirmed: "setting" };
     } catch (error) {
@@ -1396,6 +1448,7 @@ function createClaudeStructuredSession({
     }
     // Preserve the latest native rows if omitted, while reloading local gateway metadata.
     refreshAvailableModels(catalogResponse);
+    await refreshGatewaySpeed();
     // The catalog's own entry for the model Claude names in full or bare.
     return { models: clone(availableModels), currentModel: catalogModelId(selectedModel) || selectedModel || null, speed: speedStatus(), ...currentEffort() };
   }
@@ -1441,6 +1494,7 @@ function createClaudeStructuredSession({
     // The level Claude now runs with can differ by model.
     await readAppliedSettings();
     if (changed) {
+      gatewayCapability = null;
       appliedSpeed = null;
       const observed = speedKnown ? await requestControl("initialize") : null;
       speedReport = claudeSpeedReport(observed?.response);
@@ -1577,7 +1631,7 @@ function createClaudeStructuredSession({
     isIdle,
     suspend: () => isIdle() ? close() : Promise.resolve(reject("claude_session_busy")),
     compact,
-    models,
+    models: () => serializeSettings(models),
     setModel: model => serializeSettings(() => setModel(model)),
     setEffort: effort => serializeSettings(() => setEffort(effort)),
     setSpeed: (speed, fingerprint) => serializeSettings(() => setSpeed(speed, fingerprint)),

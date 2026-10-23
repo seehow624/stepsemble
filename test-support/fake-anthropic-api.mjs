@@ -69,7 +69,7 @@ export async function startFakeAnthropic() {
       const last = lastUserText(body);
       const finished = toolResultOf(conversation(body).slice(-1)[0]);
       const tool = shellTool(body);
-      requests.push({ model: body.model, effort: body.output_config?.effort ?? null, thinking: body.thinking ?? null, stream: !!body.stream,
+      requests.push({ speed: body.speed ?? null, betas: req.headers["anthropic-beta"] ?? null, model: body.model, effort: body.output_config?.effort ?? null, thinking: body.thinking ?? null, stream: !!body.stream,
         marker: marker(last), last: last.slice(0, 160), texts: userTexts(body), image: hasImage(body), toolResult: !!finished,
         toolOutput: finished ? JSON.stringify(finished.content ?? "").slice(0, 400) : null,
         toolNames: (Array.isArray(body.tools) ? body.tools : []).map(item => item?.name).filter(Boolean).slice(0, 60) });

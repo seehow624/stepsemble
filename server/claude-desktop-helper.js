@@ -1,4 +1,5 @@
 "use strict";
+const { claudeSpeedEnvironment } = require("./claude-gateway-speed");
 
 // GUI-session launch broker with fixed read-only quota metadata, not a generic shell service.
 const fs = require("node:fs/promises"), path = require("node:path"), crypto = require("node:crypto");
@@ -360,7 +361,7 @@ async function createDesktopHelper({ home, configDir, claudeCommand, roots, env 
     try {
       record.socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: stepsemble-structured-v1\r\nConnection: Upgrade\r\nCache-Control: no-store\r\n\r\n`);
       record.upgraded = true;
-      await enqueueStructuredFrame(record, encodeJsonFrame(FRAME_TYPES.READY, { version: 1, structuredStreamVersion: STRUCTURED_STREAM_VERSION, pid: record.pid }));
+      await enqueueStructuredFrame(record, encodeJsonFrame(FRAME_TYPES.READY, { version: 1, structuredStreamVersion: STRUCTURED_STREAM_VERSION, pid: record.pid, speedEnvironment: claudeSpeedEnvironment(taskEnv) }));
       child.stdout.resume?.();
     } catch { await terminateStructured(record, "upgrade_write_failed"); throw failure("desktop_structured_launch_uncertain", true); }
     return record;

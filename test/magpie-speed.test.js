@@ -47,3 +47,20 @@ test("magpie-speed: separate native Codex backend contract requires both exact n
     assert.equal((await gateway.speedCapability(input)).support, "unknown"); offline = false;
   }
 });
+test("magpie-speed: translated Messages and Chat bind separate exact input routes to the same native Responses offering", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "magpie-input-")); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(home, ".config", "magpie"), { recursive: true });
+  let metadata = row;
+  const gateway = createMagpieGatewayService({ home, env: { HOME: home, PATH: "" }, fetchImpl: async () => new Response(JSON.stringify({ data: [metadata] })) });
+  const prints = new Set();
+  for (const api of ["openai-responses", "openai-completions", "anthropic-messages", "claude-messages"]) {
+    const messages = api.endsWith("messages"), input = { api, baseUrl: gateway.origin + (messages ? "" : "/v1"), model: row.id };
+    const cap = await gateway.speedCapability(input); assert.equal(cap.support, "supported", api); prints.add(cap.fingerprint);
+    assert.equal((await gateway.speedCapability({ ...input, baseUrl: gateway.origin + (messages ? "/v1" : "/") })).support, "unknown");
+    for (const change of [{ owned_by: "claude" }, { native_endpoints: ["/v1/messages"] }, { service_tiers: [] }, { id: "group/fixture" }]) {
+      metadata = { ...row, ...change }; assert.equal((await gateway.speedCapability(input)).support, "unknown");
+    }
+    metadata = row;
+  }
+  assert.equal(prints.size, 4, "no confirmation crosses a client protocol boundary");
+});

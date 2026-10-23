@@ -26,7 +26,11 @@ export function installPiSpeed(pi, { capability } = {}) {
       let input;
       try { input = JSON.parse(args); } catch { return; }
       if (!/^[a-zA-Z0-9-]{1,80}$/.test(input.nonce || "") || !["get", "set"].includes(input.action)) return;
-      const current = identity(ctx.model), cap = await read(ctx.model);
+      const sessionId = ctx.sessionManager.getSessionId?.();
+      const current = identity(ctx.model), cap = typeof ctx.abort === "function" ? await read(ctx.model) : unknownSpeed("speed_runtime_unverified");
+      if (input.expectedSessionId !== undefined && (sessionId !== input.expectedSessionId || ctx.sessionManager.getSessionId?.() !== sessionId)) {
+        append({ nonce: input.nonce, ok: false, reason: "speed_revalidation_required" }); return;
+      }
       if (state.identity !== current) state = { requested: "standard", identity: current, fingerprint: null };
       if (input.action === "set") {
         let requested;
@@ -41,15 +45,30 @@ export function installPiSpeed(pi, { capability } = {}) {
   pi.on("before_provider_request", async (event, ctx) => {
     const payload = event.payload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
-    // Only the selected, exact Responses model on the identified Magpie route.
+    // Only the selected, exact model on an identified Magpie input route.
     // Never attach a paid parameter to a virtual model or another provider.
     let cap;
     try { cap = await read(ctx.model); } catch { cap = unknownSpeed("speed_route_unverified"); }
     const owned = state.identity === identity(ctx.model);
     if (cap.support !== "supported" && !(owned && state.requested === "fast")) return;
     const next = { ...payload };
-    delete next.service_tier;
-    if (owned && state.requested === "fast" && cap.support === "supported" && cap.fingerprint === state.fingerprint && payload.model === ctx.model?.id) next.service_tier = cap.tier;
+    const fast = owned && state.requested === "fast" && cap.support === "supported" && cap.fingerprint === state.fingerprint && payload.model === ctx.model?.id;
+    if (owned && state.requested === "fast" && !fast) {
+      // Pi catches hook errors and continues. Abort its operation instead;
+      // the provider SDK receives the aborted signal before network dispatch.
+      ctx.abort?.();
+      append({ ...state, ok: false, reason: "speed_revalidation_required" });
+    }
+    if (ctx.model?.api === "anthropic-messages") {
+      delete next.speed;
+      const beta = "fast-mode-2026-02-01";
+      const betas = (Array.isArray(payload.betas) ? payload.betas : []).filter(value => value !== beta);
+      if (fast) { next.speed = "fast"; betas.push(beta); }
+      if (betas.length) next.betas = betas; else delete next.betas;
+    } else {
+      delete next.service_tier;
+      if (fast) next.service_tier = cap.tier;
+    }
     return next;
   });
 }

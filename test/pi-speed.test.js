@@ -8,10 +8,10 @@ const catalogPath = path.resolve(__dirname, "../server/pi-catalog-extension.mjs"
 async function fixture({ file = null, seed = [] } = {}) {
   const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
   const entries = [], hooks = {}, commands = {}, calls = [];
-  let leafId = null, streaming = false;
+  let leafId = null, streaming = false, nativeSessionId = "native-pi-session";
   const model = { provider: "magpie", api: "openai-responses", baseUrl: "http://127.0.0.1:3425/v1", id: "codex/gpt-6.1-sol" };
   const cap = { support: "supported", choices: ["standard", "fast"], effective: "unknown", model: model.id, tier: "priority", route: "magpie", fingerprint: "verified-magpie-model" };
-  const ctx = { model, isIdle: () => !streaming, sessionManager: { getBranch: () => entries } };
+  const ctx = { model, abort: () => {}, isIdle: () => !streaming, sessionManager: { getBranch: () => entries, getSessionId: () => nativeSessionId } };
   const pi = { on: (name, fn) => { hooks[name] = fn; }, registerCommand: (name, spec) => { commands[name] = spec.handler; },
     appendEntry: (customType, data) => { const id = "entry-" + entries.length; const entry = { type: "custom", customType, data, id, parentId: leafId };
       entries.push(entry); leafId = id; if (file) fs.appendFileSync(file, JSON.stringify(entry) + "\n"); } };
@@ -25,7 +25,8 @@ async function fixture({ file = null, seed = [] } = {}) {
       { name: "stepsemble-speed", source: "extension", sourceInfo: { path: control.wrongPath ? "/other/plugin.mjs" : extensionPath } },
       { name: "stepsemble-refresh-models", source: control.catalogSource || "extension", sourceInfo: { path: control.wrongCatalogPath ? "/other/plugin.mjs" : catalogPath } },
     ] } };
-    if (cmd.type === "get_state") return { success: true, data: { sessionId: "native-pi-session", isStreaming: streaming, model: ctx.model, ...(file ? { sessionFile: file } : {}) } };
+    if (cmd.type === "switch_session") { nativeSessionId = cmd.sessionPath; hooks.session_start({}, ctx); return { success: true }; }
+    if (cmd.type === "get_state") return { success: true, data: { sessionId: nativeSessionId, isStreaming: streaming, model: ctx.model, ...(file ? { sessionFile: file } : {}) } };
     if (cmd.type === "get_entries") {
       const at = cmd.since === undefined ? -1 : entries.findIndex(entry => entry.id === cmd.since);
       if (cmd.since !== undefined && (at < 0 || control.unknownCursor)) return { success: false, error: "unknown entry" };
@@ -41,6 +42,51 @@ async function fixture({ file = null, seed = [] } = {}) {
   const host = createPiSpeed({ command });
   return { host, cap, calls, hooks, ctx, control, entries, pi, read, setStreaming: value => { streaming = value; } };
 }
+test("pi-speed: chooser binds apply and rollback to the durable session observed before a queued switch", async () => {
+  const { createAgentChoiceStore } = require("../server/agent-choice-store");
+  const { createAgentSpeedRoutes } = require("../server/agent-speed-routes");
+  for (const rollback of [false, true]) {
+    const f = await fixture(), store = createAgentChoiceStore();
+    let statuses = 0, switching;
+    const piSpeed = {
+      status: sid => {
+        const pending = f.host.status(sid);
+        if (++statuses === 3 && !rollback) switching = f.host.command(sid, { type: "switch_session", sessionPath: "native-pi-other" });
+        return pending;
+      },
+      setSpeed: async (...args) => {
+        const result = await f.host.setSpeed(...args);
+        if (rollback && args[1] === "fast") await f.host.command(args[0], { type: "switch_session", sessionPath: "native-pi-other" });
+        return result;
+      },
+    };
+    const choices = { session: (...args) => store.session(...args), record: (...args) => rollback ? false : store.record(...args) };
+    const route = createAgentSpeedRoutes({ choices, piSpeed, readJSON: async req => req.body, sendJSON: (res, status, data) => Object.assign(res, { status, data }) });
+    const fields = { agentId: "pi", sessionId: "alias", model: f.ctx.model.id }, url = new URL("http://test/api/agent-speed?" + new URLSearchParams(fields));
+    const first = {}, result = {}; await route({ method: "GET" }, first, url);
+    await route({ method: "POST", body: { ...fields, speed: "fast", confirmCost: true, fingerprint: first.data.fingerprint, revision: first.data.revision } }, result, url);
+    await switching;
+    assert.equal(result.status, rollback ? 503 : 409);
+    const sets = f.calls.filter(cmd => cmd.type === "prompt" && cmd.message.startsWith("/stepsemble-speed ") && JSON.parse(cmd.message.slice("/stepsemble-speed ".length)).action === "set");
+    assert.equal(sets.length, rollback ? 1 : 0, "neither Fast nor rollback Standard can mutate the replacement conversation");
+    assert.equal(store.session("pi", "native-pi-session"), null); assert.equal(store.session("pi", "native-pi-other"), null);
+  }
+});
+test("pi-speed: the owned extension refuses a session switched during fresh offering discovery", async () => {
+  const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  let nativeSessionId = "native-a", release, started;
+  const entered = new Promise(resolve => { started = resolve; }), wait = new Promise(resolve => { release = resolve; });
+  const commands = {}, receipts = [];
+  const cap = { support: "supported", fingerprint: "same-route" };
+  const ctx = { model: { provider: "magpie", id: "codex/fixture" }, abort() {}, isIdle: () => true,
+    sessionManager: { getSessionId: () => nativeSessionId, getBranch: () => [] } };
+  installPiSpeed({ on() {}, registerCommand: (name, spec) => { commands[name] = spec.handler; }, appendEntry: (_type, data) => receipts.push(data) },
+    { capability: () => { started(); return wait; } });
+  const pending = commands["stepsemble-speed"](JSON.stringify({ action: "set", speed: "fast", fingerprint: cap.fingerprint, nonce: "owner-race", expectedSessionId: "native-a" }), ctx);
+  await entered; nativeSessionId = "native-b"; release(cap); await pending;
+  assert.equal(receipts.at(-1).ok, false); assert.equal(receipts.at(-1).reason, "speed_revalidation_required");
+  assert.equal(receipts.some(row => row.requested === "fast"), false);
+});
 test("pi-speed: Ultra is refused by Host and owned extension without sending or changing state", async () => {
   const f = await fixture(); await f.host.status("sid"); const before = f.calls.length;
   await assert.rejects(f.host.setSpeed("sid", "ultrafast", "forged"), /speed_revalidation_required/);
@@ -174,7 +220,7 @@ test("pi-speed: direct native Codex provider remains explicitly unverified, neve
   const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
   const hooks = {}, commands = {}, receipts = [];
   const ctx = { model: { provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", id: "gpt-6.1-sol" },
-    isIdle: () => true, sessionManager: { getBranch: () => [] } };
+    abort: () => {}, isIdle: () => true, sessionManager: { getBranch: () => [] } };
   installPiSpeed({ on: (name, fn) => { hooks[name] = fn; }, registerCommand: (name, spec) => { commands[name] = spec.handler; }, appendEntry: (_type, data) => receipts.push(data) });
   hooks.session_start({}, ctx);
   await commands["stepsemble-speed"](JSON.stringify({ action: "get", nonce: "native-contract-test" }), ctx);
@@ -183,4 +229,29 @@ test("pi-speed: direct native Codex provider remains explicitly unverified, neve
   const payload = { model: ctx.model.id, reasoning: { effort: "high" }, input: [] };
   assert.equal(await hooks.before_provider_request({ payload }, ctx), undefined);
   assert.equal(payload.service_tier, undefined);
+});
+test("pi-speed: Messages clears only Fast fields and preserves unrelated betas; revocation aborts the request", async () => {
+  const f = await fixture();
+  f.ctx.model = { ...f.ctx.model, api: "anthropic-messages", baseUrl: "http://127.0.0.1:3425" };
+  let aborted = false; f.ctx.abort = () => { aborted = true; };
+  await f.host.setSpeed("sid", "fast", f.cap.fingerprint);
+  const payload = { model: f.ctx.model.id, speed: "fast", betas: ["other-beta", "fast-mode-2026-02-01"], thinking: { type: "enabled", budget_tokens: 1024 } };
+  const fast = await f.hooks.before_provider_request({ payload }, f.ctx);
+  assert.equal(fast.speed, "fast"); assert.deepEqual(fast.betas, payload.betas); assert.deepEqual(fast.thinking, payload.thinking);
+  f.cap.support = "unknown";
+  const revoked = await f.hooks.before_provider_request({ payload }, f.ctx);
+  assert.equal(aborted, true); assert.equal(revoked.speed, undefined); assert.deepEqual(revoked.betas, ["other-beta"]);
+  assert.equal(f.entries.at(-1).data.ok, false);
+  f.cap.support = "supported"; await f.host.setSpeed("sid", "standard");
+  const standard = await f.hooks.before_provider_request({ payload }, f.ctx);
+  assert.equal(standard.speed, undefined); assert.deepEqual(standard.betas, ["other-beta"]); assert.deepEqual(standard.thinking, payload.thinking);
+});
+test("pi-speed: Chat uses service_tier and explicit Standard cleanup without changing reasoning", async () => {
+  const f = await fixture(); f.ctx.model = { ...f.ctx.model, api: "openai-completions" };
+  await f.host.setSpeed("sid", "fast", f.cap.fingerprint);
+  const payload = { model: f.ctx.model.id, reasoning_effort: "high", messages: [] };
+  assert.equal((await f.hooks.before_provider_request({ payload }, f.ctx)).service_tier, "priority");
+  await f.host.setSpeed("sid", "standard");
+  const standard = await f.hooks.before_provider_request({ payload: { ...payload, service_tier: "priority" } }, f.ctx);
+  assert.equal(standard.service_tier, undefined); assert.equal(standard.reasoning_effort, "high");
 });
