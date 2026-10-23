@@ -66,11 +66,12 @@ export async function runBackgroundWorkBrowserCases(browser, { screenshots } = {
         });
       const waiting = await ui.evaluate(() => {
         const head = document.querySelector("#messages .wl-head.wl-waiting");
-        return { label: head.querySelector(".wl-head-label").textContent, title: head.title, stop: !document.querySelector("#btn-abort")?.classList.contains("hidden"),
+        return { label: head.querySelector(".wl-head-label").textContent, title: head.getAttribute("title"), description: head.getAttribute("aria-description"), stop: !document.querySelector("#btn-abort")?.classList.contains("hidden"),
           pulse: !!document.querySelector("#messages .wl-pulse"), status: rpc.taskStatus };
       });
       assert.match(waiting.label, /^Working for \d+s$/, "the line keeps counting: " + JSON.stringify(waiting));
-      assert.equal(waiting.title, "Subagent: Watch the release build\nMonitor: Follow the deploy log");
+      assert.equal(waiting.title, null, "background summaries do not show verbose native hover text");
+      assert.equal(waiting.description, "Subagent: Watch the release build\nMonitor: Follow the deploy log", "complete task names remain available as accessible metadata");
       assert.equal(waiting.stop, true, "the composer still offers Stop");
       assert.equal(waiting.pulse, false, "nothing claims Claude is thinking meanwhile");
       assert.equal(waiting.status, "running");
