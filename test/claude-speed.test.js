@@ -277,3 +277,15 @@ test("claude-magpie: Standard clears the flag while preserving capabilities chan
   const oldHelper = fixture(t, { speedEnvironment: null });
   assert.equal((await oldHelper.session.models()).speed.support, "unknown", "even a native-capable row cannot borrow an unreported desktop route");
 });
+
+test("claude-magpie: a missing desktop receipt defers Fast while Standard remains usable", async t => {
+  let gatewayReads = 0;
+  const f = await magpieFixture(t, { speedEnvironment: null, gatewaySpeedCapability: async () => { gatewayReads++; assert.fail("missing receipt cannot authorize a gateway probe"); } });
+  const cap = (await f.session.models()).speed;
+  assert.equal(cap.support, "unknown");
+  await assert.rejects(f.session.setSpeed("fast", cap.fingerprint), /speed_revalidation_required/);
+  assert.equal((await f.session.send("ordinary message", { speed: "standard" })).kind, "sent");
+  assert.equal(gatewayReads, 0);
+  assert.equal(f.frames.some(frame => frame.request?.settings?.fastMode === true), false);
+  assert.equal(f.frames.filter(frame => frame.type === "user").length, 1);
+});

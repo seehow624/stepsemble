@@ -314,13 +314,14 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
   let featureCheck = null;
   async function helperFeatures() {
     if (featureCheck && Date.now() - featureCheck.at < 30000) return featureCheck.value;
-    let value = { terminal: false, bypass: false, fork: false, pinned: false, capacity: false, quota: false };
+    let value = { terminal: false, bypass: false, fork: false, pinned: false, capacity: false, quota: false, speedEnvironment: false };
     try {
       const health = await call("health");
       const aqua = health?.context === "Aqua";
       value = { terminal: aqua && health.terminalVersion === 1, bypass: aqua && health.bypassVersion === 1, fork: aqua && health.forkVersion === 1,
         pinned: aqua && health.pinnedVersion === 1, capacity: aqua && health.capacityVersion === 1,
-        quota: aqua && health.version === 1 && UUID.test(health.instance) && health.quotaVersion === 1 };
+        quota: aqua && health.version === 1 && UUID.test(health.instance) && health.quotaVersion === 1,
+        speedEnvironment: aqua && health.version === 1 && UUID.test(health.instance) && health.speedEnvironmentVersion === 1 };
     } catch {}
     featureCheck = { at: Date.now(), value };
     return value;
@@ -333,6 +334,8 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
   // Whether eight Claude conversations can work at once (capacityVersion).
   async function capacitySupported() { return (await helperFeatures()).capacity; }
   async function quotaSupported() { return (await helperFeatures()).quota; }
+  // Upgrade discovery only; Fast still requires the individual child's READY receipt.
+  async function speedEnvironmentSupported() { return (await helperFeatures()).speedEnvironment; }
   async function quota() {
     if (!await quotaSupported()) return { quotaVersion: 1, status: "unsupported", sampledAt: null, accountKey: null, windows: [] };
     try { return sanitizeClaudeQuota(await call("quota")) || { quotaVersion: 1, status: "unavailable", sampledAt: null, accountKey: null, windows: [] }; }
@@ -360,7 +363,7 @@ function createDesktopClaudeClient({ configDir, timeoutMs = 45000, hasActiveTask
   return Object.freeze({ status, health: () => call("health"), prepare: () => authAction("prepare"), start: id => authAction("start", id), cancel: id => authAction("cancel", id), launchTask,
     launchStructured,
     prepareUpgrade, cancelUpgrade,
-    terminalSupported, bypassSupported, forkSupported, pinnedSupported, capacitySupported, quotaSupported, quota, terminalStart, terminalRead, terminalInput, terminalCancel,
+    terminalSupported, bypassSupported, forkSupported, pinnedSupported, capacitySupported, quotaSupported, speedEnvironmentSupported, quota, terminalStart, terminalRead, terminalInput, terminalCancel,
     resetTerminalCheck: () => { featureCheck = null; },
     snapshot: () => cached || offline(), isBusy: () => ["prepared", "starting", "waiting", "verifying", "cancelling"].includes(cached?.login?.state),
     close() { closed = true; for (const req of requests) req.destroy(); for (const socket of upgradedSockets) { try { socket.destroy(); } catch {} } } });
