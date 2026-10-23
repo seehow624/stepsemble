@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.9.49
+
+- Use Fast in Pi with its own ChatGPT sign-in on supported GPT models. Pi's own account and model offering decide availability, and your selected model, reasoning effort and sign-in stay unchanged. Ultra Fast is not offered for this connection.
+- Choose Fast or Ultra Fast with lightning buttons beside the thinking level. Only speeds the connection verifies appear; select the active one again to return to Standard.
+- Tool and activity summaries no longer show long hover text. Their details stay one click away, and useful hints such as Claude quota remain.
+- Keep the full thinking level and its value readable on narrow phones and with large text.
+- Upgrade older Claude Code background helpers that could not report Fast support, so Fast appears wherever the connection supports it.
+- See the subagents a Pi codemode script starts, both live and after reopening the conversation.
+- Requested Fast does not guarantee served speed or billing.
+
 ## 3.9.48
 
 - Use Fast with supported GPT models in Claude Code through Magpie while keeping your selected model and reasoning effort.
