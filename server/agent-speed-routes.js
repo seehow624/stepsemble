@@ -18,6 +18,7 @@ function createAgentSpeedRoutes({ codex, ensureCodex, choices, readJSON, sendJSO
         const resolved = resolveClaude(sessionId);
         if (resolved) capability = { ...((await resolved.session.models()).speed || unknownSpeed()),
           nativeSessionId: resolved.session.status()?.nativeSessionId || sessionId };
+        else capability = unknownSpeed("speed_runtime_inactive");
       } else if (agentId === "pi" && piSpeed) capability = await piSpeed.status(sessionId);
       const storageId = ["pi", "claude-code"].includes(agentId) ? capability.nativeSessionId || sessionId : sessionId;
       let choice = choices.session(agentId, storageId) || {};

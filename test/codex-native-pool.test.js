@@ -822,3 +822,15 @@ test("a thread's app-server waits until it has been quiet for the release window
   await timers.run();
   assert.equal(pool.status().childCount, 1, "the turn that started again keeps its app-server");
 });
+
+test("pool speed: cold persisted thread uses read-only thread-scoped history evidence without acquiring an owner", async t => {
+  const history = historyFixture(), harness = childFactoryHarness(), seen = [];
+  history.speedStatusForThread = async (id, model) => { seen.push([id, model]); return { support: id === "thread-a" ? "supported" : "unknown", effective: "unknown" }; };
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pool-speed-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pool = createCodexNativePool({ historyAdapter: history, createThreadAdapter: harness.factory, journalRoot: root }); t.after(() => pool.close());
+  assert.equal((await pool.speedStatus("thread-a", "m")).support, "supported");
+  assert.equal((await pool.speedStatus("thread-missing", "m")).support, "unknown");
+  assert.deepEqual(seen, [["thread-a", "m"], ["thread-missing", "m"]]);
+  assert.equal(harness.created.length, 0); assert.equal(harness.calls.length, 0);
+});

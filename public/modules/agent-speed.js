@@ -21,88 +21,129 @@
     unverified: ["This connection has not verified speed control. Existing agent settings may still apply.", "此连接尚未验证速度控制，Agent 原有设置可能仍适用。", "此連線尚未驗證速度控制，Agent 原有設定可能仍適用。", "この接続の速度制御は未確認です。既存の設定が適用される場合があります。", "이 연결의 속도 제어는 확인되지 않았습니다. 기존 설정이 적용될 수 있습니다.", "Bu bağlantının hız kontrolü doğrulanmadı. Mevcut ayarlar geçerli olabilir.", "Le contrôle de vitesse n’est pas vérifié. Les réglages existants peuvent s’appliquer.", "Die Geschwindigkeitssteuerung ist nicht bestätigt. Bestehende Einstellungen können gelten.", "El control de velocidad no está verificado. Pueden aplicarse los ajustes existentes.", "O controle de velocidade não foi verificado. As configurações existentes podem valer.", "Il controllo della velocità non è verificato. Le impostazioni esistenti possono applicarsi."],
     next: ["Preference for the next message. Provider speed is not confirmed; queued messages keep their own choice.", "下条消息的偏好。供应商实际速度尚未确认；排队消息保留各自选择。", "下則訊息的偏好。供應商實際速度尚未確認；排隊訊息保留各自選擇。", "次のメッセージの設定です。実際の速度は未確認です。待機中のメッセージは各設定を保持します。", "다음 메시지의 설정입니다. 실제 속도는 확인되지 않았으며 대기 메시지는 각 설정을 유지합니다.", "Sonraki mesajın tercihi. Sağlayıcı hızı doğrulanmadı; kuyruktaki mesajlar seçimlerini korur.", "Préférence du prochain message. Vitesse réelle non confirmée ; les messages en attente gardent leur choix.", "Wunsch für die nächste Nachricht. Tatsächliche Geschwindigkeit unbestätigt; wartende Nachrichten behalten ihre Wahl.", "Preferencia del próximo mensaje. Velocidad real sin confirmar; los mensajes en cola conservan su elección.", "Preferência da próxima mensagem. Velocidade real não confirmada; mensagens na fila mantêm sua escolha.", "Preferenza per il prossimo messaggio. Velocità effettiva non confermata; i messaggi in coda mantengono la scelta."],
     confirm: ["Enable Fast for this conversation? It may cost more. Reasoning stays unchanged.", "为此对话启用 Fast？可能产生额外费用，思考强度不变。", "為此對話啟用 Fast？可能產生額外費用，思考強度不變。", "この会話で Fast を有効にしますか？追加料金がかかる場合があります。推論強度は変わりません。", "이 대화에서 Fast를 켤까요? 추가 비용이 발생할 수 있으며 추론 강도는 바뀌지 않습니다.", "Bu sohbette Fast açılsın mı? Ek ücret olabilir. Akıl yürütme değişmez.", "Activer Fast pour cette conversation ? Des frais supplémentaires sont possibles. Le raisonnement reste inchangé.", "Fast für diese Unterhaltung aktivieren? Zusätzliche Kosten sind möglich. Die Denkleistung bleibt unverändert.", "¿Activar Fast para esta conversación? Puede costar más. El razonamiento no cambia.", "Ativar Fast nesta conversa? Pode custar mais. O raciocínio não muda.", "Attivare Fast per questa conversazione? Potrebbe costare di più. Il ragionamento non cambia."],
-    failed: ["Speed was not saved. Reloaded the Host’s preference.", "速度未保存，已重新读取 Host 偏好。", "速度未儲存，已重新讀取 Host 偏好。", "速度を保存できませんでした。Host の設定を再読込しました。", "속도를 저장하지 못했습니다. Host 설정을 다시 읽었습니다.", "Hız kaydedilmedi. Host tercihi yeniden okundu.", "Vitesse non enregistrée. Préférence de l’hôte rechargée.", "Geschwindigkeit nicht gespeichert. Host-Einstellung neu geladen.", "Velocidad no guardada. Preferencia del Host recargada.", "Velocidade não salva. Preferência do Host recarregada.", "Velocità non salvata. Preferenza dell’Host ricaricata."]
+    failed: ["Speed was not saved. Rechecking the Host’s preference.", "速度未保存，正在重新读取 Host 偏好。", "速度未儲存，正在重新讀取 Host 偏好。", "速度を保存できませんでした。Host の設定を再確認します。", "속도를 저장하지 못했습니다. Host 설정을 다시 확인합니다.", "Hız kaydedilmedi. Host tercihi yeniden kontrol ediliyor.", "Vitesse non enregistrée. Vérification de la préférence de l’hôte.", "Geschwindigkeit nicht gespeichert. Host-Einstellung wird erneut geprüft.", "Velocidad no guardada. Comprobando la preferencia del Host.", "Velocidade não salva. Verificando a preferência do Host.", "Velocità non salvata. Verifica della preferenza dell’Host."]
   };
+  // Safe categories only: never echo runtime messages, provider URLs or credentials.
+  const reasonCopy = {
+    route: ["Native route contract is unverified.", "原生路由协议尚未验证。", "原生路由協議尚未驗證。", "ネイティブルートの契約は未確認です。", "네이티브 경로 계약이 확인되지 않았습니다.", "Yerel rota sözleşmesi doğrulanmadı.", "Contrat de route native non vérifié.", "Nativer Routenvertrag nicht bestätigt.", "Contrato de ruta nativa sin verificar.", "Contrato da rota nativa não verificado.", "Contratto della rotta nativa non verificato."],
+    model: ["This model has no verified Fast offering in the native catalog.", "原生目录尚未确认此模型提供 Fast。", "原生目錄尚未確認此模型提供 Fast。", "ネイティブカタログでこのモデルの Fast は未確認です。", "네이티브 목록에서 이 모델의 Fast가 확인되지 않았습니다.", "Yerel katalogda bu model için Fast doğrulanmadı.", "Fast non vérifié pour ce modèle dans le catalogue natif.", "Fast für dieses Modell im nativen Katalog nicht bestätigt.", "Fast sin verificar para este modelo en el catálogo nativo.", "Fast não verificado para este modelo no catálogo nativo.", "Fast non verificato per questo modello nel catalogo nativo."],
+    refused: ["The native runtime reports Fast is blocked by its account or usage policy.", "原生运行时报告账户或用量策略阻止 Fast。", "原生執行環境回報帳戶或用量政策阻止 Fast。", "アカウントまたは使用ポリシーにより Fast が拒否されています。", "계정 또는 사용 정책으로 Fast가 차단되었습니다.", "Yerel çalışma zamanı hesap veya kullanım ilkesi nedeniyle Fast'i engelliyor.", "Le runtime natif bloque Fast selon sa politique de compte ou d’usage.", "Die native Laufzeit blockiert Fast wegen Konto- oder Nutzungsrichtlinien.", "El runtime nativo bloquea Fast por su política de cuenta o uso.", "O runtime nativo bloqueia Fast por política de conta ou uso.", "Il runtime nativo blocca Fast per criteri di account o utilizzo."],
+    loadFailed: ["Speed could not be verified. Reopen the model chooser to retry.", "无法验证速度，请重新打开模型选择器重试。", "無法驗證速度，請重新開啟模型選擇器重試。", "速度を確認できません。モデル選択を開き直してください。", "속도를 확인하지 못했습니다. 모델 선택기를 다시 여세요.", "Hız doğrulanamadı. Yeniden denemek için model seçiciyi açın.", "Vitesse non vérifiée. Rouvrez le sélecteur de modèle pour réessayer.", "Geschwindigkeit nicht bestätigt. Modellauswahl zum Wiederholen öffnen.", "No se pudo verificar la velocidad. Reabre el selector de modelo.", "Não foi possível verificar a velocidade. Reabra o seletor de modelo.", "Velocità non verificata. Riapri il selettore del modello."],
+    inactive: ["The owning runtime is inactive or its conversation identity could not be verified.", "所属运行时未激活或无法验证对话身份。", "所屬執行環境未啟用或無法驗證對話身分。", "実行環境が未起動か会話の識別を確認できません。", "런타임이 비활성 상태이거나 대화 신원을 확인하지 못했습니다.", "Çalışma zamanı etkin değil veya sohbet kimliği doğrulanamadı.", "Runtime inactif ou identité de conversation non vérifiée.", "Laufzeit inaktiv oder Unterhaltungsidentität nicht bestätigt.", "Runtime inactivo o identidad de conversación sin verificar.", "Runtime inativo ou identidade da conversa não verificada.", "Runtime inattivo o identità della conversazione non verificata."],
+    requested: ["Fast requested", "已请求 Fast", "已請求 Fast", "Fast を要求", "Fast 요청됨", "Fast istendi", "Fast demandé", "Fast angefordert", "Fast solicitado", "Fast solicitado", "Fast richiesto"]
+  };
+  Object.assign(copy, reasonCopy);
   const t = (key, locale = "en") => copy[key]?.[Math.max(0, locales.indexOf(locale))] || key;
-  function create({ root, chip, context, get, post, locale = () => "en", confirm = text => window.confirm(text), onError = () => {} }) {
-    let key = null, state = null, generation = 0, pending = null, saving = null;
+  function reasonLabel(state) {
+    if (state?.support === "supported") return "next";
+    const reason = state?.reason || "";
+    if (reason === "speed_load_failed") return "loadFailed";
+    if (reason === "speed_reopen_required") return "reopen";
+    if (/inactive|thread_identity/.test(reason)) return "inactive";
+    if (/route|contract|gateway/.test(reason)) return "route";
+    if (/model|catalog|not_offered/.test(reason)) return "model";
+    if (state?.support === "unavailable") return "refused";
+    return "unverified";
+  }
+  function create({ root, indicator, button, description, context, get, post, locale = () => "en", confirm = text => window.confirm(text), onError = () => {} }) {
+    let key = null, state = null, generation = 0, pending = null, pendingKey = null, saving = null, savingKey = null;
     const label = document.createElement("label"), select = document.createElement("select"), note = document.createElement("p");
     label.htmlFor = "agent-speed-select"; select.id = "agent-speed-select";
     note.id = "agent-speed-note"; note.setAttribute("role", "status");
     select.setAttribute("aria-describedby", note.id);
     for (const value of ["standard", "fast"]) { const option = document.createElement("option"); option.value = value; select.append(option); }
     root.append(label, select, note);
-    function render() {
-      const language = locale();
+    function render({ committed = false } = {}) {
+      const language = locale(), current = (context()?.key || null) === key;
+      const shown = current ? state : null;
       label.textContent = t("title", language);
       for (const option of select.options) {
         const text = t(option.value, language);
         if (option.textContent !== text) option.textContent = text;
-        option.disabled = option.value === "fast" && state?.support !== "supported";
+        const disabled = option.value === "fast" && shown?.support !== "supported";
+        if (option.disabled !== disabled) option.disabled = disabled;
       }
-      select.value = state?.requested || "standard";
-      select.disabled = !!pending || state?.support !== "supported" && !state?.controlVerified && state?.requested !== "fast";
-      const effective = ["standard", "fast", "cooldown"].includes(state?.effective) ? state.effective : "unknown";
-      note.textContent = t(state?.reason === "speed_reopen_required" ? "reopen" : state?.support === "supported" ? "next" : state?.support === "unavailable" ? "blocked" : "unverified", language)
+      const value = shown?.requested || "standard";
+      if (select.value !== value && (committed || document.activeElement !== select || saving && savingKey === key || shown?.support !== "supported")) select.value = value;
+      // A background GET must not close a native picker on window focus.
+      // POST still revalidates the cached revision, fingerprint and support.
+      const disabled = !!saving && savingKey === key || shown?.support !== "supported" && !shown?.controlVerified && shown?.requested !== "fast";
+      if (select.disabled !== disabled) select.disabled = disabled;
+      const effective = ["standard", "fast", "cooldown"].includes(shown?.effective) ? shown.effective : "unknown";
+      note.textContent = (shown?.support === "supported" ? "" : t(shown?.support === "unavailable" ? "unavailable" : "unknown", language) + " · ")
+        + t(reasonLabel(shown), language)
         + " · " + t("effective", language) + ": " + t(effective, language)
-        + (state?.route === "magpie" ? " · " + t("gateway", language) : "");
-      const status = state?.support === "supported" ? t(state.requested, language) : t(state?.support === "unavailable" ? "unavailable" : "unknown", language);
-      if (chip) {
-        const text = t("title", language) + ": " + status;
-        if (chip.textContent !== text) chip.textContent = text;
-        chip.title = note.textContent;
-        chip.disabled = !context();
-      }
+        + (shown?.route === "magpie" ? " · " + t("gateway", language) : "");
+      const fast = shown?.requested === "fast";
+      if (indicator) indicator.toggleAttribute("hidden", !fast);
+      const details = t("title", language) + (fast ? ": " + t("requested", language) : "") + ". " + note.textContent;
+      if (description) description.textContent = details;
+      if (button) button.title = [button.getAttribute("aria-label"), details].filter(Boolean).join(". ");
     }
-    async function refresh() {
-      const target = context();
-      if (saving && target?.key === key) return saving;
+    async function refresh({ afterPending = false } = {}) {
+      const target = context(), targetKey = target?.key || null;
+      if (saving && targetKey === savingKey) return saving;
+      if (pending && targetKey === pendingKey && targetKey === key) {
+        if (!afterPending) return pending;
+        await pending;
+        if ((context()?.key || null) === targetKey) return refresh();
+        return;
+      }
       const current = ++generation;
-      if (key !== (target?.key || null)) state = null;
-      key = target?.key || null;
+      if (key !== targetKey) state = null;
+      key = targetKey;
       const promise = (async () => {
         if (target) {
           const { key: ignored, ...params } = target;
           try {
             const result = await get("/api/agent-speed?" + new URLSearchParams(params));
-            if (current === generation && context()?.key === key) state = result;
-          } catch { if (current === generation) state = null; }
+            if (current === generation && context()?.key === targetKey) state = result;
+          } catch {
+            if (current === generation && context()?.key === targetKey) {
+              state = { requested: state?.requested || "standard", support: "unknown", effective: "unknown", reason: "speed_load_failed", revision: state?.revision };
+              onError(t("loadFailed", locale()));
+            }
+          }
         }
       })();
-      pending = promise; render();
+      pending = promise; pendingKey = targetKey; render();
       await promise;
-      if (current === generation) { pending = null; render(); }
+      if (pending === promise) { pending = null; pendingKey = null; }
+      if (current === generation) render();
     }
     function sync() {
       if ((context()?.key || null) !== key) return refresh();
       render();
     }
+    select.addEventListener("blur", () => { if (!saving || savingKey !== key) render({ committed: true }); });
     select.addEventListener("change", async () => {
       const speed = select.value, target = context(), previous = state;
-      if (!target || !previous || pending) return;
-      if (speed === "fast" && !await confirm(t("confirm", locale()) + "\n\n" + t("subagents", locale()))) { render(); return; }
-      if (context()?.key !== target.key) return;
+      if (!target || target.key !== key || !previous || saving && savingKey === target.key || speed === "fast" && previous.support !== "supported") { render(); return; }
+      // Lock before confirmation: dismissing a native dialog may fire focus.
       const current = ++generation;
       let failed = false;
-      const operation = (async () => {
+      const operation = Promise.resolve().then(async () => {
+        if (speed === "fast" && !await confirm(t("confirm", locale()) + "\n\n" + t("subagents", locale()))) return;
+        if (current !== generation || context()?.key !== target.key) return;
         try {
           const { key: ignored, ...params } = target;
           const result = await post("/api/agent-speed", { ...params, speed, confirmCost: speed === "fast", revision: previous.revision, fingerprint: previous.fingerprint });
           if (current === generation && context()?.key === target.key) state = result;
         } catch {
-          if (current === generation) { failed = true; onError(t("failed", locale())); }
+          if (current === generation && context()?.key === target.key) { failed = true; onError(t("failed", locale())); }
         }
-      })();
-      saving = operation; pending = operation; render();
+      });
+      saving = operation; savingKey = target.key; render();
       await operation;
-      if (saving === operation) saving = null;
+      if (saving === operation) { saving = null; savingKey = null; }
       if (current === generation) {
-        pending = null;
-        if (failed) await refresh(); else render();
+        // A GET started before this save must not undo the new preference.
+        pending = null; pendingKey = null;
+        if (failed) await refresh(); else render({ committed: true });
       }
     });
     render();
-    return Object.freeze({ sync, refresh, async ready() { if (saving) await saving; await sync(); if (pending) await pending; },
+    return Object.freeze({ sync, refresh, async ready() { if (saving && savingKey === context()?.key) await saving; await sync(); if (pending && pendingKey === context()?.key) await pending; },
       snapshot() { return context()?.key === key ? { speed: state?.requested || "standard", speedFingerprint: state?.preferenceFingerprint || null } : { speed: "standard" }; } });
   }
   return Object.freeze({ create, t, locales, copy });

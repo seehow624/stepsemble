@@ -1336,6 +1336,7 @@ function createCodexNativeHistoryAdapter({
     getThreadGoal,
     listModels,
     async speedStatus(model = null) { requireReady(); return typeof transport?.speedStatus === "function" ? transport.speedStatus(model) : require("./agent-speed").unknownSpeed(); },
+    async speedStatusForThread(threadId, model = null) { requireReady(); return typeof transport?.speedStatusForThread === "function" ? transport.speedStatusForThread(threadId, model) : require("./agent-speed").unknownSpeed("speed_runtime_inactive"); },
     async rateLimits() { requireReady(); if (typeof transport?.rateLimits !== "function") throw new Error("quota_unavailable"); return transport.rateLimits(); },
     contextUsage,
     listTasks,

@@ -12476,7 +12476,6 @@ function resetComposerSummary() {
 // reasoning: { levels, note, effective } — the model's own levels, why it has
 // none to show, and the level an "auto" runs at; each kept until changed.
 function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
-  void composerSpeed?.sync();
   if (modelName !== undefined) composerModelName = String(modelName || "");
   // An empty level is the explicit "this model has no thinking control"
   // signal, so it must clear the chip instead of leaving the level the
@@ -12499,6 +12498,7 @@ function updateComposerSummary(modelName, thinkingLevel, reasoning = null) {
     el.btnModel.title = window.stepsembleI18n?.t("Model & reasoning") || "Model & reasoning";
     el.btnModel.setAttribute("aria-label", words ? tKey("runtime.modelThinking", { model, level: words }) : `${model}. ${note}`);
   }
+  void composerSpeed?.sync();
 }
 // Levels read the way Codex shows them beside the model: "Medium", "Max".
 function reasoningLevelText(level) {
@@ -13241,7 +13241,7 @@ async function syncAcpConfig(connection) {
 }
 
 async function openModelSheet({ preserveSearch = false } = {}) {
-  void composerSpeed?.refresh();
+  const speedRefresh = composerSpeed?.refresh();
   const connection = rpc;
   const expectedSid = connection?.sid;
   const expectedGeneration = viewGeneration;
@@ -13368,6 +13368,10 @@ async function openModelSheet({ preserveSearch = false } = {}) {
         el.modelList.appendChild(error);
       }
     }
+  } finally {
+    // Catalog loading may initialize the owning runtime without a key change.
+    await speedRefresh;
+    if (stillCurrent()) void composerSpeed?.refresh({ afterPending: true });
   }
 }
 
@@ -13826,7 +13830,8 @@ async function changeThinkingLevel(level, { quiet = false } = {}) {
     }
   } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
-composerSpeed = window.StepsembleAgentSpeed?.create({ root: $("agent-speed-control"), chip: $("composer-speed"),
+composerSpeed = window.StepsembleAgentSpeed?.create({ root: $("agent-speed-control"), indicator: $("composer-fast"),
+  button: $("btn-model"), description: $("composer-speed-description"),
   context: () => {
     if (!rpc || rpc.readOnly || rpc.nativeHistoryReadonly) return null;
     const agentId = conversationAgentId(), sessionId = rpc.nativeThreadId || rpc.claudeNativeSessionId || rpc.nativeSessionId || rpc.sid;
@@ -13834,7 +13839,6 @@ composerSpeed = window.StepsembleAgentSpeed?.create({ root: $("agent-speed-contr
     const model = rpc.codexModel?.id || rpc.claudeModel?.id || rpc.speedModel || "";
     return { agentId, sessionId, model, key: [apiBase, viewGeneration, agentId, sessionId, model, rpc.speedProvider || ""].join(":") };
   }, get: api, post, locale: () => window.stepsembleI18n?.getLocale?.() || "en", onError: message => toast(message, true) });
-$("composer-speed")?.addEventListener("click", () => { void openModelSheet(); });
 window.addEventListener("focus", () => { void composerSpeed?.refresh(); });
 el.thinkingSelect.addEventListener("change", () => changeThinkingLevel(el.thinkingSelect.value));
 // The level is picked on a line from the weakest to the strongest; the select

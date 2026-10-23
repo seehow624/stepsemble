@@ -680,8 +680,13 @@ function createCodexNativePool({
 
   async function listModels(params = {}) { return historyCall("listModels", [params]); }
   async function speedStatus(threadId, model = null) {
+    if (!validThreadId(threadId)) return require("./agent-speed").unknownSpeed("speed_thread_identity_unverified");
     const entry = byThread.get(threadId);
-    if (!entry || entry.closeRequested) return require("./agent-speed").unknownSpeed("speed_reopen_required");
+    if (!entry || entry.closeRequested) {
+      const source = await getHistory();
+      return typeof source.speedStatusForThread === "function" ? source.speedStatusForThread(threadId, model)
+        : require("./agent-speed").unknownSpeed("speed_runtime_inactive");
+    }
     return invokeEntry(entry, "speedStatus", [model]);
   }
 

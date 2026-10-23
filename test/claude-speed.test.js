@@ -13,7 +13,7 @@ function fixture(t, options = {}) {
       const f = JSON.parse(line); frames.push(f); if (f.type !== "control_request") continue;
       let response = {};
       if (f.request.subtype === "initialize") response = { claude_code_version: options.version || "2.1.308", currentModel: runtime.model,
-        models: [{ value: "opus", displayName: "Opus", supportsFastMode: true }, { value: "other", displayName: "Other", supportsFastMode: false }],
+        ...(!runtime.omitModels ? { models: [{ value: "opus", displayName: "Opus", supportsFastMode: runtime.supportsFast !== false }, { value: "other", displayName: "Other", supportsFastMode: false }] } : {}),
         fast_mode_state: runtime.cooldown ? "cooldown" : runtime.fast ? "on" : "off",
         ...(runtime.denied ? { fast_mode_disabled_reason: runtime.denied } : runtime.fast ? {} : { fast_mode_disabled_reason: "sdk_opt_in_required" }) };
       if (f.request.subtype === "initialize" && runtime.missingState) { delete response.fast_mode_state; delete response.fast_mode_disabled_reason; }
@@ -30,6 +30,16 @@ function fixture(t, options = {}) {
   const session = createClaudeStructuredSession({ command: "/synthetic/claude", cwd: "/tmp", env: options.env || {}, spawnImpl: () => child, requestTimeoutMs: 50, onEvent: options.onEvent });
   t.after(() => session.close()); return { session, frames, runtime, child };
 }
+test("claude-speed: fresh initialize catalog supersedes startup and omitted models preserve it", async t => {
+  const { session, runtime } = fixture(t);
+  assert.equal((await session.models()).speed.support, "supported");
+  runtime.supportsFast = false;
+  assert.equal((await session.models()).speed.support, "unavailable");
+  runtime.omitModels = true;
+  assert.equal((await session.models()).speed.support, "unavailable");
+  runtime.omitModels = false; runtime.supportsFast = true;
+  assert.equal((await session.models()).speed.support, "supported");
+});
 test("claude-speed: exact session flag, true/false readback, no prompt and independent effort/model", async t => {
   const { session, frames } = fixture(t);
   const catalog = await session.models(); assert.equal(catalog.speed.support, "supported");

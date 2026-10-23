@@ -198,17 +198,28 @@ function createMagpieGatewayService({
     return { mode: !baseUrl ? "direct" : pointsHere(baseUrl) ? "magpie" : "other", currentModel: tomlTopLevelString(text, "model"), baseUrl };
   }
 
-  async function speedCapability({ baseUrl, model, api = "openai-responses" } = {}) {
+  async function speedCapability({ baseUrl, model, api = "openai-responses", provider, nativeModels } = {}) {
     let url;
     try { url = new URL(baseUrl); } catch { return unknownSpeed("speed_route_unverified"); }
-    if (!installed() || !pointsHere(baseUrl) || !["/v1", "/v1/"].includes(url.pathname)
-      || url.username || url.password || url.search || url.hash || api !== "openai-responses") return unknownSpeed("speed_route_unverified");
+    const backend = api === "codex-native-backend";
+    if (!installed() || !pointsHere(baseUrl) || url.username || url.password || url.search || url.hash
+      || (backend ? url.pathname !== "/backend-api/codex" : api !== "openai-responses" || !["/v1", "/v1/"].includes(url.pathname))) return unknownSpeed("speed_route_unverified");
+    // Magpie v0.1.1294 codex_backend.go: CodexPath + codexAccounts map only
+    // native no-slash ids to codex/<id>, retaining Responses service_tier.
+    // This separate contract needs the owning app-server's own tier evidence;
+    // a /v1 catalog alone never authorizes a native backend request.
+    if (backend && (provider !== "openai" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(model || ""))) return unknownSpeed("speed_native_contract_unverified");
+    if (backend && !nativeModels?.some(row => row.id === model && (!row.model || row.model === model)
+      && row.serviceTiers?.some(tier => tier?.id === "priority"))) return unknownSpeed("speed_catalog_identity_unverified");
     const snapshot = await catalog({ maxAgeMs: 0 });
     if (!snapshot || snapshot.stale) return unknownSpeed("speed_route_unverified");
-    const row = snapshot.rows.find(row => row.id === model);
-    if (!row?.speedPriority || !row.speedResponses || row.speedOwner !== "codex") return unknownSpeed("speed_not_offered");
+    const resolved = backend ? "codex/" + model : model;
+    const row = snapshot.rows.find(row => row.id === resolved);
+    if (!row?.speedPriority || !row.speedResponses || row.speedOwner !== "codex") return unknownSpeed("speed_catalog_identity_unverified");
     return { ...unknownSpeed("speed_gateway_requested"), support: "supported", choices: ["standard", "fast"], route: "magpie",
-      model: row.id, tier: "priority", fingerprint: JSON.stringify(["magpie", origin, row.id, "priority"]) };
+      model: backend ? model : row.id, tier: "priority", fingerprint: JSON.stringify(backend
+        ? ["magpie-codex-native-v1", origin, url.pathname, provider, model, resolved, "priority"]
+        : ["magpie", origin, row.id, "priority"]) };
   }
 
   function claudeState() {

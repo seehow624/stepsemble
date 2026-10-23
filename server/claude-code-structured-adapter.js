@@ -651,7 +651,7 @@ function createClaudeStructuredSession({
   let compactionPending = null;
   let initializationPromise = null;
   let initializationResult = null;
-  let availableModels = [];
+  let availableModels = [], nativeModelCatalog = [];
   let selectedModel = null;
   let selectedEffort = null;
   let speedReport = claudeSpeedReport();
@@ -932,8 +932,9 @@ function createClaudeStructuredSession({
   }
 
   function refreshAvailableModels(response) {
-      const nativeModels = (Array.isArray(response.models) ? response.models : [])
-        .slice(0, MAX_MODELS).map(normalizeModelInfo).filter(Boolean);
+      const nativeModels = Array.isArray(response.models)
+        ? response.models.slice(0, MAX_MODELS).map(normalizeModelInfo).filter(Boolean) : nativeModelCatalog;
+      nativeModelCatalog = nativeModels;
       const gatewayModels = gatewayModelOptions(env);
       const gatewayById = new Map(gatewayModels.map(model => [model.id, model]));
       let authoritative = false, catalogGateway = "opencodex";
@@ -1384,13 +1385,16 @@ function createClaudeStructuredSession({
   }
   async function models() {
     await initializeNative();
+    let catalogResponse = {};
     if (initializationResult?.claude_code_version === "2.1.308" && !speedChanging && !speedTimedOut && !pendingControls.size) {
       try {
         const observed = await requestControl("initialize");
         speedReport = claudeSpeedReport(observed.response);
+        catalogResponse = observed.response || {};
       } catch { speedReport = claudeSpeedReport(); }
     }
-    refreshAvailableModels(initializationResult);
+    // Preserve the latest native rows if omitted, while reloading local gateway metadata.
+    refreshAvailableModels(catalogResponse);
     // The catalog's own entry for the model Claude names in full or bare.
     return { models: clone(availableModels), currentModel: catalogModelId(selectedModel) || selectedModel || null, speed: speedStatus(), ...currentEffort() };
   }

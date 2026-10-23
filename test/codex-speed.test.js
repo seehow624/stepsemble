@@ -12,6 +12,7 @@ function fixture(t, options = {}) {
       let result;
       if (f.method === "initialize") result = { codexHome: "/synthetic", platformFamily: "unix", platformOs: "test", userAgent: "test" };
       if (f.method === "config/read") result = { config: data.config };
+      if (f.method === "thread/read") result = { thread: { id: data.readThreadId || f.params.threadId, sessionId: f.params.threadId, cliVersion: "0.163.0", model: "m", modelProvider: options.threadProvider || "openai", cwd: "/thread/project", preview: "", createdAt: 1, updatedAt: 1, ephemeral: false, source: "cli", status: { type: "idle" }, turns: [] } };
       if (f.method === "model/list") result = { data: [{ id: "m", model: "m", displayName: "Model", description: "", hidden: false, isDefault: true,
         defaultReasoningEffort: "medium", supportedReasoningEfforts: [], serviceTiers: [{ id: data.tier, name: "Fast" }] }], nextCursor: null };
       if (f.method === "thread/start" || f.method === "thread/resume") result = { thread: { id: "thread-a", status: { type: "idle" }, turns: [] }, model: "m", modelProvider: options.provider || "openai", cwd: "/synthetic", serviceTier: f.params.serviceTier };
@@ -63,4 +64,66 @@ test("codex-speed: changed route/model, old runtime, forged tier and false fail 
   const cap = await api.speedStatus(); data.config = { model_provider: "magpie" };
   for (const speed of ["fast", false, "off"]) assert.equal((await api.startTurn([{ type: "text", text: "blocked" }], { speed, speedFingerprint: cap.fingerprint }, "thread-a")).kind, "reject");
   assert.equal(frames.some(f => f.method === "turn/start"), false);
+});
+
+test("codex-speed: idle thread prospective capability reads its own identity/config without resume or tier writes", async t => {
+  const { transport: api, frames, data } = fixture(t);
+  await api.initialize();
+  const cap = await api.speedStatusForThread("thread-idle");
+  assert.equal(cap.support, "supported"); assert.equal(cap.effective, "unknown");
+  assert.equal(frames.find(f => f.method === "thread/read").params.includeTurns, false);
+  assert.equal(frames.find(f => f.method === "config/read").params.cwd, "/thread/project");
+  assert.equal(frames.some(f => ["thread/resume", "thread/start", "turn/start"].includes(f.method)), false);
+  data.readThreadId = "different-thread";
+  assert.equal((await api.speedStatusForThread("thread-idle")).support, "unknown", "mismatched history identity cannot borrow evidence");
+  const other = fixture(t, { threadProvider: "unverified" }); await other.transport.initialize();
+  assert.equal((await other.transport.speedStatusForThread("thread-other")).support, "unknown");
+});
+test("codex-speed: backend gateway gets explicit native catalog/provider evidence and revalidates before each paid turn", async t => {
+  const { createMagpieGatewayService } = require("../server/magpie-gateway-service");
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "codex-backend-")); t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(home, ".config", "magpie"), { recursive: true });
+  const gateway = createMagpieGatewayService({ home, env: { HOME: home, PATH: "" }, fetchImpl: async () => new Response(JSON.stringify({ data: [{ id: "codex/m", owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: [{ id: "priority" }] }] })) });
+  const { transport: api, frames, data } = fixture(t, { config: { openai_base_url: gateway.origin + "/backend-api/codex" }, speedGateway: input => gateway.speedCapability(input) });
+  await api.initialize(); const cap = await api.speedStatusForThread("thread-idle"); assert.equal(cap.support, "supported");
+  await api.startThread({ model: "m" });
+  assert.equal((await api.startTurn([{ type: "text", text: "synthetic" }], { speed: "fast", speedFingerprint: cap.fingerprint, effort: "high" }, "thread-a")).kind, "completed");
+  assert.equal(frames.filter(f => f.method === "turn/start").at(-1).params.serviceTierForTurn, "priority");
+  data.tier = "default";
+  assert.equal((await api.startTurn([], { speed: "fast", speedFingerprint: cap.fingerprint }, "thread-a")).kind, "reject");
+  assert.equal(frames.filter(f => f.method === "turn/start").length, 1);
+});
+test("codex-speed: native backend rejects conflicting routes, custom catalogs and nonnative providers", async t => {
+  const base = "http://127.0.0.1:3425/backend-api/codex";
+  for (const options of [
+    { config: { openai_base_url: base, model_catalog_json: "/custom/catalog.json" } },
+    { config: { openai_base_url: base, model_provider: "other", model_providers: { other: { base_url: base } } }, provider: "other" },
+    { config: { openai_base_url: base }, env: { OPENAI_BASE_URL: "http://elsewhere/backend-api/codex" } },
+    { config: { openai_base_url: base, chatgpt_base_url: "https://other.example/backend-api" } },
+  ]) {
+    const calls = []; const f = fixture(t, { ...options, speedGateway: async input => { calls.push(input); return { support: "supported" }; } });
+    await f.transport.initialize(); await f.transport.startThread({ model: "m" });
+    assert.equal((await f.transport.speedStatus()).support, "unknown"); assert.deepEqual(calls, []);
+  }
+});
+
+test("codex-speed routes: cold idle conversation can save verified Fast without owning or resuming a thread", async t => {
+  const { createCodexNativePool } = require("../server/codex-native-pool");
+  const { createAgentSpeedRoutes } = require("../server/agent-speed-routes");
+  const { createAgentChoiceStore } = require("../server/agent-choice-store");
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cold-speed-route-")); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const f = fixture(t); await f.transport.initialize();
+  let ownerCreates = 0;
+  const pool = createCodexNativePool({ historyAdapter: { speedStatusForThread: (...args) => f.transport.speedStatusForThread(...args), status: () => ({ ready: true }) },
+    createThreadAdapter: () => { ownerCreates++; throw new Error("GET must not acquire thread"); }, journalRoot: root });
+  t.after(() => pool.close());
+  const route = createAgentSpeedRoutes({ codex: pool, ensureCodex: async () => {}, choices: createAgentChoiceStore(), readJSON: async req => req.body,
+    sendJSON: (res, status, body) => { res.status = status; res.body = body; } });
+  const query = { agentId: "codex", sessionId: "thread-idle", model: "m" }, url = new URL("http://test/api/agent-speed?" + new URLSearchParams(query));
+  const get = {}; await route({ method: "GET" }, get, url); assert.equal(get.body.support, "supported");
+  const save = {}; await route({ method: "POST", body: { ...query, speed: "fast", confirmCost: true, revision: get.body.revision, fingerprint: get.body.fingerprint } }, save, url);
+  assert.equal(save.status, 200); assert.equal(save.body.requested, "fast"); assert.equal(save.body.effective, "unknown");
+  assert.equal(ownerCreates, 0); assert.equal(f.frames.some(frame => ["thread/start", "thread/resume", "turn/start"].includes(frame.method)), false);
 });

@@ -21,16 +21,23 @@
 | --- | --- |
 | Codex 原生 OpenAI | 0.163.0 起的已知 per-turn 契約；原生 `model/list.serviceTiers` 明示 `priority` 或 `fast`，且有效設定/子程序環境確認官方路由才開放 Fast。不是依模型名字的 Fast 字樣。 |
 | Claude Code 原生 Anthropic | 此輪實際驗證 2.1.308。模型明示 `supportsFastMode:true`、原生狀態存在、官方路由且無帳戶/政策拒因才開放；`sdk_opt_in_required` 由使用者明確選擇觸發 session opt-in。未知版本不猜支援。 |
-| Codex 經已識別 Magpie（使用者主要路徑） | 已接通 requested Fast：Agent 有效設定指向 Host 既有 Magpie service，且同一 service 的新鮮 `/v1/models` 精確模型列宣告 `owned_by:"codex"`、`native_endpoints:["/v1/responses"]` 與 `service_tiers` 的 `priority`。不是任意 loopback 或模型名字推論。 |
+| Codex 經已識別 Magpie | `/v1` Responses 契約要求同一 service 的新鮮精確模型列宣告 `owned_by:"codex"`、`native_endpoints:["/v1/responses"]` 與 `service_tiers.priority`。另有獨立的原生 `/backend-api/codex` 契約：只限內建 `openai` provider、無自訂 catalog／衝突路由，原生 `model/list` 的精確無 slash 模型明示 priority，且新鮮 gateway 列 `codex/<原生模型>` 同時符合上述 owner／endpoint／tier。兩種路徑指紋分離，不接受任意 loopback、路徑或 group／虛擬模型。 |
 | Pi 經相同 Magpie Codex 模型 | 已接 repository-owned extension/RPC；只限 `provider:magpie`、`api:openai-responses`、精確同一路由及上述 metadata。其他 Pi provider／模型仍 unknown；不擴大成所有 GPT 都可用。 |
 | 其他 Magpie owner／任意代理 | 未有相同轉送契約證據者維持 unknown。Magpie 可能全域強制 tier 或拒絕後回退，UI 明示 requested 與 served 分離，不修改其全域設定。 |
 | Hermes Bot | 共用未知狀態提示與服務回應。未取得部署端 WS 能力證據，沒有用 REST 欄位冒充 WS，也沒有無 session 的 config.set。 |
 | OpenCode、Grok/其他 ACP、Antigravity | `unknown`；不把 variants、模式、思考強度或名字當速度能力。 |
 
+Pi 原生 `openai-codex`／`openai-codex-responses`（ChatGPT backend）尚無模型 tier／帳戶及原生 dispatch 的完整契約，仍是 unknown；Magpie catalog 不能替此不同路由授權。Claude 經 gateway 同樣不借用原生 Anthropic 的能力。
+
+Composer 一般模式不顯示速度標籤；僅已保存的 requested Fast 在既有模型按鈕內顯示小閃電 SVG。模型按鈕始終是模型／速度選擇器入口，輔助說明與 tooltip 分開說明 requested 及 reported state。選擇器保留 Unknown／Not available、原生路由未驗證、模型目錄、帳戶／用量拒絕、runtime 未啟用及需重連等安全原因；不顯示 runtime 原始錯誤、URL 或憑證。GET 失敗明確提示且關閉 Fast 授權，仍可嘗試關閉既有 Fast。
+
+背景 focus GET 不停用已驗證的 native select，也不覆寫尚未提交的鍵盤選擇；確認視窗前先鎖定 save，舊 GET 不可覆蓋成功的 POST。目錄載入完成後重驗同 key 的能力，不能把初次尚未就緒快取當成永久拒絕。
+
 未知 Agent/代理不會被 Stepsemble 自動開啟 Fast，也不會被擅自寫入未驗證的關閉欄位；其原有外部設定可能仍適用，UI 明示未知而不是宣稱一般模式已生效。
 
 ## 原生派送與失敗
 
+- 尚無活躍 owner 的 Codex 對話以唯讀 prospective probe 評估：`thread/read(includeTurns:false)` 取得該 thread 的 modelProvider／model／cwd，再依其 cwd 讀有效 config 及原生 model/list。缺身分不借用其他 thread 的 transport context。GET 不 resume、不建立 owner、不寫 tier、不送 user frame；實際派送仍在該 thread 的 owner 再次驗證能力與指紋。
 - Codex 新建/續接以 `serviceTier:"default"` 清除已知 native session 的付費預設；每次新回合明確送 `serviceTier:"default"`，以及 `serviceTierForTurn:"default"|<已宣告 tier id>`。付費 tier 不持續寫進 thread 預設。設定/派送回讀與實際供應商服務分開，後者保持 unknown。
 - Claude 僅使用 `apply_flag_settings` 的 `{fastMode:true|false}`，不送 `/fast` 使用者 prompt，不更改模型或 effort，不呼叫寫設定檔的 `update_settings`。`get_settings.effective.fastMode` 必須精確相符，再由無 user prompt 的 initialize 握手讀 `fast_mode_state`／拒因；on、off、cooldown 不混用。帳戶拒絕時回復 false；ACK 與讀回不一致會拒絕送出。
 - Claude 控制 timeout 可能已套用，故標為未知並阻止後續 prompt，直到重新開啟子程序；晚到 ACK 不能解除此限制。非 timeout 的讀回不符可用明確 standard 握手重新確認。若上一輪 result 缺少速度 metadata，閒置且序列化的 Fast 派送先讀新 initialize，再核對能力／指紋，不依賴瀏覽器 GET；新握手仍未知、拒絕或逾時則不送 user frame。
@@ -38,6 +45,8 @@
 - 忙碌中只記下回合偏好，不修改當前付費旗標。每個實際送出的回合仍帶速度快照，重開後保存偏好不等於免驗證授權。Pi 自有 `/stepsemble-refresh-models` 經精確 command 來源／路徑確認後，仍能在忙碌時刷新本機目錄，不更動速度；不豁免其他 slash、模板、帶參數或圖片的訊息。
 
 ## 驗證
+
+原生 backend 額外證據：官方 Magpie v0.1.1294 `codex_backend.go` 的 `CodexPath`／`codexAccounts` 明確將無 slash 原生模型對應到 Codex owner 的 `codex/<model>`；`codex_backend_test.go::TestCodexOwnModelPassesThrough`、`fast_test.go`、`codex_opencode_fast_test.go` 證明 Responses tier 欄位轉送。此對應不是 prefix 猜測，且仍要求雙方新鮮 catalog 具體宣告 priority。全域 tier 覆寫、帳戶路由或 fallback 仍可能改變 served tier，不能以此聲稱實際計費 Fast。
 
 Magpie 證據：官方 `yetone/magpie` v0.1.1294 的 `models_tiers_test.go`、`fast_test.go`、`codex_opencode_fast_test.go`、`own_tier_test.go`、`tier_record.go`；本機 catalog 的 codex/gpt-6.1-sol 等列確實有 snake_case `service_tiers`（初次只抽前幾個 MiniMax 列不足以判斷全部目錄，已更正）。自有服務只向既有 origin 讀 metadata，不接受 body/query 提供 base URL。
 

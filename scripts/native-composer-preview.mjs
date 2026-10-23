@@ -4,6 +4,7 @@
 // opens a provider account, or spends model usage.
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import http from "node:http";
 import readline from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -16,6 +17,8 @@ const { createGitChangesService } = createRequire(import.meta.url)("../server/gi
 const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = createRequire(import.meta.url)("../server/composer-queue.js");
 const { createAgentSpeedRoutes } = createRequire(import.meta.url)("../server/agent-speed-routes.js");
 const { createAgentChoiceStore } = createRequire(import.meta.url)("../server/agent-choice-store.js");
+const { createMagpieGatewayService } = createRequire(import.meta.url)("../server/magpie-gateway-service.js");
+const { claudeSpeedFixture, piSpeedFixture } = createRequire(import.meta.url)("../test-support/speed-runtime-fixtures.cjs");
 const { codexSpeedCapability, unknownSpeed } = createRequire(import.meta.url)("../server/agent-speed.js");
 // The page reloads itself when the Host reports another version, so the
 // preview reports the page's own version.
@@ -396,14 +399,25 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   const projectFiles = projectReview ? createProjectFilesService({ validateProject: cwd => cwd === projectReview.root ? cwd : null }) : null;
   const gitChanges = projectReview ? createGitChangesService({ validateRepository: cwd => cwd === projectReview.root ? cwd : null }) : null;
   const imageLookups = new Map();
-  state.speedRequests = []; state.speedFailure = false;
+  state.speedRequests = []; state.speedFailure = false; state.speedRuntimeReady = true; state.speedObservations = [];
+  const speedHome = agentSpeed ? await fs.mkdtemp(path.join(os.tmpdir(), "speed-preview-")) : null;
+  if (speedHome) await fs.mkdir(path.join(speedHome, ".config", "magpie"), { recursive: true });
+  const speedGateway = agentSpeed ? createMagpieGatewayService({ home: speedHome, env: { HOME: speedHome, PATH: "" }, fetchImpl: async () => new Response(JSON.stringify({ data: [
+    ...codexModels.map((row, index) => ({ id: "codex/" + row.id, owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: index === 0 ? [{ id: "priority" }] : [] })),
+    { id: "codex/fixture-pi", owned_by: "codex", native_endpoints: ["/v1/responses"], service_tiers: [{ id: "priority" }] }
+  ] })) }) : null;
+  const claudeSpeed = agentSpeed ? claudeSpeedFixture(claudeModels, CLAUDE_SESSION) : null;
+  const piSpeed = agentSpeed ? await piSpeedFixture(model => speedGateway.speedCapability({ baseUrl: model.baseUrl, model: model.id, api: model.api })) : null;
   const speedChoices = createAgentChoiceStore();
   const speedRoutes = createAgentSpeedRoutes({ choices: speedChoices, ensureCodex: async () => {},
     codex: { speedStatus: async (id, model) => {
-      const cap = agentSpeed ? codexSpeedCapability({ version: "0.163.0", config: {}, model: model || state.codexModel,
-        models: codexModels.map((row, index) => ({ ...row, serviceTiers: index === 0 ? [{ id: "priority", name: "Fast" }] : [] })) }) : unknownSpeed();
-      return agentSpeed === "magpie" ? { ...cap, route: "magpie", fingerprint: JSON.stringify(["magpie", "synthetic-owned-gateway", model || state.codexModel, cap.tier]) } : cap;
-    } },
+      if (!state.speedRuntimeReady) { state.speedObservations.push({ model, support: "unknown" }); return unknownSpeed("speed_runtime_inactive"); }
+      state.speedObservations.push({ model, support: "evaluated" });
+      const nativeModels = codexModels.map((row, index) => ({ ...row, serviceTiers: index === 0 ? [{ id: "priority", name: "Fast" }] : [] }));
+      return agentSpeed === "magpie" ? speedGateway.speedCapability({ baseUrl: speedGateway.origin + "/backend-api/codex", model: model || state.codexModel,
+        api: "codex-native-backend", provider: "openai", nativeModels })
+        : agentSpeed ? codexSpeedCapability({ version: "0.163.0", config: {}, model: model || state.codexModel, models: nativeModels }) : unknownSpeed();
+    } }, resolveClaude: id => claudeSpeed && id === CLAUDE_SESSION ? { session: claudeSpeed.session } : null, piSpeed,
     readJSON: async req => { const body = await parseJsonBody(req); state.speedRequests.push(body); return body; }, sendJSON: json });
   state.codexControlUnavailable = false;
   state.codexTurns.length = 0; state.codexModel = codexModels[0].id;
@@ -560,7 +574,10 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "private, no-store", "Content-Length": bytes.length });
         return res.end(bytes);
       }
-      if (pathname === "/api/codex/models" && req.method === "GET") return json(res, 200, { data: codexModels, nextCursor: null });
+      if (pathname === "/api/codex/models" && req.method === "GET") {
+        if (!state.speedRuntimeReady) { await new Promise(resolve => setTimeout(resolve, 150)); state.speedRuntimeReady = true; }
+        return json(res, 200, { data: codexModels, nextCursor: null });
+      }
       if (pathname === "/api/codex/context" && req.method === "GET") return json(res, 200, codexContext());
       if (pathname === "/api/agent-speed" && req.method === "POST" && state.speedFailure) return json(res, 409, { error: "speed_not_confirmed" });
       if (await speedRoutes(req, res, requestUrl)) return;
@@ -656,10 +673,12 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
   origin = `http://127.0.0.1:${server.address().port}`;
   const close = async () => {
     queue?.close();
+    claudeSpeed?.close();
     if (closing) return closing;
     closing = new Promise(resolve => server.close(() => resolve()));
     server.closeAllConnections?.();
     await closing;
+    if (speedHome) await fs.rm(speedHome, { recursive: true, force: true });
   };
   return Object.freeze({ origin, token: TOKEN, state, close });
 }
