@@ -230,7 +230,8 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
       await nestedOpen.click();
       assert.deepEqual(await values(ui), ["Pi Agent", "gpt-6-astra", "xhigh"]);
       await shot("pi-nested"); await ui.locator(".subagent-close").click();
-      await ui.waitForTimeout(4500);
+      // Only pending runs are read: once none is, nothing is asked for again.
+      await ui.waitForFunction(() => subagentTracker.piPending().length === 0);
       assert.equal(nestedReads.length, 2, "a found, finished run and a call that started none are not asked for again");
       assert.deepEqual([...new Set(reads.map(read => read.id))].sort(), ["ui-claude-background", "ui-claude-child", "ui-claude-saved"],
         "only subagents whose agent keeps their settings are read; Pi's and a record's own say are shown as they are");
