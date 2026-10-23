@@ -11,7 +11,7 @@ const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const { createLineDecoder } = require("./stream-safety");
 const { MAX_BASE64_BYTES } = require("./prompt-attachments");
-const { speedValue, unknownSpeed, codexSpeedVersion, codexSpeedCapability } = require("./agent-speed");
+const { speedValue, paidSpeed, speedTier, speedFingerprint, unknownSpeed, codexSpeedVersion, codexSpeedCapability } = require("./agent-speed");
 
 const CODEX_NATIVE_VERSION = "0.153.4";
 const CODEX_NATIVE_VERSION_RE = /^\d{1,8}\.\d{1,8}\.\d{1,8}(?:-(?:alpha|beta)(?:\.\d{1,8}){0,2})?$/;
@@ -573,21 +573,40 @@ function createCodexAppServerTransport({
   let turnId = null;
   let speedContext = {};
   let speedDispatch = null;
-  async function speedStatus(model = null, cwd = null) {
+  async function speedStatus(model = null, cwd = null, evidence = speedContext) {
     if (!codexSpeedVersion(nativeVersion)) return unknownSpeed();
     try {
-      const response = await request("config/read", { includeLayers: false, ...(cwd || speedContext.cwd ? { cwd: cwd || speedContext.cwd } : {}) }, { check: value => plain(value?.config) });
+      const response = await request("config/read", { includeLayers: false, ...(cwd || evidence.cwd ? { cwd: cwd || evidence.cwd } : {}) }, { check: value => plain(value?.config) });
       const catalog = await listModels({});
-      const selected = model || speedContext.model || response.config.model;
+      const selected = model || evidence.model || response.config.model;
       let capability = codexSpeedCapability({ version: nativeVersion, config: response.config, env,
-        provider: speedContext.modelProvider, model: selected, models: catalog.data });
+        provider: evidence.modelProvider, model: selected, models: catalog.data });
       if (capability.reason === "speed_route_unverified" && typeof speedGateway === "function") {
-        const provider = speedContext.modelProvider || response.config.model_provider || "openai";
+        const provider = evidence.modelProvider || response.config.model_provider || "openai";
         const baseUrl = response.config.model_providers?.[provider]?.base_url || env.OPENAI_BASE_URL || response.config.openai_base_url;
-        capability = await speedGateway({ baseUrl, model: selected, api: "openai-responses" });
+        let backend = false;
+        try { backend = new URL(baseUrl).pathname.startsWith("/backend-api/"); } catch {}
+        const routeUrls = [response.config.model_providers?.[provider]?.base_url, env.OPENAI_BASE_URL, response.config.openai_base_url].filter(Boolean);
+        const backendVerified = provider === "openai" && (!response.config.model_provider || response.config.model_provider === provider)
+          && !response.config.model_catalog_json && routeUrls.every(url => url === baseUrl)
+          && [response.config.chatgpt_base_url, env.CHATGPT_BASE_URL].every(url => !url || /^https:\/\/chatgpt\.com\/backend-api\/?$/.test(url));
+        if (!backend || backendVerified) {
+          capability = await speedGateway({ baseUrl, model: selected, api: backend ? "codex-native-backend" : "openai-responses",
+            ...(backend ? { provider, nativeModels: catalog.data } : {}) });
+        }
       }
-      return { ...capability, configuredTier: speedContext.serviceTier ?? null, dispatched: speedDispatch };
+      return { ...capability, configuredTier: evidence.serviceTier ?? null, dispatched: evidence === speedContext ? speedDispatch : null };
     } catch { return unknownSpeed(); }
+  }
+  async function speedStatusForThread(threadId, model = null) {
+    try {
+      // Read-only prospective settings: never resume or borrow this history
+      // transport's last live thread context. Send revalidates on its owner.
+      const result = await readThread({ threadId, includeTurns: false });
+      const thread = result?.thread;
+      if (thread?.id !== threadId || !thread.model || !thread.modelProvider || !thread.cwd) return unknownSpeed("speed_thread_identity_unverified");
+      return await speedStatus(model || thread.model, thread.cwd, { model: thread.model, modelProvider: thread.modelProvider, cwd: thread.cwd });
+    } catch { return unknownSpeed("speed_runtime_unverified"); }
   }
   // A thread this process started has no history until its first turn, and
   // Codex refuses history reads for it with reasons that vary by state.
@@ -1216,10 +1235,11 @@ function createCodexAppServerTransport({
         detached.serviceTier = "default";
         detached.serviceTierForTurn = "default";
       }
-      if (speed === "fast") {
+      if (paidSpeed(speed)) {
         const capability = await speedStatus(params.model, params.cwd);
-        if (capability.support !== "supported" || params.speedFingerprint !== capability.fingerprint) return reject("speed_revalidation_required");
-        detached.serviceTierForTurn = capability.tier;
+        const tier = speedTier(capability, speed), fingerprint = speedFingerprint(capability, speed);
+        if (!tier || !fingerprint || params.speedFingerprint !== fingerprint) return reject("speed_revalidation_required");
+        detached.serviceTierForTurn = tier;
       }
       const auth = await authorize("turn.start", { threadId: activeThreadId, params: detached }); if (auth.kind === "reject") return auth;
       if (closed || failure || !initialized || threadId !== activeThreadId || state !== "thread_started" || turnId || approvals.size) return reject("native_lifecycle_conflict");
@@ -1399,6 +1419,7 @@ function createCodexAppServerTransport({
     getThreadGoal,
     listModels,
     speedStatus,
+    speedStatusForThread,
     async rateLimits() {
       if (!ensureInitialized()) return reject("native_lifecycle_conflict");
       return request("account/rateLimits/read", {}, { check: value => plain(value) });

@@ -19,6 +19,15 @@ function piSessions() {
   return { session, commands, driver, answer: fn => { answer = fn; } };
 }
 
+test("queue drivers: Pi and Claude refuse Ultra before a command or user frame", async () => {
+  const pi = piSessions();
+  assert.equal((await pi.driver.deliver(pi.driver.resolve("sid-1"), item({ speed: "ultrafast" }), { text: "not sent", images: [] }, { jump: false })).code, "speed_revalidation_required");
+  assert.deepEqual(pi.commands, []);
+  let sends = 0;
+  const driver = createClaudeQueueDriver({ resolveSession: () => ({ session: { status: () => ({ state: "waiting" }) } }), send: async () => { sends++; return { kind: "sent" }; } });
+  assert.equal((await driver.deliver("native", item({ speed: "ultrafast" }), { text: "not sent", images: [] })).code, "speed_revalidation_required");
+  assert.equal(sends, 0);
+});
 test("Pi: an idle Pi takes a prompt; one at work takes a steer; Pi's own report confirms it", async () => {
   const pi = piSessions(), id = pi.driver.resolve("sid-1");
   assert.equal(id, "synthetic/one.jsonl", "a conversation is its session file, not the RPC process");

@@ -139,7 +139,7 @@ function createComposerQueueStore({ file = null, now = Date.now } = {}) {
           mode: item.mode === "jump" ? "jump" : item.mode === "start" ? "start" : null, stage: null,
           preview: typeof item.preview === "string" ? item.preview.slice(0, PREVIEW_CHARS) : "", length: Number.isSafeInteger(item.length) ? item.length : 0,
           imageCount: Number.isSafeInteger(item.imageCount) ? item.imageCount : 0, digest: typeof item.digest === "string" ? item.digest : "",
-          speed: item.speed === "fast" ? "fast" : "standard", speedFingerprint: cleanSpeedFingerprint(item.speedFingerprint),
+          speed: ["fast", "ultrafast"].includes(item.speed) ? item.speed : "standard", speedFingerprint: cleanSpeedFingerprint(item.speedFingerprint),
           model: cleanChoice(item.model), effort: cleanChoice(item.effort), createdAt: Number(item.createdAt) || now(), updatedAt: Number(item.updatedAt) || now(),
           deviceId: typeof item.deviceId === "string" && DEVICE.test(item.deviceId) ? item.deviceId : null,
           error: typeof item.error === "string" ? item.error.slice(0, 128) : null };

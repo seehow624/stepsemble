@@ -107,6 +107,7 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
         && path.resolve(row.sourceInfo.path) === catalogExtensionPath) return command(sid, cmd);
     }
     const speed = speedValue(input.speed === undefined ? "standard" : input.speed);
+    if (speed === "ultrafast") throw failure("speed_revalidation_required");
     const current = await status(sid);
     if (current.blocked) throw failure("speed_not_confirmed");
     if (speed === "fast" && (current.support !== "supported" || current.fingerprint !== input.speedFingerprint)) throw failure("speed_revalidation_required");
@@ -122,7 +123,11 @@ function createPiSpeed({ command, write = null, extensionPath = path.join(__dirn
   return Object.freeze({
     status: sid => serial(sid, () => status(sid)),
     forget: sid => { known.delete(sid); uncertain.delete(sid); },
-    setSpeed: (sid, speed, fingerprint) => serial(sid, () => handshake(sid, { action: "set", speed: speedValue(speed), fingerprint })),
+    setSpeed: (sid, speed, fingerprint) => serial(sid, () => {
+      const requested = speedValue(speed);
+      if (requested === "ultrafast") throw failure("speed_revalidation_required");
+      return handshake(sid, { action: "set", speed: requested, fingerprint });
+    }),
     send: (sid, cmd, input) => serial(sid, () => sendUnlocked(sid, cmd, input)),
     command: (sid, cmd) => ["prompt", "steer", "follow_up", "set_model", "set_thinking_level", "new_session", "switch_session", "fork", "navigate_tree"].includes(cmd?.type)
       ? serial(sid, () => ["prompt", "steer", "follow_up"].includes(cmd.type) ? sendUnlocked(sid, cmd) : command(sid, cmd))

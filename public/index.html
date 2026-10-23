@@ -313,10 +313,10 @@
             </span>
             <p id="context-dashboard-summary" class="sr-only" data-i18n-ignore></p>
           </section>
-          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-label="Model &amp; reasoning"><span class="composer-model-copy"><span id="composer-model-name" class="composer-model-name" data-i18n-ignore>Choose model</span></span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
+          <button id="btn-model" class="composer-control composer-model-control" type="button" title="Model &amp; reasoning" aria-label="Model &amp; reasoning" aria-describedby="composer-speed-description"><span class="composer-model-copy"><span id="composer-model-name" class="composer-model-name" data-i18n-ignore>Choose model</span><svg id="composer-fast" class="composer-fast" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" hidden><path d="M9.5 1 3 9h4l-.5 6L13 7H9z"/><path class="composer-fast-plus" d="M13 1v4m-2-2h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"></use></svg></button>
           <!-- The thinking level, drawn along the message box's top edge. -->
           <div id="composer-effort" class="composer-effort-line" role="slider" tabindex="-1" aria-label="Thinking level" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-orientation="horizontal" hidden><span class="effort-line-track" aria-hidden="true"><span class="effort-line-fill"></span><span class="effort-line-ticks"></span><span class="effort-line-tip"></span></span><span class="effort-line-label" aria-hidden="true"></span></div>
-          <button id="composer-speed" class="composer-control composer-speed" type="button" aria-controls="agent-speed-control" data-i18n-ignore>Speed: Unknown</button>
+          <span id="composer-speed-description" class="sr-only" data-i18n-ignore></span>
           <button id="btn-abort" class="btn primary composer-send composer-stop hidden" type="button" title="Stop" aria-label="Stop"><svg class="icon"><use href="#i-stop"></use></svg></button>
           <button id="btn-send" class="btn primary composer-send" type="button" title="Send" aria-label="Send"><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
         </div>

@@ -41,6 +41,18 @@ async function fixture({ file = null, seed = [] } = {}) {
   const host = createPiSpeed({ command });
   return { host, cap, calls, hooks, ctx, control, entries, pi, read, setStreaming: value => { streaming = value; } };
 }
+test("pi-speed: Ultra is refused by Host and owned extension without sending or changing state", async () => {
+  const f = await fixture(); await f.host.status("sid"); const before = f.calls.length;
+  await assert.rejects(f.host.setSpeed("sid", "ultrafast", "forged"), /speed_revalidation_required/);
+  await assert.rejects(f.host.send("sid", { type: "prompt", message: "not sent" }, { speed: "ultrafast" }), /speed_revalidation_required/);
+  assert.equal(f.calls.length, before);
+  const receipts = []; const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  const commands = {}, hooks = {};
+  installPiSpeed({ on: (name, fn) => { hooks[name] = fn; }, registerCommand: (name, spec) => { commands[name] = spec.handler; }, appendEntry: (_type, data) => receipts.push(data) }, { capability: async () => f.cap });
+  hooks.session_start({}, f.ctx);
+  await commands["stepsemble-speed"](JSON.stringify({ action: "set", speed: "ultrafast", nonce: "unsupported-ultra", fingerprint: f.cap.fingerprint }), f.ctx);
+  assert.equal(receipts.at(-1).ok, false); assert.equal(receipts.at(-1).reason, "speed_revalidation_required");
+});
 test("pi-speed: repository command + nonce active-branch receipt, then real provider payload preserves reasoning", async () => {
   const f = await fixture(); const cap = await f.host.status("sid");
   assert.equal(cap.support, "supported"); assert.equal(cap.nativeSessionId, "native-pi-session");
@@ -157,4 +169,18 @@ test("pi-speed: the last saved entry skips a line still being written", async t 
   const read = await lastEntryId(file);
   assert.equal(read.id, "big", "a line longer than one read chunk, before a partial one"); assert.equal(read.size, fs.statSync(file).size);
   fs.writeFileSync(file, "not json\n"); assert.equal((await lastEntryId(file)).id, null);
+});
+test("pi-speed: direct native Codex provider remains explicitly unverified, never borrowing Magpie catalog evidence", async () => {
+  const { installPiSpeed } = await import("../server/pi-speed-extension.mjs");
+  const hooks = {}, commands = {}, receipts = [];
+  const ctx = { model: { provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", id: "gpt-6.1-sol" },
+    isIdle: () => true, sessionManager: { getBranch: () => [] } };
+  installPiSpeed({ on: (name, fn) => { hooks[name] = fn; }, registerCommand: (name, spec) => { commands[name] = spec.handler; }, appendEntry: (_type, data) => receipts.push(data) });
+  hooks.session_start({}, ctx);
+  await commands["stepsemble-speed"](JSON.stringify({ action: "get", nonce: "native-contract-test" }), ctx);
+  assert.equal(receipts.at(-1).capability.support, "unknown");
+  assert.equal(receipts.at(-1).capability.reason, "speed_route_unverified");
+  const payload = { model: ctx.model.id, reasoning: { effort: "high" }, input: [] };
+  assert.equal(await hooks.before_provider_request({ payload }, ctx), undefined);
+  assert.equal(payload.service_tier, undefined);
 });

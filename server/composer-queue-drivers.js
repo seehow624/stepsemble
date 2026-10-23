@@ -38,6 +38,7 @@ function createPiQueueDriver({ sessions, command, sessionFileOf = () => null, se
     available: id => !!liveSid(id),
     busy,
     async deliver(id, item, payload, { jump }) {
+      if (item.speed === "ultrafast") return reject("speed_revalidation_required");
       const sid = liveSid(id);
       if (!sid) return reject("pi_unavailable");
       const images = piImageInputs(payload.images), streaming = !!sessions.get(sid)?.state?.isStreaming;
@@ -154,6 +155,7 @@ function createClaudeQueueDriver({ resolveSession, send, saved = () => null, con
       return !!status && (status.state === "running" || status.state === "interrupting" || !!status.compacting || !!status.working);
     },
     async deliver(id, item, payload, { jump = false } = {}) {
+      if (item.speed === "ultrafast") return reject("speed_revalidation_required");
       const status = statusOf(resolveSession(id));
       if (jump && (item.speed === "fast" || status?.speed?.controlVerified) && ["running", "interrupting"].includes(status?.state)) return { kind: "unsupported" };
       const result = await send(id, payload.text, { images: payload.images, uuid: item.id, priority: "next", origin: { kind: "human" },

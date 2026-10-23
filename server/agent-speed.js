@@ -2,7 +2,18 @@
 
 // Requested speed is a per-conversation preference, never proof of billed
 // service. A native ACK confirms dispatch only, not the provider's tier.
-const SPEEDS = new Set(["standard", "fast"]);
+const SPEEDS = new Set(["standard", "fast", "ultrafast"]);
+const paidSpeed = value => value === "fast" || value === "ultrafast";
+function speedTier(capability, speed) {
+  if (capability?.support !== "supported" || capability.choices && !capability.choices.includes(speed)) return null;
+  if (speed === "fast") return ["fast", "priority"].includes(capability.tier) ? capability.tier : null;
+  if (speed === "ultrafast" && capability.route === "openai-native" && capability.tiers?.ultrafast === "ultrafast") return "ultrafast";
+  return null;
+}
+function speedFingerprint(capability, speed) {
+  if (!speedTier(capability, speed)) return null;
+  return speed === "fast" ? capability.fingerprint || null : capability.fingerprints?.ultrafast || null;
+}
 function speedValue(value) {
   if (!SPEEDS.has(value)) throw Object.assign(new Error("speed_invalid"), { code: "speed_invalid", statusCode: 400 });
   return value;
@@ -32,10 +43,14 @@ function codexSpeedCapability({ version, config, env, provider, model, models })
   // These are protocol tier ids, not words in a model's display name. Never
   // infer entitlement from a model name or defaultServiceTier.
   const tier = row.serviceTiers.find(tier => tier && ["fast", "priority"].includes(tier.id));
-  return { ...unknownSpeed(tier ? "speed_next_turn" : "speed_not_offered"),
-    support: tier ? "supported" : "unavailable", choices: tier ? ["standard", "fast"] : ["standard"],
-    model: row.model || row.id, tier: tier?.id || null,
-    fingerprint: JSON.stringify([provider || config.model_provider || "openai", row.model || row.id, tier?.id || null]) };
+  const ultra = row.serviceTiers.some(tier => tier?.id === "ultrafast");
+  const identity = [provider || config.model_provider || "openai", row.model || row.id];
+  return { ...unknownSpeed(tier || ultra ? "speed_next_turn" : "speed_not_offered"),
+    support: tier || ultra ? "supported" : "unavailable", choices: ["standard", ...(tier ? ["fast"] : []), ...(ultra ? ["ultrafast"] : [])],
+    route: "openai-native", model: row.model || row.id, tier: tier?.id || null,
+    tiers: { ...(tier ? { fast: tier.id } : {}), ...(ultra ? { ultrafast: "ultrafast" } : {}) },
+    fingerprint: JSON.stringify([...identity, tier?.id || null]),
+    ...(ultra ? { fingerprints: { ultrafast: JSON.stringify([...identity, "ultrafast"]) } } : {}) };
 }
 function claudeSpeedReport(value = {}) {
   const state = ["on", "off", "cooldown"].includes(value.fast_mode_state) ? value.fast_mode_state : "unknown";
@@ -56,8 +71,8 @@ function claudeSpeedCapability({ report, version, model, models, env = {} }) {
   out.fingerprint = JSON.stringify(["anthropic", model]);
   if (row?.supportsFastMode !== true) return { ...out, support: row?.supportsFastMode === false ? "unavailable" : "unknown", reason: "speed_not_offered" };
   if (["speed_runtime_unverified", "speed_sdk_opt_in_required"].includes(report.reason)) {
-    return { ...out, support: "supported", choices: ["standard", "fast"], reason: "speed_next_turn" };
+    return { ...out, support: "supported", choices: ["standard", "fast"], tier: "fast", reason: "speed_next_turn" };
   }
   return out;
 }
-module.exports = { speedValue, unknownSpeed, codexSpeedVersion, officialCodexRoute, codexSpeedCapability, claudeSpeedReport, claudeSpeedCapability };
+module.exports = { speedValue, paidSpeed, speedTier, speedFingerprint, unknownSpeed, codexSpeedVersion, officialCodexRoute, codexSpeedCapability, claudeSpeedReport, claudeSpeedCapability };

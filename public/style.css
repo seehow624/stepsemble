@@ -915,7 +915,13 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
   max-height: calc(100dvh - 24px);
   overflow: hidden;
 }
-.model-heading { align-items: center; flex-shrink: 0; margin-bottom: 12px; }
+.model-heading { align-items: center; flex-shrink: 0; margin-bottom: 14px; }
+.model-dialog .model-search { min-height: 44px; border-radius: 12px; background: var(--control-fill); }
+.model-dialog .model-info strong { font-size: var(--text-md); line-height: 1.4; }
+.model-dialog .model-info small { margin-top: 2px; font-size: var(--text-xs); letter-spacing: .01em; }
+.model-dialog .model-check { width: 20px; height: 20px; font-size: 11px; }
+.model-dialog .model-row:not(.active) .model-check { border-color: transparent; }
+.model-dialog .model-row.active .model-check { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .model-heading .sa-title { flex: 1; min-width: 0; margin-bottom: 0; padding-bottom: 0; border-bottom: 0; color: var(--ink); }
 .model-dialog .sheet-close {
   width: 40px; height: 40px; flex: 0 0 40px;
@@ -926,7 +932,7 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 .model-dialog .sheet-close .icon { width: 18px; height: 18px; }
 /* Models are a list of rounded rows, not a ruled table; the chosen one keeps
    its check and a soft fill. */
-.model-dialog .action-row.model-row { min-height: 52px; padding: 8px 10px; border-bottom: 0; border-radius: var(--radius-sm); font-size: var(--text-xl); }
+.model-dialog .action-row.model-row { min-height: 54px; padding: 10px 12px; border-bottom: 0; border-radius: var(--radius-sm); font-size: var(--text-xl); }
 @media (hover: hover) { .model-dialog .action-row.model-row:hover { background: var(--control-fill); } }
 .model-dialog .action-row.model-row:active { background: var(--control-fill-hover); }
 .model-dialog .action-row.model-row.active { background: var(--control-fill); }
@@ -7355,10 +7361,34 @@ html.reduced-motion #view-chat .effort-line-label { transform: translate(-50%, 0
 }
 
 /* Speed is a separate preference, not a shortcut on the reasoning slider. */
-.agent-speed-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 12px 4px; border-top: 1px solid var(--line); }
-.agent-speed-control label { font-weight: 600; }
-.agent-speed-control select { max-width: 100%; min-height: 40px; font: inherit; color: var(--ink); background: var(--milk); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
-.agent-speed-control p { grid-column: 1 / -1; margin: 0; color: var(--pine-soft); font-size: var(--text-sm); line-height: 1.5; }
-.composer-speed { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 600px) { .composer-speed { max-width: 94px; font-size: var(--text-xs); } }
+.agent-speed-control { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 8px; flex-shrink: 0; padding: 14px 0; border-top: .5px solid var(--line); }
+.agent-speed-control > label { min-width: 0; padding-right: 32px; font-weight: 600; font-size: var(--text-md); }
+.agent-speed-control > select[hidden] { display: none; }
+.speed-options { display: flex; flex-wrap: wrap; min-width: 0; gap: 3px; padding: 3px; background: var(--control-fill); border-radius: 12px; }
+.speed-choice { flex: 1 1 auto; min-width: 0; min-height: 38px; padding: 7px 12px; border: 1px solid transparent; border-radius: 9px; font: inherit; font-size: var(--text-sm); font-weight: 550; line-height: 1.25; color: var(--pine-soft); background: transparent; cursor: pointer; overflow-wrap: anywhere; }
+.speed-choice[aria-checked="true"] { color: var(--ink); background: var(--milk); border-color: var(--line); box-shadow: 0 1px 3px #0000000d; }
+.speed-choice[hidden] { display: none; }
+.speed-choice:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .6; }
+.speed-choice:focus-visible, .speed-info:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (hover: hover) { .speed-choice:not(:disabled):not([aria-disabled="true"]):hover { color: var(--ink); background: var(--control-fill-hover); } }
+.speed-choice:not(:disabled):not([aria-disabled="true"]):active { background: var(--control-fill-hover); }
+.speed-details { grid-column: 1 / -1; min-width: 0; }
+.speed-details:not([open]) { height: 0; }
+.speed-info { position: absolute; right: -6px; top: 3px; display: grid; place-items: center; width: 44px; height: 44px; list-style: none; font-size: 12px; font-style: normal; font-weight: 650; color: var(--pine-soft); cursor: pointer; border-radius: 8px; }
+.speed-info::-webkit-details-marker { display: none; }
+.speed-info::before { content: ""; position: absolute; width: 15px; height: 15px; border: 1px solid currentColor; border-radius: 50%; }
+.agent-speed-control p { margin: 0; padding: 0 2px; color: var(--pine-soft); font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.speed-status { grid-column: 1 / -1; color: var(--pine-soft); font-size: var(--text-xs); }
+.speed-status[hidden] { display: none; }
+@media (max-width: 600px) {
+  .agent-speed-control { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 0; }
+  .speed-choice { min-height: 44px; padding-inline: 10px; }
+  .speed-info { left: auto; right: -6px; top: 3px; width: 44px; height: 44px; }
+}
+@media (forced-colors: active) {
+  .speed-choice[aria-checked="true"] { border-color: Highlight; color: Highlight; box-shadow: none; }
+}
+#view-chat .composer-fast { width: 13px; height: 13px; flex: 0 0 auto; align-self: center; }
+#view-chat .composer-fast[hidden], #view-chat .composer-fast-plus { display: none; }
+#view-chat .composer-fast[data-speed="ultrafast"] .composer-fast-plus { display: block; }
 .assistant-speed-note { margin: 6px 4px 0; color: var(--pine-soft); font-size: var(--text-xs); line-height: 1.4; }
