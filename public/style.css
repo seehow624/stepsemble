@@ -1954,6 +1954,7 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
    scrolls sideways (renderMarkdown wraps it in .md-table and each cell's
    content in .md-cell). */
 .md-body .md-table {
+  --md-table-radius: var(--radius-sm);
   position: relative;
   width: fit-content;
   max-width: 100%;
@@ -1965,7 +1966,7 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   border: 0.5px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--md-table-radius);
 }
 .md-body table {
   width: max-content;
@@ -2001,19 +2002,19 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   position: absolute;
   top: 1px;
   bottom: 1px;
-  width: 28px;
+  width: 24px;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
 }
 .md-body .md-table::before {
   left: 1px;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-radius: calc(var(--md-table-radius) - 1px) 0 0 calc(var(--md-table-radius) - 1px);
   background: linear-gradient(to right, var(--md-table-fade, var(--paper)), transparent);
 }
 .md-body .md-table::after {
   right: 1px;
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: 0 calc(var(--md-table-radius) - 1px) calc(var(--md-table-radius) - 1px) 0;
   background: linear-gradient(to left, var(--md-table-fade, var(--paper)), transparent);
 }
 .md-body .md-table.more-left::before,
