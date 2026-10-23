@@ -1,0 +1,26 @@
+name: Diagnose Windows soak
+on:
+  push:
+    branches: [diagnostic/3.9.48-windows-soak]
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.19.0
+          package-manager-cache: false
+      - name: Reproduce with owned localhost error diagnostics, preserving all assertions
+        shell: pwsh
+        run: |
+          $preload = (Resolve-Path scripts/diagnose-soak-http.mjs).Path
+          $env:NODE_OPTIONS = '--import=' + ([System.Uri]$preload).AbsoluteUri
+          for ($iteration = 1; $iteration -le 3; $iteration++) {
+            Write-Output "Diagnostic sample $iteration"
+            npm test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
