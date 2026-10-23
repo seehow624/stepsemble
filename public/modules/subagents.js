@@ -54,7 +54,7 @@
           result:"",model:piModel(child.model),reasoningEffort:piThinking(child.thinking),tokens:null,durationMs:null,log:[]});
       });
     }
-    const run=RUN_ID.test(String(details.asyncId||""))?{id:String(details.asyncId),call:clip(details.toolCallId,256)}:null;
+    const run=RUN_ID.test(String(details.asyncId||""))?{id:String(details.asyncId),call:clip(details.toolCallId,320)}:null;
     return rows.length?{rows,...(background?{background:true}:{}),...(run?{run}:{})}:background?{rows,background:true,...(run?{run}:{})}:null;
   }
   // A workflow script names its children only as it runs them.
@@ -330,12 +330,13 @@
       toolId=String(toolId||"");
       if(!toolId)return false;
       // Subagent calls the tool made itself: rows come only from a run the
-      // Host finds for one of them, never from the call alone.
+      // Host finds for one of them, never from the call alone. Each call's own
+      // status decides, not the caller's: a script can start a run and fail later.
       if(Array.isArray(nested)&&nested.length){
         let asked=0;
         for(const launch of nested.slice(0,MAX_NESTED)){
           const call=typeof launch?.call==="string"?launch.call:"";
-          if(isError||!PI_NESTED.test(call)||!call.startsWith(toolId+"/")||piRuns.has(call))continue;
+          if(!PI_NESTED.test(call)||!call.startsWith(toolId+"/")||piRuns.has(call))continue;
           piRuns.set(call,{toolId:call,id:null,call,settled:false,history:true,parentToolId:toolId,agent:clip(launch.agent,80),task:firstLine(launch.task)});
           asked+=1;
         }
@@ -377,8 +378,9 @@
     function onChange(fn){listeners.add(fn);return()=>listeners.delete(fn);}
     const copy=row=>row?JSON.parse(JSON.stringify(row)):null;
     function get(id){return copy(rows.get(id)||archive.get(id));}
-    // A card's own subagents, and those of the calls it made itself.
-    function byTool(toolId){if(!toolId)return [];const match=row=>row.toolId===toolId||row.parentToolId===toolId;const found=[...rows.values()].filter(match);return (found.length?found:[...archive.values()].filter(match)).map(copy);}
+    // A card's own subagents, and those of the calls it made itself: earlier
+    // turns' first, then those still current, each once.
+    function byTool(toolId){if(!toolId)return [];const match=row=>row.toolId===toolId||row.parentToolId===toolId;const live=[...rows.values()].filter(match),ids=new Set(live.map(row=>row.id));return [...[...archive.values()].filter(row=>match(row)&&!ids.has(row.id)),...live].map(copy);}
     return {claude,pi,piRun,piPending,codex,openCode,newTurn,reset,list,all,summary,onChange,get,byTool,remember};
   }
   return {create,piRecord,piNested};

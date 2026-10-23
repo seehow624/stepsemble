@@ -471,7 +471,26 @@ test("Pi: a saved codemode card asks the Host for the runs its subagent calls st
   assert.deepEqual(tracker.byTool(parent).map(row => [row.id, row.status, row.model, row.reasoningEffort]), [[parent + "/1:fix", "completed", "gpt-6-astra", "high"]]);
   assert.deepEqual(tracker.list(), [], "it stays with the earlier turns");
   assert.deepEqual(tracker.piPending(), []);
-  assert.equal(create().remember({ toolId: parent, name: "codemode", isError: true, nested: piNested(message) }), false, "a failed script's calls are not asked for");
+  const failed = create();
+  assert.equal(failed.remember({ toolId: parent, name: "codemode", isError: true, nested: piNested(message) }), true, "a script that failed after a launch still shows the launch");
+  assert.deepEqual(failed.piPending().map(run => run.call), [parent + "/1", parent + "/2", parent + "/1/2"]);
   assert.equal(create().remember({ toolId: "call_x", name: "codemode", nested: [{ call: parent + "/1" }] }), false, "only the card's own calls");
   assert.equal(create().remember({ toolId: parent, name: "codemode", args: { prompt: "not a subagent" }, nested: [{ call: "bad" }] }), false, "a card with calls is never a subagent by its arguments");
+});
+
+test("Pi: a card offers its finished and still running nested subagents together, across turns", () => {
+  const tracker = create(), parent = "call_cm|fc_cm";
+  tracker.pi({ type: "tool_execution_end", toolCallId: parent + "/1", parentToolCallId: parent, toolName: "subagent", result: { details: { mode: "single", results: [
+    { index: 0, agent: "scout", task: "Look", exitCode: 0, finalOutput: "seen" }] } } });
+  tracker.pi({ type: "tool_execution_end", toolCallId: parent + "/2", parentToolCallId: parent, toolName: "subagent", result: { details: { mode: "workflow", asyncId: PI_RUN, toolCallId: parent + "/2", results: [], workflowChildren: { children: [] } } } });
+  tracker.newTurn();
+  assert.deepEqual(tracker.list().map(row => row.id), [parent + "/2:0"], "only the running one stays current");
+  assert.deepEqual(tracker.byTool(parent).map(row => [row.id, row.status]), [[parent + "/1:0", "completed"], [parent + "/2:0", "running"]]);
+});
+
+test("Pi: a nested call at the longest accepted id is read by its full id", () => {
+  const tracker = create(), parent = "c".repeat(256), call = parent + "/1/2/3/4/5/6/7/999999";
+  tracker.pi({ type: "tool_execution_end", toolCallId: call, parentToolCallId: parent + "/1/2/3/4/5/6/7", toolName: "subagent", result: { details: { mode: "workflow", asyncId: PI_RUN, toolCallId: call, results: [], workflowChildren: { children: [] } } } });
+  assert.deepEqual(tracker.piPending(), [{ toolId: call, id: PI_RUN, call }]);
+  assert.equal(piNested({ toolCallId: parent, nestedCalls: { calls: [{ id: call, name: "subagent", status: "ok" }] } })[0].call, call);
 });

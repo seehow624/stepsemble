@@ -356,3 +356,10 @@ test("Pi: a nested call's run is found through pi-subagents' own indexes and sti
   await handle({ method: "GET" }, {}, new URL(`http://h/api/subagent/pi-run?entry=${ENTRY}&call=${encodeURIComponent(CALL + "/3")}`));
   assert.deepEqual(sent[0], [404, { error: "subagent_run_gone", code: "subagent_run_gone" }]);
 });
+
+test("Pi: the longest accepted nested call id is read whole", async t => {
+  const LONGEST = "c".repeat(256) + "/1/2/3/4/5/6/7/999999";
+  const { detail } = piFixture(t, { status: { toolCallId: LONGEST } });
+  assert.equal((await detail.piRun(ENTRY, RUN, LONGEST)).run, RUN);
+  await assert.rejects(detail.piRun(ENTRY, RUN, "c".repeat(257) + "/1"), error => error.statusCode === 400);
+});

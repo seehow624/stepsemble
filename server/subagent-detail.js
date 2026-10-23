@@ -57,7 +57,7 @@ const MAX_STATUS = 2 * 1024 * 1024, MAX_PI_CHILDREN = 64, MAX_PI_LOG = 40;
 // an older build wrote the URI-encoded name only.
 const PI_SEGMENT_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 const PI_ENDED = /^\d{16}-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/i;
-const MAX_PI_ACTIVE = 8, MAX_PI_ENDED = 64, MAX_PI_FOUND = 256;
+const MAX_PI_ACTIVE = 8, MAX_PI_ENDED = 64, MAX_PI_FOUND = 256, MAX_PI_LISTED = 4096;
 function piIndexSegments(value) {
   let encoded = null;
   try { encoded = encodeURIComponent(value); } catch {}
@@ -308,8 +308,12 @@ function createSubagentDetail({ resolve, codex, openCode, approvalUnavailable = 
   async function findPiRun(call, session) {
     const key = session + "\n" + call, root = piRunsDir(), candidates = new Set();
     if (piFound.has(key)) candidates.add(piFound.get(key));
+    // An index folder is read only so far: pi-subagents prunes ended runs,
+    // and a folder past this is not walked to its end.
     const names = async dir => {
-      try { return (await fs.promises.readdir(dir, { withFileTypes: true })).filter(entry => entry.isFile()).map(entry => entry.name); } catch { return []; }
+      const found = [];
+      try { for await (const entry of await fs.promises.opendir(dir)) { if (entry.isFile()) found.push(entry.name); if (found.length >= MAX_PI_LISTED) break; } } catch {}
+      return found;
     };
     for (const segment of piIndexSegments(call))
       for (const name of (await names(path.join(root, ".active-runs", "tool-calls", segment))).slice(0, MAX_PI_ACTIVE)) if (UUID.test(name)) candidates.add(name);
