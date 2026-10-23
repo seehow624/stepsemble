@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.48
+
+- Use Fast with supported GPT models in Claude Code through Magpie while keeping your selected model and reasoning effort.
+- Extend Pi Fast controls to supported Magpie GPT models across Responses, Chat Completions, and Messages.
+- Keep speed choices tied to the correct conversation and queued message, with safer handling of session switches, changed routes, and withdrawn model capabilities.
+- Respect existing Fast restrictions and verify both enabling and returning to Standard. Fast remains available only where the selected model and connection provide a verified capability.
+
 ## 3.9.47
 
 - Choose conversation speed from a cleaner model menu. Standard stays quiet in the composer, Fast adds a small lightning mark, and verified native Codex Ultra Fast adds a plus. Unavailable Ultra Fast options stay out of sight.
