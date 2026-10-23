@@ -13842,7 +13842,7 @@ async function changeThinkingLevel(level, { quiet = false } = {}) {
     }
   } catch (e) { toast(tKey("runtime.saveFailed", { detail: e.message }), true); }
 }
-composerSpeed = window.StepsembleAgentSpeed?.create({ root: $("agent-speed-control"), indicator: $("composer-fast"),
+composerSpeed = window.StepsembleAgentSpeed?.create({ root: $("agent-speed-control"), panel: $("agent-speed-panel"), indicator: $("composer-fast"),
   button: $("btn-model"), description: $("composer-speed-description"),
   context: () => {
     if (!rpc || rpc.readOnly || rpc.nativeHistoryReadonly) return null;

@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict");
 const { create } = require("../public/modules/agent-speed");
-function fixture(t, { confirm = async () => true } = {}) {
+function fixture(t, { confirm = async () => true, inPlace = false } = {}) {
   const old = global.document;
   const created = [];
   const element = () => {
@@ -14,14 +14,15 @@ function fixture(t, { confirm = async () => true } = {}) {
     created.push(e); return e;
   };
   global.document = { createElement: element }; t.after(() => { global.document = old; });
-  const root = element(), indicator = element(), button = element(), description = element(), reads = [], writes = [], errors = [];
+  const root = element(), panel = inPlace ? element() : null, indicator = element(), button = element(), description = element(), reads = [], writes = [], errors = [];
   let target = { key: "codex:a:model", agentId: "codex", sessionId: "a", model: "model" };
-  const ui = create({ root, indicator, button, description, context: () => target, confirm, onError: e => errors.push(e),
+  const ui = create({ root, panel, indicator, button, description, context: () => target, confirm: inPlace ? null : confirm, onError: e => errors.push(e),
     get: () => new Promise((resolve, reject) => reads.push({ resolve, reject })),
     post: (_url, body) => new Promise((resolve, reject) => writes.push({ body, resolve, reject })) });
   return { ui, select: created.find(e => e.id === "agent-speed-select"), note: created.find(e => e.id === "agent-speed-note"),
-    choices: () => created.filter(e => e.parent && e.className === "speed-choice"), details: created.find(e => e.className === "speed-details"),
-    description, indicator, reads, writes, errors, setTarget: value => { target = value; } };
+    choices: () => created.filter(e => e.parent && e.className === "speed-choice"), info: created.find(e => e.className === "speed-info"),
+    ask: created.find(e => e.id === "agent-speed-confirm"), byClass: name => created.find(e => e.className?.split(" ").includes(name)),
+    panel, description, indicator, reads, writes, errors, setTarget: value => { target = value; } };
 }
 const supported = { support: "supported", requested: "standard", effective: "unknown", revision: "r1", fingerprint: "verified" };
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -47,7 +48,8 @@ test("agent-speed UI: no hidden premium upsell; Ultra DOM exists only for a veri
   const f = fixture(t); let read = f.ui.refresh(); f.reads[0].resolve(supported); await read;
   assert.equal(f.select.hidden, true); assert.equal(f.select.tabIndex, -1);
   assert.equal(f.choices().some(e => e["data-speed"] === "ultrafast"), false);
-  assert.equal(!!f.details.open, false, "long explanations are optional, not a status paragraph");
+  assert.equal(f.info["aria-expanded"], "false", "long explanations are optional, not a status paragraph");
+  assert.equal(f.note.hidden, true);
   read = f.ui.refresh(); f.reads[1].resolve({ ...supported, ...ultraCapability(["ultrafast"]) }); await read;
   assert.deepEqual(f.choices().filter(e => !e.hidden).map(e => e["data-speed"]), ["ultrafast"]);
   read = f.ui.refresh(); f.reads[2].resolve({ ...supported, ...ultraCapability(["priority", "ultrafast"]) }); await read;
@@ -72,7 +74,8 @@ test("agent-speed UI: Fast to Ultra confirms the named tier, uses separate conse
   const cap = { ...supported, ...ultraCapability(["priority", "ultrafast"]), requested: "fast" };
   let read = f.ui.refresh(); f.reads[0].resolve(cap); await read;
   f.select.value = "ultrafast"; let save = f.select.events.change(); await tick();
-  assert.match(confirmations[0], /Enable Ultra Fast/); assert.equal(f.writes[0].body.fingerprint, cap.fingerprints.ultrafast);
+  assert.match(confirmations[0], /^Turn on Ultra Fast\?/); assert.match(confirmations[0], /cost more/); assert.match(confirmations[0], /subagents/);
+  assert.equal(f.writes[0].body.fingerprint, cap.fingerprints.ultrafast);
   assert.equal(f.writes[0].body.confirmCost, true);
   f.writes[0].resolve({ ...cap, requested: "ultrafast", preferenceFingerprint: cap.fingerprints.ultrafast }); await save;
   assert.equal(f.ui.snapshot().speed, "ultrafast"); assert.equal(f.indicator["data-speed"], "ultrafast");
@@ -139,8 +142,9 @@ test("agent-speed UI: supported Magpie keeps the forwarding warning without an u
   const f = fixture(t); const read = f.ui.refresh();
   f.reads[0].resolve({ ...supported, route: "magpie", reason: "speed_gateway_requested" }); await read;
   assert.equal(f.select.disabled, false);
-  assert.match(f.note.textContent, /global overrides or fallback/);
-  assert.doesNotMatch(f.note.textContent, /contract is unverified/);
+  assert.match(f.byClass("speed-note-gateway").textContent, /global overrides or fallback/);
+  assert.equal(f.byClass("speed-note-gateway").hidden, false);
+  assert.doesNotMatch(f.byClass("speed-note-main").textContent, /contract is unverified/);
   assert.doesNotMatch(f.description.textContent, /contract is unverified/);
 });
 test("agent-speed UI: another conversation\'s pending save cannot reset a focused selection or delay readiness", async t => {
@@ -229,4 +233,36 @@ test("agent-speed UI: a pending save in another conversation cannot swallow this
   assert.equal(f.ui.snapshot().speed, "standard");
   f.writes[1].resolve({ ...supported, requested: "fast" }); await newSave;
   assert.equal(f.ui.snapshot().speed, "fast"); assert.equal(f.indicator.hidden, false);
+});
+
+test("agent-speed UI: a paid tier is confirmed in place below the heading, and only its own button there confirms", async t => {
+  const f = fixture(t, { inPlace: true }), cap = { ...supported, ...ultraCapability(["priority", "ultrafast"]) };
+  const read = f.ui.refresh(); f.reads[0].resolve(cap); await read;
+  const fast = f.choices().find(e => e["data-speed"] === "fast"), ultra = f.choices().find(e => e["data-speed"] === "ultrafast");
+  assert.equal(f.panel.hidden, true, "nothing opens below the heading until asked");
+  assert.equal(f.note.parent, f.panel); assert.equal(f.ask.parent, f.panel);
+  f.info.events.click();
+  assert.deepEqual([f.note.hidden, f.info["aria-expanded"], f.panel.hidden], [false, "true", false], "details open below the heading");
+  assert.equal(f.byClass("speed-note-state").textContent, "Reported state: Unknown");
+  fast.events.click(); await tick();
+  assert.deepEqual([f.ask.hidden, f.note.hidden, fast["data-pending"]], [false, true, "true"], "the confirmation takes the details' place");
+  assert.equal(f.byClass("speed-confirm-title").options[1].textContent, "Turn on Fast?");
+  assert.equal(f.byClass("speed-confirm-ok").textContent, "Turn on Fast");
+  assert.equal(global.document.activeElement, f.byClass("speed-confirm-cancel"), "a repeated Enter cannot confirm a cost");
+  assert.deepEqual([f.byClass("speed-confirm-cancel").tabIndex, f.byClass("speed-confirm-ok").tabIndex, f.info.tabIndex], [0, 0, 0], "Safari's Tab order reaches every speed button");
+  ultra.events.click(); f.info.events.click(); await tick();
+  assert.deepEqual([f.writes.length, f.note.hidden], [0, true], "nothing else confirms or opens while it asks");
+  f.byClass("speed-confirm-ok").events.click(); await tick();
+  assert.deepEqual([f.writes.length, f.writes[0].body.speed, f.writes[0].body.confirmCost, f.ask.hidden, f.panel.hidden], [1, "fast", true, true, true]);
+  f.writes[0].resolve({ ...cap, requested: "fast" }); await f.ui.ready();
+  ultra.events.click(); await tick();
+  assert.equal(f.byClass("speed-confirm-title").options[1].textContent, "Turn on Ultra Fast?");
+  f.ask.events.keydown({ key: "Escape", preventDefault() {}, stopPropagation() {} }); await f.ui.ready();
+  assert.deepEqual([f.writes.length, f.ui.snapshot().speed, f.ask.hidden], [1, "fast", true], "Escape cancels without a save");
+  ultra.events.click(); await tick();
+  f.setTarget({ key: "codex:b:model", agentId: "codex", sessionId: "b", model: "model" });
+  const other = f.ui.refresh(); await tick();
+  assert.equal(f.ask.hidden, true, "a confirmation belongs to the conversation it was asked in");
+  f.reads[1].resolve(cap); await other; await f.ui.ready();
+  assert.equal(f.writes.length, 1, "the closed confirmation authorized nothing");
 });
