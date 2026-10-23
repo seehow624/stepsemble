@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.9.47
+
+- Choose conversation speed from a cleaner model menu. Standard stays quiet in the composer, Fast adds a small lightning mark, and verified native Codex Ultra Fast adds a plus. Unavailable Ultra Fast options stay out of sight.
+- Speed choices no longer get interrupted by background refreshes, and idle Codex conversations can check their available speeds without sending a message. Paid levels still require confirmation and are rechecked before each turn.
+- Improve light-mode usage charts, quota indicators and warning contrast while preserving dark-mode colors and chart proportions.
+- Blend wide-table scroll hints into the table surface and rounded corners, including colored message bubbles, without obscuring the final column.
+- Keep the Pi long-conversation fix from 3.9.46. Available speed levels depend on the verified connection and model; a requested tier is not a guarantee of served speed or billing.
+
 ## 3.9.46
 
 - Open a long Pi conversation again. Since 3.9.45, opening one with many screenshots ended Pi straight away: the check for the conversation's speed read the whole conversation back on one line, past the Host's limit. It now reads only what was added after the last saved entry.
