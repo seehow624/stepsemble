@@ -521,6 +521,8 @@ html[data-look="bold"] .effort-knob { background: radial-gradient(circle at 50% 
     0 0 calc(6px + 20px * var(--effort-p)) color-mix(in srgb, var(--effort-glow) calc(10% + 52% * var(--effort-p)), transparent); }
 html[data-look="bold"] .effort-ends { margin-top: -8px; }
 html[data-look="bold"] .thinking-control.is-empty { padding: 4px 16px 12px; }
+/* Speed without reasoning is just a header, not an empty slider card. */
+html[data-look="bold"] .thinking-control.is-empty:has(.agent-speed-control:not([hidden])) { padding: 0; background: none; box-shadow: none; }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   html[data-look="bold"] .thinking-control { background: var(--milk); }
   html[data-look="bold"] .effort-fill { box-shadow: none; }

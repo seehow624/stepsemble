@@ -9316,7 +9316,7 @@ function updateActivityGroup(activity, patch = {}) {
   activity.title.textContent = activity.running
     ? (activity.latest || "Working…")
     : (activity.receipt ? formatActivityReceipt(activity.receipt) : activitySummary(activity));
-  activity.title.title = activity.title.textContent;
+  activity.title.removeAttribute("title");
   activity.detail.textContent = activity.running
     ? (activity.count ? `${activity.count} ${activity.count === 1 ? "tool" : "tools"}` : "thinking…")
     : "";
@@ -9350,7 +9350,7 @@ function makeToolCard(name, args, resultText, isError, running) {
   title.className = "tool-name";
   title.dataset.i18nIgnore = "";
   setWorkLabel(title, toolLabel(name, args, running));
-  title.title = toolTitle(name, args, false, { compact: false });
+  title.setAttribute("aria-label", toolTitle(name, args, false, { compact: false }));
   const stat = document.createElement("span");
   stat.className = "tool-stat";
   stat.dataset.i18nIgnore = "";
@@ -9451,7 +9451,7 @@ function setToolCardState(card, { running = false, isError = false, text = null 
   card.classList.toggle("running", running);
   card.classList.toggle("err", !!isError);
   if (title) setWorkLabel(title, toolLabel(meta.name, meta.args, running));
-  if (title) title.title = toolTitle(meta.name, meta.args, false, { compact: false });
+  if (title) { title.removeAttribute("title"); title.setAttribute("aria-label", toolTitle(meta.name, meta.args, false, { compact: false })); }
   if (command) command.textContent = toolCommand(meta.name, meta.args);
   if (sub) sub.textContent = running ? "working…" : "";
   if (status) {
@@ -10197,8 +10197,8 @@ function workSegmentItems(segment) {
   }
   return { cards, thinking, images };
 }
-// The row says what the run did ("Check deploy status +2 more"); its tooltip
-// keeps the overview ("Edited files, ran commands") and lists every step.
+// The row says what the run did ("Check deploy status +2 more"); its accessible
+// description keeps the overview and steps without a verbose native hover.
 function workSegmentSummary(items) {
   const counts = new Map();
   for (const card of items.cards) {
@@ -10292,7 +10292,8 @@ function updateWorkWait(head, list, background, open) {
   if (wait && wait.textContent !== text) wait.textContent = text;
   const lines = background ? workWaitLines(background) : [];
   const title = lines.map(line => [line.kind, line.detail].filter(Boolean).join(": ")).join("\n");
-  if (head.title !== title) head.title = title;
+  head.removeAttribute("title");
+  head.setAttribute("aria-description", title);
   if (!list) return;
   list.hidden = !open;
   const signature = JSON.stringify(lines);
@@ -10553,7 +10554,8 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, backgrou
     row.classList.toggle("wl-hide", collapsed);
     setWorkLabel(row.querySelector(".wl-label"), shown);
     const title = live ? shown.text : summary.title;
-    if (row.title !== title) row.title = title;
+    row.removeAttribute("title");
+    row.setAttribute("aria-description", title);
     setWorkIcon(row.querySelector(".wl-icon"), live
       ? WORK_ICONS[window.stepsembleSessionUtils.workCategory(live.__tool?.name, live.__tool?.args)] || WORK_ICONS.tool
       : summary.icon);
@@ -10717,7 +10719,8 @@ function relabelWorkLog() {
     const title = card.querySelector(".tool-name");
     if (!title) continue;
     setWorkLabel(title, toolLabel(meta.name, meta.args, card.classList.contains("running")));
-    title.title = toolTitle(meta.name, meta.args, false, { compact: false });
+    title.removeAttribute("title");
+    title.setAttribute("aria-label", toolTitle(meta.name, meta.args, false, { compact: false }));
   }
   for (const toggle of el.messages?.querySelectorAll?.(".thinking-toggle") || []) toggle.textContent = tKey("work.item.thinking");
   for (const card of el.messages?.querySelectorAll?.(".wl-files") || []) delete card.__filesSignature;

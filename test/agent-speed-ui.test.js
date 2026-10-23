@@ -18,15 +18,15 @@ function fixture(t, { confirm = async () => true } = {}) {
   let target = { key: "codex:a:model", agentId: "codex", sessionId: "a", model: "model" };
   const ui = create({ root, indicator, button, description, context: () => target, confirm, onError: e => errors.push(e),
     get: () => new Promise((resolve, reject) => reads.push({ resolve, reject })),
-    post: (_url, body) => new Promise(resolve => writes.push({ body, resolve })) });
+    post: (_url, body) => new Promise((resolve, reject) => writes.push({ body, resolve, reject })) });
   return { ui, select: created.find(e => e.id === "agent-speed-select"), note: created.find(e => e.id === "agent-speed-note"),
-    choices: () => created.filter(e => e.parent && e.role === "radio"), details: created.find(e => e.className === "speed-details"),
+    choices: () => created.filter(e => e.parent && e.className === "speed-choice"), details: created.find(e => e.className === "speed-details"),
     description, indicator, reads, writes, errors, setTarget: value => { target = value; } };
 }
 const supported = { support: "supported", requested: "standard", effective: "unknown", revision: "r1", fingerprint: "verified" };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const ultraCapability = tiers => require("../server/agent-speed").codexSpeedCapability({ version: "0.163.0", config: {}, model: "model", models: [{ id: "model", model: "model", serviceTiers: tiers.map(id => ({ id })) }] });
-test("agent-speed UI: pending radio save keeps native focusability, blocks repeats and never restores unrelated focus", async t => {
+test("agent-speed UI: pending toggle save keeps native focusability, blocks repeats and never restores unrelated focus", async t => {
   const f = fixture(t), cap = { ...supported, ...ultraCapability(["priority", "ultrafast"]) };
   const read = f.ui.refresh(); f.reads[0].resolve(cap); await read;
   const fast = f.choices().find(e => e["data-speed"] === "fast"), ultra = f.choices().find(e => e["data-speed"] === "ultrafast");
@@ -34,8 +34,8 @@ test("agent-speed UI: pending radio save keeps native focusability, blocks repea
   try {
     assert.equal(fast.disabled, false, "native disabled would remove keyboard focus during a delayed POST");
     assert.equal(fast["aria-disabled"], "true"); assert.equal(fast.parent["aria-busy"], "true");
-    fast.events.keydown({ key: "ArrowRight", preventDefault() {} }); ultra.events.click(); await tick();
-    assert.equal(f.writes.length, 1, "busy radios must not create another confirmation/save");
+    assert.equal(fast.events.keydown, undefined, "arrows never trigger paid changes"); ultra.events.click(); await tick();
+    assert.equal(f.writes.length, 1, "busy toggles must not create another confirmation/save");
     assert.equal(global.document.activeElement, fast);
     const elsewhere = global.document.createElement("button"); elsewhere.focus();
     f.writes[0].resolve({ ...cap, requested: "fast" }); await f.ui.ready(); await tick();
@@ -49,9 +49,9 @@ test("agent-speed UI: no hidden premium upsell; Ultra DOM exists only for a veri
   assert.equal(f.choices().some(e => e["data-speed"] === "ultrafast"), false);
   assert.equal(!!f.details.open, false, "long explanations are optional, not a status paragraph");
   read = f.ui.refresh(); f.reads[1].resolve({ ...supported, ...ultraCapability(["ultrafast"]) }); await read;
-  assert.deepEqual(f.choices().filter(e => !e.hidden).map(e => e["data-speed"]), ["standard", "ultrafast"]);
+  assert.deepEqual(f.choices().filter(e => !e.hidden).map(e => e["data-speed"]), ["ultrafast"]);
   read = f.ui.refresh(); f.reads[2].resolve({ ...supported, ...ultraCapability(["priority", "ultrafast"]) }); await read;
-  assert.equal(f.choices().filter(e => !e.hidden).length, 3);
+  assert.equal(f.choices().filter(e => !e.hidden).length, 2);
   read = f.ui.refresh(); f.reads[3].resolve({ ...supported, ...ultraCapability(["priority", "ultrafast"]), route: "magpie" }); await read;
   assert.equal(f.choices().some(e => e["data-speed"] === "ultrafast"), false);
 });
@@ -83,6 +83,57 @@ test("agent-speed UI: Fast to Ultra confirms the named tier, uses separate conse
   read = f.ui.sync(); assert.equal(f.indicator.hidden, true);
   assert.equal(f.choices().some(e => e["data-speed"] === "ultrafast"), false);
   f.reads[1].resolve({ ...supported, support: "unknown" }); await read;
+});
+test("agent-speed UI: exact paid DOM, stable controls, mutually exclusive toggles and active-click Standard", async t => {
+  const f = fixture(t);
+  const both = { ...supported, ...ultraCapability(["priority", "ultrafast"]) };
+  const values = () => f.choices().map(e => e["data-speed"]);
+  for (const [tiers, expected] of [[[], []], [["priority"], ["fast"]], [["ultrafast"], ["ultrafast"]], [["priority", "ultrafast"], ["fast", "ultrafast"]]]) {
+    const read = f.ui.refresh(); f.reads.at(-1).resolve({ ...supported, ...ultraCapability(tiers) }); await read;
+    assert.deepEqual(values().sort(), expected.sort());
+    assert.ok(f.choices().every(e => e["aria-pressed"] === "false"));
+  }
+  const fast = f.choices().find(e => e["data-speed"] === "fast");
+  const ultra = f.choices().find(e => e["data-speed"] === "ultrafast");
+  assert.match(fast.innerHTML, /<svg/); assert.match(ultra.innerHTML, /speed-plus/);
+  for (const [button, value] of [[fast, "fast"], [ultra, "ultrafast"], [fast, "fast"], [fast, "standard"], [ultra, "ultrafast"], [ultra, "standard"]]) {
+    button.focus(); button.events.click(); await tick();
+    const write = f.writes.at(-1); assert.equal(write.body.speed, value);
+    assert.equal(write.body.confirmCost, value !== "standard"); assert.equal(write.body.revision, "r1");
+    write.resolve({ ...both, requested: value }); await f.ui.ready();
+    assert.equal(f.ui.snapshot().speed, value);
+    assert.equal(fast["aria-pressed"], String(value === "fast"));
+    assert.equal(ultra["aria-pressed"], String(value === "ultrafast"));
+    assert.equal(global.document.activeElement, button);
+    assert.equal(f.choices().find(e => e["data-speed"] === "fast"), fast, "render preserves the button");
+  }
+});
+test("agent-speed UI: failed toggle POST rolls back and revoked paid tier has only off recovery", async t => {
+  const f = fixture(t), cap = { ...supported, ...ultraCapability(["priority", "ultrafast"]) };
+  let read = f.ui.refresh(); f.reads[0].resolve(cap); await read;
+  const fast = f.choices().find(e => e["data-speed"] === "fast"); fast.focus(); fast.events.click(); await tick();
+  f.writes[0].reject(new Error("CAS conflict")); await tick();
+  f.reads[1].resolve(cap); await f.ui.ready();
+  assert.equal(f.ui.snapshot().speed, "standard"); assert.match(f.errors[0], /not saved/);
+  assert.equal(global.document.activeElement, fast, "failed save readback retains focus");
+  read = f.ui.refresh(); f.reads[2].resolve({ ...cap, requested: "ultrafast", choices: ["standard", "fast"] }); await read;
+  assert.deepEqual(f.choices().map(e => e["data-speed"]), ["fast", "standard"]);
+  f.choices().find(e => e["data-speed"] === "standard").events.click(); await tick();
+  assert.equal(f.writes[1].body.speed, "standard"); assert.equal(f.writes[1].body.confirmCost, false);
+  f.writes[1].resolve({ ...cap, choices: ["standard", "fast"] }); await f.ui.ready();
+  assert.deepEqual(f.choices().map(e => e["data-speed"]), ["fast"]);
+});
+test("agent-speed UI: model/session change during paid confirmation cannot authorize the new context", async t => {
+  let accept;
+  const f = fixture(t, { confirm: () => new Promise(resolve => { accept = resolve; }) });
+  const read = f.ui.refresh(); f.reads[0].resolve(supported); await read;
+  f.select.value = "fast"; const save = f.select.events.change(); await tick();
+  f.setTarget({ key: "codex:next:other", agentId: "codex", sessionId: "next", model: "other" });
+  const fresh = f.ui.sync(); assert.equal(f.choices().length, 0);
+  accept(true); await save;
+  assert.equal(f.writes.length, 0, "old confirmation is not a new conversation's consent");
+  f.reads[1].resolve(supported); await fresh;
+  assert.equal(f.ui.snapshot().speed, "standard");
 });
 test("agent-speed UI: supported Magpie keeps the forwarding warning without an unverified-route denial", async t => {
   const f = fixture(t); const read = f.ui.refresh();
@@ -128,7 +179,7 @@ test("agent-speed UI: failed GET is explicit/fail-closed, retry recovers, contex
   const f = fixture(t); let read = f.ui.refresh(); f.reads[0].resolve({ ...supported, requested: "fast" }); await read;
   read = f.ui.refresh(); f.reads[1].reject(new Error("secret URL must not appear")); await read;
   assert.match(f.errors[0], /could not be verified/i);
-  assert.equal(f.select.options[1].disabled, true); assert.equal(f.select.disabled, false, "Standard recovery stays available");
+  assert.equal(f.choices().some(e => e["data-speed"] === "fast"), false); assert.equal(f.select.disabled, false, "Standard recovery stays available");
   read = f.ui.refresh(); f.reads[2].resolve(supported); await read;
   assert.equal(f.select.disabled, false);
   f.setTarget({ key: "pi:b:other", agentId: "pi", sessionId: "b", model: "other" });

@@ -57,52 +57,53 @@
   function create({ root, indicator, button, description, context, get, post, locale = () => "en", confirm = text => window.confirm(text), onError = () => {} }) {
     let key = null, state = null, generation = 0, pending = null, pendingKey = null, saving = null, savingKey = null;
     const label = document.createElement("label"), select = document.createElement("select"), note = document.createElement("p");
-    label.id = "agent-speed-label"; select.id = "agent-speed-select";
+    label.id = "agent-speed-label"; label.className = "sr-only"; select.id = "agent-speed-select";
     select.hidden = true; select.tabIndex = -1; select.setAttribute("aria-hidden", "true");
     note.id = "agent-speed-note";
     const group = document.createElement("div"), details = document.createElement("details"), summary = document.createElement("summary"), status = document.createElement("span");
-    group.className = "speed-options"; group.setAttribute("role", "radiogroup"); group.setAttribute("aria-labelledby", label.id);
+    group.className = "speed-options"; group.setAttribute("role", "group"); group.setAttribute("aria-labelledby", label.id);
     details.className = "speed-details"; summary.className = "speed-info"; summary.textContent = "i";
     status.className = "speed-status"; status.setAttribute("role", "status");
     details.append(summary, note); root.append(label, select, group, details, status);
     const controls = new Map();
     function addChoice(value) {
       const option = document.createElement("option"), choice = document.createElement("button");
-      option.value = value; select.append(option);
-      choice.type = "button"; choice.className = "speed-choice"; choice.setAttribute("role", "radio"); choice.setAttribute("data-speed", value);
+      option.value = value; if (value !== "standard") select.append(option);
+      choice.type = "button"; choice.className = "speed-choice"; choice.setAttribute("data-speed", value);
       choice.addEventListener("click", () => {
         if (choice.disabled || choice.getAttribute("aria-disabled") === "true") return;
-        select.value = value; void change();
+        select.value = state?.requested === value ? "standard" : value; void change();
       });
-      choice.addEventListener("keydown", event => {
-        const direction = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 0;
-        if (!direction && !["Home", "End"].includes(event.key)) return;
-        event.preventDefault();
-        if (choice.getAttribute("aria-disabled") === "true") return;
-        const enabled = [...controls.values()].filter(row => !row.choice.hidden && !row.choice.disabled);
-        const index = enabled.findIndex(row => row.choice === choice);
-        const next = enabled[event.key === "Home" ? 0 : event.key === "End" ? enabled.length - 1 : (index + direction + enabled.length) % enabled.length];
-        next?.choice.focus(); if (next) { select.value = next.option.value; void change(); }
-      });
+      if (paid(value)) choice.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 10-13h-8l1-7Z"/>'
+        + (value === "ultrafast" ? '<path class="speed-plus" d="M19 2v6m-3-3h6"/>' : '') + '</svg>';
       group.append(choice); controls.set(value, { option, choice });
     }
-    addChoice("standard"); addChoice("fast");
+    // Standard remains the native record, but only appears as an off-only
+    // recovery action when a saved paid tier is no longer offered.
+    const standardOption = document.createElement("option"); standardOption.value = "standard"; select.append(standardOption);
     function render({ committed = false } = {}) {
       const language = locale(), current = (context()?.key || null) === key;
       const shown = current ? state : null;
       label.textContent = t("title", language);
-      if (offered(shown, "ultrafast")) { if (!controls.has("ultrafast")) addChoice("ultrafast"); }
-      else if (controls.has("ultrafast")) {
-        const row = controls.get("ultrafast"); row.choice.remove(); row.option.remove(); controls.delete("ultrafast");
-      }
-      for (const [speed, row] of controls) {
-        const text = speed === "fast" ? "Fast" : t(speed, language);
-        if (row.option.textContent !== text) row.option.textContent = text;
-        row.option.disabled = paid(speed) && !offered(shown, speed);
-        row.choice.textContent = text;
-        row.choice.hidden = paid(speed) && !offered(shown, speed);
-      }
       const value = shown?.requested || "standard";
+      const recovery = paid(value) && !offered(shown, value);
+      for (const speed of ["fast", "ultrafast", "standard"]) {
+        const visible = speed === "standard" ? recovery : offered(shown, speed);
+        if (visible && !controls.has(speed)) addChoice(speed);
+        else if (!visible && controls.has(speed)) {
+          const row = controls.get(speed); row.choice.remove(); if (speed !== "standard") row.option.remove(); controls.delete(speed);
+        }
+      }
+      standardOption.textContent = t("standard", language);
+      for (const [speed, row] of controls) {
+        const text = t(speed, language);
+        row.option.textContent = text;
+        row.choice.setAttribute("aria-label", text);
+        row.choice.setAttribute("aria-describedby", note.id);
+        row.choice.title = text;
+        if (speed === "standard") row.choice.textContent = text;
+      }
+      root.hidden = controls.size === 0;
       if (select.value !== value && (committed || document.activeElement !== select || saving && savingKey === key || shown?.support !== "supported")) select.value = value;
       // A background GET must not close a native picker on window focus.
       // POST still revalidates the cached revision, fingerprint and support.
@@ -111,15 +112,12 @@
       const disabled = busy || unavailable;
       if (select.disabled !== disabled) select.disabled = disabled;
       group.setAttribute("aria-busy", String(busy));
-      const selected = controls.get(value);
-      const focusValue = selected && !selected.choice.hidden && !selected.option.disabled ? value : "standard";
       for (const [speed, row] of controls) {
-        // Native disabled blurs the active radio during a delayed save. Keep
-        // its focus ownership; aria-disabled plus activation guards block repeats.
-        row.choice.disabled = unavailable || row.option.disabled;
-        row.choice.setAttribute("aria-disabled", String(disabled || row.option.disabled));
-        row.choice.setAttribute("aria-checked", String(speed === value));
-        row.choice.tabIndex = speed === focusValue ? 0 : -1;
+        // Keep native focus during confirmation/save; guards prevent repeat
+        // activation. Ordinary buttons use Tab/Enter/Space, never paid arrows.
+        row.choice.setAttribute("aria-disabled", String(disabled));
+        row.choice.setAttribute("aria-pressed", String(speed === value));
+        row.choice.tabIndex = 0;
       }
       summary.setAttribute("aria-label", t("info", language)); summary.title = t("info", language);
       status.textContent = shown?.reason === "speed_load_failed" ? t("unknown", language) : shown?.effective === "cooldown" ? t("cooldown", language) : "";

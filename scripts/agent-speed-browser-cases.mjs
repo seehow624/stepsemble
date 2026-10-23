@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
+import { runComposerSpeedIconsBrowserCases } from "./composer-speed-icons-browser-cases.mjs";
 
 export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/agent-speed", engine = "browser", route = "native" } = {}) {
   await fs.mkdir(output, { recursive: true });
@@ -28,9 +29,10 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       // Reproduce same-model readiness: the sheet's catalog request brings its
       // runtime online after the first speed GET answered inactive.
       preview.state.speedRuntimeReady = false; preview.state.speedObservations = [];
-      const open = async () => { await ui.locator("#btn-model").click(); await ui.locator('[role="radio"][data-speed="standard"]:enabled').waitFor(); };
+      const open = async () => { await ui.locator("#btn-model").click(); await ui.locator('button.speed-choice[data-speed="fast"]:not([aria-disabled="true"])').waitFor(); };
       const choose = async value => {
-        await ui.locator(`[role="radio"][data-speed="${value}"]`).click();
+        const target = value === "standard" ? await ui.locator("#agent-speed-select").inputValue() : value;
+        await ui.locator(`button.speed-choice[data-speed="${target}"]`).click();
         await ui.waitForFunction(value => document.querySelector("#agent-speed-select").value === value && !document.querySelector("#agent-speed-select").disabled, value);
       };
       await open();
@@ -38,10 +40,10 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       const readiness = preview.state.speedObservations.filter(row => row.model === "fixture-codex-fast");
       assert.equal(readiness[0]?.support, "unknown");
       assert.ok(readiness.slice(1).some(row => row.support === "evaluated"), "same model is rechecked after runtime activation");
-      await ui.locator('[role="radio"][data-speed="standard"]:enabled').waitFor();
+      await ui.locator('button.speed-choice[data-speed="fast"]:not([aria-disabled="true"])').waitFor();
       assert.equal(await ui.locator("#composer-fast").getAttribute("hidden"), "");
       assert.equal(await ui.locator("#composer-speed").count(), 0);
-      assert.equal(await ui.locator('[data-speed="ultrafast"][role="radio"]').count(), 0, "unsupported Ultra is absent, not a disabled upsell");
+      assert.equal(await ui.locator('button.speed-choice[data-speed="ultrafast"]').count(), 0, "unsupported Ultra is absent, not a disabled upsell");
       assert.equal(await ui.locator(".speed-details").getAttribute("open"), null);
       assert.equal(await ui.locator("#agent-speed-note").isVisible(), false);
       assert.match(await ui.locator("#btn-model").getAttribute("aria-describedby"), /composer-speed-description/);
@@ -49,18 +51,20 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       const effort = await ui.locator("#thinking-select").inputValue();
       stage = "Fast fee confirmation and readback";
       // A delayed focus GET must not disable the visible picker or swallow
-      // its keyboard selection. Use the actual radio group while GET waits.
+      // its keyboard selection. Use the actual toggle group while GET waits.
       let releaseFocus;
       await ui.evaluate(() => { window.speedEvents = []; for (const name of ["focus", "blur", "keydown", "change"]) document.querySelector(".speed-options").addEventListener(name, e => speedEvents.push([name, e.key, e.target.value, e.target.disabled])); });
-      await ui.locator('[role="radio"][aria-checked="true"]').focus();
+      await ui.locator('button.speed-choice[data-speed="fast"]').focus();
       await page.route("**/api/agent-speed?*", async request => {
         await new Promise(resolve => { releaseFocus = resolve; }); await request.continue();
       }, { times: 1 });
       await ui.evaluate(() => window.dispatchEvent(new Event("focus")));
       await page.waitForFunction(() => true);
       while (!releaseFocus) await new Promise(resolve => setTimeout(resolve, 10));
-      assert.equal(await ui.locator('[role="radio"][data-speed="fast"]').isEnabled(), true);
-      await ui.locator('[role="radio"][data-speed="standard"]').press("ArrowRight");
+      assert.equal(await ui.locator('button.speed-choice[data-speed="fast"]').isEnabled(), true);
+      await page.keyboard.press("ArrowRight");
+      assert.equal(preview.state.speedRequests.length, 0, "arrows never authorize payment");
+      await page.keyboard.press("Enter");
       await fs.writeFile(path.join(output, `${engine}-${route}-${width}-focus.json`), JSON.stringify(await ui.evaluate(() => speedEvents), null, 2));
       await ui.waitForFunction(() => document.querySelector("#agent-speed-select").value === "fast" && !document.querySelector("#agent-speed-select").disabled);
       releaseFocus();
@@ -82,11 +86,11 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
         assert.match(note, /global overrides or fallback/);
         assert.doesNotMatch(note, /contract is unverified/);
       }
-      // Native buttons in the radio group are keyboard reachable and remain
+      // Native buttons in the toggle group are keyboard reachable and remain
       // in the phone sheet, outside the draft's IME key handlers.
-      await ui.locator('[role="radio"][aria-checked="true"]').focus();
+      await ui.locator('button.speed-choice[aria-pressed="true"]').focus();
       assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "fast");
-      const bounds = await ui.locator(".speed-options").boundingBox(); assert.ok(bounds.width > 40 && bounds.width < width);
+      const bounds = await ui.locator(".speed-options").boundingBox(); assert.ok(bounds.width >= (width < 600 ? 44 : 36) && bounds.width < width);
       await page.screenshot({ path: path.join(output, `${engine}-${route}-${width}-speed.png`), fullPage: true });
       await ui.locator("#model-close").click();
       await page.screenshot({ path: path.join(output, `${engine}-${route}-${width}-composer-fast.png`), fullPage: true });
@@ -106,7 +110,7 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       assert.ok(preview.state.codexQueueDeliveries[0].speedFingerprint.includes("priority"));
       stage = "save failure rolls back to Host preference";
       await open(); preview.state.speedFailure = true;
-      await ui.locator('[role="radio"][data-speed="fast"]').click();
+      await ui.locator('button.speed-choice[data-speed="fast"]').click();
       await ui.waitForFunction(() => document.querySelector("#agent-speed-select").value === "standard" && !document.querySelector("#agent-speed-select").disabled);
       preview.state.speedFailure = false;
       stage = "failed GET is explicit and retry recovers";
@@ -114,9 +118,9 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       await ui.evaluate(() => composerSpeed.refresh());
       assert.match(await ui.locator("#agent-speed-note").textContent(), /could not be verified/);
       assert.doesNotMatch(await ui.locator("#agent-speed-note").textContent(), /synthetic_private_detail/);
-      assert.equal(await ui.locator('#agent-speed-select option[value="fast"]').isDisabled(), true);
+      assert.equal(await ui.locator('button.speed-choice[data-speed="fast"]').count(), 0);
       await ui.evaluate(() => composerSpeed.refresh());
-      await ui.locator('[role="radio"][data-speed="standard"]:enabled').waitFor();
+      await ui.locator('button.speed-choice[data-speed="fast"]:not([aria-disabled="true"])').waitFor();
       stage = "model change revokes incompatible Fast";
       await choose("fast");
       await ui.locator(".model-row").filter({ hasText: "Fixture Codex Reasoning" }).click();
@@ -124,7 +128,7 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
         && document.querySelector("#composer-fast").hasAttribute("hidden"));
       await ui.waitForFunction(() => /model|catalog/i.test(document.querySelector("#agent-speed-note").textContent));
       await ui.locator(".model-row").filter({ hasText: "Fixture Codex Fast" }).click();
-      await ui.locator('[role="radio"][data-speed="standard"]:enabled').waitFor();
+      await ui.locator('button.speed-choice[data-speed="fast"]:not([aria-disabled="true"])').waitFor();
       assert.equal(await ui.locator("#agent-speed-select").inputValue(), "standard", "returning to a model does not revive paid speed");
       await ui.locator("#model-close").click();
       if (width < 600) await page.evaluate(() => document.body.classList.remove("sidebar-hidden"));
@@ -159,11 +163,11 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
           get: async url => (await fetch(url)).json(), post: async (url, body) => (await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json(), confirm: async () => true });
         return speedFixture.refresh();
       });
-      await harness.locator('[role="radio"][data-speed="standard"]:enabled').waitFor();
-      await harness.locator('[role="radio"][data-speed="fast"]').click();
+      await harness.locator('button.speed-choice[data-speed="fast"]:not([aria-disabled="true"])').waitFor();
+      await harness.locator('button.speed-choice[data-speed="fast"]').click();
       await harness.waitForFunction(() => speedFixture.snapshot().speed === "fast");
       assert.match(await harness.locator("#description").textContent(), /Fast requested.*Reported state: Unknown/);
-      await harness.locator('[role="radio"][data-speed="standard"]').click();
+      await harness.locator('button.speed-choice[data-speed="fast"]').click();
       await harness.waitForFunction(() => speedFixture.snapshot().speed === "standard");
       await harness.close();
       assert.deepEqual(errors, []);
@@ -173,7 +177,10 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
       throw new Error(`agent-speed ${engine} ${width} at ${stage}: ${error.stack}`);
     } finally { await context.close(); await preview.close(); }
   }
-  if (route === "native") await runUltraFastBrowserCases(browser, { output, engine });
+  if (route === "native") {
+    await runUltraFastBrowserCases(browser, { output, engine });
+    await runComposerSpeedIconsBrowserCases(browser, { output, engine });
+  }
 }
 
 async function runUltraFastBrowserCases(browser, { output, engine }) {
@@ -194,28 +201,29 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
       let ui = await openFromSidebar(page, "Codex composer fixture");
       await ui.waitForFunction(() => rpc?.codexModelsLoaded && rpc.composerQueue && !genericInputBlock());
-      const choice = value => ui.locator(`[role="radio"][data-speed="${value}"]`);
+      const choice = value => ui.locator(`button.speed-choice[data-speed="${value}"]`);
       const settled = value => ui.waitForFunction(value => document.querySelector("#agent-speed-select").value === value && !document.querySelector("#agent-speed-select").disabled, value);
       const open = async () => { await ui.locator("#btn-model").click(); await choice("ultrafast").waitFor(); };
-      await open(); assert.equal(await ui.locator('.speed-options [role="radio"]:visible').count(), 3);
+      await open(); assert.equal(await ui.locator('.speed-options button.speed-choice:visible').count(), 2);
       const effort = await ui.locator("#thinking-select").inputValue();
       stage = "continuous keyboard focus during delayed save";
-      await choice("standard").focus();
+      await choice("fast").focus();
       let releaseSave;
       const saveBarrier = new Promise(resolve => { releaseSave = resolve; });
       await page.route("**/api/agent-speed", async route => { await saveBarrier; await route.continue(); }, { times: 1 });
       const saveStarted = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === "/api/agent-speed");
-      await page.keyboard.press("ArrowRight"); await saveStarted;
+      await page.keyboard.press("Enter"); await saveStarted;
       assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "fast");
       assert.equal(await ui.locator(".speed-options").getAttribute("aria-busy"), "true");
       // A second arrow while busy neither moves focus nor starts another paid choice.
-      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("ArrowRight"); await page.keyboard.press("Enter");
+      assert.equal(confirmations.length, 1, "busy activation never reconfirms or double saves");
       assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "fast");
       releaseSave(); await settled("fast");
       assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "fast");
       const fastFingerprint = preview.state.speedRequests.at(-1).fingerprint;
       stage = "keyboard upgrade and fresh cost confirmation";
-      await page.keyboard.press("ArrowRight"); await settled("ultrafast");
+      await page.keyboard.press("Tab"); await page.keyboard.press("Space"); await settled("ultrafast");
       assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "ultrafast");
       assert.match(confirmations.at(-1), /Enable Ultra Fast/);
       assert.equal(preview.state.speedRequests.at(-1).confirmCost, true);
@@ -225,7 +233,7 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
       assert.equal(await ui.locator(".composer-fast-plus").evaluate(e => getComputedStyle(e).display), "block");
       assert.match(await ui.locator("#composer-speed-description").textContent(), /Ultra Fast requested.*Reported state: Unknown/);
       assert.equal(await ui.locator("#agent-speed-note").isVisible(), false);
-      const bounds = await choice("ultrafast").boundingBox(); assert.ok(bounds.height >= 38 && bounds.width > 40);
+      const bounds = await choice("ultrafast").boundingBox(); assert.ok(bounds.height >= (width < 600 ? 44 : 36) && bounds.width >= (width < 600 ? 44 : 36));
       assert.equal(await ui.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.screenshot({ path: path.join(output, `${engine}-ultrafast-${width}-menu.png`), fullPage: true });
       if (width === 320) {
@@ -238,11 +246,12 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
         await ui.evaluate(() => { document.documentElement.style.fontSize = ""; stepsembleI18n.setLocale("en"); composerSpeed.sync(); });
       }
       stage = "cancel and explicit Standard recovery";
-      await page.keyboard.press("Home"); await settled("standard");
-      assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "standard");
-      accept = false; await page.keyboard.press("End"); await settled("standard");
-      assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "ultrafast", "cancel retains the attempted radio, not the page body");
-      assert.equal(await choice("standard").getAttribute("aria-checked"), "true");
+      await page.keyboard.press("Enter"); await settled("standard");
+      assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "ultrafast");
+      accept = false; await page.keyboard.press("Enter"); await settled("standard");
+      assert.equal(await ui.evaluate(() => document.activeElement.getAttribute("data-speed")), "ultrafast", "cancel retains the attempted toggle, not the page body");
+      assert.equal(await choice("ultrafast").getAttribute("aria-pressed"), "false");
+      assert.equal(await choice("standard").count(), 0);
       assert.equal(await ui.locator("#composer-fast").getAttribute("hidden"), "");
       accept = true; await page.keyboard.press("Enter"); await settled("ultrafast");
       await ui.locator("#model-close").click();
@@ -250,7 +259,7 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
       await ui.locator("#composer-queue .cq-chip:not(.cq-leaving) .cq-text").filter({ hasText: "Ultra snapshot" }).waitFor();
       await page.reload(); await workspaceReady(page); ui = await openFromSidebar(page, "Codex composer fixture");
       await open(); await settled("ultrafast");
-      await choice("standard").click(); await settled("standard"); await ui.locator("#model-close").click();
+      await choice("ultrafast").click(); await settled("standard"); await ui.locator("#model-close").click();
       await ui.locator("#input").fill("Standard snapshot"); await ui.locator("#btn-send").click();
       await ui.locator("#composer-queue .cq-chip:not(.cq-leaving) .cq-text").filter({ hasText: "Standard snapshot" }).waitFor();
       await open(); await choice("fast").click(); await settled("fast"); assert.match(confirmations.at(-1), /Enable Fast/);
@@ -265,7 +274,7 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
       assert.notEqual(preview.state.codexQueueDeliveries[0].speedFingerprint, preview.state.codexQueueDeliveries[2].speedFingerprint);
       stage = "model revocation hides Ultra instead of disabling it";
       await open(); await ui.locator(".model-row").filter({ hasText: "Fixture Codex Reasoning" }).click();
-      await ui.waitForFunction(() => !document.querySelector('[role="radio"][data-speed="ultrafast"]') && document.querySelector("#agent-speed-select").value === "standard");
+      await ui.waitForFunction(() => !document.querySelector('button.speed-choice[data-speed="ultrafast"]') && document.querySelector("#agent-speed-select").value === "standard");
       assert.equal(await ui.locator("#composer-fast").getAttribute("hidden"), "");
       assert.deepEqual(errors, []);
       console.log(JSON.stringify({ case: "agent-ultrafast", engine, width, result: "passed", paidModelCalls: 0 }));
