@@ -351,7 +351,7 @@
       }
 
       const search = el("input", "assistant-search");
-      search.type = "search";
+      search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off");
       search.placeholder = t("searchHub");
       search.setAttribute("aria-label", t("searchHub"));
       const results = el("div", "assistant-hub-results");

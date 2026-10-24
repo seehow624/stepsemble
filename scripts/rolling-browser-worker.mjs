@@ -32,6 +32,7 @@ import { runWorkspaceStatusBrowserCases } from "./workspace-status-browser-cases
 import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runInterfaceStyleBrowserCases } from "./interface-style-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
+import { runDesignPolishBrowserCases } from "./design-polish-browser-cases.mjs";
 import { runAssistantBrowserCases } from "./assistant-browser-cases.mjs";
 import { runAssistantMobileBrowserCases } from "./assistant-mobile-browser-cases.mjs";
 import { runAssistantAvatarBrowserCases } from "./assistant-avatar-browser-cases.mjs";
@@ -213,6 +214,7 @@ try {
     await runWorkspaceStatusBrowserCases(browser);
     await runUsageBrowserCases(browser);
     await runInterfaceStyleBrowserCases(browser);
+    await runDesignPolishBrowserCases(browser, { engine: "chromium" });
   }
   else if (suite === "assistant") {
     await runAssistantBrowserCases(browser);

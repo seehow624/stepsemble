@@ -364,7 +364,7 @@
     add.setAttribute("aria-label", t("newBot"));
     head.append(title, add);
     const pending = button("", "assistant-pending", () => go({ page: "pending" })); pending.id = "assistant-pending";
-    const search = el("input", "assistant-search assistant-bot-search"); search.type = "search"; search.placeholder = t("searchBots"); search.setAttribute("aria-label", t("searchBots")); search.value = rosterQuery;
+    const search = el("input", "assistant-search assistant-bot-search"); search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("searchBots"); search.setAttribute("aria-label", t("searchBots")); search.value = rosterQuery;
     const list = el("ul", "assistant-bot-list");
     const groupBox = el("div");
     function filterRows() {

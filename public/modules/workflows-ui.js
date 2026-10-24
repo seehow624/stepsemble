@@ -225,7 +225,7 @@
       header.append(copy);
       const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
       const body = el("div", "", "wf-body"), rail = el("section", "", "wf-rail"), tools = el("div", "", "wf-tools"), search = el("input", "", "wf-search");
-      search.type = "search"; search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
+      search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
       search.oninput = () => { query = search.value; selected = null; render(); };
       // A narrow rail keeps the + alone beside the search; the word shows where there is room.
       const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";

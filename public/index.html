@@ -186,7 +186,7 @@
       </span>
     </div>
     <div class="list-toolbar">
-      <input id="search" type="search" placeholder="Search sessions…" aria-label="Search sessions…">
+      <input id="search" type="search" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search sessions…" aria-label="Search sessions…">
     </div>
     <div id="stuck-sessions" class="stuck-sessions hidden" role="status"></div>
     <ul id="session-list" class="session-list"></ul>
@@ -668,7 +668,7 @@
         </div>
         <p id="model-catalog-status" class="settings-note" aria-live="polite" data-i18n-key="modelsCheck.auto">Automatic model catalogs refresh every 5 minutes. Hand-written model lists stay manual.</p>
         <div id="model-list-toolbar" class="model-list-toolbar">
-          <input id="model-filter" type="search" autocomplete="off" spellcheck="false" placeholder="Search providers or models…" aria-label="Search providers or models">
+          <input id="model-filter" type="search" autocorrect="off" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="Search providers or models…" aria-label="Search providers or models">
           <span id="model-list-summary" class="model-list-summary">—</span>
         </div>
         <div id="model-visibility-list" class="model-visibility-list"><p class="settings-note">Loading model list…</p></div>
@@ -715,7 +715,7 @@
       </div>
       <div class="agent-task-center-toolbar" role="search">
         <label class="sr-only" for="agent-task-center-search" data-i18n-key="agentHub.taskSearch">Search tasks</label>
-        <input id="agent-task-center-search" type="search" autocomplete="off" data-i18n-placeholder-key="agentHub.taskSearch" placeholder="Search tasks…" aria-label="Search tasks">
+        <input id="agent-task-center-search" type="search" autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="off" data-i18n-placeholder-key="agentHub.taskSearch" placeholder="Search tasks…" aria-label="Search tasks">
         <select id="agent-task-center-filter" data-i18n-aria-key="agentHub.taskFilter" aria-label="Filter tasks">
           <option value="all" data-i18n-key="agentHub.filterAll">All</option>
           <option value="active" data-i18n-key="agentHub.filterActive">Active</option>
@@ -974,7 +974,7 @@
         <h2 class="sa-title">Model &amp; reasoning</h2>
         <button id="model-close" class="icon-button-small sheet-close" type="button" title="Close" aria-label="Close model menu"><svg class="icon"><use href="#i-x"></use></svg></button>
       </div>
-      <input id="model-search" class="model-search" type="search" autocomplete="off" placeholder="Search models…" aria-label="Search models">
+      <input id="model-search" class="model-search" type="search" autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="off" placeholder="Search models…" aria-label="Search models">
       <div id="model-list"><p style="padding:12px 4px;color:var(--pine-soft);font-size:var(--text-md)">Loading…</p></div>
       <div id="thinking-control" class="thinking-control">
         <div class="thinking-head">
@@ -1006,7 +1006,7 @@
   <!-- Command palette: jump to sessions, models, machines, and actions -->
   <div id="command-palette" class="sheet-layer hidden">
     <div class="sheet action-sheet command-palette-sheet">
-      <input id="command-input" type="search" autocomplete="off" placeholder="Jump to…" aria-label="Command palette">
+      <input id="command-input" type="search" autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="off" placeholder="Jump to…" aria-label="Command palette">
       <div id="command-results" role="listbox" aria-label="Command results"></div>
     </div>
   </div>

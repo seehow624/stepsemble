@@ -1561,7 +1561,7 @@
     pathRow.append(back, forward, up, pathInput, go);
     const browseHead = node("div", "", "workspace-folder-browse-head");
     browseHead.append(node("strong", t("foldersHere")));
-    const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
+    const search = node("input"); search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
     // A new project often needs a folder of its own: made here, inside the
     // folder shown, then opened so it can be added.
     const newFolder = button("", () => openNewFolder(), t("newFolder"), "btn workspace-folder-new");
@@ -1804,7 +1804,7 @@
     reader.target = "_blank"; reader.rel = "noopener noreferrer";
     body.append(reader);
     // The search field appears once there is history to search.
-    const search = node("input"); search.type = "search"; search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory")); search.hidden = true;
+    const search = node("input"); search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory")); search.hidden = true;
     // Sub Agent sessions run in temporary folders and stay hidden until asked for.
     // The choice is saved with the other settings.
     const subAgents = node("label", "", "workspace-history-filter"), subAgentsBox = node("input"), subAgentsText = node("span");

@@ -615,11 +615,32 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
         prompt: "Check the links", agentsStates: { "dock-child": { status: "running" } } }], "dock-earlier-turn"));
       const bubble = codex.locator(".subagent-bubble"), list = codex.locator(".subagent-list");
       await bubble.waitFor();
-      const [chipTop, bubbleTop] = await tops(codex, ["#native-run-toggle", ".subagent-bubble"]);
-      assert.ok(Math.abs(chipTop - bubbleTop) <= 2, `${viewport.width}: the goal chip (${chipTop}) and the subagents (${bubbleTop}) share a row`);
+      await codex.locator(".goal-chip").waitFor();
+      // Each chip says all it holds; chips that do not fit side by side take a
+      // second row instead of ending in "…" (a phone with all three).
+      const chipLayout = () => codex.evaluate(() => {
+        const chips = [...document.querySelectorAll("#native-run-toggle, .goal-chip, .subagent-bubble")].filter(node => node.getBoundingClientRect().width > 0);
+        const cut = [...document.querySelectorAll("#subagent-bar :is(strong, span)")].filter(node => node.getBoundingClientRect().width > 0 && node.scrollWidth > node.clientWidth + 1).map(node => node.textContent);
+        return { cut, tops: chips.map(node => Math.round(node.getBoundingClientRect().top)), bottom: Math.max(...chips.map(node => node.getBoundingClientRect().bottom)) };
+      });
+      const before = await chipLayout();
+      assert.deepEqual(before.cut, [], `${viewport.width}: no chip is shortened`);
+      if (!viewport.mobile) assert.equal(new Set(before.tops).size, 1, "on a wide screen the chips share a row");
+      else assert.ok(new Set(before.tops).size <= 2, `${viewport.width}: at most two rows of chips`);
+      // The row passes taps through between its chips: the thinking line under
+      // it stays reachable there.
+      const reach = await codex.evaluate(() => {
+        const line = document.querySelector("#composer-effort"), box = line.getBoundingClientRect(), chips = [...document.querySelectorAll("#subagent-bar > *")].map(node => node.getBoundingClientRect());
+        const free = [], y = box.top + 2;
+        for (let x = box.left + 8; x < box.right - 8; x += 6) if (!chips.some(r => r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) free.push(x);
+        return { free: free.length, line: free.filter(x => line.contains(document.elementFromPoint(x, y))).length };
+      });
+      assert.ok(reach.free > 0 && reach.line === reach.free, `${viewport.width}: the thinking line is reachable between the chips: ` + JSON.stringify(reach));
       await toggle.click(); await detail.waitFor();
-      const [chipAfter, bubbleAfter, detailTop] = await tops(codex, ["#native-run-toggle", ".subagent-bubble", "#native-run-detail"]);
-      assert.ok(Math.abs(chipAfter - bubbleAfter) <= 2 && detailTop > chipAfter, `${viewport.width}: the objective opens below the chips, which stay side by side`);
+      // The row grows upwards from the message box; the chips keep their rows.
+      const [detailTop] = await tops(codex, ["#native-run-detail"]), opened = await chipLayout();
+      assert.ok(detailTop >= opened.bottom - 1, `${viewport.width}: the objective opens below the chips`);
+      assert.deepEqual(opened.tops.map(top => top - opened.tops[0]), before.tops.map(top => top - before.tops[0]), `${viewport.width}: opening the objective keeps the chips' rows`);
       assert.equal(await codex.locator("#native-goal-pause").isVisible(), true);
       assert.equal(await codex.locator("#native-goal-resume").isVisible(), false);
       assert.equal(await codex.locator("#native-goal-remove").isVisible(), true);

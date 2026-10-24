@@ -14691,7 +14691,7 @@ function renderAgentTerminalControls(term) {
       wrap.className = "agent-terminal-list";
       if (control.filter) {
         const filter = document.createElement("input");
-        filter.type = "search"; filter.placeholder = control.filterPlaceholder || ""; filter.className = "agent-terminal-filter";
+        filter.type = "search"; filter.spellcheck = false; filter.setAttribute("autocorrect", "off"); filter.setAttribute("autocapitalize", "off"); filter.placeholder = control.filterPlaceholder || ""; filter.className = "agent-terminal-filter";
         filter.value = control.query || "";
         filter.setAttribute("aria-label", control.filterPlaceholder || "");
         filter.addEventListener("input", () => { control.query = filter.value; renderItems(); });

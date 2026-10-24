@@ -331,12 +331,15 @@ input[type="search"] {
 @media (hover: hover) { input[type="search"]:hover:not(:focus, :disabled) { border-color: transparent; background-color: var(--control-fill-hover); } }
 input[type="search"]:focus-visible { background-color: var(--field-bg); box-shadow: 0 0 0 4px var(--focus-halo); }
 input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
+/* WebKit (Safari, the Mac app) sets a restyled clear button at the top of a
+   tall field unless it is centred; the larger box is its tap area. */
 input[type="search"]::-webkit-search-cancel-button {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
-  margin: 0 -2px 0 8px;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 -6px 0 4px;
   background: var(--clear-image) center / 16px 16px no-repeat;
   cursor: pointer;
 }
@@ -795,18 +798,16 @@ html.settings-over-workspace #view-list, html.settings-over-workspace #view-chat
   #view-chat .native-run-working { display: none; }
   #view-chat .native-run-working + .native-run-elapsed::before { content: none; }
 }
-/* Two chips always fit side by side; a long one ends in "…" instead of
-   taking a row of its own. */
-#view-chat .subagent-bar > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { flex: 0 1 auto; min-width: 0; max-width: calc(50% - 4px); }
-#view-chat .subagent-bar:has(> .native-run-state:not(.hidden)):has(> .goal-chip-group:not([hidden])):has(> .subagent-bubble:not([hidden]))
-  > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { max-width: calc((100% - 16px) / 3); }
-/* A chip on its own may take the row. */
-#view-chat .subagent-bar:not(:has(> .goal-chip-group:not([hidden]))):not(:has(> .subagent-bubble:not([hidden]))) > .native-run-state,
-#view-chat .subagent-bar:not(:has(> .native-run-state:not(.hidden))):not(:has(> .subagent-bubble:not([hidden]))) > .goal-chip-group,
-#view-chat .subagent-bar:not(:has(> .native-run-state:not(.hidden))):not(:has(> .goal-chip-group:not([hidden]))) > .subagent-bubble { max-width: 100%; }
+/* Each chip says all of what it holds: chips that do not fit together go on
+   to a second row rather than end in "…". Only a chip wider than the whole
+   row is shortened. The row passes taps through between its chips, so the
+   thinking line under it stays reachable there. */
+#view-chat .subagent-bar { pointer-events: none; }
+#view-chat .subagent-bar > * { pointer-events: auto; }
+#view-chat .subagent-bar > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 @media (max-width: 600px) {
   /* Three chips, or a finished Goal with its × beside Codex's, on a phone:
-     the Goal's dot colour says how it is doing. */
+     the Goal's dot colour says how it is doing, which keeps them to two rows. */
   #view-chat .subagent-bar:has(> .native-run-state:not(.hidden)):has(> .subagent-bubble:not([hidden])) .goal-chip-state,
   #view-chat .subagent-bar:has(> .native-run-state:not(.hidden)) .goal-chip[data-closable="true"] .goal-chip-state { display: none; }
 }
@@ -3798,12 +3799,7 @@ html.reduced-motion :is(.bubble-choice, .bubble-preview) { transition: none; }
 #view-chat #scroll-bottom-btn .icon { width: 18px; height: 18px; }
 #view-chat #scroll-bottom-btn:active { transform: scale(.94); }
 /* While the arrow shows, the chips keep clear of its corner. */
-#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)) > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { max-width: calc(50% - 30px); }
-#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):has(> .native-run-state:not(.hidden)):has(> .goal-chip-group:not([hidden])):has(> .subagent-bubble:not([hidden]))
-  > :is(.native-run-state, .goal-chip-group, .subagent-bubble) { max-width: calc((100% - 66px) / 3); }
-#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):not(:has(> .goal-chip-group:not([hidden]))):not(:has(> .subagent-bubble:not([hidden]))) > .native-run-state,
-#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):not(:has(> .native-run-state:not(.hidden))):not(:has(> .subagent-bubble:not([hidden]))) > .goal-chip-group,
-#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)):not(:has(> .native-run-state:not(.hidden))):not(:has(> .goal-chip-group:not([hidden]))) > .subagent-bubble { max-width: calc(100% - 52px); }
+#view-chat .subagent-bar:has(~ .composer > #scroll-bottom-btn:not(.hidden)) { padding-right: 52px; }
 
 @media (max-width: 600px) {
   #view-chat .activity-body > .tool-card { margin-left: 8px; }
