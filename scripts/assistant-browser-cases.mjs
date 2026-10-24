@@ -224,6 +224,8 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.getByLabel("QA Reviewer", { exact: true }).check();
       await page.getByRole("button", { name: "Create group", exact: true }).click();
       const groupInput = page.getByPlaceholder("Message the group");
+      // A group's message box is the same rounded field as a Bot's own chat.
+      assert.equal(await groupInput.evaluate(input => !!input.closest(".assistant-composer-field")), true, "the group composer uses the rounded field");
       await groupInput.waitFor();
       await page.getByRole("button", { name: "@luna", exact: true }).click();
       await groupInput.pressSequentially("what is next?");

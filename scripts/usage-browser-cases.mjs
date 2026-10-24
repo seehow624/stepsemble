@@ -202,6 +202,8 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await usageTab.click(); await ready();
       await host.selectOption("mbp");
       await page.waitForFunction(() => document.querySelector(".usage-status")?.dataset.kind === "error");
+      // The unreachable Host's error code never reaches the screen.
+      assert.doesNotMatch(await page.evaluate(() => document.body.innerText), /synthetic_host_offline/);
       assert.equal(await panel.locator(".usage-metric").count(), 0, "another Host's previous totals are never left on a failed view");
       fixture.setOffline(false); await host.selectOption("mini"); await ready();
       await context.route("**/r/mbp/api/workspace/analytics?*", async route => {
@@ -300,6 +302,13 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       const frame = page.locator("iframe.workspace-frame").filter({ visible: true }); await frame.waitFor();
       assert.equal(new URL(await frame.getAttribute("src")).searchParams.get("host"), "mbp", "Session opens on its own Host");
       assert.equal((await opened).status(), 200, "the original Host opens its registered conversation");
+      // The ended conversation's history is read-only: the message box says so,
+      // once (not again in a note above it).
+      const pane = await (await frame.elementHandle()).contentFrame();
+      await pane.waitForFunction(() => !document.querySelector("#agent-input-note")?.classList.contains("hidden") && document.querySelector("#messages")?.childElementCount > 0);
+      await pane.waitForFunction(() => { try { return rpc?.nativeLoading === false; } catch { return false; } });
+      const readOnly = await pane.evaluate(() => [document.querySelector("#agent-input-note").textContent, document.querySelector("#task-replay-note").classList.contains("hidden") ? "" : document.querySelector("#task-replay-note").textContent]);
+      assert.ok(readOnly[0] && !readOnly[1].includes(readOnly[0]), "the read-only note is not repeated: " + JSON.stringify(readOnly));
       assert.deepEqual(errors, []); assert.deepEqual(external, []); assert.deepEqual(modelRequests, []);
       console.log(JSON.stringify({ case: "Usage overview " + (mobile ? "phone zh-Hant" : "desktop"), result: "passed", authenticated: true,
         realParsing: true, machineHistory: true, nativeSessionFilter: true, limitsSheet: true, usageInSheet: true, sharedLimits: true, lazyUsage: true, hostSync: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));

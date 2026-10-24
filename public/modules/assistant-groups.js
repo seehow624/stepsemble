@@ -174,9 +174,10 @@
       }
       const stop = iconButton("stop", t("stop"), "assistant-stop", async () => { try { await api.groupStop(room.id); await pollState(); } catch (error) { failed(error); } });
       const send = iconButton("send", t("send"), "assistant-send", null, "submit");
-      const row = el("div", "assistant-composer-row");
-      row.append(input, stop, send);
-      form.append(mentions, row, el("p", "assistant-group-hint", t("mentionHint")));
+      // The same rounded field as a Bot's own chat; the mentions sit above it.
+      const field = el("div", "assistant-composer-field"), row = el("div", "assistant-composer-row");
+      row.append(input, stop, send); field.append(row);
+      form.append(mentions, field, el("p", "assistant-group-hint", t("mentionHint")));
       form.addEventListener("submit", async event => {
         event.preventDefault();
         const text = input.value.trim();

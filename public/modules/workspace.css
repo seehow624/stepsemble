@@ -266,7 +266,7 @@ html.reduced-motion .workspace-search-row .workspace-row-action { transition: no
   text-transform: uppercase;
   white-space: nowrap;
 }
-.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: var(--text-3xs) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: var(--text-2xs) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 /* A project's name reads as its name, in its own case; only the list's
    sections (Recent, Automations, the Bots, Groups) keep the small capitals,
    so a folder never looks like a section. */
@@ -471,7 +471,7 @@ html[data-theme="light"] .workspace-limit-alert[data-level="critical"] { --level
 .workspace-tip-key { flex: 0 0 auto; color: var(--pine-soft); font: var(--text-2xs) var(--mono); }
 .workspace-tip-value { min-width: 0; flex: 1 1 auto; color: var(--ink); font-size: var(--text-2xs); text-align: right; white-space: nowrap; }
 .workspace-tip-note { color: var(--pine-soft); font-size: var(--text-2xs); }
-.workspace-tip-exact { font-family: var(--mono); font-size: var(--text-3xs); }
+.workspace-tip-exact { font-family: var(--mono); font-size: var(--text-2xs); }
 
 #workspace-main { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--paper); }
 #workspace-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--paper); }
@@ -886,8 +886,8 @@ body.compact .workspace-session strong { font-size: var(--text-sm); }
    each section, project and conversation grow to a size that is easy to hit.
    A mouse keeps the compact desktop sidebar. */
 @media (pointer: coarse) {
-  #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-projects .workspace-machine-menu, #workspace-assistant-list .workspace-project-add { width: 40px; min-width: 40px; min-height: 40px; }
-  #workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 40px; min-width: 40px; min-height: 44px; }
+  #workspace-projects .workspace-project-add, #workspace-projects .workspace-section-add, #workspace-projects .workspace-project-menu, #workspace-projects .workspace-machine-menu, #workspace-assistant-list .workspace-project-add { width: 44px; min-width: 44px; min-height: 44px; }
+  #workspace-projects .workspace-session-menu, #workspace-assistant-list .workspace-session-menu { width: 44px; min-width: 44px; min-height: 44px; }
   .workspace-brand-row .workspace-icon-btn { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
   dialog header .btn { min-width: 44px; min-height: 44px; font-size: 1.35rem; }
   /* Below 16px iOS zooms the page into a focused field. */

@@ -12,8 +12,10 @@
   // grid the way a terminal would, instead of being shown as raw text.
 
   const DEFAULT_ATTR = Object.freeze({ fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false });
+  // Bright black is the dim grey of hints such as "(expires in 15 minutes)":
+  // light enough to read on the screen's #151515 (4.8:1).
   const BASIC = ["#1c1c1c", "#e05561", "#8cc265", "#d18f52", "#4aa5f0", "#c162de", "#42b3c2", "#d7dae0",
-    "#5c6370", "#ff616e", "#a5e075", "#f0a45d", "#4dc4ff", "#de73ff", "#4cd1e0", "#ffffff"];
+    "#7f848e", "#ff616e", "#a5e075", "#f0a45d", "#4dc4ff", "#de73ff", "#4cd1e0", "#ffffff"];
 
   // East Asian wide characters and most emoji take two cells.
   function charWidth(code) {

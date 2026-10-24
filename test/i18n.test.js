@@ -541,3 +541,17 @@ test("inline Goal controls, validation and every run state are translated in all
     }
   }
 });
+
+// French and Italian elide before a vowel: "d’interface", "dell’interfaccia".
+// A bare "d interface" is a lost apostrophe; none of these words stands
+// alone before a vowel in any of the app's languages ("{count} d ago" is a
+// unit after a number).
+test("French and Italian strings keep their elision apostrophes", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../public/i18n.js"), "utf8");
+  const lost = [];
+  for (const [, value] of source.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)) {
+    const found = value.match(/(?<![\p{L}’'.])(?<![}\d]\s)(?:d|l|qu|dell|nell|dall|sull|all|L|D|Qu|Dell|Nell)\s(?=[aeiouyhéèêàâîôûìòùAEIOUÉ]\p{L})/u);
+    if (found) lost.push(value.slice(Math.max(0, found.index - 20), found.index + 30));
+  }
+  assert.deepEqual(lost, []);
+});

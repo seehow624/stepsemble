@@ -244,6 +244,7 @@
         const image = node("img");
         image.alt = file.name; image.loading = "lazy"; image.decoding = "async";
         image.addEventListener("error", () => figure.replaceWith(fileCard(file, { unavailable: true })), { once: true });
+        image.addEventListener("load", () => link.classList.add("loaded"), { once: true });
         image.src = mediaUrl(file.path);
         link.append(image); figure.append(fileActions(file, true), link);
         return figure;

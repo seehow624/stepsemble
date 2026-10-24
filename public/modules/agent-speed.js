@@ -66,7 +66,7 @@
   // heading the tiers sit in, so opening them never rearranges that heading.
   // confirm: replaces the in-place confirmation (tests); without a panel,
   // the browser's own dialog asks.
-  function create({ root, panel = null, indicator, button, description, context, get, post, locale = () => "en", confirm = null, onError = () => {} }) {
+  function create({ root, panel = null, indicator, button, description, context, get, post, locale = () => "en", confirm: askCost = null, onError = () => {} }) {
     let key = null, state = null, generation = 0, pending = null, pendingKey = null, saving = null, savingKey = null;
     const label = element("label", "sr-only", "agent-speed-label"), select = element("select", "", "agent-speed-select");
     select.hidden = true; select.tabIndex = -1; select.setAttribute("aria-hidden", "true");
@@ -115,9 +115,11 @@
     askOk.addEventListener("click", () => settle(true));
     ask.addEventListener("keydown", event => { if (event.key !== "Escape") return; event.preventDefault(); event.stopPropagation(); settle(false); });
     function confirmCost(tier, trigger) {
-      if (panel && !confirm) return confirmInPlace(tier, trigger);
+      if (panel && !askCost) return confirmInPlace(tier, trigger);
       const text = [t("confirmTitle", locale()), t("confirmBody", locale()), t("subagents", locale())].join("\n\n").replace("{tier}", tierName(tier));
-      return confirm ? confirm(text, { tier }) : window.confirm(text);
+      if (askCost) return askCost(text, { tier });
+      // Never the browser's dialog; without the app's own, the answer is no.
+      return globalThis.StepsembleAppDialog?.confirm(text, { action: "enable" }) ?? Promise.resolve(false);
     }
     const controls = new Map();
     function addChoice(value) {
@@ -188,7 +190,6 @@
       const requested = t("requested", language).replace("Fast", shown?.requested === "ultrafast" ? "Ultra Fast" : "Fast");
       const explanation = t("title", language) + (fast ? ": " + requested : "") + ". " + noteText;
       if (description) description.textContent = explanation;
-      if (button) button.title = [button.getAttribute("aria-label"), explanation].filter(Boolean).join(". ");
     }
     async function refresh({ afterPending = false } = {}) {
       const target = context(), targetKey = target?.key || null;

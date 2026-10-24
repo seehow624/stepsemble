@@ -148,7 +148,29 @@
     while (end.type === "split") end = end.axis === "row" ? end.second : end.first;
     return { start: start.id, end: end.id };
   }
-  function toast(text) { $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
+  // A Host answers an error with a code for this page to check
+  // (name_invalid, host_offline), not words for people. One that would reach
+  // the screen says what it means instead: an unreachable Host, a known
+  // reason, or else that the step did not complete (fallback for a read).
+  const CODE_TEXT = { workspace_entry_not_found: "entryGone" };
+  function readable(text, fallback = "actionFailed") {
+    const value = String(text ?? "");
+    if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(value)) return value;
+    if (/offline|unreachable|unavailable|timeout|timed_out|refused|disconnected/.test(value)) return t("hostUnavailable");
+    return t(CODE_TEXT[value] || fallback);
+  }
+  // A notice never covers the limits capsule at the sidebar's foot (on a
+  // phone the sidebar is the whole screen): it rises above it instead. A
+  // capsule hidden under the usage sheet does not count.
+  function liftToast(node) {
+    node.style.bottom = "";
+    const capsule = $("workspace-usage"), usage = capsule?.getBoundingClientRect(), box = node.getBoundingClientRect();
+    if (!usage?.width || box.right < usage.left || box.left > usage.right || box.bottom < usage.top || box.top > usage.bottom) return;
+    const shown = document.elementsFromPoint(usage.left + usage.width / 2, usage.top + usage.height / 2).find(el => el !== node && !node.contains(el));
+    if (!shown || !capsule.contains(shown)) return;
+    node.style.bottom = `${Math.ceil(innerHeight - usage.top + 10)}px`;
+  }
+  function toast(text) { text = readable(text); $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; liftToast($("workspace-toast")); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
   // The pane overflow menu lives on the document, not inside the pane: the
   // conversation frames sit in their own layer above the pane tree, so a menu
   // rendered inside a pane would be painted underneath the frame it belongs to.
@@ -1291,6 +1313,7 @@
   // reason is spoken and shown on hover, and a new failure is raised once
   // instead of on every poll.
   function setConnection(online, message) {
+    message = readable(message, "loadFailed");
     const dot = document.querySelector(".workspace-status-dot");
     if (dot) dot.dataset.state = online ? "online" : "offline";
     $("workspace-host").title = message;
@@ -1561,7 +1584,7 @@
     pathRow.append(back, forward, up, pathInput, go);
     const browseHead = node("div", "", "workspace-folder-browse-head");
     browseHead.append(node("strong", t("foldersHere")));
-    const search = node("input"); search.type = "search"; search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
+    const search = node("input"); search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("filterFolders"); search.setAttribute("aria-label", t("filterFolders"));
     // A new project often needs a folder of its own: made here, inside the
     // folder shown, then opened so it can be added.
     const newFolder = button("", () => openNewFolder(), t("newFolder"), "btn workspace-folder-new");
@@ -1804,7 +1827,7 @@
     reader.target = "_blank"; reader.rel = "noopener noreferrer";
     body.append(reader);
     // The search field appears once there is history to search.
-    const search = node("input"); search.type = "search"; search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory")); search.hidden = true;
+    const search = node("input"); search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("historyPlaceholder"); search.setAttribute("aria-label", t("searchHistory")); search.hidden = true;
     // Sub Agent sessions run in temporary folders and stay hidden until asked for.
     // The choice is saved with the other settings.
     const subAgents = node("label", "", "workspace-history-filter"), subAgentsBox = node("input"), subAgentsText = node("span");

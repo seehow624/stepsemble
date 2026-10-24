@@ -151,7 +151,7 @@
         crumbs.append(node("span", "project-breadcrumb-separator", "/"), button("project-breadcrumb", name, () => void loadDirectory(paths.slice(0, index + 1).join("/"))));
       }
       crumbs.lastElementChild?.setAttribute("aria-current", "location");
-      const input = node("input", "project-file-filter"); input.type = "search"; input.placeholder = text("filterFolder"); input.setAttribute("aria-label", text("filterFolder")); input.value = filter;
+      const input = node("input", "project-file-filter"); input.type = "search"; input.spellcheck = false; input.setAttribute("autocorrect", "off"); input.setAttribute("autocapitalize", "off"); input.placeholder = text("filterFolder"); input.setAttribute("aria-label", text("filterFolder")); input.value = filter;
       input.addEventListener("input", () => { filter = input.value; renderListing(); });
       const search = node("div", "project-file-search"); search.append(icon("search"), input);
       const option = node("label", "project-hidden-option"); option.title = text("showHidden");

@@ -69,6 +69,7 @@ const SHELL = [
   "/modules/model-presentation.js?v=3.9.52",
   "/modules/effort-slider.js?v=3.9.52",
   "/modules/agent-speed.js?v=3.9.52",
+  "/modules/app-dialog.js?v=3.9.52",
   "/modules/agent-terminal.js?v=3.9.52",
   "/modules/claude-structured-rendering.js?v=3.9.52",
   "/modules/agent-transcript-presentation.js?v=3.9.52",

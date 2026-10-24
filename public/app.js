@@ -885,6 +885,12 @@ const post = (path, body, opts = {}) => api(path, {
 function tKey(key, vars = {}) {
   return window.stepsembleI18n?.tKey?.(key, vars) || window.stepsembleI18n?.t?.(key, vars) || key;
 }
+// The app's own questions (modules/app-dialog.js), never the browser's
+// confirm()/prompt(). The answer arrives later: callers recheck the host and
+// whatever they act on before acting. Without the module the answer is no.
+function askConfirm(question, options) { return window.StepsembleAppDialog?.confirm(question, options) ?? Promise.resolve(false); }
+function askText(question, options) { return window.StepsembleAppDialog?.prompt(question, options) ?? Promise.resolve(null); }
+function askChoice(question, actions, options) { return window.StepsembleAppDialog?.choose(question, actions, options) ?? Promise.resolve(null); }
 // Enter in a text field, unless an input method used it to confirm text
 // (composer-ime.js). Every field reads the key through this.
 const isEnter = event => !!window.stepsembleComposerIme?.isEnter(event);
@@ -1689,7 +1695,8 @@ async function createToken() {
 
 async function revokeToken(row, button) {
   if (!row?.id) return;
-  if (!window.confirm(tKey("tokens.revokeConfirm", { label: row.label }))) return;
+  const base = apiBase;
+  if (!(await askConfirm(tKey("tokens.revokeConfirm", { label: row.label }), { action: "revoke", destructive: true })) || base !== apiBase) return;
   button.disabled = true;
   try {
     await post("/api/access-tokens/revoke", { id: row.id });
@@ -2919,13 +2926,15 @@ function nativeHistoryPath(taskId, before = null) {
   return `/api/native-history/session?taskId=${encodeURIComponent(taskId)}&limit=${NATIVE_HISTORY_PAGE}${before === null ? "" : `&before=${before}`}`;
 }
 
+// The message box's own note already says the history is read-only
+// (genericInputBlock); the note above it only adds that it was shortened.
 function showNativeHistoryNote(partial) {
   const note = el.taskReplayNote;
   if (!note) return;
-  if (partial) note.removeAttribute("data-i18n-key");
-  else note.dataset.i18nKey = "agentHub.taskReadOnly";
-  note.textContent = partial ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
-  note.classList.remove("hidden");
+  if (partial) note.dataset.i18nKey = "agentHub.historyPartial";
+  else delete note.dataset.i18nKey;
+  note.textContent = partial ? agentHubText("historyPartial") : "";
+  note.classList.toggle("hidden", !partial);
 }
 
 // The newest page is drawn; earlier ones come from the control at the top.
@@ -3088,7 +3097,10 @@ let openCodeConnectionSequence = 0;
 async function refreshOpenCodeConnection(start = false) {
   const status = $("opencode-connection-status"), button = $("opencode-connection-start"), refresh = $("opencode-connection-refresh");
   if (!status || !button || !refresh) return;
-  if (start && !window.confirm(browseText("Enable a password-protected OpenCode service on the selected computer?"))) return;
+  if (start) {
+    const asked = apiBase;
+    if (!(await askConfirm(browseText("Enable a password-protected OpenCode service on the selected computer?"), { action: "enable" })) || asked !== apiBase) return;
+  }
   const sequence = ++openCodeConnectionSequence, base = apiBase;
   const current = () => sequence === openCodeConnectionSequence && base === apiBase;
   button.disabled = true; refresh.disabled = true;
@@ -4196,7 +4208,8 @@ el.projectActionReveal?.addEventListener("click", async () => {
 el.projectActionWorktree?.addEventListener("click", async () => {
   const cwd = projectActionCwd();
   closeProjectActions();
-  if (!cwd || !window.confirm(projectActionText("Create a permanent worktree for this project?"))) return;
+  const base = apiBase;
+  if (!cwd || !(await askConfirm(projectActionText("Create a permanent worktree for this project?"), { action: "create" })) || base !== apiBase) return;
   try {
     const result = await post("/api/project-action", { action: "worktree", cwd });
     toast(`${projectActionText("Permanent worktree created")}: ${result.path || ""}`);
@@ -4553,8 +4566,9 @@ async function commitProjectChanges() {
   const staged = (projectChangesState?.data?.files || []).filter((file) => file.staged);
   if (!cwd || changesMutationInFlight) return;
   if (!staged.length) { toast(changesText("commitNothing"), true); return; }
-  const message = prompt(changesText("commitPrompt", { count: staged.length }));
-  if (message === null) return;
+  const base = apiBase;
+  const message = await askText(changesText("commitPrompt", { count: staged.length }), { action: "commit", label: "commitMessage" });
+  if (message === null || changesMutationInFlight || base !== apiBase || (projectChangesState?.cwd || currentSessionCwd) !== cwd) return;
   if (!String(message).trim()) { toast(changesText("commitEmpty"), true); return; }
   changesMutationInFlight = true;
   if (el.changesCommit) el.changesCommit.disabled = true;
@@ -8862,7 +8876,9 @@ function linkHostFiles(root) {
     img.decoding = "async";
     const base = apiBase;
     const preview = document.createElement("span");
-    preview.className = "host-file-preview";
+    // "pending" holds a quiet tile until the picture arrives: never the
+    // browser's broken-image glyph or bare alt text while it is fetched.
+    preview.className = "host-file-preview pending";
     img.replaceWith(preview);
     preview.append(img);
     let attempt = 0;
@@ -8870,13 +8886,14 @@ function linkHostFiles(root) {
       if (base !== apiBase) return;
       img.removeAttribute("src");
       img.hidden = true;
+      preview.classList.remove("pending");
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "host-image-retry";
       retry.textContent = "↻";
       retry.setAttribute("aria-label", hostFileText("Retry image"));
       retry.title = hostFileText("Retry image");
-      retry.addEventListener("click", () => { attempt = 0; preview.replaceChildren(img); img.hidden = false; void load(true); });
+      retry.addEventListener("click", () => { attempt = 0; preview.replaceChildren(img); preview.classList.add("pending"); img.hidden = false; void load(true); });
       preview.replaceChildren(img, hostFileLink(filePath, img.alt), retry);
     };
     const load = async (fresh = false) => {
@@ -8891,7 +8908,7 @@ function linkHostFiles(root) {
       img.setAttribute("role", "button");
       img.tabIndex = 0;
       if (!img.alt) img.alt = String(file.name || "");
-      img.onload = () => { preview.classList.add("loaded"); };
+      img.onload = () => { preview.classList.remove("pending"); preview.classList.add("loaded"); };
       img.onerror = () => {
         // Opaque handles expire or are invalidated when a generated image is
         // replaced. Resolve the same Host path once more, never another host.
@@ -14273,9 +14290,11 @@ function notifyWorkspaceSignIn(term, state) {
   parent.postMessage({ type: "workspace-signin", agentId: term.agentId, state, completed: term.state === "completed" }, location.origin);
 }
 
-function requestCloseAgentTerminal() {
+async function requestCloseAgentTerminal() {
   const term = agentTerminal;
-  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status" && !window.confirm(agentTerminalText("stopConfirm"))) return;
+  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status") {
+    if (!(await askConfirm(agentTerminalText("stopConfirm"), { action: "stop", destructive: true })) || agentTerminal !== term) return;
+  }
   closeAgentTerminal();
 }
 
@@ -14605,7 +14624,8 @@ function renderAgentTerminalLinks(term) {
     value.dataset.i18nIgnore = "";
     const copy = document.createElement("button");
     copy.type = "button"; copy.className = "btn ghost agent-terminal-copy";
-    copy.textContent = agentTerminalText("copy");
+    // Two copy buttons say which: the code or the link.
+    copy.textContent = agentTerminalText("copyCode");
     copy.addEventListener("click", async () => { try { await copyText(code); toast(agentTerminalText("copied")); } catch {} });
     row.append(label, value, copy);
     box.appendChild(row);
@@ -14621,7 +14641,7 @@ function renderAgentTerminalLinks(term) {
     open.textContent = index === 0 ? agentTerminalText("openLink", { host }) : host;
     const copy = document.createElement("button");
     copy.type = "button"; copy.className = "btn ghost agent-terminal-copy";
-    copy.textContent = agentTerminalText("copy");
+    copy.textContent = agentTerminalText("copyLink");
     copy.addEventListener("click", async () => { try { await copyText(link); toast(agentTerminalText("copied")); } catch {} });
     row.append(open, copy);
     box.appendChild(row);
@@ -14691,7 +14711,7 @@ function renderAgentTerminalControls(term) {
       wrap.className = "agent-terminal-list";
       if (control.filter) {
         const filter = document.createElement("input");
-        filter.type = "search"; filter.placeholder = control.filterPlaceholder || ""; filter.className = "agent-terminal-filter";
+        filter.type = "search"; filter.spellcheck = false; filter.setAttribute("autocorrect", "off"); filter.setAttribute("autocapitalize", "off"); filter.placeholder = control.filterPlaceholder || ""; filter.className = "agent-terminal-filter";
         filter.value = control.query || "";
         filter.setAttribute("aria-label", control.filterPlaceholder || "");
         filter.addEventListener("input", () => { control.query = filter.value; renderItems(); });
@@ -16062,6 +16082,15 @@ let updateAllRequest = 0;
 let harnessUpdateRequest = 0;
 let harnessUpdateController = null;
 const harnessUpdateInFlight = new Set();
+// Upgrades started so far, per device and agent. A question is answered
+// later and one may wait behind another: it is shown, and its yes acts,
+// only if that agent's upgrade did not start meanwhile. Upgrade all runs
+// one at a time, and no single upgrade starts beside it; the agents it is
+// still to upgrade are in harnessUpgradeAllQueue.
+const harnessUpgradeStarts = new Map();
+const harnessUpgradeCount = (machine, id) => harnessUpgradeStarts.get(machine.id + "\n" + id) || 0;
+let harnessUpgradeAllRunning = false;
+const harnessUpgradeAllQueue = new Set();
 const updateRefreshTimers = new Set();
 let updateCenterSummary = null;
 let serviceWorkerRegistration = null;
@@ -16253,6 +16282,14 @@ function updateReleaseIsNewer(current, latest) {
 }
 
 const updateInstallInFlight = new Set();
+// Installs started so far, per device: an install question acts only for a
+// device whose install did not start while it was asked (see
+// harnessUpgradeStarts).
+const updateInstallStarts = new Map();
+const installStartsOf = machine => updateInstallStarts.get(machine.id) || 0;
+function countInstallStart(machine) { updateInstallStarts.set(machine.id, installStartsOf(machine) + 1); }
+// Devices with an install question on its way: a second tap asks nothing.
+const updateInstallAsking = new Set();
 const updateAutoInFlight = new Set();
 let updateInstallAllRunning = false;
 
@@ -16850,7 +16887,7 @@ async function runHarnessCheckAll({ quiet = false } = {}) {
 // that exits cleanly without installing the published release stays visible.
 async function upgradeHarness(machine, item) {
   const id = item.id;
-  harnessUpdateInFlight.add(id);
+  harnessUpdateInFlight.add(id); harnessUpgradeStarts.set(machine.id + "\n" + id, harnessUpgradeCount(machine, id) + 1);
   renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
   try {
     const result = await requestMachineUpdate(machine, "/api/harness-updates/apply", { id, confirm: true }, { timeoutMs: 15 * 60 * 1000 });
@@ -16895,14 +16932,20 @@ function harnessUpgradeResultText(machine, item, outcome) {
 
 async function applyHarnessUpdate(id) {
   const machine = currentMachine();
-  if (!machine || !id || harnessUpdateInFlight.has(id)) return;
+  if (!machine || !id || harnessUpdateInFlight.has(id) || harnessUpgradeAllRunning) return;
   const item = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || []).find(entry => entry.id === id) || { id, label: id };
   const harness = item.label || id;
   const target = item.latestVersion && harnessUpdateKind(item) === "available" ? updateVersionText(item.latestVersion) : "";
   const question = target
     ? updateText("Upgrade {harness} to {version} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, version: target, device: updateDeviceName(machine) })
     : updateText("Run the official updater for {harness} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, device: updateDeviceName(machine) });
-  if (!confirm(question)) return;
+  const asked = viewGeneration, starts = harnessUpgradeCount(machine, id);
+  // Its yes can act: the agent has not started upgrading since it was
+  // asked, and Upgrade all is not about to upgrade it.
+  const due = () => starts === harnessUpgradeCount(machine, id) && !harnessUpdateInFlight.has(id) && !harnessUpgradeAllQueue.has(id);
+  if (!(await askConfirm(question, { action: "upgrade", still: due })) || asked !== viewGeneration || currentMachine()?.id !== machine.id || !due()) return;
+  // A yes is never dropped without a word.
+  if (harnessUpgradeAllRunning) { toast(updateText("Wait for the running upgrade to finish, then try again."), true); return; }
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   const outcome = await upgradeHarness(machine, item);
@@ -16914,24 +16957,35 @@ async function applyHarnessUpdate(id) {
 
 async function applyAllHarnessUpdates() {
   const machine = currentMachine();
-  if (!machine || !el.harnessUpdateApplyAll || harnessUpdateInFlight.size) return;
-  const items = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || [])
+  if (!machine || !el.harnessUpdateApplyAll || harnessUpdateInFlight.size || harnessUpgradeAllRunning) return;
+  const listed = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || [])
     .filter((item) => harnessUpdateKind(item) === "available" && harnessUpgradeable(item));
+  if (!listed.length) return;
+  const lines = listed.map((item) => (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : ""));
+  const asked = viewGeneration, starts = listed.map((item) => harnessUpgradeCount(machine, item.id));
+  if (!(await askConfirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }), { action: "upgrade", details: lines, still: () => !harnessUpgradeAllRunning }))
+    || asked !== viewGeneration || currentMachine()?.id !== machine.id) return;
+  if (harnessUpdateInFlight.size || harnessUpgradeAllRunning) { toast(updateText("Wait for the running upgrade to finish, then try again."), true); return; }
+  // An agent upgraded while the question was open is not upgraded again.
+  const items = listed.filter((item, index) => starts[index] === harnessUpgradeCount(machine, item.id));
   if (!items.length) return;
-  const lines = items.map((item) => "• " + (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : "")).join("\n");
-  if (!confirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }) + "\n\n" + lines)) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   let completed = 0;
   let failed = 0;
-  for (const item of items) {
-    const outcome = await upgradeHarness(machine, item);
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    if (outcome.ok) completed += 1;
-    else failed += 1;
-    renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
-    if (!outcome.ok && Number(outcome.error?.status) === 409) break;
-  }
+  harnessUpgradeAllRunning = true;
+  for (const item of items) harnessUpgradeAllQueue.add(item.id);
+  try {
+    for (const item of items) {
+      harnessUpgradeAllQueue.delete(item.id);
+      const outcome = await upgradeHarness(machine, item);
+      if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+      if (outcome.ok) completed += 1;
+      else failed += 1;
+      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
+      if (!outcome.ok && Number(outcome.error?.status) === 409) break;
+    }
+  } finally { harnessUpgradeAllRunning = false; harnessUpgradeAllQueue.clear(); }
   renderUpdateCenter();
   toast(updateText("Harness upgrades complete: {completed} updated, {failed} failed.", { completed, failed }), failed > 0);
 }
@@ -17354,33 +17408,49 @@ function updateInterruptQuestion(device, work, automatic) {
     const identity = item?.agent ? window.StepsembleAgentIdentity?.lookup?.(item.agent) : null;
     const agent = item?.agent ? (identity?.label && identity.id !== "agent" ? identity.label : agentConnectorLabel(item.agent)) : updateText("Agent work");
     const effect = item?.effect === "continues" ? updateText("keeps running") : updateText("stops; ask it to continue after the update");
-    return "• " + agent + (item?.name ? " · " + item.name : "") + " — " + effect;
+    return agent + (item?.name ? " · " + item.name : "") + " — " + effect;
   });
-  return [updateText("Update {device} now? Stepsemble restarts, which affects the work running there:", { device }), "", ...lines, "",
-    updateText("Conversations are kept."), ...(automatic ? [updateText("If you cancel, it installs automatically when the work finishes.")] : [])].join("\n");
+  return { question: updateText("Update {device} now? Stepsemble restarts, which affects the work running there:", { device }), details: lines,
+    note: [updateText("Conversations are kept."), ...(automatic ? [updateText("If you cancel, it installs automatically when the work finishes.")] : [])].join(" ") };
 }
 
 // Installing is always a separate, confirmed action per device. When agent
 // work is running, the confirmation says what an immediate install interrupts.
-async function installDeviceUpdate(machineId) {
-  const machine = machines.find((item) => item.id === machineId);
-  if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
+// Reads what the device is running, then asks. Resolves { interrupt } for a
+// yes that can still act: the device has not started installing since (by
+// itself or in Install all), so it is never sent a second install. Another
+// device installing, even through Install all, does not hold it back.
+async function askInstall(machine, generation) {
   const view = updateDeviceView(machine);
   const device = updateDeviceName(machine);
-  const generation = viewGeneration;
+  const starts = installStartsOf(machine);
+  const due = () => generation === viewGeneration && updateViewIsOpen() && starts === installStartsOf(machine) && !updateInstallInFlight.has(machine.id);
   // Ask the device what is running now; the row may predate newly started work.
   let live = null;
   try { live = (await requestMachineUpdate(machine, "/api/update/status"))?.data?.updater || null; } catch {}
-  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
+  if (!due()) return null;
   const work = Array.isArray(live?.activeWork) ? live.activeWork : [];
   const interrupt = live?.interruptible === true && work.length > 0;
   const question = interrupt
     ? updateInterruptQuestion(device, work, live.enabled === true)
-    : view.install || view.interrupt
+    : { question: view.install || view.interrupt
       ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
-      : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device });
-  if (!confirm(question)) return;
-  updateInstallInFlight.add(machine.id);
+      : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device }) };
+  if (!(await askConfirm(question.question, { action: "install", details: question.details, note: question.note, still: due })) || !due()) return null;
+  return { interrupt };
+}
+
+async function installDeviceUpdate(machineId) {
+  const machine = machines.find((item) => item.id === machineId);
+  if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || updateInstallAsking.has(machine.id)) return;
+  const device = updateDeviceName(machine);
+  const generation = viewGeneration;
+  let answer = null;
+  updateInstallAsking.add(machine.id);
+  try { answer = await askInstall(machine, generation); } finally { updateInstallAsking.delete(machine.id); }
+  if (!answer) return;
+  const { interrupt } = answer;
+  updateInstallInFlight.add(machine.id); countInstallStart(machine);
   renderUpdateCenter();
   try {
     await requestMachineUpdate(machine, "/api/update/run", interrupt ? { interrupt: true } : {});
@@ -17402,13 +17472,19 @@ async function installDeviceUpdate(machineId) {
 
 async function installAllDeviceUpdates() {
   if (updateInstallAllRunning) return;
-  const targets = machines.filter((machine) => updateDeviceView(machine).install);
+  const listed = machines.filter((machine) => updateDeviceView(machine).install);
+  if (!listed.length) return;
+  const lines = listed.map((machine) => updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest));
+  const asked = viewGeneration, starts = listed.map(installStartsOf);
+  if (!(await askConfirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first."), { action: "install", details: lines, still: () => !updateInstallAllRunning }))
+    || asked !== viewGeneration || !updateViewIsOpen() || updateInstallAllRunning) return;
+  // A device whose install started while the question was open is not sent
+  // a second one; the others still install.
+  const targets = listed.filter((machine, index) => starts[index] === installStartsOf(machine) && !updateInstallInFlight.has(machine.id));
   if (!targets.length) return;
-  const lines = targets.map((machine) => "• " + updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest)).join("\n");
-  if (!confirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first.") + "\n\n" + lines)) return;
   const generation = viewGeneration;
   updateInstallAllRunning = true;
-  for (const machine of targets) updateInstallInFlight.add(machine.id);
+  for (const machine of targets) { updateInstallInFlight.add(machine.id); countInstallStart(machine); }
   renderUpdateCenter();
   const counts = { started: 0, failed: 0 };
   try {
@@ -17918,7 +17994,8 @@ async function saveProvider() {
 }
 
 async function deleteProvider(provider) {
-  if (!provider?.id || !window.confirm(tKey("provider.deleteConfirm", { id: provider.id }))) return;
+  const base = apiBase;
+  if (!provider?.id || !(await askConfirm(tKey("provider.deleteConfirm", { id: provider.id }), { action: "remove", destructive: true })) || base !== apiBase) return;
   try {
     await post("/api/model-providers", { action: "delete", id: provider.id });
     closeProviderDialog();
@@ -18255,7 +18332,11 @@ async function loadAgentModelList(agentId) {
     status.classList.toggle("hidden", !status.textContent);
   } catch (error) {
     if (!current()) return;
-    status.textContent = modelAgentText("failed", { detail: String(error?.message || "unknown error").slice(0, 160) });
+    // A Host's error code (disabled, codex_executable_unavailable) tells a
+    // reader nothing; say what to check instead.
+    const detail = String(error?.message || "");
+    status.textContent = !detail || /^[a-z][a-z0-9_]*$/.test(detail) ? modelAgentText("unreachable", { agent: agentTerminalLabel(agentId) })
+      : modelAgentText("failed", { detail: detail.slice(0, 160) });
   }
 }
 
@@ -18495,7 +18576,8 @@ async function saveOpenCodeProvider() {
 }
 
 async function deleteOpenCodeProvider(provider) {
-  if (!provider?.id || !window.confirm(`Remove provider "${provider.id}" from opencode.json?`)) return;
+  const base = apiBase;
+  if (!provider?.id || !(await askConfirm(tKey("provider.opencodeDeleteConfirm", { id: provider.id }), { action: "remove", destructive: true })) || base !== apiBase) return;
   try {
     await post("/api/opencode/providers", { action: "delete", id: provider.id });
     closeOpenCodeProviderDialog();
@@ -18640,7 +18722,7 @@ function codexGatewayAction(label, question, body) {
   const base = apiBase, agent = modelSettingsAgent;
   button.addEventListener("click", async () => {
     if (base !== apiBase || agent !== modelSettingsAgent || button.disabled) return;
-    if (question && !window.confirm(question)) return;
+    if (question && (!(await askConfirm(question, { action: label })) || base !== apiBase || agent !== modelSettingsAgent || button.disabled)) return;
     button.disabled = true;
     try {
       await post("/api/gateway/action", body);
@@ -18819,7 +18901,9 @@ async function importProviderConfig(file) {
     const models = Array.isArray(provider?.models) ? provider.models.length : 0;
     return `${id} · ${models} models${hasSecrets(provider) ? " · key" : ""}`;
   });
-  if (!window.confirm(`${window.stepsembleI18n?.t("Import these providers?") || "Import these providers?"}\n\n${summary.join("\n")}\n\n${window.stepsembleI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced."}`)) return;
+  const base = apiBase;
+  if (!(await askConfirm(window.stepsembleI18n?.t("Import these providers?") || "Import these providers?", { action: "import", details: summary,
+    note: window.stepsembleI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced." })) || base !== apiBase) return;
   try {
     const result = await post("/api/model-config/import", { providers: payload.providers });
     toast(window.stepsembleI18n?.t("Imported {count} providers", { count: result.imported.length }) || `Imported ${result.imported.length} providers`);
@@ -18831,9 +18915,11 @@ async function importProviderConfig(file) {
 
 function hasSecrets(provider) { return !!(provider?.apiKey || provider?.oauth); }
 
-el.providerConfigExport?.addEventListener("click", () => {
-  const includeSecrets = window.confirm(window.stepsembleI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?\n\nCancel = export without secrets (keys stay on this device).\nOK = include keys in plain text; keep the file safe.");
-  downloadProviderConfig(includeSecrets);
+// Keys or no keys is a choice of two; Cancel exports nothing.
+el.providerConfigExport?.addEventListener("click", async () => {
+  const choice = await askChoice(window.stepsembleI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?",
+    [{ id: "include", label: "includeKeys", tone: "secondary" }, { id: "without", label: "withoutKeys" }]);
+  if (choice) downloadProviderConfig(choice === "include");
 });
 el.providerConfigImport?.addEventListener("click", () => {
   const input = document.createElement("input");
@@ -19079,8 +19165,8 @@ el.harnessUpdateList?.addEventListener("change", (event) => {
 // The reset sits on the Appearance page and resets that page's options only.
 // Language, projects, model choices and list filters are kept.
 const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "look", "bubble", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
-el.btnResetSettings?.addEventListener("click", () => {
-  if (!confirm(tKey("settings.resetConfirm"))) return;
+el.btnResetSettings?.addEventListener("click", async () => {
+  if (!(await askConfirm(tKey("settings.resetConfirm"), { action: "reset", destructive: true }))) return;
   settings = saveSettings(Object.fromEntries(RESET_APPEARANCE_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]])));
   applyAppearance();
   renderSettings();
@@ -19254,9 +19340,9 @@ async function refreshIncomingGrants(force = false) {
 
 async function revokeIncomingGrant(grant, button) {
   const device = machineDisplayName(grant?.device);
-  if (!grant?.grantId || !confirm(tKey("deviceTrust.revokeConfirm", { device }))) return;
-  button.disabled = true;
   const baseAtStart = apiBase;
+  if (!grant?.grantId || !(await askConfirm(tKey("deviceTrust.revokeConfirm", { device }), { action: "revoke", destructive: true })) || baseAtStart !== apiBase) return;
+  button.disabled = true;
   try {
     const response = await fetch(`${baseAtStart}/api/device-trust/grants/revoke`, {
       method: "POST", credentials: "same-origin", cache: "no-store",
@@ -19636,7 +19722,8 @@ async function saveMachineDialog() {
 }
 
 async function restartMachineWeb() {
-  if (!machineDialogExisting?.local || !confirm(tKey("device.restartConfirm"))) return;
+  const existing = machineDialogExisting;
+  if (!existing?.local || !(await askConfirm(tKey("device.restartConfirm"), { action: "restart", destructive: true })) || machineDialogExisting !== existing) return;
   el.machineRestart.disabled = true;
   if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Stepsemble 重新啟動…";
   try {
@@ -19650,7 +19737,8 @@ async function restartMachineWeb() {
 }
 
 async function deleteMachineDialog() {
-  if (!machineDialogExisting || !confirm(tKey("device.deleteConfirm", { name: machineDialogExisting.name }))) return;
+  const existing = machineDialogExisting;
+  if (!existing || !(await askConfirm(tKey("device.deleteConfirm", { name: existing.name }), { action: "delete", destructive: true })) || machineDialogExisting !== existing) return;
   el.machineDelete.disabled = true;
   setMachineFormError();
   try {

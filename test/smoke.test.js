@@ -917,8 +917,13 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   assert.match(app, /requestMachineUpdate\(machine, "\/api\/update\/check"/);
   // The device is asked what is running before the confirmation, and an
   // interrupting install is only requested after the user confirms.
-  assert.match(app, /async function installDeviceUpdate\(machineId\)[\s\S]{0,1800}if \(!confirm\(question\)\) return;[\s\S]{0,400}"\/api\/update\/run", interrupt \? \{ interrupt: true \} : \{\}/);
-  assert.doesNotMatch(app.slice(0, app.indexOf("if (!confirm(question)) return;")), /interrupt: true/);
+  // The answer arrives later, so the view is checked again before installing.
+  assert.match(app, /async function askInstall\(machine, generation\)[\s\S]{0,2400}if \(!\(await askConfirm\(question\.question, \{ action: "install"[^\n]*still: due \}\)\) \|\| !due\(\)\) return null;[\s\S]{0,300}async function installDeviceUpdate\(machineId\)[\s\S]{0,900}"\/api\/update\/run", interrupt \? \{ interrupt: true \} : \{\}/);
+  const asked = app.indexOf("if (!(await askConfirm(question.question");
+  assert.ok(asked > 0);
+  assert.doesNotMatch(app.slice(0, asked), /interrupt: true/);
+  // A question that waited behind another never installs or upgrades twice
+  // and is never dropped for another device: test/update-questions.test.js.
   assert.match(server, /if \(p === "\/api\/update\/check" && req\.method === "POST"\)/);
   assert.match(html, /id="update-center-summary"[^>]*aria-live="polite"/);
   assert.match(app, /function refreshUpdateCenter\(force = false\)/);
@@ -1366,9 +1371,10 @@ test("archiving becomes a reversible toast instead of a blocking confirm", () =>
   assert.doesNotMatch(projectRemove, /window\.confirm/);
   assert.match(projectRemove, /kept\.delete\(cwd\)/);
   // Still-confirmed flows stay untouched: credentials and irreversible steps.
-  assert.match(app, /window\.confirm\(tKey\("tokens\.revokeConfirm"/);
-  assert.match(app, /window\.confirm\(tKey\("provider\.deleteConfirm"/);
-  assert.match(app, /confirm\(tKey\("device\.restartConfirm"\)\)/);
+  // They ask in the app's own dialog (modules/app-dialog.js), marked destructive.
+  assert.match(app, /askConfirm\(tKey\("tokens\.revokeConfirm", \{ label: row\.label \}\), \{ action: "revoke", destructive: true \}\)/);
+  assert.match(app, /askConfirm\(tKey\("provider\.deleteConfirm", \{ id: provider\.id \}\), \{ action: "remove", destructive: true \}\)/);
+  assert.match(app, /askConfirm\(tKey\("device\.restartConfirm"\), \{ action: "restart", destructive: true \}\)/);
   // The toast itself can host the action.
   assert.match(app, /function toast\(msg, isError = false, action = null\)/);
   assert.match(app, /btn\.className = "toast-action"/);

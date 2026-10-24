@@ -170,7 +170,12 @@
     }
     async function action(row, name) {
       if (pending || !loaded || data.available === false) return;
-      if (name === "delete" && !root.confirm(t("removeConfirm"))) return;
+      if (name === "delete") {
+        // The app's own question; the panel may have moved on by the answer.
+        const asked = epoch, target = contextValue.target;
+        if (!(await (root.StepsembleAppDialog?.confirm(t("removeConfirm"), { action: "delete", destructive: true }) ?? false))) return;
+        if (asked !== epoch || target !== contextValue?.target || pending || !loaded || !panel) return;
+      }
       const focused = doc.activeElement?.dataset.focus === row.id + ":" + name;
       const token = epoch, target = contextValue.target; pending = true; revision++; error(""); updateButtons();
       try {
@@ -225,7 +230,7 @@
       header.append(copy);
       const errorBox = el("p", "", "wf-error"); errorBox.setAttribute("role", "status"); errorBox.hidden = true;
       const body = el("div", "", "wf-body"), rail = el("section", "", "wf-rail"), tools = el("div", "", "wf-tools"), search = el("input", "", "wf-search");
-      search.type = "search"; search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
+      search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.placeholder = t("filter"); search.setAttribute("aria-label", t("filter"));
       search.oninput = () => { query = search.value; selected = null; render(); };
       // A narrow rail keeps the + alone beside the search; the word shows where there is room.
       const add = button("", () => form(), "primary wf-add", "new"); add.dataset.mutation = "";

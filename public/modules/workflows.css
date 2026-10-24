@@ -46,7 +46,7 @@
 .wf-item[data-state=running][aria-current=true] {box-shadow:inset 3px 0 0 var(--wf-green);}
 .wf-item-top {display:flex;align-items:flex-start;gap:10px;width:100%;}
 .wf-item-top strong {flex:1;min-width:0;font-size:var(--text-md);font-weight:580;line-height:1.45;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.wf-status {display:inline-flex;align-items:center;gap:5px;font-size:var(--text-3xs);line-height:1.4;white-space:nowrap;color:var(--pine-soft);font-weight:500;}
+.wf-status {display:inline-flex;align-items:center;gap:5px;font-size:var(--text-2xs);line-height:1.4;white-space:nowrap;color:var(--pine-soft);font-weight:500;}
 .wf-status::before {content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0;}
 .wf-status[data-state=running],.wf-status[data-state=enabled],.wf-status[data-state=completed] {color:var(--wf-green);}
 .wf-status:is([data-state=waiting],[data-state=waitingCapacity],[data-state=blocked],[data-state=limited],[data-state=interrupted]) {color:var(--wf-amber);}
@@ -199,7 +199,7 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 .goal-chip-close.btn {flex:none;display:inline-grid;place-items:center;min-width:28px;min-height:0;margin:0;padding:0 10px 0 6px;border:1px solid var(--line);border-left:0;border-radius:0 var(--radius-pill) var(--radius-pill) 0;background:var(--paper);color:var(--pine-soft);font:inherit;font-size:14px;line-height:1;cursor:pointer;}
 .goal-chip-close.btn:hover,.goal-chip-close.btn:focus-visible {background:var(--bubble-user);color:var(--ink);}
 .goal-chip-close[hidden] {display:none!important;}
-@media (pointer:coarse) {.goal-chip-close.btn {min-width:36px;}}
+@media (pointer:coarse) {.goal-chip-close.btn {min-width:44px;}}
 .goal-chip-state {overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .goal-chip-state::before,.goal-chip-clock::before {content:"·";margin-right:5px;color:var(--pine-soft);}
 .goal-chip-clock {font-variant-numeric:tabular-nums;color:var(--pine-soft);}

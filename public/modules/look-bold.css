@@ -220,6 +220,10 @@ html[data-look="bold"] .sheet { border: 0; background: var(--bold-glass-menu); -
 @media (min-width: 500px) {
   html[data-look="bold"] .sheet { border-radius: var(--bold-radius-panel); animation: bold-materialize .3s var(--bold-spring); }
 }
+html[data-look="bold"] .app-dialog { border: 0; border-radius: var(--bold-radius-panel); background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--sheet-shadow); animation: bold-materialize .26s var(--bold-spring); }
+html[data-look="bold"] .app-dialog::backdrop { -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+html[data-look="bold"].reduced-motion .app-dialog { animation: none; }
 /* Model names and controls stay legible above a busy transcript. */
 html[data-look="bold"] .model-dialog { background: var(--milk); }
 html[data-look="bold"] .model-dialog .action-row.model-row { border-radius: 14px; }

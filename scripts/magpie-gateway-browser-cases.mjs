@@ -100,9 +100,17 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
       assert.deepEqual(titles, ["Magpie", "Codex"], "OpenCodex stays out of the way while it is off and nothing goes through it");
       assert.match(await panel.textContent(), /127\.0\.0\.1:3425 · 2 models/);
       assert.match(await panel.textContent(), /Goes to OpenAI directly/);
+      // Codex is off in this preview: its model list says what to check, not the Host's code.
+      await page.waitForFunction(() => /could not list its models/.test(document.querySelector("#agent-model-status")?.textContent || ""));
+      assert.doesNotMatch(await page.locator("#agent-model-status").textContent(), /disabled|_|:/);
 
-      page.once("dialog", dialog => { assert.match(dialog.message(), /Route Codex through Magpie\?/); void dialog.accept(); });
+      // The app asks in its own dialog, whose button names the action.
+      const nativeDialogs = []; page.on("dialog", dialog => { nativeDialogs.push(dialog.message()); void dialog.dismiss(); });
       await panel.getByRole("button", { name: "Route Codex through Magpie" }).click();
+      const ask = page.getByRole("alertdialog", { name: /Route Codex through Magpie\?/ });
+      await ask.getByRole("button", { name: "Route Codex through Magpie" }).click();
+      await ask.waitFor({ state: "detached" });
+      assert.deepEqual(nativeDialogs, [], "no browser dialog");
       await panel.getByText("Goes through Magpie · model: gpt-6.1-sol").waitFor();
       assert.deepEqual(actions, [{ action: "magpie_codex_routing", enabled: true }]);
       await panel.getByRole("button", { name: "Connect Codex to OpenAI directly" }).waitFor();

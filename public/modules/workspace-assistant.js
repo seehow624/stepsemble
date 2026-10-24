@@ -148,7 +148,7 @@
     function searchRow() {
       const row = node("div", "", "workspace-search-row");
       const wrap = node("label", "", "workspace-search-wrap"), mark = node("span", "⌕"); mark.setAttribute("aria-hidden", "true");
-      const input = node("input"); input.id = "workspace-assistant-search"; input.type = "search"; input.value = query;
+      const input = node("input"); input.id = "workspace-assistant-search"; input.type = "search"; input.spellcheck = false; input.setAttribute("autocorrect", "off"); input.setAttribute("autocapitalize", "off"); input.value = query;
       input.placeholder = t("searchBots"); input.setAttribute("aria-label", t("searchBots"));
       input.oninput = () => { query = input.value; update(); };
       wrap.append(mark, input);

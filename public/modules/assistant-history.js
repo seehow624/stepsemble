@@ -17,7 +17,7 @@
       const state = saved.get(profile);
       const panel = showPanel(t("historyTitle"), botName, { kind: "history" });
       const field = el("label", "assistant-search-field"), search = el("input", "assistant-search");
-      search.type = "search"; search.value = state.query; search.placeholder = t("search"); search.setAttribute("aria-label", t("search"));
+      search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off"); search.value = state.query; search.placeholder = t("search"); search.setAttribute("aria-label", t("search"));
       field.append(icon("search"), search);
       const scroll = el("div", "assistant-history-scroll"), list = el("ul", "assistant-session-list");
       const status = el("div", "assistant-history-status");
