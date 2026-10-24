@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.54
+
+- Keep the clear button (✖) of search fields whole on iPhone. 3.9.53 centred it, but it reached past the end of the field and iOS cut off its right half; it now sits inside the field, as far from the end as the magnifier is from the start.
+
 ## 3.9.53
 
 - Ask questions in the app's own dialog instead of the browser's confirm() and prompt(): deleting or revoking, installs and upgrades, imports, restarts, the commit message and more. Each names its action, a destructive one is red and starts on Cancel, Escape only cancels the question, and the app checks again that the host, device or conversation is still the one it asked about before acting. Exporting providers now offers keys or no keys, and Cancel exports nothing.
