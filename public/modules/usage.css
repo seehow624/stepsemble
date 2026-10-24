@@ -47,7 +47,7 @@ html[data-theme="dark"] .usage-sheet {
 .usage-view-tabs button { min-height: 32px; padding: 4px 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--pine-soft); font: inherit; font-size: var(--text-sm); font-weight: 560; transition: background-color 180ms ease, color 180ms ease; }
 .usage-view-tabs button[aria-selected=true] { background: var(--bubble-user); color: var(--ink); font-weight: 650; box-shadow: 0 1px 3px rgba(0, 0, 0, .1), inset 0 1px 0 var(--glass-edge); }
 .usage-view-tabs button:not([aria-selected=true]):hover { color: var(--ink); }
-.usage-sheet > .usage-status { min-height: 0; margin: 0; padding: 0 20px 8px; color: var(--pine-soft); font-size: var(--text-3xs); text-align: left; cursor: grab; touch-action: none; }
+.usage-sheet > .usage-status { min-height: 0; margin: 0; padding: 0 20px 8px; color: var(--pine-soft); font-size: var(--text-2xs); text-align: left; cursor: grab; touch-action: none; }
 .usage-status[data-kind=error] { color: var(--err-ink); }
 /* Refresh, then Settings, at the end of the header. */
 :is(.usage-refresh, .usage-settings) { flex: none; width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--pine-soft); }
@@ -108,7 +108,7 @@ html[data-theme="dark"] .usage-sheet {
 .usage-chart-stack > [data-token=cacheWrite] { background: var(--usage-write); }
 /* Paint, not space: even a subpixel segment keeps at least 80% of its hue. */
 .usage-chart-stack > [data-token] + [data-token] { background-image: var(--usage-segment-edge); }
-.usage-chart-date { height: 20px; font-size: var(--text-4xs); text-align: center; color: var(--pine-soft); font-variant-numeric: tabular-nums; }
+.usage-chart-date { height: 20px; font-size: var(--text-2xs); text-align: center; color: var(--pine-soft); font-variant-numeric: tabular-nums; }
 .usage-tabs { display: flex; align-items: center; justify-content: space-between; gap: 0; border-bottom: .5px solid var(--line); margin-bottom: 7px; }
 .usage-tab { padding: 9px 2px 10px; border-bottom: 2px solid transparent; color: var(--pine-soft); font-size: var(--text-2xs); }
 .usage-tab[aria-selected=true] { color: var(--ink); border-color: var(--ink); }

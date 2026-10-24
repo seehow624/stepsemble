@@ -213,6 +213,26 @@ test("message block/character/evidence caps bound DOM even for large trusted pro
   assert.ok(nodes.some(e => e.tagName === "DETAILS")); assert.ok(!nodes.some(e => e.tagName === "IMG"));
 });
 
+test("a record's time reads as a local date and time; the recorded value stays in datetime and the hover", async () => {
+  const root = dom(), recorded = "2026-09-01T00:00:01.000Z";
+  const observation = { selectionDigest: token, messages: [{ role: "assistant", originalTimestamp: recorded, blocks: [{ kind: "text", text: "Synthetic" }] },
+    { role: "user", originalTimestamp: "yesterday", blocks: [{ kind: "text", text: "Synthetic" }] }], tools: [], auxiliaryRecords: [], warnings: [] };
+  const fakePages = () => {
+    let loaded = false;
+    return { reset() {}, cancel() {}, dispose() {}, refresh: async () => { loaded = true; return { kind: "applied" }; }, loadNext: async () => ({ kind: "applied" }), loadPrevious: async () => ({ kind: "applied" }),
+      state: () => ({ scope: { bindingId: uuid(904), generation: 1 }, status: "ready", pages: loaded ? [{ offset: 0, limit: 25, observation }] : [],
+        sourceVersion: token, messageCount: loaded ? 2 : 0, reachedEnd: true, startOffset: 0, nextOffset: 2 }) };
+  };
+  const h = harness({ root, createPages: fakePages }, view.create); await h.model.select("first");
+  const times = descendants(root).filter(e => e.className === "history-message-time");
+  const at = new Date(recorded), pad = n => String(n).padStart(2, "0");
+  const time = descendants(times[0]).find(e => e.tagName === "TIME");
+  assert.equal(time.dateTime, recorded); assert.equal(time.title, recorded);
+  assert.equal(time.textContent, `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`);
+  assert.doesNotMatch(times[0].textContent, /T\d\d:|Z$/);
+  assert.equal(times[1].textContent, "yesterday", "a value that is not a date is shown as written");
+});
+
 test("isolated preview markup preserves mark, accessibility media and excludes production/SW imports", () => {
   const html = fs.readFileSync(path.join(__dirname, "../public/history-preview.html"), "utf8"), css = fs.readFileSync(path.join(__dirname, "../public/history-preview.css"), "utf8");
   assert.match(html, /stepsemble-mark\.svg/); assert.match(html, /開發預覽/); assert.match(html, /來源未認證/);

@@ -213,12 +213,23 @@ namespace StepsembleHistoryView {
         const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
         i18n.raw(pre, clipped(text ?? "")); node.append(summary, pre); parent.append(node);
       };
+      // When a record was written, in the reader's own time zone and without
+      // the machine format's "T" and "Z" (2026-09-01 08:00). The recorded value
+      // stays in the datetime attribute and the hover.
+      const recordedTime = (input: string): HTMLElement => {
+        const value = clipped(input, 120), at = new Date(value), node = element("p", "", "history-message-time");
+        if (!/^\d{4}-\d\d-\d\dT/.test(value) || Number.isNaN(at.getTime())) return i18n.raw(node, value);
+        const time = doc.createElement("time"), pad = (part: number) => String(part).padStart(2, "0");
+        time.dateTime = value; time.title = value;
+        i18n.raw(time, `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`);
+        node.append(time); return node;
+      };
       const pageMessages = s.page.observation.messages.slice(s.messageStart, s.messageStart + LIMITS.messages);
       if (!pageMessages.length) content.append(copy("p", "pageEmpty", "history-empty"));
       for (const message of pageMessages) {
         const card = element("article", "", "history-message");
         card.append(message.role === "assistant" ? element("h3", "Claude") : copy("h3", message.role === "user" ? "you" : "system"),
-          typeof message.originalTimestamp === "string" ? element("p", clipped(message.originalTimestamp, 120), "history-message-time") : copy("p", "noTime", "history-message-time"));
+          typeof message.originalTimestamp === "string" ? recordedTime(message.originalTimestamp) : copy("p", "noTime", "history-message-time"));
         const blocks = Array.isArray(message.blocks) ? message.blocks : [];
         for (const block of blocks.slice(0, LIMITS.blocks)) {
           if (!object(block)) continue;

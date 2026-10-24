@@ -266,7 +266,7 @@ html.reduced-motion .workspace-search-row .workspace-row-action { transition: no
   text-transform: uppercase;
   white-space: nowrap;
 }
-.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: var(--text-3xs) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-project-copy small { display: block; overflow: hidden; max-width: 100%; color: var(--pine-soft); font: var(--text-2xs) var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 /* A project's name reads as its name, in its own case; only the list's
    sections (Recent, Automations, the Bots, Groups) keep the small capitals,
    so a folder never looks like a section. */

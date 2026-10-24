@@ -109,7 +109,7 @@ var StepsembleConversations;
         heading.append(title, close);
         const scope = el("p", "", "conversation-scope"), note = el("p", "", "conversation-note");
         const toolbar = el("div", "", "conversation-toolbar"), search = el("input");
-        search.type = "search"; search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off");
+        search.type = "search";
         search.maxLength = 200;
         const agent = el("select"), kind = el("select");
         toolbar.append(search, agent, kind);
