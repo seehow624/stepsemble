@@ -332,14 +332,15 @@ input[type="search"] {
 input[type="search"]:focus-visible { background-color: var(--field-bg); box-shadow: 0 0 0 4px var(--focus-halo); }
 input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 /* WebKit (Safari, the Mac app) sets a restyled clear button at the top of a
-   tall field unless it is centred; the larger box is its tap area. */
+   tall field unless it is centred; the larger box is its tap area. It stays
+   inside the field: iOS cuts off whatever reaches past the field's end. */
 input[type="search"]::-webkit-search-cancel-button {
   -webkit-appearance: none;
   appearance: none;
   align-self: center;
   width: 24px;
   height: 24px;
-  margin: 0 -6px 0 4px;
+  margin: 0 0 0 4px;
   background: var(--clear-image) center / 16px 16px no-repeat;
   cursor: pointer;
 }
