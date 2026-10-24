@@ -6,8 +6,8 @@ import assert from "node:assert/strict";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
 
-async function open(browser, { width, height = 844, look = "bold", theme = "dark", locale = "en", fontScale = 100 }) {
-  const preview = await createNativeComposerPreview();
+async function open(browser, { width, height = 844, look = "bold", theme = "dark", locale = "en", fontScale = 100, previewOptions = {} }) {
+  const preview = await createNativeComposerPreview(previewOptions);
   const mobile = width < 600;
   const context = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", reducedMotion: "reduce" });
   await context.addInitScript(settings => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify(settings)); },
@@ -213,9 +213,41 @@ export async function runAppDialogBrowserCases(browser, { engine = "browser", sc
   }
 }
 
+// A picture named in a reply is fetched through the Host. While it is on its
+// way (one of the fixture's is refused, retried, then given up) its tile is
+// quiet: the browser's broken-image glyph or bare alt text never shows.
+export async function runMediaPlaceholderBrowserCases(browser, { engine = "browser" } = {}) {
+  const run = await open(browser, { width: 390, previewOptions: { richContent: true } });
+  try {
+    const ui = await openFromSidebar(run.page, "Codex composer fixture");
+    const watched = await ui.evaluate(async () => {
+      const shown = [], until = Date.now() + 10000;
+      let settled = false;
+      while (!settled && Date.now() < until) {
+        const tiles = [...document.querySelectorAll(".host-file-preview")];
+        for (const tile of tiles) {
+          const img = tile.querySelector(".host-file-image");
+          if (!tile.classList.contains("loaded") && img && !img.hidden) shown.push(getComputedStyle(img).opacity + (tile.classList.contains("pending") ? " pending" : ""));
+        }
+        settled = tiles.length >= 3 && tiles.every(tile => tile.classList.contains("loaded") || tile.querySelector(".host-image-retry"));
+        await new Promise(resolve => setTimeout(resolve, 40));
+      }
+      const missing = document.querySelector('.host-file-preview:has([data-host-path="/synthetic-project/missing.png"])');
+      return { settled, shown: [...new Set(shown)], missing: missing && { pending: missing.classList.contains("pending"), link: !!missing.querySelector(".host-file-link"), retry: !!missing.querySelector(".host-image-retry") } };
+    });
+    assert.ok(watched.settled, "the pictures settle");
+    assert.ok(watched.shown.length > 0, "a picture was seen on its way");
+    assert.deepEqual(watched.shown, ["0 pending"], `${engine}: a picture on its way is never drawn: ` + JSON.stringify(watched.shown));
+    assert.deepEqual(watched.missing, { pending: false, link: true, retry: true }, "a picture that never comes is a link and a retry");
+    assert.deepEqual(run.errors, []);
+    console.log(JSON.stringify({ case: "Picture placeholders", engine, result: "passed" }));
+  } finally { await run.close(); }
+}
+
 export async function runDesignPolishBrowserCases(browser, options = {}) {
   await runSearchFieldBrowserCases(browser, options);
   await runTouchTargetPolishBrowserCases(browser, options);
   await runQuietHoverBrowserCases(browser, options);
   await runAppDialogBrowserCases(browser, options);
+  await runMediaPlaceholderBrowserCases(browser, options);
 }

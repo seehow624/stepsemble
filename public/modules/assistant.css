@@ -691,6 +691,10 @@ html.reduced-motion .assistant-menu-sheet, html.reduced-motion .assistant-toast,
 .assistant-file-image { display: grid; min-width: 168px; min-height: 140px; max-width: 100%; place-items: center; border-radius: var(--radius-lg); overflow: hidden; line-height: 0;
   background: var(--bubble-ai); }
 .assistant-file-image img { display: block; max-width: min(100%, 420px); max-height: 420px; object-fit: contain; }
+/* Until it arrives the tile shows a picture glyph (style.css), not an empty
+   square or the browser's broken-image glyph. */
+.assistant-file-image { position: relative; }
+.assistant-file-image:not(.loaded) img { opacity: 0; }
 .assistant-file { box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: min(100%, 420px); min-width: 0; padding: 8px 8px 8px 12px;
   border: .5px solid var(--line); border-radius: var(--radius-lg); background: var(--milk); line-height: 1.35; }
 .assistant-file-badge { flex: 0 0 auto; min-width: 36px; padding: 6px 4px; border-radius: var(--radius-sm); background: var(--bubble-user); color: var(--pine-soft);

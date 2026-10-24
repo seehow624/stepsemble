@@ -8876,7 +8876,9 @@ function linkHostFiles(root) {
     img.decoding = "async";
     const base = apiBase;
     const preview = document.createElement("span");
-    preview.className = "host-file-preview";
+    // "pending" holds a quiet tile until the picture arrives: never the
+    // browser's broken-image glyph or bare alt text while it is fetched.
+    preview.className = "host-file-preview pending";
     img.replaceWith(preview);
     preview.append(img);
     let attempt = 0;
@@ -8884,13 +8886,14 @@ function linkHostFiles(root) {
       if (base !== apiBase) return;
       img.removeAttribute("src");
       img.hidden = true;
+      preview.classList.remove("pending");
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "host-image-retry";
       retry.textContent = "↻";
       retry.setAttribute("aria-label", hostFileText("Retry image"));
       retry.title = hostFileText("Retry image");
-      retry.addEventListener("click", () => { attempt = 0; preview.replaceChildren(img); img.hidden = false; void load(true); });
+      retry.addEventListener("click", () => { attempt = 0; preview.replaceChildren(img); preview.classList.add("pending"); img.hidden = false; void load(true); });
       preview.replaceChildren(img, hostFileLink(filePath, img.alt), retry);
     };
     const load = async (fresh = false) => {
@@ -8905,7 +8908,7 @@ function linkHostFiles(root) {
       img.setAttribute("role", "button");
       img.tabIndex = 0;
       if (!img.alt) img.alt = String(file.name || "");
-      img.onload = () => { preview.classList.add("loaded"); };
+      img.onload = () => { preview.classList.remove("pending"); preview.classList.add("loaded"); };
       img.onerror = () => {
         // Opaque handles expire or are invalidated when a generated image is
         // replaced. Resolve the same Host path once more, never another host.
