@@ -37,7 +37,7 @@ test("app dialog: no page script calls the browser's dialogs", () => {
   const calls = [];
   for (const file of files) {
     // Block comments may name the functions they replace.
-    fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, comment => comment.replace(/[^\n]/g, " ")).split("\n").forEach((line, index) => {
+    fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, comment => comment.replace(/[^\r\n]/g, " ")).split(/\r?\n/).forEach((line, index) => {
       const code = line.replace(/\/\/.*$/, "");
       if (/(?:^|[^.\w$])(?:window\.|root\.|self\.|globalThis\.)?(?:confirm|prompt|alert)\s*\(/.test(code) && !/function (?:confirm|prompt)\b|async function (?:confirm|prompt)\b/.test(code))
         calls.push(path.relative(root, file) + ":" + (index + 1) + ": " + code.trim().slice(0, 120));
