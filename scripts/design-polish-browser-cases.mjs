@@ -239,6 +239,12 @@ export async function runMediaPlaceholderBrowserCases(browser, { engine = "brows
     assert.ok(watched.shown.length > 0, "a picture was seen on its way");
     assert.deepEqual(watched.shown, ["0 pending"], `${engine}: a picture on its way is never drawn: ` + JSON.stringify(watched.shown));
     assert.deepEqual(watched.missing, { pending: false, link: true, retry: true }, "a picture that never comes is a link and a retry");
+    // Enlarged, a picture stands on a near-black, blurred scrim: what is
+    // behind it cannot be read.
+    const picture = ui.locator(".host-file-preview.loaded img").first(); await picture.scrollIntoViewIfNeeded(); await picture.click();
+    await ui.locator(".image-lightbox:not(.hidden)").waitFor();
+    const scrim = await ui.evaluate(() => { const style = getComputedStyle(document.querySelector(".image-lightbox")); return { alpha: Number(style.backgroundColor.match(/[\d.]+(?=\)$)/)?.[0] ?? 1), blur: style.backdropFilter || style.webkitBackdropFilter || "" }; });
+    assert.ok(scrim.alpha >= .9 && /blur/.test(scrim.blur), `${engine}: the enlarged picture's scrim hides the page: ` + JSON.stringify(scrim));
     assert.deepEqual(run.errors, []);
     console.log(JSON.stringify({ case: "Picture placeholders", engine, result: "passed" }));
   } finally { await run.close(); }

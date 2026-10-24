@@ -2199,7 +2199,11 @@ html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::aft
   align-items: center;
   justify-content: center;
   padding: calc(48px + var(--safe-top)) 16px calc(24px + env(safe-area-inset-bottom));
-  background: rgba(0, 0, 0, .82);
+  /* Nearly black and blurred: over a light page a thinner scrim left the
+     conversation and the small picture readable behind the large one. */
+  background: rgba(0, 0, 0, .92);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   overscroll-behavior: contain;
 }
 .image-lightbox-stage {
