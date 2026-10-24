@@ -100,6 +100,9 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
       assert.deepEqual(titles, ["Magpie", "Codex"], "OpenCodex stays out of the way while it is off and nothing goes through it");
       assert.match(await panel.textContent(), /127\.0\.0\.1:3425 · 2 models/);
       assert.match(await panel.textContent(), /Goes to OpenAI directly/);
+      // Codex is off in this preview: its model list says what to check, not the Host's code.
+      await page.waitForFunction(() => /could not list its models/.test(document.querySelector("#agent-model-status")?.textContent || ""));
+      assert.doesNotMatch(await page.locator("#agent-model-status").textContent(), /disabled|_|:/);
 
       // The app asks in its own dialog, whose button names the action.
       const nativeDialogs = []; page.on("dialog", dialog => { nativeDialogs.push(dialog.message()); void dialog.dismiss(); });

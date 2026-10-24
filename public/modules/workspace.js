@@ -148,7 +148,15 @@
     while (end.type === "split") end = end.axis === "row" ? end.second : end.first;
     return { start: start.id, end: end.id };
   }
-  function toast(text) { $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
+  // A Host answers an error with a code for this page to check
+  // (name_invalid, host_offline), not words for people. One that would reach
+  // the screen says what it means instead.
+  function readable(text) {
+    const value = String(text ?? "");
+    if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(value)) return value;
+    return t(/offline|unreachable|unavailable|timeout|timed_out|refused|disconnected/.test(value) ? "hostUnavailable" : "loadFailed");
+  }
+  function toast(text) { text = readable(text); $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
   // The pane overflow menu lives on the document, not inside the pane: the
   // conversation frames sit in their own layer above the pane tree, so a menu
   // rendered inside a pane would be painted underneath the frame it belongs to.
@@ -1291,6 +1299,7 @@
   // reason is spoken and shown on hover, and a new failure is raised once
   // instead of on every poll.
   function setConnection(online, message) {
+    message = readable(message);
     const dot = document.querySelector(".workspace-status-dot");
     if (dot) dot.dataset.state = online ? "online" : "offline";
     $("workspace-host").title = message;

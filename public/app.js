@@ -2926,13 +2926,15 @@ function nativeHistoryPath(taskId, before = null) {
   return `/api/native-history/session?taskId=${encodeURIComponent(taskId)}&limit=${NATIVE_HISTORY_PAGE}${before === null ? "" : `&before=${before}`}`;
 }
 
+// The message box's own note already says the history is read-only
+// (genericInputBlock); the note above it only adds that it was shortened.
 function showNativeHistoryNote(partial) {
   const note = el.taskReplayNote;
   if (!note) return;
-  if (partial) note.removeAttribute("data-i18n-key");
-  else note.dataset.i18nKey = "agentHub.taskReadOnly";
-  note.textContent = partial ? `${agentHubText("taskReadOnly")} ${agentHubText("historyPartial")}` : agentHubText("taskReadOnly");
-  note.classList.remove("hidden");
+  if (partial) note.dataset.i18nKey = "agentHub.historyPartial";
+  else delete note.dataset.i18nKey;
+  note.textContent = partial ? agentHubText("historyPartial") : "";
+  note.classList.toggle("hidden", !partial);
 }
 
 // The newest page is drawn; earlier ones come from the control at the top.
@@ -18276,7 +18278,11 @@ async function loadAgentModelList(agentId) {
     status.classList.toggle("hidden", !status.textContent);
   } catch (error) {
     if (!current()) return;
-    status.textContent = modelAgentText("failed", { detail: String(error?.message || "unknown error").slice(0, 160) });
+    // A Host's error code (disabled, codex_executable_unavailable) tells a
+    // reader nothing; say what to check instead.
+    const detail = String(error?.message || "");
+    status.textContent = !detail || /^[a-z][a-z0-9_]*$/.test(detail) ? modelAgentText("unreachable", { agent: agentTerminalLabel(agentId) })
+      : modelAgentText("failed", { detail: detail.slice(0, 160) });
   }
 }
 
