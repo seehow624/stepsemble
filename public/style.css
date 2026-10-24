@@ -6739,6 +6739,14 @@ html.reduced-motion #view-chat .thinking-shimmer .thinking-label {
 #view-chat .composer-send.composer-stop .icon { width: 15px; height: 15px; }
 #view-chat #btn-send.is-empty { opacity: .35; }
 #view-chat .composer-send { transition: opacity .15s ease; }
+/* On a touch screen neighbouring controls stand far enough apart that each
+   one's 44px reach is its own: two reaches that overlap give the shared
+   strip to the later control. The ring takes a 40px box for the same reason. */
+@media (pointer: coarse) {
+  #view-chat .composer-add { margin-right: 8px; }
+  #view-chat .context-ring-btn { width: 40px; min-width: 40px; }
+  #view-chat #btn-abort:not(.hidden) + #btn-send { margin-left: 6px; }
+}
 html.reduced-motion #view-chat .composer-send { transition: none; }
 
 @media (max-width: 979px) {

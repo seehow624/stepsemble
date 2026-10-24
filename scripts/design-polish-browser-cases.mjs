@@ -78,7 +78,7 @@ export async function runTouchTargetPolishBrowserCases(browser, { engine = "brow
       const ui = await openFromSidebar(run.page, "Claude composer fixture");
       // A finished reply's Copy and Branch row, drawn by the app's own code
       // once the conversation's own history is in (it replaces the list).
-      await ui.waitForFunction(() => (document.querySelector("#messages")?.innerText || "").includes("Synthetic Claude response") && !rpc?.nativeLoading);
+      await ui.waitForFunction(() => (document.querySelector("#messages")?.innerText || "").includes("Synthetic Claude response"));
       await ui.evaluate(() => { const wrap = document.createElement("div"); wrap.className = "msg assistant"; wrap.append(msgActionsRow("assistant", () => "Reply", { fork: () => {} })); document.querySelector("#messages").append(wrap); wrap.scrollIntoView(); });
       await ui.locator(".msg-action").first().waitFor();
       const header = await ui.evaluate(`(${reachOf})("#view-chat .chat-topbar > .icon-btn")`);
@@ -88,6 +88,13 @@ export async function runTouchTargetPolishBrowserCases(browser, { engine = "brow
       await ui.locator(".subagent-bubble").click(); await ui.locator(".subagent-item").first().click();
       await ui.locator(".subagent-close").waitFor();
       assert.deepEqual(small(await ui.evaluate(`(${reachOf})(".subagent-close")`)), [], `${engine} ${width}: the subagent panel's close reaches 44px`);
+      // The message box's row: Add, the context ring, the model, Stop and Send
+      // (a running Codex turn shows both), and the model sheet's controls.
+      const codex = await openFromSidebar(run.page, "Codex composer fixture");
+      await codex.waitForFunction(() => { try { return rpc?.codexModelsLoaded && !document.querySelector("#btn-abort").classList.contains("hidden"); } catch { return false; } });
+      assert.deepEqual(small(await codex.evaluate(`(${reachOf})("#btn-img, #context-info, #btn-model, #btn-abort, #btn-send")`)), [], `${engine} ${width}: the message box's controls reach 44px each`);
+      await codex.locator("#btn-model").click(); await codex.locator("#model-close").waitFor();
+      assert.deepEqual(small(await codex.evaluate(`(${reachOf})("#model-close, .speed-choice, .speed-info")`)), [], `${engine} ${width}: the model sheet's controls reach 44px`);
       assert.deepEqual(run.errors, []);
       console.log(JSON.stringify({ case: "Touch targets reach 44px", engine, width, result: "passed" }));
     } finally { await run.close(); }
@@ -100,7 +107,8 @@ export async function runQuietHoverBrowserCases(browser, { engine = "browser" } 
   const run = await open(browser, { width: 1280, height: 860 });
   try {
     const ui = await openFromSidebar(run.page, "Codex composer fixture");
-    await ui.waitForFunction(() => rpc?.codexModelsLoaded && document.querySelector("#composer-speed-description")?.textContent);
+    // The app's globals exist once its script has run.
+    await ui.waitForFunction(() => { try { return rpc?.codexModelsLoaded && document.querySelector("#composer-speed-description")?.textContent; } catch { return false; } });
     const model = await ui.evaluate(() => { const button = document.querySelector("#btn-model"); return { title: button.title, described: button.getAttribute("aria-describedby"), description: document.querySelector("#composer-speed-description").textContent }; });
     assert.ok(model.title.length <= 40, `${engine}: the model button's hover is short: ${model.title}`);
     assert.match(model.described, /composer-speed-description/); assert.ok(model.description.length > 20, "the speed explanation stays available to assistive technology");
