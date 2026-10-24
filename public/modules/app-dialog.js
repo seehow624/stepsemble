@@ -126,8 +126,10 @@
       // A required field keeps its action unavailable until it holds text.
       const sync = () => { if (input && field.required && primary) primary.disabled = !input.value.trim(); };
       input?.addEventListener("input", sync);
+      // Enter answers only when no input method used it to confirm text
+      // (modules/composer-ime.js); without that check it does nothing.
       input?.addEventListener("keydown", event => {
-        if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+        if (!root.stepsembleComposerIme?.isEnter(event)) return;
         event.preventDefault();
         if (primary && !primary.disabled) primary.click();
       });
