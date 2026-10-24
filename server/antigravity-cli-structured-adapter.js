@@ -19,6 +19,8 @@ const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_CONVERSATION_ID = 256;
 const MAX_PROMPT = 1024 * 1024;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+// A model id from agy's settings, e.g. "magpie/codex/gpt-6.1-sol".
+const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const TYPES = new Set(["init", "step_update", "result", "error"]);
 // A kind of event a newer Antigravity sends is passed along like the others;
 // the page draws the kinds it knows.
@@ -91,10 +93,12 @@ function eventText(value) {
     .map(part => safeText(part.text)).join("").slice(0, 64 * 1024);
 }
 
-function buildAntigravityStructuredArgs({ conversationId = null } = {}) {
+function buildAntigravityStructuredArgs({ conversationId = null, model = null } = {}) {
   const resume = conversationId === null || conversationId === undefined ? null : safeId(conversationId);
   if (conversationId !== null && conversationId !== undefined && !resume) throw new TypeError("invalid_antigravity_conversation_id");
+  if (model !== null && model !== undefined && !MODEL.test(model)) throw new TypeError("invalid_antigravity_model");
   const args = ["--input-format", "stream-json", "--output-format", "stream-json"];
+  if (model) args.push("--model", model);
   if (resume) args.push("--conversation", resume);
   return Object.freeze(args);
 }
@@ -151,6 +155,7 @@ function createAntigravityStructuredSession({
   cwd,
   env = process.env,
   conversationId = null,
+  model = null,
   name = null,
   spawnImpl = spawn,
   requestTimeoutMs = 120000,
@@ -160,7 +165,7 @@ function createAntigravityStructuredSession({
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("antigravity_command_absolute_required");
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("antigravity_cwd_absolute_required");
   if (onEvent !== null && typeof onEvent !== "function" || onPermission !== null && typeof onPermission !== "function") throw new TypeError("session_callback_required");
-  const child = spawnImpl(command, buildAntigravityStructuredArgs({ conversationId }), {
+  const child = spawnImpl(command, buildAntigravityStructuredArgs({ conversationId, model }), {
     cwd, env: { ...env }, shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
   });
   let closed = false, writeChain = Promise.resolve(), timer = null, processError = null;

@@ -13,6 +13,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { StringDecoder } = require("node:string_decoder");
 const { withCommandDirectory } = require("./command-environment");
+const { antigravityGatewayEnv } = require("./antigravity-gateway-env");
 
 const AUTH_TERMINAL_VERSION = 1;
 const ACTIONS = Object.freeze(["status", "login", "logout"]);
@@ -390,8 +391,10 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
   }
 
   function startLocal(run, { executable, args, cols, rows, timeoutMs }) {
+    const runEnv = { ...env, HOME: home };
     const launch = (extraOptions = {}) => {
-      const processHandle = createTerminalProcess({ command: executable, args, cwd: home, env: { ...env, HOME: home },
+      const processHandle = createTerminalProcess({ command: executable, args, cwd: home,
+        env: run.agentId === "antigravity" ? antigravityGatewayEnv(runEnv, home) : runEnv,
         ptyRuntime, cols, rows, spawnImpl, platform, windowsLaunch, killDelayMs, ...extraOptions });
       run.process = processHandle; run.pty = processHandle.pty;
       processHandle.onData(text => output(run, text));

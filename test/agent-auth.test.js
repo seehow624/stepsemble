@@ -3,6 +3,7 @@
 // tests use a synthetic CLI and never touch a real account.
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+const { EventEmitter } = require("node:events"), { PassThrough } = require("node:stream");
 const { createAgentAuthService, createTerminalRunRegistry, createQueryResponder, AGENT_AUTH_COMMANDS, commandArgs, findChoice, parseHermesProviders, redact } = require("../server/agent-auth");
 const { resolvePtyRuntime } = require("../server/agent-connectors");
 const fixture = path.resolve(__dirname, "../test-support/fake-agent-auth.cjs");
@@ -122,6 +123,32 @@ test("a missing agent is reported, not guessed", async () => {
   assert.equal(svc.catalog().agents.opencode.installed, false);
   assert.equal(svc.catalog().agents.codex.login.find(choice => choice.id === "api-key").secret, true);
   assert.equal(svc.catalog().agents.codex.login.every(choice => choice.replaces), true);
+});
+
+test("Antigravity's sign-in check gets Magpie's key and address when its settings route through Magpie", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-auth-agy-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const settings = path.join(home, ".gemini", "antigravity-cli", "settings.json");
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(settings, JSON.stringify({ model: "magpie/codex/gpt-6.1-sol", modelProvider: "gemini",
+    customModelsConfig: { customModels: { "magpie/codex/gpt-6.1-sol": { apiProvider: "API_PROVIDER_GOOGLE_GEMINI" } } } }));
+  const launched = [];
+  const spawnImpl = (file, argv, options) => {
+    launched.push({ argv, env: options.env });
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {};
+    setImmediate(() => child.emit("close", 0, null));
+    return child;
+  };
+  const executable = path.resolve(os.tmpdir(), "agy");
+  const svc = createAgentAuthService({ home, env: { PATH: "/usr/bin" }, resolveExecutable: () => executable, ptyRuntime: null, spawnImpl });
+  await svc.start({ agentId: "antigravity", action: "status" });
+  await svc.start({ agentId: "codex", action: "status" });
+  assert.deepEqual(launched.map(row => row.argv), [["models"], ["login", "status"]]);
+  assert.equal(launched[0].env.GEMINI_API_KEY, "magpie");
+  assert.equal(launched[0].env.GOOGLE_GEMINI_BASE_URL, "http://127.0.0.1:3425");
+  assert.equal(launched[0].env.HOME, home);
+  assert.equal(launched[1].env.GEMINI_API_KEY, undefined, "only Antigravity gets them");
 });
 
 test("a remote runner (the Claude desktop helper) is read back page by page", async () => {

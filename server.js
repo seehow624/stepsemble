@@ -94,6 +94,7 @@ const { createClaudeIdleRelease, idleReleaseDelay } = require("./server/claude-i
 const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = require("./server/claude-desktop-upgrade");
 const { desktopPaths } = require("./server/claude-desktop-state");
 const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
+const { antigravityGatewayEnv, readAntigravityMagpieRoute } = require("./server/antigravity-gateway-env");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
 const { createNativeHistoryCatalog } = require("./server/native-history-catalog");
@@ -2441,7 +2442,7 @@ const antigravityStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(Str
 function antigravityNeedsSignIn() {
   if (!antigravityCommand) return Promise.resolve(false);
   return new Promise(resolve => {
-    execFile(antigravityCommand, ["models"], { cwd: APP_HOME, env: process.env, timeout: 8000, maxBuffer: 256 * 1024, windowsHide: true },
+    execFile(antigravityCommand, ["models"], { cwd: APP_HOME, env: antigravityGatewayEnv(process.env, APP_HOME), timeout: 8000, maxBuffer: 256 * 1024, windowsHide: true },
       (_error, stdout, stderr) => resolve(/please sign in|sign in to|authentication required|not signed in|log in/i.test(`${stdout || ""}\n${stderr || ""}`)));
   });
 }
@@ -5399,7 +5400,10 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
     } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
       const localId = crypto.randomUUID();
-      const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"), env: process.env,
+      // agy's stream mode does not read the model from its settings; a Magpie
+      // model is named on the command line.
+      const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"),
+        env: antigravityGatewayEnv(process.env, APP_HOME), model: readAntigravityMagpieRoute(APP_HOME)?.model || null,
         name: body?.name || null,
         conversationId: body?.conversationId || body?.resumeSessionId || null });
       antigravityStructuredSessions.set(localId, session);

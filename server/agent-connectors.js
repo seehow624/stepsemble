@@ -11,6 +11,7 @@ const os = require("node:os");
 const crypto = require("node:crypto");
 const net = require("node:net");
 const { launchAgentSupervisor } = require("./agent-supervisor-launch");
+const { antigravityGatewayEnv } = require("./antigravity-gateway-env");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
 const { createConnectorApprovalState } = require("./connector-approval");
@@ -1249,6 +1250,7 @@ function createAgentTaskService({
     };
     const spawnCwd = task.worktree?.path || realCwd;
     const useDesktop = definition.id === "claude-code" && desktopClaude;
+    const launchHome = appHome || env.HOME || os.homedir();
     tasks.set(id, task);
     const canonical = await createCanonical(task);
     if (canonical.kind === "reject" && !["journal_unavailable", "journal_result_uncertain", "journal_closed"].includes(canonical.code)) {
@@ -1261,7 +1263,8 @@ function createAgentTaskService({
     try {
       const launched = useDesktop
         ? await desktopClaude.launchTask({ id, name: task.name, cwd: spawnCwd, startedAt: now })
-        : await launchAgentSupervisor({ task, appHome: appHome || env.HOME || os.homedir(), command, ptyRuntime, env });
+        : await launchAgentSupervisor({ task, appHome: launchHome, command, ptyRuntime,
+          env: definition.id === "antigravity" ? antigravityGatewayEnv(env, launchHome) : env });
       task.supervisorPid = launched.pid || null;
       task.transport = launched.transport;
       persist();
