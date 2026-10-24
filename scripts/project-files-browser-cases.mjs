@@ -123,8 +123,18 @@ export async function runProjectFilesBrowserCases(browser, { screenshots } = {})
       await pane.waitForFunction(() => !document.querySelector("#changes-commit").disabled);
       await pane.getByText("Staged · 1", { exact: true }).waitFor();
       if (screenshots) await page.screenshot({ path: path.join(screenshots, `staged-${width}.png`) });
-      page.once("dialog", dialog => dialog.accept("Synthetic browser commit"));
+      // The commit message is asked in the app's own dialog: Commit stays
+      // unavailable until it holds text, and Enter commits.
+      const nativeDialogs = []; page.on("dialog", dialog => { nativeDialogs.push(dialog.message()); void dialog.dismiss(); });
       await pane.locator("#changes-commit").click();
+      const ask = pane.getByRole("alertdialog");
+      const message = ask.getByRole("textbox", { name: "Commit message" });
+      await message.waitFor();
+      assert.equal(await ask.getByRole("button", { name: "Commit", exact: true }).isDisabled(), true, "an empty message cannot be committed");
+      assert.equal(await message.evaluate(input => input === document.activeElement), true, "the message field has focus");
+      await message.fill("Synthetic browser commit"); await message.press("Enter");
+      await ask.waitFor({ state: "detached" });
+      assert.deepEqual(nativeDialogs, [], "no browser dialog");
       await pane.waitForFunction(() => !document.querySelector('.changes-file-row[data-path="src/workspace.js"]') && document.querySelector("#changes-commit").disabled);
       assert.equal(await pane.locator('.changes-file-row[data-path="README.md"]').count(), 1, "commit leaves unselected edits alone");
       stage = "unstaging disables commit and file mode hides the commit footer";

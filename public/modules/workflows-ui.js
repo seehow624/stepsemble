@@ -170,7 +170,12 @@
     }
     async function action(row, name) {
       if (pending || !loaded || data.available === false) return;
-      if (name === "delete" && !root.confirm(t("removeConfirm"))) return;
+      if (name === "delete") {
+        // The app's own question; the panel may have moved on by the answer.
+        const asked = epoch, target = contextValue.target;
+        if (!(await (root.StepsembleAppDialog?.confirm(t("removeConfirm"), { action: "delete", destructive: true }) ?? false))) return;
+        if (asked !== epoch || target !== contextValue?.target || pending || !loaded || !panel) return;
+      }
       const focused = doc.activeElement?.dataset.focus === row.id + ":" + name;
       const token = epoch, target = contextValue.target; pending = true; revision++; error(""); updateButtons();
       try {

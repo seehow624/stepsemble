@@ -894,6 +894,36 @@ html.reduced-motion #view-chat .native-run-state.running .native-run-indicator {
 .preset-row button:active { background: var(--control-fill-press); transform: scale(.96); }
 .preset-row button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+/* The app's own confirmation (modules/app-dialog.js): a small raised card in
+   the middle of the screen, a question in bold over a quieter explanation,
+   and buttons that name the action. A destructive action is red. */
+.app-dialog {
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 20px 20px 16px;
+  overflow: auto;
+  border: .5px solid var(--card-border);
+  border-radius: var(--radius-2xl);
+  background: var(--milk);
+  color: var(--ink);
+  box-shadow: var(--sheet-shadow);
+  animation: app-dialog-in .16s ease-out;
+}
+.app-dialog::backdrop { background: var(--sheet-bg); }
+@keyframes app-dialog-in { from { opacity: 0; transform: scale(.96); } }
+html.reduced-motion .app-dialog { animation: none; }
+.app-dialog-title { margin: 0; font-size: var(--title-sm); font-weight: 650; line-height: 1.3; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.app-dialog-body { margin: 8px 0 0; color: color-mix(in srgb, var(--ink) 80%, transparent); font-size: var(--text-md); line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+.app-dialog-details { max-height: 32dvh; margin: 12px 0 0; padding: 8px 12px 8px 28px; overflow: auto; border-radius: var(--radius-md); background: var(--control-fill); font-size: var(--text-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.app-dialog-details li + li { margin-top: 4px; }
+.app-dialog-note { margin-top: 12px; color: var(--pine-soft); font-size: var(--text-sm); }
+.app-dialog-field { display: grid; gap: 6px; margin-top: 14px; }
+.app-dialog-field-label { color: var(--pine-soft); font-size: var(--text-sm); font-weight: 560; }
+.app-dialog-field-label:empty { display: none; }
+.app-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.app-dialog-actions .btn { flex: 1 1 auto; min-width: 96px; padding-block: 8px; line-height: 1.25; }
+@media (forced-colors: active) { .app-dialog { border: 1px solid CanvasText; } }
 
 .action-sheet .action-row {
   display: block; width: 100%;

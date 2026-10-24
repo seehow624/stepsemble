@@ -101,8 +101,13 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
       assert.match(await panel.textContent(), /127\.0\.0\.1:3425 · 2 models/);
       assert.match(await panel.textContent(), /Goes to OpenAI directly/);
 
-      page.once("dialog", dialog => { assert.match(dialog.message(), /Route Codex through Magpie\?/); void dialog.accept(); });
+      // The app asks in its own dialog, whose button names the action.
+      const nativeDialogs = []; page.on("dialog", dialog => { nativeDialogs.push(dialog.message()); void dialog.dismiss(); });
       await panel.getByRole("button", { name: "Route Codex through Magpie" }).click();
+      const ask = page.getByRole("alertdialog", { name: /Route Codex through Magpie\?/ });
+      await ask.getByRole("button", { name: "Route Codex through Magpie" }).click();
+      await ask.waitFor({ state: "detached" });
+      assert.deepEqual(nativeDialogs, [], "no browser dialog");
       await panel.getByText("Goes through Magpie · model: gpt-6.1-sol").waitFor();
       assert.deepEqual(actions, [{ action: "magpie_codex_routing", enabled: true }]);
       await panel.getByRole("button", { name: "Connect Codex to OpenAI directly" }).waitFor();

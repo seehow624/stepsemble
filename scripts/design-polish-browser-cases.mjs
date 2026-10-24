@@ -6,12 +6,12 @@ import assert from "node:assert/strict";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
 
-async function open(browser, { width, height = 844, look = "bold", theme = "dark", locale = "en" }) {
+async function open(browser, { width, height = 844, look = "bold", theme = "dark", locale = "en", fontScale = 100 }) {
   const preview = await createNativeComposerPreview();
   const mobile = width < 600;
   const context = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", reducedMotion: "reduce" });
   await context.addInitScript(settings => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify(settings)); },
-    { locale, theme, look, reducedMotion: true });
+    { locale, theme, look, fontScale, reducedMotion: true });
   await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
   const page = await context.newPage(); page.setDefaultTimeout(15000);
   const errors = []; page.on("pageerror", error => errors.push(error.message));
@@ -117,8 +117,105 @@ export async function runQuietHoverBrowserCases(browser, { engine = "browser" } 
   } finally { await run.close(); }
 }
 
+// The app asks its questions in its own dialog, never the browser's. The
+// module is driven directly here; two real callers (a Magpie switch and a
+// commit message) are covered in their own cases.
+export async function runAppDialogBrowserCases(browser, { engine = "browser", screenshots = null } = {}) {
+  const views = [
+    { width: 390, look: "bold", theme: "dark", locale: "en", labels: { cancel: "Cancel", delete: "Delete", install: "Install", commit: "Commit" } },
+    { width: 320, height: 640, look: "classic", theme: "light", locale: "de", fontScale: 125, labels: { cancel: "Abbrechen", delete: "Löschen", install: "Installieren", commit: "Committen" } },
+    { width: 1280, height: 800, look: "bold", theme: "light", locale: "zh-Hant", labels: { cancel: "取消", delete: "刪除", install: "安裝", commit: "提交" } },
+  ];
+  for (const view of views) {
+    const run = await open(browser, view), mobile = view.width < 600, name = `${engine} ${view.width} ${view.locale}`;
+    try {
+      const native = []; run.page.on("dialog", dialog => { native.push(dialog.message()); void dialog.dismiss(); });
+      const ui = await openFromSidebar(run.page, "Claude composer fixture");
+      await ui.waitForFunction(() => window.StepsembleAppDialog && document.documentElement.lang);
+      const state = () => ui.evaluate(() => {
+        const dialogs = [...document.querySelectorAll(".app-dialog")], dialog = dialogs[0];
+        if (!dialog) return { count: 0, answers: window.answers };
+        const box = dialog.getBoundingClientRect(), probe = document.createElement("i");
+        probe.style.color = "var(--err)"; document.body.append(probe); const err = getComputedStyle(probe).color; probe.remove();
+        return {
+          count: dialogs.length, open: dialog.open, role: dialog.getAttribute("role"), title: dialog.querySelector(".app-dialog-title").textContent,
+          focused: document.activeElement?.dataset?.action || document.activeElement?.tagName, answers: window.answers,
+          described: (dialog.getAttribute("aria-describedby") || "").split(" ").map(id => document.getElementById(id)?.textContent).join(" | "),
+          buttons: [...dialog.querySelectorAll("button")].map(button => ({ action: button.dataset.action, text: button.textContent, disabled: button.disabled, height: Math.round(button.getBoundingClientRect().height),
+            fits: button.scrollWidth <= button.clientWidth + 1, red: getComputedStyle(button).backgroundColor === err })),
+          inside: box.left >= 0 && box.top >= 0 && box.right <= innerWidth + .5 && box.bottom <= innerHeight + .5, pageOverflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+      const shot = async label => { if (screenshots) await run.page.screenshot({ path: `${screenshots}/app-dialog-${engine}-${view.width}-${view.theme}-${label}.png` }); };
+      const settle = count => ui.waitForFunction(count => (window.answers || []).length === count && !document.querySelector(".app-dialog"), count);
+
+      // A destructive question: a bold question over its explanation, the
+      // action named and red, Cancel first; Escape answers no.
+      await ui.evaluate(() => { window.answers = []; StepsembleAppDialog.confirm("Delete “Mac mini”?\nIts saved address is removed from this list.", { action: "delete", destructive: true }).then(answer => answers.push(answer)); });
+      await ui.locator(".app-dialog[open]").waitFor();
+      let seen = await state();
+      assert.equal(seen.role, "alertdialog"); assert.equal(seen.title, "Delete “Mac mini”?"); assert.match(seen.described, /saved address is removed/);
+      assert.equal(seen.focused, "cancel", `${name}: a destructive question starts on Cancel`);
+      assert.deepEqual(seen.buttons.map(button => [button.action, button.text]), [["cancel", view.labels.cancel], ["confirm", view.labels.delete]]);
+      assert.equal(seen.buttons[1].red, true, `${name}: the destructive action is red`);
+      assert.ok(seen.inside && !seen.pageOverflow, `${name}: the dialog fits the screen`);
+      assert.ok(seen.buttons.every(button => button.fits), `${name}: every label fits its button`);
+      if (mobile) assert.ok(seen.buttons.every(button => button.height >= 44), `${name}: buttons are 44px tall on a phone: ` + JSON.stringify(seen.buttons));
+      await shot("destructive");
+      await run.page.keyboard.press("Escape"); await settle(1);
+      assert.deepEqual((await state()).answers, [false], `${name}: Escape answers no`);
+
+      // Escape answers the question only: the sheet it was asked from stays.
+      await ui.locator("#btn-model").click(); await ui.locator("#model-sheet:not(.hidden)").waitFor();
+      await ui.evaluate(() => { window.answers = []; StepsembleAppDialog.confirm("Remove this model?", { action: "remove", destructive: true }).then(answer => answers.push(answer)); });
+      await ui.locator(".app-dialog[open]").waitFor();
+      await run.page.keyboard.press("Escape"); await settle(1);
+      assert.equal(await ui.locator("#model-sheet").evaluate(sheet => !sheet.classList.contains("hidden")), true, `${name}: Escape leaves the sheet open`);
+      await run.page.keyboard.press("Escape"); await ui.waitForFunction(() => document.querySelector("#model-sheet").classList.contains("hidden"));
+
+      // Two questions at once are asked one after the other. A safe action
+      // starts focused, so Enter accepts it.
+      await ui.evaluate(() => { window.answers = []; for (const ask of ["First?", "Second?"]) StepsembleAppDialog.confirm(ask, { action: "install", details: ["Mac mini → 3.9.53", "MacBook Pro → 3.9.53"] }).then(answer => answers.push([ask, answer])); });
+      await ui.locator(".app-dialog[open]").waitFor();
+      seen = await state();
+      assert.equal(seen.count, 1, `${name}: one question at a time`); assert.equal(seen.title, "First?"); assert.equal(seen.focused, "confirm");
+      assert.match(seen.described, /Mac mini → 3\.9\.53/); assert.equal(seen.buttons[1].text, view.labels.install); assert.equal(seen.buttons[1].red, false);
+      await shot("details");
+      await run.page.keyboard.press("Enter");
+      await ui.waitForFunction(() => document.querySelector(".app-dialog .app-dialog-title")?.textContent === "Second?");
+      await ui.locator('.app-dialog [data-action="cancel"]').click(); await settle(2);
+      assert.deepEqual((await state()).answers, [["First?", true], ["Second?", false]]);
+
+      // A question with a field: its action waits for text; Enter answers.
+      await ui.evaluate(() => { window.answers = []; StepsembleAppDialog.prompt("Commit message for 2 staged files:", { action: "commit", label: "commitMessage" }).then(answer => answers.push(answer)); });
+      await ui.locator(".app-dialog[open] input").waitFor();
+      seen = await state();
+      assert.equal(seen.focused, "INPUT"); assert.equal(seen.buttons[1].text, view.labels.commit); assert.equal(seen.buttons[1].disabled, true, `${name}: no empty commit`);
+      await ui.locator(".app-dialog input").fill("Polish the dialog"); await shot("field");
+      await ui.locator(".app-dialog input").press("Enter"); await settle(1);
+      assert.deepEqual((await state()).answers, ["Polish the dialog"]);
+
+      // A choice of two keeps Cancel apart from both.
+      await ui.evaluate(() => { window.answers = []; StepsembleAppDialog.choose("Include API keys in the export file?\nKeys are written in plain text.", [{ id: "include", label: "includeKeys", tone: "secondary" }, { id: "without", label: "withoutKeys" }]).then(answer => answers.push(answer)); });
+      await ui.locator(".app-dialog[open]").waitFor();
+      seen = await state();
+      // The page's translator leaves the question alone: this English text is
+      // also a translation key whose entry is longer.
+      assert.equal(seen.title, "Include API keys in the export file?", `${name}: the question is not re-translated`);
+      assert.deepEqual(seen.buttons.map(button => button.action), ["cancel", "include", "without"]); assert.equal(seen.focused, "cancel");
+      assert.ok(seen.inside && seen.buttons.every(button => button.fits), `${name}: three buttons fit: ` + JSON.stringify(seen.buttons));
+      await shot("choice");
+      await ui.locator('.app-dialog [data-action="without"]').click(); await settle(1);
+      assert.deepEqual((await state()).answers, ["without"]);
+      assert.deepEqual(native, [], `${name}: no browser dialog`); assert.deepEqual(run.errors, []);
+      console.log(JSON.stringify({ case: "App dialog", engine, width: view.width, locale: view.locale, result: "passed" }));
+    } finally { await run.close(); }
+  }
+}
+
 export async function runDesignPolishBrowserCases(browser, options = {}) {
   await runSearchFieldBrowserCases(browser, options);
   await runTouchTargetPolishBrowserCases(browser, options);
   await runQuietHoverBrowserCases(browser, options);
+  await runAppDialogBrowserCases(browser, options);
 }

@@ -885,6 +885,12 @@ const post = (path, body, opts = {}) => api(path, {
 function tKey(key, vars = {}) {
   return window.stepsembleI18n?.tKey?.(key, vars) || window.stepsembleI18n?.t?.(key, vars) || key;
 }
+// The app's own questions (modules/app-dialog.js), never the browser's
+// confirm()/prompt(). The answer arrives later: callers recheck the host and
+// whatever they act on before acting. Without the module the answer is no.
+function askConfirm(question, options) { return window.StepsembleAppDialog?.confirm(question, options) ?? Promise.resolve(false); }
+function askText(question, options) { return window.StepsembleAppDialog?.prompt(question, options) ?? Promise.resolve(null); }
+function askChoice(question, actions, options) { return window.StepsembleAppDialog?.choose(question, actions, options) ?? Promise.resolve(null); }
 // Enter in a text field, unless an input method used it to confirm text
 // (composer-ime.js). Every field reads the key through this.
 const isEnter = event => !!window.stepsembleComposerIme?.isEnter(event);
@@ -1689,7 +1695,8 @@ async function createToken() {
 
 async function revokeToken(row, button) {
   if (!row?.id) return;
-  if (!window.confirm(tKey("tokens.revokeConfirm", { label: row.label }))) return;
+  const base = apiBase;
+  if (!(await askConfirm(tKey("tokens.revokeConfirm", { label: row.label }), { action: "revoke", destructive: true })) || base !== apiBase) return;
   button.disabled = true;
   try {
     await post("/api/access-tokens/revoke", { id: row.id });
@@ -3088,7 +3095,10 @@ let openCodeConnectionSequence = 0;
 async function refreshOpenCodeConnection(start = false) {
   const status = $("opencode-connection-status"), button = $("opencode-connection-start"), refresh = $("opencode-connection-refresh");
   if (!status || !button || !refresh) return;
-  if (start && !window.confirm(browseText("Enable a password-protected OpenCode service on the selected computer?"))) return;
+  if (start) {
+    const asked = apiBase;
+    if (!(await askConfirm(browseText("Enable a password-protected OpenCode service on the selected computer?"), { action: "enable" })) || asked !== apiBase) return;
+  }
   const sequence = ++openCodeConnectionSequence, base = apiBase;
   const current = () => sequence === openCodeConnectionSequence && base === apiBase;
   button.disabled = true; refresh.disabled = true;
@@ -4196,7 +4206,8 @@ el.projectActionReveal?.addEventListener("click", async () => {
 el.projectActionWorktree?.addEventListener("click", async () => {
   const cwd = projectActionCwd();
   closeProjectActions();
-  if (!cwd || !window.confirm(projectActionText("Create a permanent worktree for this project?"))) return;
+  const base = apiBase;
+  if (!cwd || !(await askConfirm(projectActionText("Create a permanent worktree for this project?"), { action: "create" })) || base !== apiBase) return;
   try {
     const result = await post("/api/project-action", { action: "worktree", cwd });
     toast(`${projectActionText("Permanent worktree created")}: ${result.path || ""}`);
@@ -4553,8 +4564,9 @@ async function commitProjectChanges() {
   const staged = (projectChangesState?.data?.files || []).filter((file) => file.staged);
   if (!cwd || changesMutationInFlight) return;
   if (!staged.length) { toast(changesText("commitNothing"), true); return; }
-  const message = prompt(changesText("commitPrompt", { count: staged.length }));
-  if (message === null) return;
+  const base = apiBase;
+  const message = await askText(changesText("commitPrompt", { count: staged.length }), { action: "commit", label: "commitMessage" });
+  if (message === null || changesMutationInFlight || base !== apiBase || (projectChangesState?.cwd || currentSessionCwd) !== cwd) return;
   if (!String(message).trim()) { toast(changesText("commitEmpty"), true); return; }
   changesMutationInFlight = true;
   if (el.changesCommit) el.changesCommit.disabled = true;
@@ -14273,9 +14285,11 @@ function notifyWorkspaceSignIn(term, state) {
   parent.postMessage({ type: "workspace-signin", agentId: term.agentId, state, completed: term.state === "completed" }, location.origin);
 }
 
-function requestCloseAgentTerminal() {
+async function requestCloseAgentTerminal() {
   const term = agentTerminal;
-  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status" && !window.confirm(agentTerminalText("stopConfirm"))) return;
+  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status") {
+    if (!(await askConfirm(agentTerminalText("stopConfirm"), { action: "stop", destructive: true })) || agentTerminal !== term) return;
+  }
   closeAgentTerminal();
 }
 
@@ -16902,7 +16916,8 @@ async function applyHarnessUpdate(id) {
   const question = target
     ? updateText("Upgrade {harness} to {version} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, version: target, device: updateDeviceName(machine) })
     : updateText("Run the official updater for {harness} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, device: updateDeviceName(machine) });
-  if (!confirm(question)) return;
+  const asked = viewGeneration;
+  if (!(await askConfirm(question, { action: "upgrade" })) || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.has(id)) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   const outcome = await upgradeHarness(machine, item);
@@ -16918,8 +16933,10 @@ async function applyAllHarnessUpdates() {
   const items = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || [])
     .filter((item) => harnessUpdateKind(item) === "available" && harnessUpgradeable(item));
   if (!items.length) return;
-  const lines = items.map((item) => "• " + (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : "")).join("\n");
-  if (!confirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }) + "\n\n" + lines)) return;
+  const lines = items.map((item) => (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : ""));
+  const asked = viewGeneration;
+  if (!(await askConfirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }), { action: "upgrade", details: lines }))
+    || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.size) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   let completed = 0;
@@ -17354,10 +17371,10 @@ function updateInterruptQuestion(device, work, automatic) {
     const identity = item?.agent ? window.StepsembleAgentIdentity?.lookup?.(item.agent) : null;
     const agent = item?.agent ? (identity?.label && identity.id !== "agent" ? identity.label : agentConnectorLabel(item.agent)) : updateText("Agent work");
     const effect = item?.effect === "continues" ? updateText("keeps running") : updateText("stops; ask it to continue after the update");
-    return "• " + agent + (item?.name ? " · " + item.name : "") + " — " + effect;
+    return agent + (item?.name ? " · " + item.name : "") + " — " + effect;
   });
-  return [updateText("Update {device} now? Stepsemble restarts, which affects the work running there:", { device }), "", ...lines, "",
-    updateText("Conversations are kept."), ...(automatic ? [updateText("If you cancel, it installs automatically when the work finishes.")] : [])].join("\n");
+  return { question: updateText("Update {device} now? Stepsemble restarts, which affects the work running there:", { device }), details: lines,
+    note: [updateText("Conversations are kept."), ...(automatic ? [updateText("If you cancel, it installs automatically when the work finishes.")] : [])].join(" ") };
 }
 
 // Installing is always a separate, confirmed action per device. When agent
@@ -17376,10 +17393,11 @@ async function installDeviceUpdate(machineId) {
   const interrupt = live?.interruptible === true && work.length > 0;
   const question = interrupt
     ? updateInterruptQuestion(device, work, live.enabled === true)
-    : view.install || view.interrupt
+    : { question: view.install || view.interrupt
       ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
-      : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device });
-  if (!confirm(question)) return;
+      : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device }) };
+  if (!(await askConfirm(question.question, { action: "install", details: question.details, note: question.note }))) return;
+  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
   updateInstallInFlight.add(machine.id);
   renderUpdateCenter();
   try {
@@ -17404,8 +17422,10 @@ async function installAllDeviceUpdates() {
   if (updateInstallAllRunning) return;
   const targets = machines.filter((machine) => updateDeviceView(machine).install);
   if (!targets.length) return;
-  const lines = targets.map((machine) => "• " + updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest)).join("\n");
-  if (!confirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first.") + "\n\n" + lines)) return;
+  const lines = targets.map((machine) => updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest));
+  const asked = viewGeneration;
+  if (!(await askConfirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first."), { action: "install", details: lines }))
+    || asked !== viewGeneration || !updateViewIsOpen() || updateInstallAllRunning) return;
   const generation = viewGeneration;
   updateInstallAllRunning = true;
   for (const machine of targets) updateInstallInFlight.add(machine.id);
@@ -17918,7 +17938,8 @@ async function saveProvider() {
 }
 
 async function deleteProvider(provider) {
-  if (!provider?.id || !window.confirm(tKey("provider.deleteConfirm", { id: provider.id }))) return;
+  const base = apiBase;
+  if (!provider?.id || !(await askConfirm(tKey("provider.deleteConfirm", { id: provider.id }), { action: "remove", destructive: true })) || base !== apiBase) return;
   try {
     await post("/api/model-providers", { action: "delete", id: provider.id });
     closeProviderDialog();
@@ -18495,7 +18516,8 @@ async function saveOpenCodeProvider() {
 }
 
 async function deleteOpenCodeProvider(provider) {
-  if (!provider?.id || !window.confirm(`Remove provider "${provider.id}" from opencode.json?`)) return;
+  const base = apiBase;
+  if (!provider?.id || !(await askConfirm(tKey("provider.opencodeDeleteConfirm", { id: provider.id }), { action: "remove", destructive: true })) || base !== apiBase) return;
   try {
     await post("/api/opencode/providers", { action: "delete", id: provider.id });
     closeOpenCodeProviderDialog();
@@ -18640,7 +18662,7 @@ function codexGatewayAction(label, question, body) {
   const base = apiBase, agent = modelSettingsAgent;
   button.addEventListener("click", async () => {
     if (base !== apiBase || agent !== modelSettingsAgent || button.disabled) return;
-    if (question && !window.confirm(question)) return;
+    if (question && (!(await askConfirm(question, { action: label })) || base !== apiBase || agent !== modelSettingsAgent || button.disabled)) return;
     button.disabled = true;
     try {
       await post("/api/gateway/action", body);
@@ -18819,7 +18841,9 @@ async function importProviderConfig(file) {
     const models = Array.isArray(provider?.models) ? provider.models.length : 0;
     return `${id} · ${models} models${hasSecrets(provider) ? " · key" : ""}`;
   });
-  if (!window.confirm(`${window.stepsembleI18n?.t("Import these providers?") || "Import these providers?"}\n\n${summary.join("\n")}\n\n${window.stepsembleI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced."}`)) return;
+  const base = apiBase;
+  if (!(await askConfirm(window.stepsembleI18n?.t("Import these providers?") || "Import these providers?", { action: "import", details: summary,
+    note: window.stepsembleI18n?.t("Providers with the same ID will be replaced.") || "Providers with the same id are replaced." })) || base !== apiBase) return;
   try {
     const result = await post("/api/model-config/import", { providers: payload.providers });
     toast(window.stepsembleI18n?.t("Imported {count} providers", { count: result.imported.length }) || `Imported ${result.imported.length} providers`);
@@ -18831,9 +18855,11 @@ async function importProviderConfig(file) {
 
 function hasSecrets(provider) { return !!(provider?.apiKey || provider?.oauth); }
 
-el.providerConfigExport?.addEventListener("click", () => {
-  const includeSecrets = window.confirm(window.stepsembleI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?\n\nCancel = export without secrets (keys stay on this device).\nOK = include keys in plain text; keep the file safe.");
-  downloadProviderConfig(includeSecrets);
+// Keys or no keys is a choice of two; Cancel exports nothing.
+el.providerConfigExport?.addEventListener("click", async () => {
+  const choice = await askChoice(window.stepsembleI18n?.t("Include API keys in the export file?") || "Include API keys in the export file?",
+    [{ id: "include", label: "includeKeys", tone: "secondary" }, { id: "without", label: "withoutKeys" }]);
+  if (choice) downloadProviderConfig(choice === "include");
 });
 el.providerConfigImport?.addEventListener("click", () => {
   const input = document.createElement("input");
@@ -19079,8 +19105,8 @@ el.harnessUpdateList?.addEventListener("change", (event) => {
 // The reset sits on the Appearance page and resets that page's options only.
 // Language, projects, model choices and list filters are kept.
 const RESET_APPEARANCE_SETTINGS = Object.freeze(["theme", "designTheme", "look", "bubble", "fontScale", "compact", "thinking", "reducedMotion", "sidebarWidth"]);
-el.btnResetSettings?.addEventListener("click", () => {
-  if (!confirm(tKey("settings.resetConfirm"))) return;
+el.btnResetSettings?.addEventListener("click", async () => {
+  if (!(await askConfirm(tKey("settings.resetConfirm"), { action: "reset", destructive: true }))) return;
   settings = saveSettings(Object.fromEntries(RESET_APPEARANCE_SETTINGS.map((key) => [key, DEFAULT_SETTINGS[key]])));
   applyAppearance();
   renderSettings();
@@ -19254,9 +19280,9 @@ async function refreshIncomingGrants(force = false) {
 
 async function revokeIncomingGrant(grant, button) {
   const device = machineDisplayName(grant?.device);
-  if (!grant?.grantId || !confirm(tKey("deviceTrust.revokeConfirm", { device }))) return;
-  button.disabled = true;
   const baseAtStart = apiBase;
+  if (!grant?.grantId || !(await askConfirm(tKey("deviceTrust.revokeConfirm", { device }), { action: "revoke", destructive: true })) || baseAtStart !== apiBase) return;
+  button.disabled = true;
   try {
     const response = await fetch(`${baseAtStart}/api/device-trust/grants/revoke`, {
       method: "POST", credentials: "same-origin", cache: "no-store",
@@ -19636,7 +19662,8 @@ async function saveMachineDialog() {
 }
 
 async function restartMachineWeb() {
-  if (!machineDialogExisting?.local || !confirm(tKey("device.restartConfirm"))) return;
+  const existing = machineDialogExisting;
+  if (!existing?.local || !(await askConfirm(tKey("device.restartConfirm"), { action: "restart", destructive: true })) || machineDialogExisting !== existing) return;
   el.machineRestart.disabled = true;
   if (el.machineStatusNote) el.machineStatusNote.textContent = "正在要求 Stepsemble 重新啟動…";
   try {
@@ -19650,7 +19677,8 @@ async function restartMachineWeb() {
 }
 
 async function deleteMachineDialog() {
-  if (!machineDialogExisting || !confirm(tKey("device.deleteConfirm", { name: machineDialogExisting.name }))) return;
+  const existing = machineDialogExisting;
+  if (!existing || !(await askConfirm(tKey("device.deleteConfirm", { name: existing.name }), { action: "delete", destructive: true })) || machineDialogExisting !== existing) return;
   el.machineDelete.disabled = true;
   setMachineFormError();
   try {
