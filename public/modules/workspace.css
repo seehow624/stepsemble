@@ -471,7 +471,7 @@ html[data-theme="light"] .workspace-limit-alert[data-level="critical"] { --level
 .workspace-tip-key { flex: 0 0 auto; color: var(--pine-soft); font: var(--text-2xs) var(--mono); }
 .workspace-tip-value { min-width: 0; flex: 1 1 auto; color: var(--ink); font-size: var(--text-2xs); text-align: right; white-space: nowrap; }
 .workspace-tip-note { color: var(--pine-soft); font-size: var(--text-2xs); }
-.workspace-tip-exact { font-family: var(--mono); font-size: var(--text-3xs); }
+.workspace-tip-exact { font-family: var(--mono); font-size: var(--text-2xs); }
 
 #workspace-main { display: flex; flex: 1; min-width: 0; flex-direction: column; background: var(--paper); }
 #workspace-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--paper); }
