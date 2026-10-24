@@ -19,39 +19,49 @@ async function open(browser, { width, height = 844, look = "bold", theme = "dark
   return { preview, context, page, errors, close: async () => { await context.close(); await preview.close(); } };
 }
 
-// The rows of a field's right end that differ from its own fill: where its
-// clear button is drawn. Decoded in the page, which has a canvas.
-async function clearButtonRows(page, field) {
-  const png = (await field.screenshot()).toString("base64"), box = await field.boundingBox();
-  return page.evaluate(async ({ png, width, height }) => {
-    const image = new Image(); image.src = "data:image/png;base64," + png; await image.decode();
-    const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
-    const ctx = canvas.getContext("2d"); ctx.drawImage(image, 0, 0);
-    const scale = image.naturalHeight / height, data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    const at = (x, y) => { const i = (y * canvas.width + x) * 4; return [data[i], data[i + 1], data[i + 2]]; };
-    const edge = Math.round(4 * scale), from = Math.round(canvas.width - 40 * scale), fill = at(from, Math.round(canvas.height / 2));
-    const rows = [];
-    for (let y = edge; y < canvas.height - edge; y++) for (let x = from; x < canvas.width - edge; x++) {
-      const pixel = at(x, y); if (Math.max(...pixel.map((value, i) => Math.abs(value - fill[i]))) > 40) { rows.push(y / scale); break; }
+// Where a field's clear button is drawn: the pixels that change when the
+// field is emptied (a search field shows the button only while it holds
+// text). Decoded in the page, which has a canvas.
+async function clearButtonBox(page, field) {
+  const box = await field.boundingBox(), withText = (await field.screenshot()).toString("base64");
+  const text = await field.inputValue();
+  await field.fill(""); const empty = (await field.screenshot()).toString("base64"); await field.fill(text);
+  return page.evaluate(async ({ shots, width, height }) => {
+    const pixels = await Promise.all(shots.map(async png => {
+      const image = new Image(); image.src = "data:image/png;base64," + png; await image.decode();
+      const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext("2d"); ctx.drawImage(image, 0, 0);
+      return { data: ctx.getImageData(0, 0, canvas.width, canvas.height).data, w: canvas.width, h: canvas.height };
+    }));
+    const [a, b] = pixels, scale = a.h / height, from = Math.round(a.w - 48 * scale);
+    let top = Infinity, bottom = -Infinity, left = Infinity, right = -Infinity;
+    for (let y = 0; y < a.h; y++) for (let x = from; x < a.w; x++) {
+      const i = (y * a.w + x) * 4;
+      if (Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2])) <= 40) continue;
+      top = Math.min(top, y); bottom = Math.max(bottom, y); left = Math.min(left, x); right = Math.max(right, x);
     }
-    return { top: Math.min(...rows), bottom: Math.max(...rows), height, found: rows.length > 0 };
-  }, { png, width: box.width, height: box.height });
+    return { found: right >= 0, top: top / scale, bottom: (bottom + 1) / scale, left: left / scale, right: (right + 1) / scale, width, height };
+  }, { shots: [withText, empty], width: box.width, height: box.height });
 }
 
 export async function runSearchFieldBrowserCases(browser, { engine = "browser" } = {}) {
-  for (const [look, theme] of [["bold", "dark"], ["classic", "light"]]) {
-    const run = await open(browser, { width: 1280, height: 600, look, theme });
+  for (const [width, look, theme] of [[1280, "bold", "dark"], [1280, "classic", "light"], [440, "bold", "dark"], [390, "classic", "light"]]) {
+    const run = await open(browser, { width, height: width < 600 ? 844 : 600, look, theme });
     try {
       const search = run.page.locator("#workspace-search");
       await search.click(); await run.page.keyboard.type("hai");
-      const rows = await clearButtonRows(run.page, search);
-      assert.ok(rows.found, `${engine} ${look}: the clear button is drawn`);
-      const middle = (rows.top + rows.bottom) / 2;
-      assert.ok(Math.abs(middle - rows.height / 2) <= 2, `${engine} ${look}: the clear button sits on the field's centre line, not its top: ` + JSON.stringify(rows));
+      const drawn = await clearButtonBox(run.page, search);
+      assert.ok(drawn.found, `${engine} ${width} ${look}: the clear button is drawn`);
+      const middle = (drawn.top + drawn.bottom) / 2, name = `${engine} ${width} ${look}`;
+      assert.ok(Math.abs(middle - drawn.height / 2) <= 2, `${name}: the clear button sits on the field's centre line, not its top: ` + JSON.stringify(drawn));
+      // Whole, not cut off by the field's end: as wide as it is tall, with
+      // room between it and the field's edge.
+      assert.ok(drawn.right - drawn.left >= drawn.bottom - drawn.top - 1, `${name}: the clear button is drawn whole: ` + JSON.stringify(drawn));
+      assert.ok(drawn.width - drawn.right >= 3, `${name}: the clear button keeps clear of the field's edge: ` + JSON.stringify(drawn));
       // Typing a search is not writing prose: no autocorrect bubble ("Hai ✕").
       assert.deepEqual(await search.evaluate(input => [input.getAttribute("autocorrect"), input.getAttribute("autocapitalize"), input.spellcheck]), ["off", "off", false]);
       assert.deepEqual(run.errors, []);
-      console.log(JSON.stringify({ case: "Search field clear button", engine, look, result: "passed", centreOffset: Math.round(middle - rows.height / 2) }));
+      console.log(JSON.stringify({ case: "Search field clear button", engine, width, look, result: "passed", centreOffset: Math.round(middle - drawn.height / 2), endGap: Math.round(drawn.width - drawn.right) }));
     } finally { await run.close(); }
   }
 }
