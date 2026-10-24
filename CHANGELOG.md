@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.52
+
+- Open Google Antigravity again when Magpie routes it. Since Antigravity was switched to Magpie, every Antigravity tab closed the moment it opened, because agy was started without the key and address that Magpie's route needs ("GEMINI_API_KEY environment variable is not set"). While agy's settings name Magpie models, Stepsemble now starts it with them, for the tab, its sign-in check and the opt-in stream mode. A key you set yourself is kept.
+
 ## 3.9.51
 
 - Confirm Fast or Ultra Fast inside the model menu instead of a browser alert. The confirmation names the tier, explains the possible extra cost once, and starts on Cancel. Escape, closing the menu or switching conversation cancels it without turning anything on.
