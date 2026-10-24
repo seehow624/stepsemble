@@ -118,6 +118,44 @@ test("generic connector tasks stream bounded output and stop without shell injec
   assert.equal(service.get(opened.id).status, "stopped");
 });
 
+test("an Antigravity tab gets Magpie's key and address when agy's settings route through Magpie", async (t) => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-agy-"));
+  const bin = path.join(temp, "bin");
+  const project = path.join(temp, "project");
+  fs.mkdirSync(bin);
+  fs.mkdirSync(project);
+  const settings = path.join(temp, ".gemini", "antigravity-cli", "settings.json");
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(settings, JSON.stringify({ model: "magpie/codex/gpt-6.1-sol", modelProvider: "gemini",
+    customModelsConfig: { customModels: { "magpie/codex/gpt-6.1-sol": { apiProvider: "API_PROVIDER_GOOGLE_GEMINI" } } } }));
+  const fakeAgent = path.join(bin, "fake-agy.cjs");
+  fs.writeFileSync(fakeAgent, "process.stdout.write(`key=${process.env.GEMINI_API_KEY} url=${process.env.GOOGLE_GEMINI_BASE_URL}\\n`); setInterval(() => {}, 1000);\n");
+  if (process.platform === "win32") {
+    fs.writeFileSync(path.join(bin, "agy.cmd"), `@echo off\r\n\"${process.execPath}\" \"${fakeAgent}\"\r\n`);
+  } else {
+    fs.writeFileSync(path.join(bin, "agy"), `#!/bin/sh\nexec \"${process.execPath}\" \"${fakeAgent}\"\n`, { mode: 0o755 });
+  }
+  const env = { PATH: [bin, path.dirname(process.execPath), process.env.PATH || ""].join(path.delimiter), HOME: temp };
+  const service = createAgentTaskService({
+    appHome: temp,
+    configDir: path.join(temp, "config"),
+    piBin: "/usr/local/bin/pi",
+    env,
+    validateCwd(value) { return value === project ? project : null; },
+  });
+  t.after(async () => {
+    await service.shutdown();
+    await waitForOwnedProcesses(service);
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+  const opened = await service.open({ agentId: "antigravity", cwd: project, name: "Antigravity through Magpie" });
+  const internal = service.get(opened.id);
+  await until(() => /key=\S+ url=\S+/.test(internal.outputTail), "the synthetic agy reports its environment", 10000);
+  assert.match(internal.outputTail, /key=magpie url=http:\/\/127\.0\.0\.1:3425/);
+  assert.equal(env.GEMINI_API_KEY, undefined, "the Host's environment is not changed");
+  assert.equal(await service.stop(opened.id), true);
+});
+
 test("generic task supervisor survives a web-service restart and reattaches", async (t) => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-restart-"));
   const bin = path.join(temp, "bin");

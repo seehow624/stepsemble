@@ -22,6 +22,12 @@ test("Antigravity stream args are resumable and never shell-expanded", () => {
     "--input-format", "stream-json", "--output-format", "stream-json", "--conversation", "conversation-1",
   ]);
   assert.throws(() => buildAntigravityStructuredArgs({ conversationId: "../../secret" }), /invalid_antigravity_conversation_id/);
+  // Stream mode does not read the model from agy's settings.
+  assert.deepEqual(buildAntigravityStructuredArgs({ model: "magpie/codex/gpt-6.1-sol", conversationId: "conversation-1" }), [
+    "--input-format", "stream-json", "--output-format", "stream-json", "--model", "magpie/codex/gpt-6.1-sol", "--conversation", "conversation-1",
+  ]);
+  assert.throws(() => buildAntigravityStructuredArgs({ model: "--yolo" }), /invalid_antigravity_model/);
+  assert.throws(() => buildAntigravityStructuredArgs({ model: "a b" }), /invalid_antigravity_model/);
 });
 
 test("Antigravity parser locks conversation identity and extracts step/result text", () => {
@@ -56,6 +62,17 @@ test("Antigravity session writes documented user JSONL and never fabricates appr
   child.stdout.write(JSON.stringify({ type: "init", conversation_id: "conversation-2" }) + "\n");
   assert.equal(session.status().nativeConversationId, "conversation-2");
   assert.equal((await session.close()).cleanupConfirmed, true);
+});
+
+test("an Antigravity session names the model it was given and keeps the environment", async t => {
+  const child = childFixture();
+  let args;
+  const session = createAntigravityStructuredSession({ command: "/usr/local/bin/agy", cwd: "/tmp", model: "magpie/codex/gpt-6.1-sol",
+    env: { GEMINI_API_KEY: "magpie" }, spawnImpl: (file, argv, options) => { args = { argv, options }; return child; } });
+  t.after(() => session.close());
+  assert.deepEqual(args.argv.slice(4), ["--model", "magpie/codex/gpt-6.1-sol"]);
+  assert.equal(args.options.env.GEMINI_API_KEY, "magpie");
+  assert.equal(args.options.shell, false);
 });
 
 test("Antigravity approval observations remain bounded and cannot become an ACK", async t => {
