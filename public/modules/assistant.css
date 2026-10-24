@@ -297,6 +297,8 @@ html.reduced-motion .assistant-viewer { animation: none; }
   box-shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 8px 24px rgba(0, 0, 0, .06); transition: border-color .15s ease, box-shadow .15s ease; }
 .assistant-composer-field:focus-within { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
 .assistant-composer-row { display: flex; align-items: flex-end; gap: 2px; padding: 4px; }
+/* A group's field has no attach button before its text. */
+.assistant-composer-row > .assistant-input:first-child { padding-left: 12px; }
 .assistant-input { flex: 1; min-height: 34px; max-height: 180px; padding: 7px 6px; resize: none; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 16px;
   line-height: 1.35; }
 /* The capsule around it shows the focus (:focus-within); the field draws no

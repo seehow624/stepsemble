@@ -14624,7 +14624,8 @@ function renderAgentTerminalLinks(term) {
     value.dataset.i18nIgnore = "";
     const copy = document.createElement("button");
     copy.type = "button"; copy.className = "btn ghost agent-terminal-copy";
-    copy.textContent = agentTerminalText("copy");
+    // Two copy buttons say which: the code or the link.
+    copy.textContent = agentTerminalText("copyCode");
     copy.addEventListener("click", async () => { try { await copyText(code); toast(agentTerminalText("copied")); } catch {} });
     row.append(label, value, copy);
     box.appendChild(row);
@@ -14640,7 +14641,7 @@ function renderAgentTerminalLinks(term) {
     open.textContent = index === 0 ? agentTerminalText("openLink", { host }) : host;
     const copy = document.createElement("button");
     copy.type = "button"; copy.className = "btn ghost agent-terminal-copy";
-    copy.textContent = agentTerminalText("copy");
+    copy.textContent = agentTerminalText("copyLink");
     copy.addEventListener("click", async () => { try { await copyText(link); toast(agentTerminalText("copied")); } catch {} });
     row.append(open, copy);
     box.appendChild(row);

@@ -270,6 +270,27 @@ export async function runSettingsSummaryBrowserCases(browser, { engine = "browse
   }
 }
 
+// The workspace's notices never cover the limits capsule at the sidebar's
+// foot, and say what happened in words, not the Host's error code.
+export async function runToastPlacementBrowserCases(browser, { engine = "browser" } = {}) {
+  for (const width of [390, 320, 1280]) {
+    const run = await open(browser, { width, look: width === 320 ? "classic" : "bold" });
+    try {
+      await run.page.locator("#workspace-usage").waitFor();
+      await run.page.route(url => new URL(url).pathname === "/api/workspace", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "host_offline" }) }));
+      const notice = run.page.locator("#workspace-toast:not([hidden])"); await notice.waitFor({ timeout: 12000 });
+      const facts = await run.page.evaluate(() => {
+        const box = document.querySelector("#workspace-toast").getBoundingClientRect(), usage = document.querySelector("#workspace-usage").getBoundingClientRect();
+        return { text: document.querySelector("#workspace-toast").textContent, overlap: usage.width > 0 && !(box.right <= usage.left || box.left >= usage.right || box.bottom <= usage.top || box.top >= usage.bottom), inside: box.top >= 0 };
+      });
+      assert.equal(facts.text, "Host is unavailable", `${engine} ${width}: the notice says what happened`);
+      assert.equal(facts.overlap, false, `${engine} ${width}: the notice leaves the limits capsule visible`);
+      assert.ok(facts.inside);
+      console.log(JSON.stringify({ case: "Workspace notice placement", engine, width, result: "passed" }));
+    } finally { await run.close(); }
+  }
+}
+
 export async function runDesignPolishBrowserCases(browser, options = {}) {
   await runSearchFieldBrowserCases(browser, options);
   await runTouchTargetPolishBrowserCases(browser, options);
@@ -277,4 +298,5 @@ export async function runDesignPolishBrowserCases(browser, options = {}) {
   await runAppDialogBrowserCases(browser, options);
   await runMediaPlaceholderBrowserCases(browser, options);
   await runSettingsSummaryBrowserCases(browser, options);
+  await runToastPlacementBrowserCases(browser, options);
 }

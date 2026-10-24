@@ -5777,6 +5777,8 @@
     "agentTerminal.confirmLogout": ["Confirm to sign out.","確認後就會登出。","确认后就会登出。","確認するとサインアウトします。","확인하면 로그아웃합니다.","Çıkış için onaylayın.","Confirmez pour vous déconnecter.","Bestätigen Sie die Abmeldung.","Confirma para cerrar sesión.","Confirme para sair.","Conferma per uscire."],
     "agentTerminal.code": ["Code","代碼","代码","コード","코드","Kod","Code","Code","Código","Código","Codice"],
     "agentTerminal.copy": ["Copy","複製","复制","コピー","복사","Kopyala","Copier","Kopieren","Copiar","Copiar","Copia"],
+    "agentTerminal.copyCode": ["Copy code","複製代碼","复制代码","コードをコピー","코드 복사","Kodu kopyala","Copier le code","Code kopieren","Copiar código","Copiar código","Copia codice"],
+    "agentTerminal.copyLink": ["Copy link","複製連結","复制链接","リンクをコピー","링크 복사","Bağlantıyı kopyala","Copier le lien","Link kopieren","Copiar enlace","Copiar link","Copia link"],
     "agentTerminal.copied": ["Copied","已複製","已复制","コピーしました","복사했습니다","Kopyalandı","Copié","Kopiert","Copiado","Copiado","Copiato"],
     "agentTerminal.openLink": ["Open {host}","開啟 {host}","打开 {host}","{host} を開く","{host} 열기","{host} adresini aç","Ouvrir {host}","{host} öffnen","Abrir {host}","Abrir {host}","Apri {host}"],
     "agentTerminal.providerLabel": ["Provider","Provider","Provider","プロバイダー","Provider","Sağlayıcı","Fournisseur","Anbieter","Proveedor","Provedor","Provider"],

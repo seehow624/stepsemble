@@ -65,6 +65,9 @@ export async function runAgentTerminalBrowserCases(browser, { screenshotDirector
       await pane.locator(".agent-terminal-note.is-warning").waitFor();
       await pane.locator(".agent-terminal-choice").first().click();
       await pane.locator(".agent-terminal-code strong", { hasText: "ABCD-12345" }).waitFor();
+      // The code's and the link's copy buttons say which they copy.
+      await pane.locator(".agent-terminal-link").first().waitFor();
+      assert.deepEqual(await pane.locator(".agent-terminal-copy").allTextContents(), ["複製代碼", "複製連結"]);
       // The command gets as many columns as the sheet shows, so its output
       // wraps where the screen does.
       const columns = starts.at(-1)?.cols || 0;

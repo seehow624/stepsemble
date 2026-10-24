@@ -156,7 +156,18 @@
     if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(value)) return value;
     return t(/offline|unreachable|unavailable|timeout|timed_out|refused|disconnected/.test(value) ? "hostUnavailable" : "loadFailed");
   }
-  function toast(text) { text = readable(text); $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
+  // A notice never covers the limits capsule at the sidebar's foot (on a
+  // phone the sidebar is the whole screen): it rises above it instead. A
+  // capsule hidden under the usage sheet does not count.
+  function liftToast(node) {
+    node.style.bottom = "";
+    const capsule = $("workspace-usage"), usage = capsule?.getBoundingClientRect(), box = node.getBoundingClientRect();
+    if (!usage?.width || box.right < usage.left || box.left > usage.right || box.bottom < usage.top || box.top > usage.bottom) return;
+    const shown = document.elementsFromPoint(usage.left + usage.width / 2, usage.top + usage.height / 2).find(el => el !== node && !node.contains(el));
+    if (!shown || !capsule.contains(shown)) return;
+    node.style.bottom = `${Math.ceil(innerHeight - usage.top + 10)}px`;
+  }
+  function toast(text) { text = readable(text); $("workspace-toast").textContent = text; $("workspace-toast").hidden = false; liftToast($("workspace-toast")); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("workspace-toast").hidden = true, 6000); }
   // The pane overflow menu lives on the document, not inside the pane: the
   // conversation frames sit in their own layer above the pane tree, so a menu
   // rendered inside a pane would be painted underneath the frame it belongs to.
