@@ -16082,9 +16082,13 @@ let updateAllRequest = 0;
 let harnessUpdateRequest = 0;
 let harnessUpdateController = null;
 const harnessUpdateInFlight = new Set();
-// Upgrades started so far. A question is answered later and one may wait
-// behind another; its answer acts only if no upgrade started meanwhile.
-let harnessUpgradeStarts = 0;
+// Upgrades started so far, per device and agent. A question is answered
+// later and one may wait behind another: its answer acts only if that
+// agent's upgrade did not start meanwhile. Upgrade all runs one at a time,
+// and no single upgrade starts beside it.
+const harnessUpgradeStarts = new Map();
+const harnessUpgradeCount = (machine, id) => harnessUpgradeStarts.get(machine.id + "\n" + id) || 0;
+let harnessUpgradeAllRunning = false;
 const updateRefreshTimers = new Set();
 let updateCenterSummary = null;
 let serviceWorkerRegistration = null;
@@ -16276,9 +16280,12 @@ function updateReleaseIsNewer(current, latest) {
 }
 
 const updateInstallInFlight = new Set();
-// Installs started so far: an install question acts only if none started
-// while it was asked (see harnessUpgradeStarts).
-let updateInstallStarts = 0;
+// Installs started so far, per device: an install question acts only for a
+// device whose install did not start while it was asked (see
+// harnessUpgradeStarts).
+const updateInstallStarts = new Map();
+const installStartsOf = machine => updateInstallStarts.get(machine.id) || 0;
+function countInstallStart(machine) { updateInstallStarts.set(machine.id, installStartsOf(machine) + 1); }
 const updateAutoInFlight = new Set();
 let updateInstallAllRunning = false;
 
@@ -16876,7 +16883,7 @@ async function runHarnessCheckAll({ quiet = false } = {}) {
 // that exits cleanly without installing the published release stays visible.
 async function upgradeHarness(machine, item) {
   const id = item.id;
-  harnessUpdateInFlight.add(id); harnessUpgradeStarts++;
+  harnessUpdateInFlight.add(id); harnessUpgradeStarts.set(machine.id + "\n" + id, harnessUpgradeCount(machine, id) + 1);
   renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
   try {
     const result = await requestMachineUpdate(machine, "/api/harness-updates/apply", { id, confirm: true }, { timeoutMs: 15 * 60 * 1000 });
@@ -16921,15 +16928,16 @@ function harnessUpgradeResultText(machine, item, outcome) {
 
 async function applyHarnessUpdate(id) {
   const machine = currentMachine();
-  if (!machine || !id || harnessUpdateInFlight.has(id)) return;
+  if (!machine || !id || harnessUpdateInFlight.has(id) || harnessUpgradeAllRunning) return;
   const item = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || []).find(entry => entry.id === id) || { id, label: id };
   const harness = item.label || id;
   const target = item.latestVersion && harnessUpdateKind(item) === "available" ? updateVersionText(item.latestVersion) : "";
   const question = target
     ? updateText("Upgrade {harness} to {version} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, version: target, device: updateDeviceName(machine) })
     : updateText("Run the official updater for {harness} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, device: updateDeviceName(machine) });
-  const asked = viewGeneration, starts = harnessUpgradeStarts;
-  if (!(await askConfirm(question, { action: "upgrade" })) || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.has(id) || starts !== harnessUpgradeStarts) return;
+  const asked = viewGeneration, starts = harnessUpgradeCount(machine, id);
+  if (!(await askConfirm(question, { action: "upgrade" })) || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.has(id)
+    || harnessUpgradeAllRunning || starts !== harnessUpgradeCount(machine, id)) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   const outcome = await upgradeHarness(machine, item);
@@ -16941,26 +16949,32 @@ async function applyHarnessUpdate(id) {
 
 async function applyAllHarnessUpdates() {
   const machine = currentMachine();
-  if (!machine || !el.harnessUpdateApplyAll || harnessUpdateInFlight.size) return;
-  const items = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || [])
+  if (!machine || !el.harnessUpdateApplyAll || harnessUpdateInFlight.size || harnessUpgradeAllRunning) return;
+  const listed = (harnessUpdateDataByDevice.get(machine.id)?.harnesses || [])
     .filter((item) => harnessUpdateKind(item) === "available" && harnessUpgradeable(item));
-  if (!items.length) return;
-  const lines = items.map((item) => (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : ""));
-  const asked = viewGeneration, starts = harnessUpgradeStarts;
+  if (!listed.length) return;
+  const lines = listed.map((item) => (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : ""));
+  const asked = viewGeneration, starts = listed.map((item) => harnessUpgradeCount(machine, item.id));
   if (!(await askConfirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }), { action: "upgrade", details: lines }))
-    || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.size || starts !== harnessUpgradeStarts) return;
+    || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.size || harnessUpgradeAllRunning) return;
+  // An agent upgraded while the question was open is not upgraded again.
+  const items = listed.filter((item, index) => starts[index] === harnessUpgradeCount(machine, item.id));
+  if (!items.length) return;
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   let completed = 0;
   let failed = 0;
-  for (const item of items) {
-    const outcome = await upgradeHarness(machine, item);
-    if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
-    if (outcome.ok) completed += 1;
-    else failed += 1;
-    renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
-    if (!outcome.ok && Number(outcome.error?.status) === 409) break;
-  }
+  harnessUpgradeAllRunning = true;
+  try {
+    for (const item of items) {
+      const outcome = await upgradeHarness(machine, item);
+      if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
+      if (outcome.ok) completed += 1;
+      else failed += 1;
+      renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
+      if (!outcome.ok && Number(outcome.error?.status) === 409) break;
+    }
+  } finally { harnessUpgradeAllRunning = false; }
   renderUpdateCenter();
   toast(updateText("Harness upgrades complete: {completed} updated, {failed} failed.", { completed, failed }), failed > 0);
 }
@@ -17396,7 +17410,7 @@ async function installDeviceUpdate(machineId) {
   if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
   const view = updateDeviceView(machine);
   const device = updateDeviceName(machine);
-  const generation = viewGeneration, starts = updateInstallStarts;
+  const generation = viewGeneration, starts = installStartsOf(machine);
   // Ask the device what is running now; the row may predate newly started work.
   let live = null;
   try { live = (await requestMachineUpdate(machine, "/api/update/status"))?.data?.updater || null; } catch {}
@@ -17409,8 +17423,8 @@ async function installDeviceUpdate(machineId) {
       ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
       : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device }) };
   if (!(await askConfirm(question.question, { action: "install", details: question.details, note: question.note }))) return;
-  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || starts !== updateInstallStarts) return;
-  updateInstallInFlight.add(machine.id); updateInstallStarts++;
+  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || starts !== installStartsOf(machine)) return;
+  updateInstallInFlight.add(machine.id); countInstallStart(machine);
   renderUpdateCenter();
   try {
     await requestMachineUpdate(machine, "/api/update/run", interrupt ? { interrupt: true } : {});
@@ -17432,15 +17446,19 @@ async function installDeviceUpdate(machineId) {
 
 async function installAllDeviceUpdates() {
   if (updateInstallAllRunning) return;
-  const targets = machines.filter((machine) => updateDeviceView(machine).install);
-  if (!targets.length) return;
-  const lines = targets.map((machine) => updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest));
-  const asked = viewGeneration, starts = updateInstallStarts;
+  const listed = machines.filter((machine) => updateDeviceView(machine).install);
+  if (!listed.length) return;
+  const lines = listed.map((machine) => updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest));
+  const asked = viewGeneration, starts = listed.map(installStartsOf);
   if (!(await askConfirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first."), { action: "install", details: lines }))
-    || asked !== viewGeneration || !updateViewIsOpen() || updateInstallAllRunning || starts !== updateInstallStarts) return;
+    || asked !== viewGeneration || !updateViewIsOpen() || updateInstallAllRunning) return;
+  // A device whose install started while the question was open is not sent
+  // a second one; the others still install.
+  const targets = listed.filter((machine, index) => starts[index] === installStartsOf(machine) && !updateInstallInFlight.has(machine.id));
+  if (!targets.length) return;
   const generation = viewGeneration;
-  updateInstallAllRunning = true; updateInstallStarts++;
-  for (const machine of targets) updateInstallInFlight.add(machine.id);
+  updateInstallAllRunning = true;
+  for (const machine of targets) { updateInstallInFlight.add(machine.id); countInstallStart(machine); }
   renderUpdateCenter();
   const counts = { started: 0, failed: 0 };
   try {
