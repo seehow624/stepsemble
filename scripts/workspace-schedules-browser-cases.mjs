@@ -64,6 +64,9 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
       await openAutomations();
       await press(automations.locator(".workspace-section-add"));
       await page.getByRole("menuitem", { name: `New schedule · ${computer}` }).click();
+      // The Workspace hands its focus to the pane at once, even on a phone where
+      // the pane was hidden behind the list a moment ago.
+      assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('iframe.workspace-frame[src*="/schedules.html"]')), true, "the pane takes the Workspace's focus");
       const objective = schedules.locator('textarea[name="objectivePrompt"]');
       await objective.waitFor();
       assert.equal(await frame.count(), 1, "one Schedules tab per computer");

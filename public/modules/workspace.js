@@ -448,7 +448,9 @@
     // The form takes the focus inside the pane; the pane must also hold the
     // Workspace's, or what is typed next goes nowhere (a menu that chose New
     // schedule has just taken its own focused button away).
-    if (scheduleFocus.delete(key)) item.frame.focus({ preventScroll: true });
+    // On a phone the pane comes back from behind the list and is laid out at
+    // the next frame; a hidden frame cannot take focus, so lay it out first.
+    if (scheduleFocus.delete(key)) { if (item.frame.hidden) layoutFrames(); item.frame.focus({ preventScroll: true }); }
   }
   function schedulesUrl(ref) {
     const key = L.identity(ref), request = scheduleRequests.get(key), url = new URL("/schedules.html", location.origin);
