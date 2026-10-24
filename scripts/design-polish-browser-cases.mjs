@@ -150,8 +150,15 @@ export async function runAppDialogBrowserCases(browser, { engine = "browser", sc
       const settle = count => ui.waitForFunction(count => (window.answers || []).length === count && !document.querySelector(".app-dialog"), count);
 
       // A destructive question: a bold question over its explanation, the
-      // action named and red, Cancel first; Escape answers no.
-      await ui.evaluate(() => { window.answers = []; StepsembleAppDialog.confirm("Delete “Mac mini”?\nIts saved address is removed from this list.", { action: "delete", destructive: true }).then(answer => answers.push(answer)); });
+      // action named and red, Cancel first; Escape answers no. With nothing
+      // else asked it is modal at once, before any timer: a second tap
+      // cannot reach the page.
+      const modalAtOnce = await ui.evaluate(async () => {
+        window.answers = []; StepsembleAppDialog.confirm("Delete “Mac mini”?\nIts saved address is removed from this list.", { action: "delete", destructive: true }).then(answer => answers.push(answer));
+        for (let hop = 0; hop < 4; hop++) await Promise.resolve();
+        return !!document.querySelector(".app-dialog[open]");
+      });
+      assert.equal(modalAtOnce, true, `${name}: the first question is modal within the tap`);
       await ui.locator(".app-dialog[open]").waitFor();
       let seen = await state();
       assert.equal(seen.role, "alertdialog"); assert.equal(seen.title, "Delete “Mac mini”?"); assert.match(seen.described, /saved address is removed/);

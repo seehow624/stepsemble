@@ -54,18 +54,23 @@
     return match ? { title: match[1].trim(), body: match[3].trim() } : { title: value, body: "" };
   }
 
-  let queue = Promise.resolve(), sequence = 0;
+  let queue = Promise.resolve(), sequence = 0, waiting = 0;
   // ask({ title, body, details, note, field, actions, initial, still })
   // resolves to the chosen action's id, or null for Cancel or Escape. A
   // field's value comes back as { id, value }. still(), if given, runs when
   // the question's turn comes: a question that waited behind another and
   // whose yes could no longer act is not shown, and answers null.
-  // A question's turn comes a task after the one before it was answered, so
-  // that question's caller has acted on its answer before still() looks.
+  // With no question on screen, one shows at once, still inside the tap that
+  // asked it: the page is modal before the next input, and a field can take
+  // focus with the keyboard. A question behind another comes a task after
+  // that one is answered, so its caller has acted on the answer before
+  // still() looks.
   const nextTask = () => new Promise(resolve => (root.setTimeout || setTimeout)(resolve, 0));
   function ask(options) {
-    const turn = queue.then(nextTask).then(() => show(options));
-    queue = turn.catch(() => {});
+    const behind = waiting > 0;
+    waiting++;
+    const turn = (behind ? queue.then(nextTask) : queue).then(() => show(options));
+    queue = turn.catch(() => {}).then(() => { waiting--; });
     return turn;
   }
   function show({ title, body = "", details = [], note = "", field = null, actions = [], cancel = "cancel", initial = "cancel", still = null }) {

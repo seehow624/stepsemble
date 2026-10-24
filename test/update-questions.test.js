@@ -16,7 +16,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 
 function harness({ legacy = [] } = {}) {
   const questions = [], runs = [], statuses = new Map(), applies = new Map(), installs = new Map(), toasts = [], timers = [];
-  let shown = Promise.resolve();
+  let shown = Promise.resolve(), waiting = 0;
   const context = vm.createContext({
     Set, Map, Promise, Number, String, Array, JSON, console,
     machines: [{ id: "a" }, { id: "b" }, ...legacy.map(id => ({ id }))],
@@ -29,15 +29,17 @@ function harness({ legacy = [] } = {}) {
     toast: (message, error) => { toasts.push([message, !!error]); },
     setTimeout: callback => { timers.push(callback); },
     // As the app's dialog (modules/app-dialog.js): one question at a time, in
-    // the order asked, each a task after the one before was answered. When its
-    // turn comes, a question whose still() fails is not shown and answers no.
+    // the order asked; one behind another comes a task after that one was
+    // answered. When its turn comes, a question whose still() fails is not
+    // shown and answers no.
     askConfirm: (question, options = {}) => {
-      const answer = deferred(), entry = { question, options, answer, shown: false };
-      const turn = shown.then(() => new Promise(resolve => setImmediate(resolve))).then(() => {
+      const answer = deferred(), entry = { question, options, answer, shown: false }, behind = waiting > 0;
+      waiting++;
+      const turn = (behind ? shown.then(() => new Promise(resolve => setImmediate(resolve))) : shown).then(() => {
         if (typeof options.still === "function" && !options.still()) return null;
         entry.shown = true; return answer.promise;
       });
-      shown = turn.catch(() => {}); questions.push(entry); return turn;
+      shown = turn.catch(() => {}).then(() => { waiting--; }); questions.push(entry); return turn;
     },
     requestMachineUpdate: async (machine, route, body) => {
       if (route === "/api/update/status") { const reply = statuses.get(machine.id); return reply ? reply.promise : { data: { updater: {} } }; }
