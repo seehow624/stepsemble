@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.9.51
+
+- Confirm Fast or Ultra Fast inside the model menu instead of a browser alert. The confirmation names the tier, explains the possible extra cost once, and starts on Cancel. Escape, closing the menu or switching conversation cancels it without turning anything on.
+- Open speed details below the thinking level, so the level, lightning buttons and info button stay where they are.
+- Reach the confirmation and info buttons with the keyboard in Safari.
+- Requested Fast does not guarantee served speed or billing.
+
 ## 3.9.50
 
 - Support Codex 0.164.0 after reviewing its new image-generation contract, which allows a durable file ID instead of an inline result. Preserve both formats in native history and notifications without expanding image-access permissions or weakening checks for unknown protocol changes.
