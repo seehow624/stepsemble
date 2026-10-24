@@ -253,6 +253,9 @@ async function sliderCase(browser, width) {
       await page.mouse.up();
     }
     await ui.waitForFunction(() => document.getElementById("thinking-slider").getAttribute("aria-valuenow") === "4");
+    // Wait for the change to reach the Host, however slow the runner (a fixed
+    // 700ms missed it once on macOS CI), then long enough to see a second one.
+    for (const end = Date.now() + 10000; !host.efforts.length && Date.now() < end;) await new Promise(resolve => setTimeout(resolve, 25));
     await ui.waitForTimeout(phone ? 100 : 700);
     assert.deepEqual(host.efforts, ["max"], "one change for the drag");
     // "opus" is Magpie's Opus at Extra high by its id, which would win over the
