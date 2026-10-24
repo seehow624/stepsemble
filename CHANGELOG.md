@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.9.53
+
+- Ask questions in the app's own dialog instead of the browser's confirm() and prompt(): deleting or revoking, installs and upgrades, imports, restarts, the commit message and more. Each names its action, a destructive one is red and starts on Cancel, Escape only cancels the question, and the app checks again that the host, device or conversation is still the one it asked about before acting. Exporting providers now offers keys or no keys, and Cancel exports nothing.
+- Install and upgrade questions that wait behind another never install a device or upgrade an agent twice, and never drop a confirmed install for another device.
+- Center the clear button of search fields in Safari and the Mac app, and stop offering autocorrect while searching.
+- Keep status chips above the message box readable (they take a second row instead of "…"), and let the thinking line under them be dragged and tapped between chips.
+- Give phone controls a 44pt reach: the sidebar's + and ⋯, Copy and Branch, close buttons, and the message box's Add, context ring, Stop and Send.
+- Show readable messages instead of internal error codes (an unreachable host, an agent that cannot list its models), and say the read-only state of an ended conversation once.
+- Show a quiet placeholder while a picture loads instead of a broken-image glyph, and darken and blur the page behind an enlarged picture.
+- Raise faint text to readable contrast and small text to at least 11px, including the menu bar panel; give the read-only history page the app's colours, chevrons and local times.
+- Restore missing apostrophes in French and Italian, show settings summaries in full, label the sign-in sheet's buttons Copy code and Copy link, and keep workspace notices clear of the limits bar.
+
 ## 3.9.52
 
 - Open Google Antigravity again when Magpie routes it. Since Antigravity was switched to Magpie, every Antigravity tab closed the moment it opened, because agy was started without the key and address that Magpie's route needs ("GEMINI_API_KEY environment variable is not set"). While agy's settings name Magpie models, Stepsemble now starts it with them, for the tab, its sign-in check and the opt-in stream mode. A key you set yourself is kept.
