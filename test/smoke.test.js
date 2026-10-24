@@ -918,7 +918,7 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   // The device is asked what is running before the confirmation, and an
   // interrupting install is only requested after the user confirms.
   // The answer arrives later, so the view is checked again before installing.
-  assert.match(app, /async function installDeviceUpdate\(machineId\)[\s\S]{0,2000}if \(!\(await askConfirm\(question\.question, \{ action: "install"[^\n]*\)\)\) return;\n  if \(generation !== viewGeneration \|\| !updateViewIsOpen\(\)[^\n]*\) return;[\s\S]{0,400}"\/api\/update\/run", interrupt \? \{ interrupt: true \} : \{\}/);
+  assert.match(app, /async function askInstall\(machine, generation\)[\s\S]{0,2400}if \(!\(await askConfirm\(question\.question, \{ action: "install"[^\n]*still: due \}\)\) \|\| !due\(\)\) return null;[\s\S]{0,300}async function installDeviceUpdate\(machineId\)[\s\S]{0,900}"\/api\/update\/run", interrupt \? \{ interrupt: true \} : \{\}/);
   const asked = app.indexOf("if (!(await askConfirm(question.question");
   assert.ok(asked > 0);
   assert.doesNotMatch(app.slice(0, asked), /interrupt: true/);

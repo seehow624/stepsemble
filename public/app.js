@@ -16083,12 +16083,14 @@ let harnessUpdateRequest = 0;
 let harnessUpdateController = null;
 const harnessUpdateInFlight = new Set();
 // Upgrades started so far, per device and agent. A question is answered
-// later and one may wait behind another: its answer acts only if that
-// agent's upgrade did not start meanwhile. Upgrade all runs one at a time,
-// and no single upgrade starts beside it.
+// later and one may wait behind another: it is shown, and its yes acts,
+// only if that agent's upgrade did not start meanwhile. Upgrade all runs
+// one at a time, and no single upgrade starts beside it; the agents it is
+// still to upgrade are in harnessUpgradeAllQueue.
 const harnessUpgradeStarts = new Map();
 const harnessUpgradeCount = (machine, id) => harnessUpgradeStarts.get(machine.id + "\n" + id) || 0;
 let harnessUpgradeAllRunning = false;
+const harnessUpgradeAllQueue = new Set();
 const updateRefreshTimers = new Set();
 let updateCenterSummary = null;
 let serviceWorkerRegistration = null;
@@ -16286,6 +16288,8 @@ const updateInstallInFlight = new Set();
 const updateInstallStarts = new Map();
 const installStartsOf = machine => updateInstallStarts.get(machine.id) || 0;
 function countInstallStart(machine) { updateInstallStarts.set(machine.id, installStartsOf(machine) + 1); }
+// Devices with an install question on its way: a second tap asks nothing.
+const updateInstallAsking = new Set();
 const updateAutoInFlight = new Set();
 let updateInstallAllRunning = false;
 
@@ -16936,9 +16940,10 @@ async function applyHarnessUpdate(id) {
     ? updateText("Upgrade {harness} to {version} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, version: target, device: updateDeviceName(machine) })
     : updateText("Run the official updater for {harness} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, device: updateDeviceName(machine) });
   const asked = viewGeneration, starts = harnessUpgradeCount(machine, id);
-  if (!(await askConfirm(question, { action: "upgrade" })) || asked !== viewGeneration || currentMachine()?.id !== machine.id) return;
-  // Upgraded while asked: it is running or done already.
-  if (starts !== harnessUpgradeCount(machine, id) || harnessUpdateInFlight.has(id)) return;
+  // Its yes can act: the agent has not started upgrading since it was
+  // asked, and Upgrade all is not about to upgrade it.
+  const due = () => starts === harnessUpgradeCount(machine, id) && !harnessUpdateInFlight.has(id) && !harnessUpgradeAllQueue.has(id);
+  if (!(await askConfirm(question, { action: "upgrade", still: due })) || asked !== viewGeneration || currentMachine()?.id !== machine.id || !due()) return;
   // A yes is never dropped without a word.
   if (harnessUpgradeAllRunning) { toast(updateText("Wait for the running upgrade to finish, then try again."), true); return; }
   const generation = viewGeneration;
@@ -16958,7 +16963,7 @@ async function applyAllHarnessUpdates() {
   if (!listed.length) return;
   const lines = listed.map((item) => (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : ""));
   const asked = viewGeneration, starts = listed.map((item) => harnessUpgradeCount(machine, item.id));
-  if (!(await askConfirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }), { action: "upgrade", details: lines }))
+  if (!(await askConfirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }), { action: "upgrade", details: lines, still: () => !harnessUpgradeAllRunning }))
     || asked !== viewGeneration || currentMachine()?.id !== machine.id) return;
   if (harnessUpdateInFlight.size || harnessUpgradeAllRunning) { toast(updateText("Wait for the running upgrade to finish, then try again."), true); return; }
   // An agent upgraded while the question was open is not upgraded again.
@@ -16969,8 +16974,10 @@ async function applyAllHarnessUpdates() {
   let completed = 0;
   let failed = 0;
   harnessUpgradeAllRunning = true;
+  for (const item of items) harnessUpgradeAllQueue.add(item.id);
   try {
     for (const item of items) {
+      harnessUpgradeAllQueue.delete(item.id);
       const outcome = await upgradeHarness(machine, item);
       if (generation !== viewGeneration || selectedAtStart !== selectedId || !updateViewIsOpen()) return;
       if (outcome.ok) completed += 1;
@@ -16978,7 +16985,7 @@ async function applyAllHarnessUpdates() {
       renderHarnessUpdates(harnessUpdateDataByDevice.get(machine.id));
       if (!outcome.ok && Number(outcome.error?.status) === 409) break;
     }
-  } finally { harnessUpgradeAllRunning = false; }
+  } finally { harnessUpgradeAllRunning = false; harnessUpgradeAllQueue.clear(); }
   renderUpdateCenter();
   toast(updateText("Harness upgrades complete: {completed} updated, {failed} failed.", { completed, failed }), failed > 0);
 }
@@ -17409,17 +17416,19 @@ function updateInterruptQuestion(device, work, automatic) {
 
 // Installing is always a separate, confirmed action per device. When agent
 // work is running, the confirmation says what an immediate install interrupts.
-async function installDeviceUpdate(machineId) {
-  const machine = machines.find((item) => item.id === machineId);
-  if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
+// Reads what the device is running, then asks. Resolves { interrupt } for a
+// yes that can still act: the device has not started installing since (by
+// itself or in Install all), so it is never sent a second install. Another
+// device installing, even through Install all, does not hold it back.
+async function askInstall(machine, generation) {
   const view = updateDeviceView(machine);
   const device = updateDeviceName(machine);
-  const generation = viewGeneration, starts = installStartsOf(machine);
+  const starts = installStartsOf(machine);
+  const due = () => generation === viewGeneration && updateViewIsOpen() && starts === installStartsOf(machine) && !updateInstallInFlight.has(machine.id);
   // Ask the device what is running now; the row may predate newly started work.
   let live = null;
   try { live = (await requestMachineUpdate(machine, "/api/update/status"))?.data?.updater || null; } catch {}
-  // No question whose yes could not act: this device may have started meanwhile.
-  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || starts !== installStartsOf(machine)) return;
+  if (!due()) return null;
   const work = Array.isArray(live?.activeWork) ? live.activeWork : [];
   const interrupt = live?.interruptible === true && work.length > 0;
   const question = interrupt
@@ -17427,8 +17436,20 @@ async function installDeviceUpdate(machineId) {
     : { question: view.install || view.interrupt
       ? updateText("Install Stepsemble {version} on {device}? Stepsemble restarts after installing. If an agent is working, the install waits until it finishes.", { version: updateVersionText(view.latest), device })
       : updateText("{device} runs an older Stepsemble that can only check for updates by installing them. Install the latest release now?", { device }) };
-  if (!(await askConfirm(question.question, { action: "install", details: question.details, note: question.note }))) return;
-  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || starts !== installStartsOf(machine)) return;
+  if (!(await askConfirm(question.question, { action: "install", details: question.details, note: question.note, still: due })) || !due()) return null;
+  return { interrupt };
+}
+
+async function installDeviceUpdate(machineId) {
+  const machine = machines.find((item) => item.id === machineId);
+  if (!machine || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || updateInstallAsking.has(machine.id)) return;
+  const device = updateDeviceName(machine);
+  const generation = viewGeneration;
+  let answer = null;
+  updateInstallAsking.add(machine.id);
+  try { answer = await askInstall(machine, generation); } finally { updateInstallAsking.delete(machine.id); }
+  if (!answer) return;
+  const { interrupt } = answer;
   updateInstallInFlight.add(machine.id); countInstallStart(machine);
   renderUpdateCenter();
   try {
@@ -17455,7 +17476,7 @@ async function installAllDeviceUpdates() {
   if (!listed.length) return;
   const lines = listed.map((machine) => updateDeviceName(machine) + " → " + updateVersionText(updateDeviceView(machine).latest));
   const asked = viewGeneration, starts = listed.map(installStartsOf);
-  if (!(await askConfirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first."), { action: "install", details: lines }))
+  if (!(await askConfirm(updateText("Install Stepsemble updates on these devices? Each device restarts Stepsemble after installing and waits for running agent work first."), { action: "install", details: lines, still: () => !updateInstallAllRunning }))
     || asked !== viewGeneration || !updateViewIsOpen() || updateInstallAllRunning) return;
   // A device whose install started while the question was open is not sent
   // a second one; the others still install.

@@ -186,6 +186,18 @@ export async function runAppDialogBrowserCases(browser, { engine = "browser", sc
       await ui.locator('.app-dialog [data-action="cancel"]').click(); await settle(2);
       assert.deepEqual((await state()).answers, [["First?", true], ["Second?", false]]);
 
+      // A question that waited and whose yes could no longer act is never
+      // shown: its still() is asked when its turn comes, after the answer
+      // before it has been acted on.
+      await ui.evaluate(() => {
+        window.answers = []; window.allowed = true;
+        StepsembleAppDialog.confirm("Install all?", { action: "install" }).then(answer => { answers.push(["all", answer]); window.allowed = false; });
+        StepsembleAppDialog.confirm("Install on a?", { action: "install", still: () => window.allowed }).then(answer => answers.push(["a", answer]));
+      });
+      await ui.locator(".app-dialog[open]").waitFor();
+      await ui.locator('.app-dialog [data-action="confirm"]').click(); await settle(2);
+      assert.deepEqual((await state()).answers, [["all", true], ["a", false]], `${name}: a question that can no longer act is not shown`);
+
       // A question with a field: its action waits for text; Enter answers.
       await ui.evaluate(() => { window.answers = []; StepsembleAppDialog.prompt("Commit message for 2 staged files:", { action: "commit", label: "commitMessage" }).then(answer => answers.push(answer)); });
       await ui.locator(".app-dialog[open] input").waitFor();

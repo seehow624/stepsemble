@@ -14,28 +14,34 @@ const slice = (from, to) => { const start = source.indexOf(from), end = source.i
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-function harness() {
-  const questions = [], runs = [], statuses = new Map(), applies = new Map(), toasts = [], timers = [];
+function harness({ legacy = [] } = {}) {
+  const questions = [], runs = [], statuses = new Map(), applies = new Map(), installs = new Map(), toasts = [], timers = [];
   let shown = Promise.resolve();
   const context = vm.createContext({
     Set, Map, Promise, Number, String, Array, JSON, console,
-    machines: [{ id: "a" }, { id: "b" }],
+    machines: [{ id: "a" }, { id: "b" }, ...legacy.map(id => ({ id }))],
     viewGeneration: 0, selectedId: null,
     updateViewIsOpen: () => true,
-    updateDeviceView: () => ({ install: true, latest: "3.9.53" }),
+    // A legacy device can only "Install latest": it is not in Install all.
+    updateDeviceView: machine => legacy.includes(machine.id) ? { install: false, legacyInstall: true, latest: "3.9.53" } : { install: true, latest: "3.9.53" },
     updateDeviceName: machine => machine.id, updateVersionText: value => value, updateText: text => text,
     renderUpdateCenter() {}, renderHarnessUpdates() {}, scheduleUpdateRefreshes() {}, setUpdateCenterSummaryParts() {},
     toast: (message, error) => { toasts.push([message, !!error]); },
     setTimeout: callback => { timers.push(callback); },
-    // As the app's dialog: one question at a time, in the order asked. An
-    // answer to a later question only counts once the earlier ones have one.
-    askConfirm: (question, options) => {
-      const answer = deferred(), turn = shown.then(() => answer.promise);
-      shown = turn.catch(() => {}); questions.push({ question, options, answer }); return turn;
+    // As the app's dialog (modules/app-dialog.js): one question at a time, in
+    // the order asked, each a task after the one before was answered. When its
+    // turn comes, a question whose still() fails is not shown and answers no.
+    askConfirm: (question, options = {}) => {
+      const answer = deferred(), entry = { question, options, answer, shown: false };
+      const turn = shown.then(() => new Promise(resolve => setImmediate(resolve))).then(() => {
+        if (typeof options.still === "function" && !options.still()) return null;
+        entry.shown = true; return answer.promise;
+      });
+      shown = turn.catch(() => {}); questions.push(entry); return turn;
     },
     requestMachineUpdate: async (machine, route, body) => {
       if (route === "/api/update/status") { const reply = statuses.get(machine.id); return reply ? reply.promise : { data: { updater: {} } }; }
-      if (route === "/api/update/run") { runs.push("install " + machine.id); return { data: {} }; }
+      if (route === "/api/update/run") { runs.push("install " + machine.id); const hold = installs.get(machine.id); if (hold) await hold.promise; return { data: {} }; }
       if (route === "/api/harness-updates/apply") { runs.push("upgrade " + body.id); const hold = applies.get(body.id); if (hold) await hold.promise; return { data: {} }; }
       return { data: {} };
     },
@@ -53,20 +59,29 @@ function harness() {
     "this.api = { installDeviceUpdate, installAllDeviceUpdates, applyHarnessUpdate, applyAllHarnessUpdates };",
   ].join("\n"), context);
   context.harnessUpdateDataByDevice.set("a", { harnesses: [{ id: "codex", label: "Codex" }, { id: "claude", label: "Claude" }] });
-  return { api: context.api, questions, runs, statuses, applies, toasts, flushTimers: () => { for (const callback of timers.splice(0)) callback(); } };
+  return { api: context.api, questions, runs, statuses, applies, installs, toasts, flushTimers: () => { for (const callback of timers.splice(0)) callback(); } };
 }
 const wait = "Wait for the running upgrade to finish, then try again.";
+const shownCount = h => h.questions.filter(entry => entry.shown).length;
 
-test("a device's waiting install question does not install it again after Install all did", async () => {
+test("a device's waiting install question is not shown, and installs nothing, after Install all installed it", async () => {
   const h = harness(); h.statuses.set("a", deferred());
   const single = h.api.installDeviceUpdate("a"); await settle();
   const all = h.api.installAllDeviceUpdates(); await settle();
   h.statuses.get("a").resolve({ data: { updater: {} } }); await settle();
-  assert.equal(h.questions.length, 2, "both questions are asked");
-  h.questions[0].answer.resolve(true); await all; h.flushTimers();
-  assert.deepEqual(h.runs, ["install a", "install b"]);
-  h.questions[1].answer.resolve(true); await single;
+  h.questions[0].answer.resolve(true); await all; h.flushTimers(); await single;
   assert.deepEqual(h.runs, ["install a", "install b"], "device a is not sent a second install");
+  assert.equal(shownCount(h), 1, "a's own question is not shown: its yes could not act");
+});
+
+test("no install question is asked for a device that Install all started while its status was read", async () => {
+  const h = harness(); h.statuses.set("a", deferred());
+  const single = h.api.installDeviceUpdate("a"); await settle();
+  const all = h.api.installAllDeviceUpdates(); await settle();
+  h.questions[0].answer.resolve(true); await all; h.flushTimers();
+  h.statuses.get("a").resolve({ data: { updater: {} } }); await single;
+  assert.equal(h.questions.length, 1, "only Install all asked");
+  assert.deepEqual(h.runs, ["install a", "install b"]);
 });
 
 test("a confirmed install for one device is not dropped because another device started", async () => {
@@ -79,12 +94,25 @@ test("a confirmed install for one device is not dropped because another device s
   assert.deepEqual(h.runs, ["install a", "install b"]);
 });
 
-test("Install all skips only a device that started while it waited", async () => {
-  const h = harness();
-  const single = h.api.installDeviceUpdate("a"); await settle();
+test("a device outside Install all still installs on a yes given while Install all runs", async () => {
+  const h = harness({ legacy: ["c"] }); h.statuses.set("c", deferred()); h.installs.set("a", deferred());
+  const legacy = h.api.installDeviceUpdate("c"); await settle();
   const all = h.api.installAllDeviceUpdates(); await settle();
-  h.questions[0].answer.resolve(true); await single; h.flushTimers();
+  h.statuses.get("c").resolve({ data: { updater: {} } }); await settle();
+  h.questions[0].answer.resolve(true); await settle();
+  h.questions[1].answer.resolve(true); await legacy;
+  assert.deepEqual(h.runs, ["install a", "install b", "install c"]);
+  h.installs.get("a").resolve(); await all;
+});
+
+test("Install all skips only a device that started while it waited, and a second tap asks nothing", async () => {
+  const h = harness(); h.statuses.set("a", deferred());
+  const first = h.api.installDeviceUpdate("a"), second = h.api.installDeviceUpdate("a"); await second;
+  h.statuses.get("a").resolve({ data: { updater: {} } }); await settle();
+  const all = h.api.installAllDeviceUpdates(); await settle();
+  h.questions[0].answer.resolve(true); await first; h.flushTimers();
   h.questions[1].answer.resolve(true); await all;
+  assert.equal(h.questions.length, 2, "one question for a, one for Install all");
   assert.deepEqual(h.runs, ["install a", "install b"], "b still installs; a is not installed twice");
 });
 
@@ -109,15 +137,16 @@ test("a yes to Upgrade all while an upgrade still runs says to wait, never vanis
   h.applies.get("codex").resolve(); await codex;
 });
 
-test("a single upgrade asked behind Upgrade all neither runs twice nor beside it", async () => {
+test("behind Upgrade all, an agent it will upgrade is not asked again; another agent is told to wait", async () => {
   const h = harness(); h.applies.set("codex", deferred());
   const all = h.api.applyAllHarnessUpdates(); await settle();
   const codex = h.api.applyHarnessUpdate("codex"); await settle();
   const claude = h.api.applyHarnessUpdate("claude"); await settle();
-  h.questions[0].answer.resolve(true); await settle();
-  h.questions[1].answer.resolve(true); await codex;
-  h.questions[2].answer.resolve(true); await claude;
-  assert.deepEqual(h.toasts.at(-1), [wait, true], "claude's own question waits for Upgrade all");
+  const gemini = h.api.applyHarnessUpdate("gemini"); await settle();
+  h.questions[0].answer.resolve(true); await codex; await claude; await settle();
+  assert.deepEqual(h.questions.map(entry => entry.shown), [true, false, false, true], "codex and claude, both in Upgrade all, are not asked again");
+  h.questions[3].answer.resolve(true); await gemini;
+  assert.deepEqual(h.toasts.at(-1), [wait, true], "an agent outside Upgrade all waits for it");
   h.applies.get("codex").resolve(); await all;
   assert.deepEqual(h.runs, ["upgrade codex", "upgrade claude"], "each agent upgrades once, one at a time");
 });

@@ -55,15 +55,21 @@
   }
 
   let queue = Promise.resolve(), sequence = 0;
-  // ask({ title, body, details, note, field, actions, initial }) resolves to the
-  // chosen action's id, or null for Cancel or Escape. A field's value comes
-  // back as { id, value }.
+  // ask({ title, body, details, note, field, actions, initial, still })
+  // resolves to the chosen action's id, or null for Cancel or Escape. A
+  // field's value comes back as { id, value }. still(), if given, runs when
+  // the question's turn comes: a question that waited behind another and
+  // whose yes could no longer act is not shown, and answers null.
+  // A question's turn comes a task after the one before it was answered, so
+  // that question's caller has acted on its answer before still() looks.
+  const nextTask = () => new Promise(resolve => (root.setTimeout || setTimeout)(resolve, 0));
   function ask(options) {
-    const turn = queue.then(() => show(options));
+    const turn = queue.then(nextTask).then(() => show(options));
     queue = turn.catch(() => {});
     return turn;
   }
-  function show({ title, body = "", details = [], note = "", field = null, actions = [], cancel = "cancel", initial = "cancel" }) {
+  function show({ title, body = "", details = [], note = "", field = null, actions = [], cancel = "cancel", initial = "cancel", still = null }) {
+    if (typeof still === "function" && !still()) return Promise.resolve(null);
     const doc = root.document;
     if (!doc?.body || typeof doc.createElement("dialog").showModal !== "function") return Promise.resolve(null);
     return new Promise(resolve => {
@@ -161,9 +167,9 @@
 
   // confirm(question, { action, destructive, details, note }) resolves true
   // or false. A destructive question starts on Cancel.
-  async function confirm(question, { action = "ok", destructive = false, details = [], note = "" } = {}) {
+  async function confirm(question, { action = "ok", destructive = false, details = [], note = "", still = null } = {}) {
     const { title, body } = split(question);
-    const choice = await ask({ title, body, details, note, actions: [{ id: "confirm", label: action, tone: destructive ? "destructive" : "primary" }], initial: destructive ? "cancel" : "action" });
+    const choice = await ask({ title, body, details, note, still, actions: [{ id: "confirm", label: action, tone: destructive ? "destructive" : "primary" }], initial: destructive ? "cancel" : "action" });
     return choice === "confirm";
   }
   // prompt(question, { action, label, value, required }) resolves the text, or null.
