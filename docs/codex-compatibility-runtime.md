@@ -32,6 +32,8 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.158.0` | native | native | reviewed native mutation |
 | Codex `0.159.0` | native | native | reviewed native mutation |
 | Codex `0.161.0` | native | native | reviewed native mutation |
+| Codex `0.163.0` | native | native | reviewed native mutation |
+| Codex `0.164.0` | native | native | reviewed native mutation |
 | Future version with a reviewed fingerprint (`schema-identical`) | native | native | native mutation |
 | Future version that only adds to the latest reviewed contract (`additive`) | native | native | native mutation |
 | Any other schema, or a pre-release | bounded fallback | bounded fallback | disabled |
@@ -293,6 +295,71 @@ refusal as `codex_thread_open_elsewhere`, and the conversation says it is open
 in the Codex app and should be closed there (or the app quit) before trying
 again; history stays readable meanwhile. Reproduced on Codex 0.163 with a
 thread the Codex app had open since it started.
+
+### 0.163.0 review record
+
+Reviewed with `scripts/review-codex-release.mjs` against the `0.161.0`
+baseline, from the official npm artifact
+(`@openai/codex@0.163.0-darwin-arm64`, archive SHA-256
+`1193ff4ce72387a5d6c34820b54a9dc57d007c67a958e8acb4715924facd3c31`). 24 of the
+36 contract files are identical; the others are `ClientRequest.json`,
+`ServerNotification.json`, `v2/ThreadListParams.json`,
+`v2/ThreadListResponse.json`, `v2/ThreadReadResponse.json`,
+`v2/ThreadTurnsListResponse.json`, `v2/ThreadItemsListResponse.json`,
+`v2/ThreadResumeParams.json`, `v2/ThreadResumeResponse.json`,
+`v2/ThreadStartResponse.json`, `v2/ThreadForkResponse.json`,
+`v2/TurnStartResponse.json`. None of the changes removes or alters anything
+Stepsemble sends or reads. The composer, parallel-pool, approval and branch
+oracles passed against that artifact with a local model. `0.163.0-schema.json`
+records the baseline.
+
+### 0.164.0 review record
+
+Reviewed with `scripts/review-codex-release.mjs` against the `0.163.0`
+baseline, from the official npm artifact
+(`@openai/codex@0.164.0-darwin-arm64`, archive SHA-256
+`9b5a35be1975ceb332eaf274032f375b017ab644ff0165737ead03277fae77cd`). 25 of the
+36 contract files are identical; the others are `ClientRequest.json`,
+`ServerNotification.json`, `v2/ThreadListResponse.json`,
+`v2/ThreadReadResponse.json`, `v2/ThreadTurnsListResponse.json`,
+`v2/ThreadItemsListResponse.json`, `v2/ThreadResumeResponse.json`,
+`v2/ThreadStartResponse.json`, `v2/ThreadForkResponse.json`,
+`v2/GetAccountRateLimitsResponse.json`, `v2/TurnStartResponse.json`.
+The composer, parallel-pool, approval and branch oracles passed against that
+artifact with a local model. `0.164.0-schema.json` records the fingerprint;
+the contract baseline is now 0.164.0.
+
+What changed and why this release is explicitly reviewed (`--adapted`):
+
+- In all nine documents containing `ThreadItem`, `imageGeneration` no longer
+  requires a top-level `result`. Its payload is now `anyOf` a string `fileId`
+  (durable attachment identity) or a string `result` (inline image data).
+  Both may be present: migration records can contain an empty `result` and
+  a `fileId`. Optional `inputImages` records local input `path` and `sha256`;
+  `savedPath`, `status` and the other common fields are unchanged.
+- The conservative comparison reports 18 changes (removed / no longer
+  required `result` in each document). It remains unchanged: this review
+  does not permit arbitrary removed fields or relax unknown contracts.
+  Stepsemble's transport already preserves either payload as bounded,
+  detached native JSON. Lifecycle events use the item ID and type, not
+  `result`; presentation uses status, not inline data or attachment IDs.
+  No adapter change or attachment-store request is needed.
+- Generated images were not automatically previewed before this release:
+  only `imageView.path` receives a server-issued preview handle. Neither
+  `result`, `fileId`, `savedPath` nor `inputImages.path` grants file access
+  or becomes a browser image URL. That behavior is preserved. Regression
+  tests cover legacy inline, current inline, file-only and migration items,
+  all four history read surfaces, lifecycle notifications and preview safety
+  (`test/codex-image-generation-compatibility.test.js` and
+  `test/codex-app-server-transport.test.js`).
+- The remaining changes add unused `feedback/save`, hook event names
+  `preModelRequest` / `postModelRequest`, and plan types `sci` / `sci_plus`.
+  No method or parameter Stepsemble sends is removed or narrowed.
+
+Before moving the baseline, 0.163.0 was fully reviewed and pinned with the
+same four oracles. Its exact fingerprint, and every earlier reviewed
+profile, remain native-capable independently of comparison with the newer
+baseline; installed 0.163.0 does not fall back after this review.
 
 ## Automatic Codex upgrades
 

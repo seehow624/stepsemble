@@ -1305,6 +1305,31 @@ async function readyOwnedTransport(t, options = {}) {
   frame(child, { id: request.id, result: { turn: { id: "turn-typed", status: "inProgress", items: [] } } }); await turning;
   return { child, transport, writes };
 }
+test("Codex image-generation lifecycle accepts legacy results, durable file IDs and migration items", async t => {
+  const events = [];
+  const { child, transport } = await readyOwnedTransport(t, { onEvent: event => events.push(event) });
+  const items = [
+    { id: "image-inline", type: "imageGeneration", status: "completed", result: "aW5saW5l" },
+    { id: "image-file", type: "imageGeneration", status: "completed", fileId: "file-generated", savedPath: "/owned/generated.png",
+      inputImages: [{ path: "/owned/input.png", sha256: "a".repeat(64) }] },
+    { id: "image-migration", type: "imageGeneration", status: "completed", fileId: "file-migration", result: "" },
+  ];
+  for (const item of items) {
+    for (const method of ["item/started", "item/completed"]) {
+      frame(child, { method, params: { threadId: "native-typed", turnId: "turn-typed", item } });
+    }
+  }
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events.filter(event => event.itemType === "imageGeneration"), items.flatMap(item =>
+    ["item.started", "item.completed"].map(type => ({ type, threadId: "native-typed", turnId: "turn-typed", itemId: item.id, itemType: "imageGeneration" }))));
+  assert.equal(transport.state().failure, null);
+  frame(child, { method: "turn/completed", params: { threadId: "native-typed", turn: { id: "turn-typed", status: "completed", items } } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().turnId, null);
+  assert.equal(transport.state().turnState, "completed");
+  assert.equal(transport.state().failure, null);
+});
+
 function ownedApproval(id) {
   return { id, method: "item/commandExecution/requestApproval", params: { threadId: "native-typed", turnId: "turn-typed",
     itemId: `item-${typeof id}`, startedAtMs: now, command: "owned", cwd: "/owned", kind: "command" } };

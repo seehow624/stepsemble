@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.9.50
+
+- Support Codex 0.164.0 after reviewing its new image-generation contract, which allows a durable file ID instead of an inline result. Preserve both formats in native history and notifications without expanding image-access permissions or weakening checks for unknown protocol changes.
+- Keep Codex 0.163.0 explicitly reviewed so updating the contract baseline does not disable an already working installation.
+- Verify both official releases with isolated composer, parallel-pool, approval and branch oracles using a local fake model, and add regression coverage for image-generation history, notification lifecycle and additive-release checks. No real account or paid model request is used.
+
 ## 3.9.49
 
 - Use Fast in Pi with its own ChatGPT sign-in on supported GPT models. Pi's own account and model offering decide availability, and your selected model, reasoning effort and sign-in stay unchanged. Ultra Fast is not offered for this connection.
