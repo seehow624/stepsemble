@@ -250,10 +250,31 @@ export async function runMediaPlaceholderBrowserCases(browser, { engine = "brows
   } finally { await run.close(); }
 }
 
+// Settings' rows say what each page holds in full, in a long language too.
+export async function runSettingsSummaryBrowserCases(browser, { engine = "browser" } = {}) {
+  for (const [width, locale] of [[1280, "en"], [1280, "de"], [390, "fr"]]) {
+    // A short desktop window: the settings list is taller than the window.
+    const run = await open(browser, { width, height: width < 600 ? 844 : 700, locale, look: width < 600 ? "bold" : "classic" });
+    try {
+      const page = await run.context.newPage(); page.setDefaultTimeout(15000);
+      await page.goto(run.preview.origin + "/index.html?settings=1");
+      await page.locator("#settings-summary-agents").waitFor();
+      await page.waitForFunction(() => document.querySelector("#settings-summary-agents").textContent.trim().length > 10);
+      const cut = await page.evaluate(() => [...document.querySelectorAll(".settings-nav-copy small")].filter(node => node.getBoundingClientRect().width > 0 && (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1)).map(node => node.textContent));
+      assert.deepEqual(cut, [], `${engine} ${width} ${locale}: no settings summary is cut short`);
+      // Every row of the list keeps its height: none is squeezed inside its card.
+      const squeezed = await page.evaluate(() => [...document.querySelectorAll(".settings-nav-list, .settings-nav > section, .settings-host-card")].filter(node => node.getBoundingClientRect().height > 0 && node.scrollHeight > node.clientHeight + 1).map(node => node.className));
+      assert.deepEqual(squeezed, [], `${engine} ${width} ${locale}: no settings card is squeezed`);
+      console.log(JSON.stringify({ case: "Settings summaries", engine, width, locale, result: "passed" }));
+    } finally { await run.close(); }
+  }
+}
+
 export async function runDesignPolishBrowserCases(browser, options = {}) {
   await runSearchFieldBrowserCases(browser, options);
   await runTouchTargetPolishBrowserCases(browser, options);
   await runQuietHoverBrowserCases(browser, options);
   await runAppDialogBrowserCases(browser, options);
   await runMediaPlaceholderBrowserCases(browser, options);
+  await runSettingsSummaryBrowserCases(browser, options);
 }

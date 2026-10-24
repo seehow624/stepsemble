@@ -5716,7 +5716,9 @@ html.reduced-motion .thinking-control.is-dragging .effort-knob { transform: none
 #view-settings .settings-reset-group,
 #view-settings .settings-about-group { padding-top: 6px; padding-bottom: 6px; }
 
+/* Its cards keep their height; a nav taller than the window scrolls. */
 .settings-nav { display: flex; flex-direction: column; gap: 12px; }
+.settings-nav > * { flex-shrink: 0; }
 /* What applies everywhere, then what each computer keeps, under the computer
    it applies to. */
 .settings-nav-group { margin: 6px 16px -6px; color: var(--pine-soft); font-size: var(--text-2xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -5786,7 +5788,8 @@ html.reduced-motion .thinking-control.is-dragging .effort-knob { transform: none
 .settings-nav-icon .icon { width: 18px; height: 18px; }
 .settings-nav-copy { min-width: 0; display: grid; gap: 2px; }
 .settings-nav-copy strong { font-size: var(--text-lg); font-weight: 600; }
-.settings-nav-copy small { overflow: hidden; color: var(--pine-soft); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+/* A row's summary may take a second line rather than end in "…". */
+.settings-nav-copy small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--pine-soft); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .settings-nav-badge { grid-column: 3; width: 8px; height: 8px; border-radius: 50%; background: var(--err); }
 .settings-nav .settings-account-action { margin: 0; padding: 0; border-top: 0; }
 .settings-nav .settings-footer { margin: 2px 0 10px; }
