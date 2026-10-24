@@ -31,7 +31,7 @@
 
 Pi 原生 ChatGPT 的能力只來自同一 Pi OAuth 帳戶；Magpie／Codex CLI catalog 或憑證不能替此不同路由授權。缺原生 SDK ownership、OAuth 或 offering 時維持 unknown。Claude 經 gateway 不借用原生 Anthropic offering；目前只開放上表已驗證的 Magpie Codex 轉譯路徑。Magpie 0.1.1330 Claude subscription 列沒有 tier metadata，且其 subscription CLI bridge 不轉送請求 speed，仍 unknown；任意 owner、虛擬／group 模型亦不開放。
 
-模型選單在 Thinking level 旁以互斥的閃電（Fast）／閃電加號（Ultra Fast）切換按鈕顯示目前已驗證的付費選項；使用 Tab 移動焦點、Enter／Space 切換，按下已啟用的級別即回到一般模式。按鈕以 aria-pressed 表示狀態；沒有獨立 Speed 區塊或常駐的一般模式按鈕，只有已選付費級別失去能力時提供關閉用的一般模式復原操作。不支援的付費級別不建立按鈕，不用停用、鎖頭或升級文案佔位。一般模式不在 composer 顯示速度標籤；已保存 requested Fast 是模型按鈕內的小閃電，Ultra Fast 則為閃電加號，均非另一個互動控制。長篇 requested／reported、gateway 及安全原因收在可展開的速度資訊與輔助說明內，費用提醒留在每次切換付費級別的確認視窗。未顯示 runtime 原始錯誤、URL 或憑證。GET 失敗明確提示並關閉新付費授權，仍可關閉既有 Fast／Ultra Fast。
+模型選單在 Thinking level 旁以互斥的閃電（Fast）／閃電加號（Ultra Fast）切換按鈕顯示目前已驗證的付費選項；使用 Tab 移動焦點、Enter／Space 切換，按下已啟用的級別即回到一般模式。按鈕以 aria-pressed 表示狀態；沒有獨立 Speed 區塊或常駐的一般模式按鈕，只有已選付費級別失去能力時提供關閉用的一般模式復原操作。不支援的付費級別不建立按鈕，不用停用、鎖頭或升級文案佔位。一般模式不在 composer 顯示速度標籤；已保存 requested Fast 是模型按鈕內的小閃電，Ultra Fast 則為閃電加號，均非另一個互動控制。長篇 requested／reported、gateway 及安全原因收在 ⓘ 速度資訊內，展開時顯示在標題列下方的圓角說明區，不改變標題列的 Thinking level、級別與按鈕位置。每次切換到付費級別都在同一區域就地確認（不使用瀏覽器原生對話框）：標題「開啟 Fast？」、費用與子 Agent 說明、取消與開啟兩個按鈕；焦點先在取消；確認開著時，選單內任何位置按 Escape 都只關閉確認、不關閉選單；關閉選單、切換對話、模型或撤銷能力時自動取消，不會授權新的情境，也不會讓送出訊息卡在等待確認。按鈕在 Safari 的預設 Tab 順序中仍可到達。未顯示 runtime 原始錯誤、URL 或憑證。GET 失敗明確提示並關閉新付費授權，仍可關閉既有 Fast／Ultra Fast。
 
 背景 focus GET 不停用已驗證的速度選擇器，也不覆寫尚未提交的鍵盤選擇；確認視窗前先鎖定 save，舊 GET 不可覆蓋成功的 POST。目錄載入完成後重驗同 key 的能力，不能把初次尚未就緒快取當成永久拒絕。
 

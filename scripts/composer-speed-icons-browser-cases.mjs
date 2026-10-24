@@ -5,6 +5,25 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createNativeComposerPreview } from "./native-composer-preview.mjs";
 import { workspaceReady, openFromSidebar } from "./workspace-browser-helpers.mjs";
+import { answerSpeedConfirmation } from "./agent-speed-browser-cases.mjs";
+
+// What opens from the speed controls appears below the heading; the label,
+// level, tiers and info button keep their places and stay on their row.
+async function assertSpeedHeadingStays(ui, openPanel) {
+  // Offsets within the heading, unrounded: the sheet itself may move as it grows.
+  const read = () => ui.evaluate(() => {
+    const head = document.querySelector(".thinking-head").getBoundingClientRect();
+    const box = selector => { const rect = document.querySelector(selector).getBoundingClientRect(); return { x: rect.x - head.x, y: rect.y - head.y }; };
+    return { label: box("#thinking-label"), value: box("#thinking-value"), fast: box('.speed-choice[data-speed="fast"]'), info: box(".speed-info"), headBottom: head.bottom };
+  });
+  const before = await read(); await openPanel(); const after = await read();
+  for (const key of ["label", "value", "fast", "info"])
+    assert.ok(Math.abs(after[key].x - before[key].x) <= 1 && Math.abs(after[key].y - before[key].y) <= 1, `${key} keeps its place: ` + JSON.stringify({ before, after }));
+  assert.ok(Math.abs(after.fast.y - after.info.y) <= 1, "the tiers and the info button share their row");
+  const panel = await ui.locator("#agent-speed-panel").boundingBox();
+  assert.ok(panel.y >= after.headBottom - 1, "it opens below the heading");
+  return { before, after };
+}
 
 export async function runComposerSpeedIconsBrowserCases(browser, { output, engine }) {
   await fs.mkdir(output, { recursive: true });
@@ -34,7 +53,7 @@ export async function runComposerSpeedIconsBrowserCases(browser, { output, engin
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       page = await context.newPage(); page.setDefaultTimeout(15000);
       const errors = []; page.on("pageerror", error => errors.push(error.message));
-      page.on("dialog", dialog => dialog.accept());
+      const nativeDialogs = []; page.on("dialog", dialog => { nativeDialogs.push(dialog.message()); return dialog.dismiss(); });
       await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
       // This is the useful logo hover, not a generic native-title assertion.
       await page.locator('.workspace-provider-logo[data-logo="claude"]').hover();
@@ -61,6 +80,10 @@ export async function runComposerSpeedIconsBrowserCases(browser, { output, engin
       // Mobile may wrap within this header; it must not truncate either label.
       observed.readability = await assertThinkingReadable(ui);
       await page.screenshot({ path: path.join(output, `${name}-menu.png`), fullPage: true });
+      // Details open below the heading: the tiers and the info button stay put.
+      observed.info = await assertSpeedHeadingStays(ui, async () => { await ui.locator(".speed-info").click(); await ui.locator("#agent-speed-note").waitFor(); });
+      await page.screenshot({ path: path.join(output, `${name}-info.png`), fullPage: true });
+      await ui.locator(".speed-info").click(); await ui.locator("#agent-speed-note").waitFor({ state: "hidden" });
       const palettes = [];
       for (const designTheme of ["warm-paper", "graphite", "ink-ivory"]) {
         palettes.push(await ui.evaluate(designTheme => {
@@ -90,7 +113,13 @@ export async function runComposerSpeedIconsBrowserCases(browser, { output, engin
       assert.equal(await ui.locator('button.speed-choice[data-speed="fast"]').isVisible(), true);
       await page.screenshot({ path: path.join(output, `${name}-no-reasoning.png`), fullPage: true });
       await ui.evaluate(() => { document.querySelector("#thinking-select").hidden = false; });
-      await ui.locator('button.speed-choice[data-speed="ultrafast"]').click();
+      observed.confirm = await assertSpeedHeadingStays(ui, async () => { await ui.locator('button.speed-choice[data-speed="ultrafast"]').click(); await ui.locator("#agent-speed-confirm").waitFor(); });
+      const card = await ui.locator("#agent-speed-confirm").boundingBox(), sheetBox = await ui.locator(".model-dialog").boundingBox();
+      assert.ok(card.x >= sheetBox.x && card.x + card.width <= sheetBox.x + sheetBox.width, "the confirmation stays inside the sheet");
+      for (const action of await ui.locator("#agent-speed-confirm .btn").all()) assert.ok((await action.boundingBox()).height >= (width < 600 ? 44 : 36));
+      assert.equal(await ui.locator("#agent-speed-confirm .speed-confirm-title").textContent(), "Turn on Ultra Fast?");
+      await page.screenshot({ path: path.join(output, `${name}-confirm.png`), fullPage: true });
+      await answerSpeedConfirmation(ui, page);
       await ui.waitForFunction(() => document.querySelector('button[data-speed="ultrafast"]').getAttribute("aria-pressed") === "true");
       assert.equal(await ui.locator('button.speed-choice[data-speed="fast"]').getAttribute("aria-pressed"), "false");
       // Unknown saved paid preference: no invented paid DOM, explicit off only.
@@ -126,7 +155,7 @@ export async function runComposerSpeedIconsBrowserCases(browser, { output, engin
         assert.ok(bounds.x >= box.x && bounds.x + bounds.width <= box.x + box.width);
         assert.ok(bounds.height >= (width < 600 ? 44 : 36));
       }
-      assert.deepEqual(errors, []);
+      assert.deepEqual(errors, []); assert.deepEqual(nativeDialogs, [], "no browser dialog asks for a paid tier");
       await fs.writeFile(path.join(output, `${name}-computed.json`), JSON.stringify(observed, null, 2));
       console.log(JSON.stringify({ case: "composer-speed-icons", engine, width, theme, look, result: "passed", quotaHover: true, toolDisclosure: true, paidModelCalls: 0 }));
     } catch (error) {
