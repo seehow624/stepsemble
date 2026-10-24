@@ -199,7 +199,7 @@ html[data-theme=dark] .wf-panel {--wf-green:#83c89f;--wf-amber:#d4af6b;--wf-red:
 .goal-chip-close.btn {flex:none;display:inline-grid;place-items:center;min-width:28px;min-height:0;margin:0;padding:0 10px 0 6px;border:1px solid var(--line);border-left:0;border-radius:0 var(--radius-pill) var(--radius-pill) 0;background:var(--paper);color:var(--pine-soft);font:inherit;font-size:14px;line-height:1;cursor:pointer;}
 .goal-chip-close.btn:hover,.goal-chip-close.btn:focus-visible {background:var(--bubble-user);color:var(--ink);}
 .goal-chip-close[hidden] {display:none!important;}
-@media (pointer:coarse) {.goal-chip-close.btn {min-width:36px;}}
+@media (pointer:coarse) {.goal-chip-close.btn {min-width:44px;}}
 .goal-chip-state {overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .goal-chip-state::before,.goal-chip-clock::before {content:"·";margin-right:5px;color:var(--pine-soft);}
 .goal-chip-clock {font-variant-numeric:tabular-nums;color:var(--pine-soft);}

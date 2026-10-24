@@ -188,7 +188,6 @@
       const requested = t("requested", language).replace("Fast", shown?.requested === "ultrafast" ? "Ultra Fast" : "Fast");
       const explanation = t("title", language) + (fast ? ": " + requested : "") + ". " + noteText;
       if (description) description.textContent = explanation;
-      if (button) button.title = [button.getAttribute("aria-label"), explanation].filter(Boolean).join(". ");
     }
     async function refresh({ afterPending = false } = {}) {
       const target = context(), targetKey = target?.key || null;
