@@ -922,6 +922,13 @@ test("2.1.0 update center covers per-device state, idle apply, and partial updat
   const asked = app.indexOf("if (!(await askConfirm(question.question");
   assert.ok(asked > 0);
   assert.doesNotMatch(app.slice(0, asked), /interrupt: true/);
+  // One question may wait behind another (modules/app-dialog.js). An install
+  // or upgrade question acts only if no install or upgrade started while it
+  // waited, so a device is never sent a second install.
+  assert.match(app, /const generation = viewGeneration, starts = updateInstallStarts;[\s\S]{0,2400}starts !== updateInstallStarts\) return;\n  updateInstallInFlight\.add\(machine\.id\); updateInstallStarts\+\+;/);
+  assert.match(app, /const asked = viewGeneration, starts = updateInstallStarts;[\s\S]{0,600}starts !== updateInstallStarts\) return;[\s\S]{0,120}updateInstallAllRunning = true; updateInstallStarts\+\+;/);
+  assert.match(app, /harnessUpdateInFlight\.add\(id\); harnessUpgradeStarts\+\+;/);
+  assert.equal(app.match(/starts !== harnessUpgradeStarts\) return;/g)?.length, 2, "both upgrade questions recheck");
   assert.match(server, /if \(p === "\/api\/update\/check" && req\.method === "POST"\)/);
   assert.match(html, /id="update-center-summary"[^>]*aria-live="polite"/);
   assert.match(app, /function refreshUpdateCenter\(force = false\)/);

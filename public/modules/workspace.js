@@ -150,11 +150,14 @@
   }
   // A Host answers an error with a code for this page to check
   // (name_invalid, host_offline), not words for people. One that would reach
-  // the screen says what it means instead.
-  function readable(text) {
+  // the screen says what it means instead: an unreachable Host, a known
+  // reason, or else that the step did not complete (fallback for a read).
+  const CODE_TEXT = { workspace_entry_not_found: "entryGone" };
+  function readable(text, fallback = "actionFailed") {
     const value = String(text ?? "");
     if (!/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(value)) return value;
-    return t(/offline|unreachable|unavailable|timeout|timed_out|refused|disconnected/.test(value) ? "hostUnavailable" : "loadFailed");
+    if (/offline|unreachable|unavailable|timeout|timed_out|refused|disconnected/.test(value)) return t("hostUnavailable");
+    return t(CODE_TEXT[value] || fallback);
   }
   // A notice never covers the limits capsule at the sidebar's foot (on a
   // phone the sidebar is the whole screen): it rises above it instead. A
@@ -1310,7 +1313,7 @@
   // reason is spoken and shown on hover, and a new failure is raised once
   // instead of on every poll.
   function setConnection(online, message) {
-    message = readable(message);
+    message = readable(message, "loadFailed");
     const dot = document.querySelector(".workspace-status-dot");
     if (dot) dot.dataset.state = online ? "online" : "offline";
     $("workspace-host").title = message;
