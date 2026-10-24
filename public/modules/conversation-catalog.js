@@ -111,6 +111,10 @@ var StepsembleConversations;
         const toolbar = el("div", "", "conversation-toolbar"), search = el("input");
         search.type = "search";
         search.maxLength = 200;
+        // A search is not prose: no autocorrect or capitals offered while typing.
+        search.spellcheck = false;
+        search.setAttribute("autocorrect", "off");
+        search.setAttribute("autocapitalize", "off");
         const agent = el("select"), kind = el("select");
         toolbar.append(search, agent, kind);
         const summary = el("p", "", "conversation-summary");

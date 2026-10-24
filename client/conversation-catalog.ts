@@ -93,6 +93,8 @@ namespace StepsembleConversations {
     const close = el("button"); close.type = "button"; close.addEventListener("click", () => dialog.close()); heading.append(title, close);
     const scope = el("p", "", "conversation-scope"), note = el("p", "", "conversation-note");
     const toolbar = el("div", "", "conversation-toolbar"), search = el("input"); search.type = "search"; search.maxLength = 200;
+    // A search is not prose: no autocorrect or capitals offered while typing.
+    search.spellcheck = false; search.setAttribute("autocorrect", "off"); search.setAttribute("autocapitalize", "off");
     const agent = el("select"), kind = el("select");
     toolbar.append(search, agent, kind);
     const summary = el("p", "", "conversation-summary"); summary.setAttribute("role", "status"); summary.setAttribute("aria-live", "polite");
