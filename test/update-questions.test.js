@@ -15,7 +15,8 @@ function deferred() { let resolve; const promise = new Promise(r => { resolve = 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 function harness() {
-  const questions = [], runs = [], statuses = new Map(), timers = [];
+  const questions = [], runs = [], statuses = new Map(), applies = new Map(), toasts = [], timers = [];
+  let shown = Promise.resolve();
   const context = vm.createContext({
     Set, Map, Promise, Number, String, Array, JSON, console,
     machines: [{ id: "a" }, { id: "b" }],
@@ -23,13 +24,19 @@ function harness() {
     updateViewIsOpen: () => true,
     updateDeviceView: () => ({ install: true, latest: "3.9.53" }),
     updateDeviceName: machine => machine.id, updateVersionText: value => value, updateText: text => text,
-    renderUpdateCenter() {}, renderHarnessUpdates() {}, toast() {}, scheduleUpdateRefreshes() {}, setUpdateCenterSummaryParts() {},
+    renderUpdateCenter() {}, renderHarnessUpdates() {}, scheduleUpdateRefreshes() {}, setUpdateCenterSummaryParts() {},
+    toast: (message, error) => { toasts.push([message, !!error]); },
     setTimeout: callback => { timers.push(callback); },
-    askConfirm: (question, options) => { const answer = deferred(); questions.push({ question, options, answer }); return answer.promise; },
+    // As the app's dialog: one question at a time, in the order asked. An
+    // answer to a later question only counts once the earlier ones have one.
+    askConfirm: (question, options) => {
+      const answer = deferred(), turn = shown.then(() => answer.promise);
+      shown = turn.catch(() => {}); questions.push({ question, options, answer }); return turn;
+    },
     requestMachineUpdate: async (machine, route, body) => {
       if (route === "/api/update/status") { const reply = statuses.get(machine.id); return reply ? reply.promise : { data: { updater: {} } }; }
       if (route === "/api/update/run") { runs.push("install " + machine.id); return { data: {} }; }
-      if (route === "/api/harness-updates/apply") { runs.push("upgrade " + body.id); return { data: {} }; }
+      if (route === "/api/harness-updates/apply") { runs.push("upgrade " + body.id); const hold = applies.get(body.id); if (hold) await hold.promise; return { data: {} }; }
       return { data: {} };
     },
     mergeHarnessStatus: (data) => data, harnessUpdateDataByDevice: new Map(),
@@ -46,8 +53,9 @@ function harness() {
     "this.api = { installDeviceUpdate, installAllDeviceUpdates, applyHarnessUpdate, applyAllHarnessUpdates };",
   ].join("\n"), context);
   context.harnessUpdateDataByDevice.set("a", { harnesses: [{ id: "codex", label: "Codex" }, { id: "claude", label: "Claude" }] });
-  return { api: context.api, questions, runs, statuses, flushTimers: () => { for (const callback of timers.splice(0)) callback(); } };
+  return { api: context.api, questions, runs, statuses, applies, toasts, flushTimers: () => { for (const callback of timers.splice(0)) callback(); } };
 }
+const wait = "Wait for the running upgrade to finish, then try again.";
 
 test("a device's waiting install question does not install it again after Install all did", async () => {
   const h = harness(); h.statuses.set("a", deferred());
@@ -71,27 +79,45 @@ test("a confirmed install for one device is not dropped because another device s
   assert.deepEqual(h.runs, ["install a", "install b"]);
 });
 
-test("Install all skips only a device that started while it was asked", async () => {
+test("Install all skips only a device that started while it waited", async () => {
   const h = harness();
-  const all = h.api.installAllDeviceUpdates(); await settle();
   const single = h.api.installDeviceUpdate("a"); await settle();
-  h.questions[1].answer.resolve(true); await single;
-  h.questions[0].answer.resolve(true); await all;
+  const all = h.api.installAllDeviceUpdates(); await settle();
+  h.questions[0].answer.resolve(true); await single; h.flushTimers();
+  h.questions[1].answer.resolve(true); await all;
   assert.deepEqual(h.runs, ["install a", "install b"], "b still installs; a is not installed twice");
 });
 
-test("an agent's upgrade question is not dropped by another agent's upgrade, nor run beside Upgrade all", async () => {
+test("an agent's upgrade question is not dropped by another agent's upgrade", async () => {
   const h = harness();
-  const claude = h.api.applyHarnessUpdate("claude"); await settle();
   const codex = h.api.applyHarnessUpdate("codex"); await settle();
-  h.questions[1].answer.resolve(true); await codex;
-  h.questions[0].answer.resolve(true); await claude;
+  const claude = h.api.applyHarnessUpdate("claude"); await settle();
+  h.questions[0].answer.resolve(true); await codex;
+  h.questions[1].answer.resolve(true); await claude;
   assert.deepEqual(h.runs, ["upgrade codex", "upgrade claude"]);
-  // Upgrade all asked while codex's own question waits: codex upgrades once.
-  const g = harness();
-  const all = g.api.applyAllHarnessUpdates(); await settle();
-  const one = g.api.applyHarnessUpdate("codex"); await settle();
-  g.questions[1].answer.resolve(true); await one;
-  g.questions[0].answer.resolve(true); await all;
-  assert.deepEqual(g.runs, ["upgrade codex", "upgrade claude"]);
+  assert.deepEqual(h.toasts.filter(([message]) => message === wait), []);
+});
+
+test("a yes to Upgrade all while an upgrade still runs says to wait, never vanishes", async () => {
+  const h = harness(); h.applies.set("codex", deferred());
+  const codex = h.api.applyHarnessUpdate("codex"); await settle();
+  const all = h.api.applyAllHarnessUpdates(); await settle();
+  h.questions[0].answer.resolve(true); await settle();
+  h.questions[1].answer.resolve(true); await all;
+  assert.deepEqual(h.runs, ["upgrade codex"], "nothing runs beside the running upgrade");
+  assert.deepEqual(h.toasts.at(-1), [wait, true]);
+  h.applies.get("codex").resolve(); await codex;
+});
+
+test("a single upgrade asked behind Upgrade all neither runs twice nor beside it", async () => {
+  const h = harness(); h.applies.set("codex", deferred());
+  const all = h.api.applyAllHarnessUpdates(); await settle();
+  const codex = h.api.applyHarnessUpdate("codex"); await settle();
+  const claude = h.api.applyHarnessUpdate("claude"); await settle();
+  h.questions[0].answer.resolve(true); await settle();
+  h.questions[1].answer.resolve(true); await codex;
+  h.questions[2].answer.resolve(true); await claude;
+  assert.deepEqual(h.toasts.at(-1), [wait, true], "claude's own question waits for Upgrade all");
+  h.applies.get("codex").resolve(); await all;
+  assert.deepEqual(h.runs, ["upgrade codex", "upgrade claude"], "each agent upgrades once, one at a time");
 });

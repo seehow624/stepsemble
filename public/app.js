@@ -16936,8 +16936,11 @@ async function applyHarnessUpdate(id) {
     ? updateText("Upgrade {harness} to {version} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, version: target, device: updateDeviceName(machine) })
     : updateText("Run the official updater for {harness} on {device}? Running agents are not interrupted; the upgrade is refused while one is working.", { harness, device: updateDeviceName(machine) });
   const asked = viewGeneration, starts = harnessUpgradeCount(machine, id);
-  if (!(await askConfirm(question, { action: "upgrade" })) || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.has(id)
-    || harnessUpgradeAllRunning || starts !== harnessUpgradeCount(machine, id)) return;
+  if (!(await askConfirm(question, { action: "upgrade" })) || asked !== viewGeneration || currentMachine()?.id !== machine.id) return;
+  // Upgraded while asked: it is running or done already.
+  if (starts !== harnessUpgradeCount(machine, id) || harnessUpdateInFlight.has(id)) return;
+  // A yes is never dropped without a word.
+  if (harnessUpgradeAllRunning) { toast(updateText("Wait for the running upgrade to finish, then try again."), true); return; }
   const generation = viewGeneration;
   const selectedAtStart = selectedId;
   const outcome = await upgradeHarness(machine, item);
@@ -16956,7 +16959,8 @@ async function applyAllHarnessUpdates() {
   const lines = listed.map((item) => (item.label || item.id) + (item.latestVersion ? " → " + updateVersionText(item.latestVersion) : ""));
   const asked = viewGeneration, starts = listed.map((item) => harnessUpgradeCount(machine, item.id));
   if (!(await askConfirm(updateText("Upgrade these agents on {device}? Running agents are not interrupted; an upgrade is refused while one is working.", { device: updateDeviceName(machine) }), { action: "upgrade", details: lines }))
-    || asked !== viewGeneration || currentMachine()?.id !== machine.id || harnessUpdateInFlight.size || harnessUpgradeAllRunning) return;
+    || asked !== viewGeneration || currentMachine()?.id !== machine.id) return;
+  if (harnessUpdateInFlight.size || harnessUpgradeAllRunning) { toast(updateText("Wait for the running upgrade to finish, then try again."), true); return; }
   // An agent upgraded while the question was open is not upgraded again.
   const items = listed.filter((item, index) => starts[index] === harnessUpgradeCount(machine, item.id));
   if (!items.length) return;
@@ -17414,7 +17418,8 @@ async function installDeviceUpdate(machineId) {
   // Ask the device what is running now; the row may predate newly started work.
   let live = null;
   try { live = (await requestMachineUpdate(machine, "/api/update/status"))?.data?.updater || null; } catch {}
-  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning) return;
+  // No question whose yes could not act: this device may have started meanwhile.
+  if (generation !== viewGeneration || !updateViewIsOpen() || updateInstallInFlight.has(machine.id) || updateInstallAllRunning || starts !== installStartsOf(machine)) return;
   const work = Array.isArray(live?.activeWork) ? live.activeWork : [];
   const interrupt = live?.interruptible === true && work.length > 0;
   const question = interrupt
