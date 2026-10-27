@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.9.55
+
+- Open Google Antigravity on a Mac whose Stepsemble starts through SSH (the Mac mini's localhost launcher). agy 1.4.8 sees the SSH session's variables, treats its terminal as remote, asks it for its type and waits for an answer that never comes, so the Antigravity tab hung on an empty screen. Stepsemble now starts agy without SSH_CLIENT, SSH_CONNECTION, SSH_TTY and SSH_AUTH_SOCK, for the tab, its sign-in check, the opt-in stream mode and the model list.
+
 ## 3.9.54
 
 - Keep the clear button (✖) of search fields whole on iPhone. 3.9.53 centred it, but it reached past the end of the field and iOS cut off its right half; it now sits inside the field, as far from the end as the magnifier is from the start.
