@@ -59,7 +59,7 @@ test("trusting a folder adds only that folder and keeps every other setting", t 
   assert.deepEqual(first, { trusted: true, written: true, folder: f.project });
   const saved = JSON.parse(f.read("settings.json"));
   assert.deepEqual(saved, { ...original, trustedWorkspaces: ["/elsewhere", f.project] });
-  assert.equal(fs.statSync(path.join(f.agy, "settings.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(f.agy, "settings.json")).mode & 0o777, 0o600);
   assert.deepEqual(trustAntigravityFolder(f.home, f.project), { trusted: true, written: false, folder: f.project }, "a second request writes nothing");
   // Nothing about data sharing exists to write: agy keeps that choice with
   // the account (its documentation says so); the record agy keeps of its
