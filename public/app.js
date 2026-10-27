@@ -2851,7 +2851,11 @@ async function openAgentTaskFromHub(task) {
   // otherwise it would fall into the Claude/Codex transcript reader, which
   // intentionally accepts only claude-history:/codex-history: IDs and leaves
   // the chat on the empty state when the same row is opened again.
-  if (task.nativeOpenCode === true || task.agentId === "opencode") return openOpenCodeNativeTask(task);
+  // OpenCode without its own server runs in a terminal like the other CLIs;
+  // that task is opened as one, not looked up in OpenCode's server.
+  const openCodeTerminal = task.agentId === "opencode" && task.nativeOpenCode !== true
+    && (task.kind === "cli" || typeof task.transport === "string");
+  if (!openCodeTerminal && (task.nativeOpenCode === true || task.agentId === "opencode")) return openOpenCodeNativeTask(task);
   if (task.nativeHistoryReadonly === true) return openNativeHistoryTask(task);
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
@@ -5355,6 +5359,16 @@ function syncGenericInputState() {
     if (reason) { note.dataset.i18nKey = `agentHub.${reason}`; note.textContent = agentHubText(reason); }
     else { delete note.dataset.i18nKey; note.textContent = ""; }
   }
+  syncSessionTerminal(rpc);
+}
+
+// The terminal view's keys follow whether the task takes input now.
+function syncSessionTerminal(connection = rpc) {
+  const view = connection?.sessionTerminal;
+  if (!view) return;
+  const blocked = !!genericInputBlock(connection);
+  for (const button of view.keys.querySelectorAll("button")) button.disabled = blocked;
+  view.node.classList.toggle("is-idle", blocked);
 }
 
 function updateAgentTaskCache(task) {
@@ -5426,6 +5440,112 @@ function replaceClaudeStructuredOutputTail(connection, text) {
     ? Math.min(Math.max(0, connection.claudeOutputStart), current.length) : current.length;
   setGenericOutputText(node, current.slice(0, start) + clean);
   scrollBottom();
+}
+
+// ---- The terminal view of a CLI session ----
+// A CLI that runs in a terminal (PTY) draws its own full-screen interface:
+// menus, first-run pages, approvals. Its output is replayed onto a screen of
+// the task's grid, and keys go back the way a person presses them.
+// [key, label, accessible name]; a word key shows its own name.
+const SESSION_TERMINAL_KEYS = Object.freeze([
+  ["up", "↑", "Up"], ["down", "↓", "Down"], ["left", "←", "Left"], ["right", "→", "Right"],
+  ["tab"], ["space"], ["escape", "Esc"], ["backspace", "⌫", "Backspace"], ["enter"],
+]);
+
+function sessionTerminalFor(connection = rpc) {
+  if (!connection?.generic || !connection.terminal || !agentTerminalApi) return null;
+  if (connection.sessionTerminal?.node?.isConnected) return connection.sessionTerminal;
+  // The screen is the conversation itself, not a message in a turn: the work
+  // log's turns, timers and "Thinking" leave it alone.
+  const wrap = document.createElement("section");
+  wrap.className = "session-terminal-msg";
+  wrap.setAttribute("aria-label", connection.agentLabel || "Agent");
+  el.messages.appendChild(wrap);
+  keepSessionUsageAtEnd();
+  const bubble = wrap;
+  const node = document.createElement("div");
+  node.className = "session-terminal";
+  const screenNode = document.createElement("div");
+  screenNode.className = "agent-terminal-screen session-terminal-screen";
+  screenNode.tabIndex = 0;
+  screenNode.setAttribute("role", "group");
+  screenNode.setAttribute("aria-label", agentTerminalText("session.screen"));
+  screenNode.dataset.i18nIgnore = "";
+  const keys = document.createElement("div");
+  keys.className = "agent-terminal-keys session-terminal-keys";
+  keys.setAttribute("role", "group");
+  keys.setAttribute("aria-label", agentTerminalText("keys"));
+  for (const [key, label = key[0].toUpperCase() + key.slice(1), name] of SESSION_TERMINAL_KEYS) {
+    const button = document.createElement("button");
+    button.type = "button"; button.dataset.terminalKey = key; button.textContent = label;
+    if (name) button.setAttribute("aria-label", name);
+    button.dataset.i18nIgnore = "";
+    keys.appendChild(button);
+  }
+  const hint = document.createElement("p");
+  hint.className = "session-terminal-hint";
+  hint.textContent = agentTerminalText("session.hint");
+  node.append(screenNode, keys, hint);
+  bubble.appendChild(node);
+  const view = { node, screenNode, keys, connection, frame: null, follow: true, queue: Promise.resolve(),
+    screen: agentTerminalApi.createScreen({ cols: connection.terminal.cols, rows: connection.terminal.rows, scrollback: 1000 }) };
+  keys.addEventListener("click", event => {
+    const button = event.target.closest?.("[data-terminal-key]");
+    if (button && !button.disabled) void sendSessionTerminalInput(view, { key: button.dataset.terminalKey });
+  });
+  screenNode.addEventListener("keydown", event => handleSessionTerminalKey(view, event));
+  screenNode.addEventListener("paste", event => {
+    const text = String(event.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").slice(0, 8192);
+    if (!text) return;
+    event.preventDefault();
+    void sendSessionTerminalInput(view, { data: text });
+  });
+  connection.sessionTerminal = view;
+  syncSessionTerminal(connection);
+  return view;
+}
+
+function writeSessionTerminal(text, { replace = false } = {}, connection = rpc) {
+  const view = sessionTerminalFor(connection);
+  if (!view) return;
+  if (replace) { view.screen.reset(); view.follow = true; }
+  if (text) view.screen.write(String(text));
+  if (view.frame) return;
+  view.frame = requestAnimationFrame(() => {
+    view.frame = null;
+    if (!view.node.isConnected) return;
+    const node = view.screenNode;
+    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+    drawTerminalRows(node, view.screen);
+    if (nearBottom || view.follow) { node.scrollTop = node.scrollHeight; view.follow = false; }
+  });
+}
+
+// Keys go out one at a time, in the order they were pressed.
+function sendSessionTerminalInput(view, payload) {
+  const connection = view.connection;
+  view.queue = view.queue.then(async () => {
+    if (rpc !== connection || !connection.terminal || genericInputBlock(connection)) return false;
+    try { await post("/api/agent/input", { taskId: connection.sid, ...payload }); return true; }
+    catch (error) {
+      if (rpc === connection) toast(agentTerminalText("session.inputFailed", { detail: error.message || "unknown error" }), true);
+      return false;
+    }
+  });
+  return view.queue;
+}
+
+function handleSessionTerminalKey(view, event) {
+  if (event.isComposing || event.metaKey || event.altKey) return;
+  if (event.ctrlKey) {
+    if (event.key.toLowerCase() === "c" && !event.shiftKey) { event.preventDefault(); void sendSessionTerminalInput(view, { key: "ctrl-c" }); }
+    return;
+  }
+  // Shift+Tab leaves the screen, so the keyboard is never trapped in it.
+  if (event.key === "Tab" && event.shiftKey) return;
+  const key = event.key === " " ? "space" : AGENT_TERMINAL_KEYMAP[event.key];
+  if (key) { event.preventDefault(); void sendSessionTerminalInput(view, { key }); return; }
+  if (event.key.length === 1) { event.preventDefault(); void sendSessionTerminalInput(view, { data: event.key }); }
 }
 
 function appendGenericInput(text, truncated = false) {
@@ -5523,6 +5643,8 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
     return;
   }
   if (ev.type === "output") {
+    // A terminal program's output is a screen, not a transcript.
+    if (rpc.terminal) { writeSessionTerminal(ev.text, { replace: ev.replace === true }); return; }
     if (ev.replace === true) {
       el.messages.querySelectorAll(".agent-terminal-output").forEach(node => node.closest(".msg")?.remove());
       rpc.genericOutputNode = null;
@@ -5531,6 +5653,8 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
     return;
   }
   if (ev.type === "input") {
+    // What was typed shows on the program's own screen.
+    if (rpc.terminal) return;
     const text = typeof ev.text === "string" ? ev.text : "";
     if (!text) return;
     const echoes = Array.isArray(rpc.genericInputEchoes) ? rpc.genericInputEchoes : [];
@@ -7879,6 +8003,9 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       cwd: result.cwd || options.cwd || currentSessionCwd || "",
       runStartedAt: taskTimestampMs(result.startedAt) || null,
       runEndedAt: taskTimestampMs(result.endedAt) || null,
+      // A CLI in a terminal: its screen is drawn and it takes keys.
+      terminal: sessionTerminalGrid(result.terminal),
+      sessionTerminal: null,
     };
     const connection = rpc;
     const ownsTask = () => rpc === connection && generation === viewGeneration && baseAtStart === apiBase;
@@ -7987,6 +8114,14 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         if (esFail >= 3) scheduleReconnect(es);
       };
     };
+    if (rpc.terminal) {
+      // The screen is rebuilt from the output the Host still holds; the
+      // journal keeps only the start of a long session, not today's screen.
+      sessionTerminalFor(connection);
+      rpc.lastEventId = 0;
+      openStream(0, false);
+      return;
+    }
     rpc.lastEventId = Number.isSafeInteger(Number(result.eventSeq)) ? Number(result.eventSeq) : -1;
     const canonicalHistoryLoaded = await loadGenericCanonicalHistory(result, taskId, connection);
     openStream(rpc.lastEventId, canonicalHistoryLoaded);
@@ -8002,6 +8137,13 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       ? { label: tKey("agentTerminal.signInAction"), run: () => void openAgentTerminal({ agentId: failedAgent, action: "login" }) } : null);
     if (!needsClaudeSignIn) showList();
   }
+}
+
+// The terminal grid a CLI task reports; a task without one is a transcript.
+function sessionTerminalGrid(value) {
+  const cols = value?.cols, rows = value?.rows;
+  return value?.keys === true && Number.isInteger(cols) && cols >= 20 && cols <= 400 && Number.isInteger(rows) && rows >= 5 && rows <= 200
+    ? { cols, rows } : null;
 }
 
 function closeChat(silent) {
@@ -12223,15 +12365,19 @@ async function sendCurrent() {
   // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
   // transcript has no date lines, so native Codex skips the separator.
   const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
-  if (!codexNativeSend) maybeDateSeparator(Date.now());
+  // A terminal program has no turns: no date line, no "thinking" turn.
+  const terminalSend = generic && !!rpc.terminal;
+  if (!codexNativeSend && !terminalSend) maybeDateSeparator(Date.now());
   lastUserText = text;
   subagentTracker?.newTurn();
   // Sent while the agent is idle, the message starts a turn that shows it is
   // being worked on at once; sent during a run, it waits its turn.
   const sendConnection = rpc;
   const queuedSend = workLogRunState().running && !(rpc.pendingTurn && !rpc.pendingTurn.sawRun);
-  const pendingTurn = queuedSend ? null : beginPendingTurn(sendConnection);
-  const { wrap: userShell, bubble } = makeMsgShell("user", "你");
+  const pendingTurn = queuedSend || terminalSend ? null : beginPendingTurn(sendConnection);
+  // A terminal program shows what was typed on its own screen; a bubble
+  // below the screen would only repeat it.
+  const { wrap: userShell, bubble } = makeMsgShell("user", "你", terminalSend ? document.createElement("div") : el.messages);
   userShell.dataset.ts = String(Date.now());
   if (queuedSend) userShell.dataset.wlQueued = "1";
   if (text) bubble.appendChild(renderMarkdown(text));
@@ -14581,8 +14727,15 @@ function renderAgentTerminalScreen(term) {
   const screen = el.agentTerminalScreen;
   if (!screen || !term.screen) return;
   const nearBottom = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 24;
+  drawTerminalRows(screen, term.screen);
+  if (nearBottom || term.followOutput) { screen.scrollTop = screen.scrollHeight; term.followOutput = false; }
+}
+
+// The rows of a terminal screen with their colours. The conversation terminal
+// and the terminal view of a CLI session draw the same way.
+function drawTerminalRows(container, terminalScreen) {
   const fragment = document.createDocumentFragment();
-  for (const runs of term.screen.styledRows()) {
+  for (const runs of terminalScreen.styledRows()) {
     const line = document.createElement("div");
     line.className = "agent-terminal-line";
     for (const run of runs) {
@@ -14605,8 +14758,7 @@ function renderAgentTerminalScreen(term) {
     if (!line.childNodes.length) line.appendChild(document.createTextNode("\u00a0"));
     fragment.appendChild(line);
   }
-  screen.replaceChildren(fragment);
-  if (nearBottom || term.followOutput) { screen.scrollTop = screen.scrollHeight; term.followOutput = false; }
+  container.replaceChildren(fragment);
 }
 
 function renderAgentTerminalLinks(term) {
