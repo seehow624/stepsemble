@@ -129,6 +129,21 @@ Oh My Pi 用 Bun 安裝（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bu
 `omp` 會在 `~/.bun/bin`，Stepsemble 會到那裡找。
 `omp` 還沒登入模型供應商時，新增 Oh My Pi 對話會先提供 `omp login`。
 
+Google Antigravity 只要裝了 `agy`，就走它官方文件記載的 headless 串流（stream-json）；
+`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 可改回終端機。這個串流不會停在 agy 的第一次設定頁或信任資料夾的詢問上。
+它沒有回覆核准的管道：需要核准的動作由 agy 自己拒絕（Stepsemble 不加任何會自動核准的參數），
+對話裡會顯示被拒絕的動作；**在終端機模式繼續**會在 agy 自己的畫面打開同一個對話，由 agy 先問你。
+
+在終端機（PTY）執行的 CLI 對話會顯示程式自己的畫面和一排按鍵（方向鍵、Tab、空白、Esc、Backspace、Enter）；
+在畫面上打的字會直接送給程式，輸入框送出的訊息會按 Enter 送出。勾選隔離 Git worktree 的對話，
+也和其他對話一樣使用各 Agent 的結構化通道（Claude Code、Codex、Grok Build、ACP Agent、OpenCode 的 server、Antigravity 的串流）。
+
+Stepsemble 不會替 Agent 回答它自己的第一次設定頁。新增 Antigravity 對話時，如果 agy 的第一次設定還沒完成
+（配色、服務條款與資料分享的選擇，agy 記在 `~/.gemini/antigravity-cli/cache/onboarding.json`），
+新增對話視窗會說明，並在那個專案的終端機裡打開 agy 自己的設定頁，由你自己選；agy 存好後對話才開始，
+也可以按「先不設定，直接開始」。視窗會提醒 agy 預設勾選資料分享；Stepsemble 不會替你勾選、取消或保存這個選擇。
+「信任這個資料夾」是另一個預設不勾的選項，勾了才會把資料夾加進 agy 官方文件記載的 `trustedWorkspaces` 設定。
+
 Stepsemble 只在同一個本機使用者環境中啟動這些 CLI，不會複製、匯出、改寫或上傳
 Claude Code、Codex 等官方登入與訂閱憑證，也不會靜默把官方訂閱切成 API key 或
 第三方 router。各家原生客戶端仍可照常直接使用。

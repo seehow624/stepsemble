@@ -123,6 +123,21 @@ Oh My Pi 用 Bun 安装（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bu
 `omp` 会在 `~/.bun/bin`，Stepsemble 会到那里找。
 `omp` 还没登录模型供应商时，新建 Oh My Pi 会话会先提供 `omp login`。
 
+Google Antigravity 只要装了 `agy`，就走它官方文档记载的 headless 流（stream-json）；
+`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 可改回终端。这个流不会停在 agy 的首次设置页或信任文件夹的询问上。
+它没有回复批准的通道：需要批准的操作由 agy 自己拒绝（Stepsemble 不加任何会自动批准的参数），
+会话里会显示被拒绝的操作；**在终端模式继续**会在 agy 自己的界面打开同一个会话，由 agy 先问你。
+
+在终端（PTY）里运行的 CLI 会话会显示程序自己的界面和一排按键（方向键、Tab、空格、Esc、Backspace、Enter）；
+在界面上输入的字会直接发给程序，输入框发送的消息会按 Enter 提交。勾选隔离 Git worktree 的会话，
+也和其他会话一样使用各 Agent 的结构化通道（Claude Code、Codex、Grok Build、ACP Agent、OpenCode 的 server、Antigravity 的流）。
+
+Stepsemble 不会替 Agent 回答它自己的首次设置页。新建 Antigravity 会话时，如果 agy 的首次设置还没完成
+（配色、服务条款与数据共享的选择，agy 记在 `~/.gemini/antigravity-cli/cache/onboarding.json`），
+新建会话窗口会说明，并在那个项目的终端里打开 agy 自己的设置页，由你自己选；agy 保存后会话才开始，
+也可以按“先不设置，直接开始”。窗口会提醒 agy 默认勾选数据共享；Stepsemble 不会替你勾选、取消或保存这个选择。
+“信任这个文件夹”是另一个默认不勾的选项，勾了才会把文件夹加进 agy 官方文档记载的 `trustedWorkspaces` 设置。
+
 ## 助理（Hermes）
 
 已配对的任一台电脑运行 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 时，Workspace 顶部会出现“工作区｜助理”切换。
