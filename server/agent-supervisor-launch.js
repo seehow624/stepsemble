@@ -5,6 +5,22 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 
+// The terminal an interactive CLI is given, which is also the grid the
+// browser draws its screen on. An operator may still choose another size.
+const PTY_COLUMNS = 120;
+const PTY_ROWS = 40;
+
+function terminalSize(env = process.env) {
+  const number = (value, fallback, min, max) => {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+  };
+  return {
+    cols: number(env?.STEPSEMBLE_PTY_COLS ?? env?.PI_HARBOR_PTY_COLS, PTY_COLUMNS, 40, 400),
+    rows: number(env?.STEPSEMBLE_PTY_ROWS ?? env?.PI_HARBOR_PTY_ROWS, PTY_ROWS, 10, 200),
+  };
+}
+
 function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, spawnImpl = spawn }) {
   const args = [path.join(__dirname, "agent-task-supervisor.js"),
     "--id", task.id, "--agent-id", task.agentId, "--name", task.name,
@@ -16,9 +32,11 @@ function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, spawnI
     "--command", command, "--transport", ptyRuntime ? "pty" : "pipe",
     "--started", String(task.startedAt)];
   if (ptyRuntime) args.push("--pty-python", ptyRuntime, "--pty-bridge", path.join(__dirname, "pty-bridge.py"));
+  const size = terminalSize(env);
   return new Promise((resolve, reject) => {
     const supervisor = spawnImpl(process.execPath, args, {
       cwd: __dirname, env: { ...env, HOME: appHome, TERM: env.TERM || "xterm-256color",
+        STEPSEMBLE_PTY_COLS: String(size.cols), STEPSEMBLE_PTY_ROWS: String(size.rows),
         STEPSEMBLE_AGENT_ID: task.agentId, STEPSEMBLE_TASK_ID: task.id, STEPSEMBLE_SUPERVISOR: "1",
         PI_HARBOR_AGENT_ID: task.agentId, PI_HARBOR_TASK_ID: task.id, PI_HARBOR_SUPERVISOR: "1" },
       stdio: "ignore", detached: true, windowsHide: true,
@@ -28,4 +46,4 @@ function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, spawnI
   });
 }
 
-module.exports = { launchAgentSupervisor };
+module.exports = { launchAgentSupervisor, terminalSize, PTY_COLUMNS, PTY_ROWS };

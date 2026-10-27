@@ -31,12 +31,9 @@ const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
 
-// Keys a phone keyboard cannot type, mapped to the bytes a terminal sends.
-const KEYS = Object.freeze({
-  enter: "\r", tab: "\t", escape: "\x1b", backspace: "\x7f", space: " ",
-  up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D",
-  "ctrl-c": "\x03", "ctrl-d": "\x04",
-});
+// Keys a phone keyboard cannot type, shared with the terminal view of a
+// CLI session.
+const { KEYS } = require("./terminal-keys");
 
 // A choice may set:
 //   replaces     starting it signs out the account that is signed in now

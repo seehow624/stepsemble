@@ -2144,7 +2144,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -8429,6 +8429,19 @@ const server = http.createServer(async (req, res) => {
           } else sendJSON(res, 200, agentTasks.send(taskId, body?.message));
         }
         catch (error) { sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send to agent" }); }
+        return;
+      }
+
+      // A key (or typed text) from the terminal view of a CLI task, the way
+      // a person presses it at a terminal: arrows, Enter, Esc, Space...
+      if (p === "/api/agent/input" && req.method === "POST") {
+        const body = await readJSON(req, 64 * 1024);
+        try {
+          const payload = typeof body?.key === "string" ? { key: body.key } : Object.hasOwn(body || {}, "data") ? { data: body.data } : {};
+          sendJSON(res, 200, agentTasks.input(String(body?.taskId || ""), payload));
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send the key", ...(error.code ? { code: String(error.code) } : {}) });
+        }
         return;
       }
 

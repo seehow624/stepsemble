@@ -10,7 +10,8 @@ const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const net = require("node:net");
-const { launchAgentSupervisor } = require("./agent-supervisor-launch");
+const { launchAgentSupervisor, terminalSize } = require("./agent-supervisor-launch");
+const { KEYS, MAX_TERMINAL_INPUT } = require("./terminal-keys");
 const { antigravityGatewayEnv } = require("./antigravity-gateway-env");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_EVENT_TYPES, normalizeConnectorDefinition } = require("./connector-protocol");
@@ -525,6 +526,8 @@ function createAgentTaskService({
   const canonicalJournal = createGenericSessionJournal({ configDir: taskConfigDir });
   const tasksFile = path.join(taskConfigDir, "agent-tasks.json");
   const ptyRuntime = resolvePtyRuntime({ env });
+  // The grid the agent's terminal has; the browser draws its screen on it.
+  const ptySize = terminalSize(env);
   const tasks = new Map();
   let serviceClosing = false;
   const persisted = readPersistedTasks(tasksFile);
@@ -622,6 +625,8 @@ function createAgentTaskService({
       exitCode: task.exitCode,
       signal: task.signal,
       transport: task.transport || "pipe",
+      // A terminal task is drawn as a screen of this size and takes keys.
+      terminal: task.transport === "pty" ? { cols: ptySize.cols, rows: ptySize.rows, keys: true } : null,
       error: task.error || "",
       eventSeq: replay.latest,
       replayFloor: replay.floor,
@@ -1415,6 +1420,31 @@ function createAgentTaskService({
     return { sent: true, taskId: task.id };
   }
 
+  // A key or typed text from the terminal view of a task. Only a task with a
+  // terminal (PTY) takes keys; text never carries control bytes, which would
+  // act as keys of their own.
+  function input(id, payload = {}) {
+    const task = get(id);
+    const fail = (message, statusCode, code) => { const error = new Error(message); error.statusCode = statusCode; if (code) error.code = code; throw error; };
+    if (!task) fail("No such agent task", 404);
+    if (task.stopPromise) fail("Agent task stop is pending", 409);
+    if (terminalTaskStatus(task.status)) fail("Agent task is no longer running", 409);
+    if (task.transport !== "pty") fail("This agent task has no terminal keys", 409, "terminal_keys_unavailable");
+    const key = typeof payload?.key === "string" ? payload.key : "";
+    const hasData = !!payload && Object.hasOwn(payload, "data");
+    if (hasData === !!key) fail("Send one key or some text", 400, "invalid_request");
+    if (key && !Object.hasOwn(KEYS, key)) fail("Unknown terminal key", 400, "invalid_request");
+    if (hasData && (typeof payload.data !== "string" || !payload.data || payload.data.length > MAX_TERMINAL_INPUT
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(payload.data))) fail("Terminal text is invalid", 400, "invalid_request");
+    if (!writeControl(task, key ? { op: "input", key } : { op: "input", data: payload.data })) {
+      fail(task.status === "reconnecting" ? "Agent task is reconnecting" : "Agent task input is unavailable", 409);
+    }
+    task.lastInputAt = Date.now();
+    if (task.status === "waiting") setStatus(task, "running");
+    else { task.lastActivityAt = Date.now(); persist(); }
+    return { accepted: true, taskId: task.id };
+  }
+
   function stop(id) {
     const task = get(id);
     if (!task) return Promise.resolve(false);
@@ -1526,6 +1556,7 @@ function createAgentTaskService({
     resolveApproval,
     list,
     send,
+    input,
     stop,
     stream,
     shutdown,

@@ -23,6 +23,7 @@ const { spawn } = require("node:child_process");
 const { windowsLaunch } = require("./windows-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { parseConnectorProtocolEventLine, parseConnectorAcknowledgementLine, STRUCTURED_ACK_PREFIX } = require("./connector-protocol");
+const { KEYS, MAX_TERMINAL_INPUT, terminalSubmission, terminalTyping, createPasteModeTracker } = require("./terminal-keys");
 
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
@@ -30,6 +31,8 @@ const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_MESSAGE = 1_000_000;
 const MAX_INPUT_EVENT_TEXT = 32 * 1024;
 const SUPERVISOR_VERSION = 1;
+// The pause between a pasted message and the Enter that submits it.
+const TERMINAL_KEY_GAP_MS = 60;
 
 function parseArgs(argv) {
   const values = {};
@@ -129,6 +132,10 @@ let socketServer = null;
 const STRUCTURED_EVENT_MAX_LINE = 128 * 1024;
 let structuredOutputBuffer = "";
 let structuredOutputDiscarding = false;
+// A terminal program says when it accepts pasted text as one paste.
+const pasteMode = createPasteModeTracker();
+// Writes to the terminal go out one after another, in the order they came.
+let terminalWrites = Promise.resolve();
 
 function publicTask() {
   return {
@@ -258,6 +265,23 @@ function inspectStructuredOutput(chunk) {
   }
 }
 
+function childWritable() {
+  return !stopRequested && !!child && child.exitCode === null && !!child.stdin?.writable;
+}
+
+// Each chunk is one keystroke or paste; the next waits a moment so a program
+// reads Enter as Enter, not as part of the text before it.
+function writeTerminal(chunks) {
+  terminalWrites = terminalWrites.then(async () => {
+    for (let index = 0; index < chunks.length; index += 1) {
+      if (index) await new Promise(resolve => setTimeout(resolve, TERMINAL_KEY_GAP_MS));
+      if (!childWritable()) return;
+      child.stdin.write(chunks[index]);
+    }
+  }).catch(writeError => { errorMessage = safeText(writeError?.message, 2000); persistSoon(); });
+  return terminalWrites;
+}
+
 function setStatus(next, extra = {}) {
   status = String(next || "running");
   if (extra.error !== undefined) errorMessage = safeText(extra.error, 2000);
@@ -362,7 +386,11 @@ function startChild() {
   childPid = child.pid || null;
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (chunk) => { appendOutput("stdout", chunk); inspectStructuredOutput(chunk); });
+  child.stdout?.on("data", (chunk) => {
+    if (transport === "pty") pasteMode.observe(chunk);
+    appendOutput("stdout", chunk);
+    inspectStructuredOutput(chunk);
+  });
   child.stderr?.on("data", (chunk) => appendOutput("stderr", chunk));
   child.stdin?.on("error", (stdinError) => { errorMessage = safeText(stdinError.message, 2000); persistSoon(); });
   child.on("error", (spawnError) => {
@@ -401,7 +429,10 @@ function handleCommand(socket, message) {
       return;
     }
     try {
-      child.stdin.write(text.replace(/\r?\n/g, "\n") + "\n");
+      // A terminal program submits on Enter (CR); a line feed only adds a line
+      // to its input box. A plain pipe still reads one line per message.
+      if (transport === "pty") void writeTerminal(terminalSubmission(text, { bracketedPaste: pasteMode.enabled() }));
+      else child.stdin.write(text.replace(/\r?\n/g, "\n") + "\n");
       lastInputAt = Date.now();
       if (status === "waiting") setStatus("running");
       else touch();
@@ -417,6 +448,25 @@ function handleCommand(socket, message) {
     } catch (sendError) {
       writeLine(socket, { type: "error", error: "Agent task input is unavailable", detail: sendError.message });
     }
+    return;
+  }
+  if (message.op === "input") {
+    // A key or typed text from the terminal view. Only a terminal (PTY) has
+    // keys; a pipe reads whole lines and gets messages through "send".
+    const key = typeof message.key === "string" ? message.key : "";
+    const hasData = typeof message.data === "string";
+    let bytes = "";
+    if (key && !hasData && Object.hasOwn(KEYS, key)) bytes = KEYS[key];
+    else if (!key && hasData && message.data.length <= MAX_TERMINAL_INPUT) bytes = terminalTyping(message.data, { bracketedPaste: pasteMode.enabled() });
+    if (transport !== "pty" || !bytes || !childWritable()) {
+      writeLine(socket, { type: "error", error: transport !== "pty" ? "Agent terminal keys are unavailable" : "Agent task input is unavailable" });
+      return;
+    }
+    void writeTerminal([bytes]);
+    lastInputAt = Date.now();
+    if (status === "waiting") setStatus("running");
+    else touch();
+    writeLine(socket, { type: "accepted", taskId });
     return;
   }
   if (message.op === "approval.resolve") {
