@@ -296,14 +296,22 @@ using the server's startup directory. A failed probe safely falls back to the
 normal CLI connector. See
 [`docs/agent-capability-matrix.md`](docs/agent-capability-matrix.md).
 
-Google Antigravity has an explicit structured headless path. Set
-`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=1` when the local `agy` CLI is installed and
-authenticated. Stepsemble then uses the documented stream-json contract,
-locks each task to one upstream conversation ID, and supports bounded event
-replay, prompts, and close. The public headless stream currently does not expose
-a verifiable approval response envelope, so approval observations remain
-fail-closed and must be completed in Antigravity's native UI. Without the flag,
-Stepsemble uses the normal bounded CLI connector.
+Google Antigravity runs through its documented headless stream (stream-json)
+whenever the local `agy` CLI is installed; `STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0`
+returns it to the terminal. Stepsemble locks each task to one upstream
+conversation ID and supports bounded event replay, prompts, and close. The
+stream never stops at agy's first-run pages or its folder-trust question. It has
+no approval response: an action that needs approval is refused by agy itself
+(Stepsemble passes no flag that approves on its own), the conversation shows
+what was refused, and **Continue in the terminal** opens the same conversation
+in agy's own screen, where agy asks first.
+
+A CLI session that runs in a terminal (PTY) shows the program's own screen with
+a key bar (arrows, Tab, Space, Esc, Backspace, Enter); keys typed into the
+screen go to the program, and a message from the composer is submitted with
+Enter. Sessions in an isolated Git worktree use each agent's structured
+channel (Claude Code, Codex, Grok Build, ACP agents, OpenCode's server,
+Antigravity's stream) like any other session.
 
 Cline, Kilo Code, Oh My Pi, and Hermes use their official ACP stdio modes when the local
 executable is installed (`cline --acp`, `kilo acp`, `omp acp`, and `hermes acp`). Their

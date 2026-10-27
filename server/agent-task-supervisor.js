@@ -97,6 +97,18 @@ const socketPath = String(args.socket || "").trim();
 const transport = args.transport === "pty" ? "pty" : "pipe";
 const ptyPython = args["pty-python"] ? requiredAbsolute(args["pty-python"], "pty-python") : "";
 const ptyBridge = args["pty-bridge"] ? requiredAbsolute(args["pty-bridge"], "pty-bridge") : "";
+// Arguments the Host chose for this agent (for example the conversation to
+// continue): a short list of plain strings.
+const commandArgs = (() => {
+  if (!args["args-json"]) return [];
+  let value;
+  try { value = JSON.parse(args["args-json"]); } catch { value = null; }
+  if (!Array.isArray(value) || value.length > 8 || !value.every(item => typeof item === "string" && item.length <= 300 && !/[\u0000-\u001f]/.test(item))) {
+    console.error("stepsemble task supervisor: invalid command arguments");
+    process.exit(64);
+  }
+  return value;
+})();
 const canonicalSessionId = safeText(args["session-id"], 128);
 const canonicalRunId = safeText(args["run-id"], 128);
 const canonicalIncarnationId = safeText(args["incarnation-id"], 128);
@@ -351,9 +363,9 @@ function closeAndExit(code = 0) {
 function startChild() {
   try {
     const launch = transport === "pty" && ptyPython && ptyBridge
-      ? { file: ptyPython, args: [ptyBridge, command] }
-      : process.platform === "win32" ? windowsLaunch(command, process.env.SystemRoot)
-        : { file: command, args: [] };
+      ? { file: ptyPython, args: [ptyBridge, command, ...commandArgs] }
+      : process.platform === "win32" ? windowsLaunch(command, process.env.SystemRoot, commandArgs)
+        : { file: command, args: [...commandArgs] };
     child = spawn(launch.file, launch.args, {
       cwd,
       env: {

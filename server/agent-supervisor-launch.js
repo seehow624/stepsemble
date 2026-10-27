@@ -21,7 +21,7 @@ function terminalSize(env = process.env) {
   };
 }
 
-function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, spawnImpl = spawn }) {
+function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, args: commandArgs = [], spawnImpl = spawn }) {
   const args = [path.join(__dirname, "agent-task-supervisor.js"),
     "--id", task.id, "--agent-id", task.agentId, "--name", task.name,
     ...(task.sessionId ? ["--session-id", task.sessionId] : []),
@@ -32,6 +32,8 @@ function launchAgentSupervisor({ task, appHome, command, ptyRuntime, env, spawnI
     "--command", command, "--transport", ptyRuntime ? "pty" : "pipe",
     "--started", String(task.startedAt)];
   if (ptyRuntime) args.push("--pty-python", ptyRuntime, "--pty-bridge", path.join(__dirname, "pty-bridge.py"));
+  // Fixed arguments chosen by the Host for this agent, never by a browser.
+  if (Array.isArray(commandArgs) && commandArgs.length) args.push("--args-json", JSON.stringify(commandArgs));
   const size = terminalSize(env);
   return new Promise((resolve, reject) => {
     const supervisor = spawnImpl(process.execPath, args, {

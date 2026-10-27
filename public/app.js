@@ -7742,7 +7742,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
 function renderAntigravityStructuredEvents(connection, events, { replace = false } = {}) {
   if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
   const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; connection.antigravityEventSeq = 0; }
+  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; connection.antigravityEventSeq = 0; connection.antigravityTurnStreamed = false; }
   // Numbered events are read on from the last number drawn, as for Claude.
   const numbered = rows.length > 0 && Number.isSafeInteger(rows[0]?.hostSeq);
   for (let index = numbered ? 0 : connection.antigravityEventIndex || 0; index < rows.length; index += 1) {
@@ -7751,11 +7751,87 @@ function renderAntigravityStructuredEvents(connection, events, { replace = false
       if (!Number.isSafeInteger(event?.hostSeq) || event.hostSeq < (connection.antigravityEventSeq || 0)) continue;
       connection.antigravityEventSeq = event.hostSeq + 1;
     }
-    const text = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || event?.result?.response || event?.result?.text || event?.response || event?.text || "";
-    if (text) appendGenericOutput(String(text), "stdout");
+    // A turn streams its answer in text deltas, then repeats it whole in the
+    // result; the result's copy is drawn only when nothing was streamed.
+    const delta = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || "";
+    if (event?.type === "result") {
+      const whole = event?.result?.response || event?.result?.text || event?.response || "";
+      if (whole && !connection.antigravityTurnStreamed) appendGenericOutput(String(whole), "stdout");
+      connection.antigravityTurnStreamed = false;
+    } else if (delta) {
+      appendGenericOutput(String(delta), "stdout");
+      connection.antigravityTurnStreamed = true;
+    } else if (event?.type !== "init" && typeof event?.text === "string" && event.text) appendGenericOutput(event.text, "stdout");
+    if (event?.type === "init") noteAntigravityPermissionMode(connection, event?.init?.permission_mode);
+    const denied = antigravityDeniedActions(event);
+    if (denied.length) appendAntigravityDenied(connection, denied);
   }
   connection.antigravityEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
+}
+
+// In its stream Antigravity cannot ask before an action that needs approval:
+// it refuses it, and the turn's result lists what it refused.
+function antigravityDeniedActions(event) {
+  if (event?.type !== "result") return [];
+  const rows = event?.result?.denied_actions ?? event?.denied_actions;
+  return Array.isArray(rows) ? rows.map(row => String(row?.display_name || row?.action || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 80))
+    .filter(Boolean).slice(0, 12) : [];
+}
+
+function antigravityCard(connection, className, titleText, bodyText) {
+  const shell = makeMsgShell("assistant", connection.agentLabel || "Google Antigravity");
+  const card = document.createElement("div");
+  card.className = "agent-approval-card " + className;
+  const title = document.createElement("strong");
+  title.textContent = titleText;
+  const body = document.createElement("p");
+  body.textContent = bodyText;
+  card.append(title, body);
+  shell.bubble.appendChild(card);
+  return card;
+}
+
+function appendAntigravityDenied(connection, names) {
+  connection.genericOutputNode = null;
+  const card = antigravityCard(connection, "antigravity-denied", agentTerminalText("antigravity.deniedTitle"),
+    agentTerminalText("antigravity.deniedBody", { actions: names.join(", ") }));
+  const actions = document.createElement("div");
+  actions.className = "agent-approval-actions";
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "btn";
+  button.textContent = agentTerminalText("antigravity.continueInTerminal");
+  button.addEventListener("click", () => void continueAntigravityInTerminal(connection, button));
+  actions.appendChild(button);
+  card.appendChild(actions);
+}
+
+// A permission mode from the person's own agy settings that does not refuse
+// is shown, never silently followed and never changed by Stepsemble.
+function noteAntigravityPermissionMode(connection, mode) {
+  const value = typeof mode === "string" ? mode.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
+  if (!value || ["request-review", "strict"].includes(value) || connection.antigravityModeNoted === value) return;
+  connection.antigravityModeNoted = value;
+  connection.genericOutputNode = null;
+  antigravityCard(connection, "antigravity-mode", agentTerminalText("antigravity.modeTitle"), agentTerminalText("antigravity.modeBody", { mode: value }));
+}
+
+// The same Antigravity conversation in its own screen, in a terminal: there
+// agy asks before such an action and the person decides.
+async function continueAntigravityInTerminal(connection, button) {
+  const conversationId = connection?.antigravityConversationId;
+  if (!conversationId) { toast(agentTerminalText("antigravity.noConversation"), true); return; }
+  if (button) button.disabled = true;
+  const base = String(connection.name || agentConnectorLabel("antigravity")).trim().slice(0, 100);
+  const name = agentTerminalText("antigravity.terminalName", { name: base });
+  try {
+    const result = await post("/api/agent/open", { agentId: "antigravity", cwd: connection.cwd || currentSessionCwd || "", name, terminal: true, conversationId });
+    const key = result?.workspaceEntry?.key;
+    if (WORKSPACE_PANE && key) parent.postMessage({ type: "workspace-open", key, title: name }, location.origin);
+    else if (result) await openGenericTask(result);
+  } catch (error) {
+    toast(agentTerminalText("antigravity.terminalFailed", { detail: String(error?.message || "").slice(0, 200) }), true);
+  } finally { if (button) button.disabled = false; }
 }
 
 function renderAntigravityStructuredPermissions(connection, permissions) {
@@ -7797,6 +7873,7 @@ async function refreshAntigravityStructuredSnapshot(connection, { initial = fals
     renderAntigravityStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
     const status = snapshot?.status || {};
+    if (typeof status.nativeConversationId === "string" && status.nativeConversationId) connection.antigravityConversationId = status.nativeConversationId;
     connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed" : "waiting";
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "antigravity", status: connection.taskStatus,
       nativeAntigravityStructured: true, nativeStatus: status });

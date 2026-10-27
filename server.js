@@ -2418,9 +2418,12 @@ function claudeStructuredStatus() {
     persistedSessionCount: claudeStructuredKnownSessions.size,
     lastError: claudeStructuredEnabled && !claudeStructuredCommand ? "claude_executable_unavailable" : null };
 }
-// Antigravity's stream protocol is opt-in for the same reason as the other
-// native bridges: without an explicit flag, keep the normal bounded CLI path
-// and never inspect the user's Antigravity credential/session files.
+// Antigravity runs through its documented stream protocol (agy
+// --input-format/--output-format stream-json) whenever agy is installed: that
+// mode never stops at agy's first-run pages or its folder-trust question, and
+// an action that needs approval is refused by agy itself, never approved.
+// STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0 returns to the terminal (PTY). Stepsemble
+// still never reads Antigravity's credential or session files.
 const antigravityDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "antigravity");
 const antigravityBinOverride = String(process.env.STEPSEMBLE_ANTIGRAVITY_BIN || "").trim();
 let antigravityCommand = null;
@@ -2435,7 +2438,7 @@ if (antigravityBinOverride && path.isAbsolute(antigravityBinOverride)) {
 } else {
   antigravityCommand = resolveCommand(antigravityDefinition, { env: process.env });
 }
-const antigravityStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_ANTIGRAVITY_STRUCTURED || "").trim().toLowerCase());
+const antigravityStructuredEnabled = acpFlag("STEPSEMBLE_ANTIGRAVITY_STRUCTURED", true);
 // Antigravity signed out waits at its own sign-in screen, and a conversation
 // with it then shows nothing at all. `agy models` says so within a second;
 // only that answer blocks a new conversation, never a slow or failed check.
@@ -5205,7 +5208,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       }
       return workspaceResult({ ...result, kind: "pi", agentId: "pi",
         worktree: worktree ? { ...worktree, path: result.cwd } : null });
-    } else if (agentId === "opencode" && openCodeNative.status().ready && !worktree) {
+    } else if (agentId === "opencode" && openCodeNative.status().ready) {
       // When the explicit OpenCode server probe is healthy, prefer its
       // native session API. Without that opt-in the existing PTY path
       // below remains unchanged and keeps working for plain `opencode`.
@@ -5231,15 +5234,15 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         return workspaceResult({ ...fallback, kind: "cli", agentId,
           nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
       }
-    } else if (agentId === "grok-build" && grokAcp && !worktree) {
+    } else if (agentId === "grok-build" && grokAcp) {
       const session = body.resumeSessionId
         ? await grokAcp.loadSession(body.resumeSessionId, nativeAgentDirectory(cwd, "Grok ACP"), { name: body?.name || null })
         : await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
       if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
       await applyAcpChoice("grok-build", grokAcp, session.sessionId, { choice: body.resumeSessionId ? null : body.choice });
       if (gone()) return;
-      return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
-    } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
+      return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build", ...(worktree ? { worktree } : {}) });
+    } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
       const adapter = acpAdapterForAgent(agentId);
       const session = await adapter.createSession({
         directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"),
@@ -5266,8 +5269,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
       await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded", choice: body.choice });
       if (gone()) return;
-      return workspaceResult({ ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
-    } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
+      return workspaceResult({ ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId, ...(worktree ? { worktree } : {}) });
+    } else if (agentId === "codex" && codexNative.status().mutationReady) {
       const nativeCwd = nativeAgentDirectory(cwd, "Codex");
       // Opening a project with an existing native thread must resume
       // that exact thread; silently starting another Codex thread is a
@@ -5295,8 +5298,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       const task = thread ? codexTaskFromThread(thread) : null;
       if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
       if (gone()) return;
-      return workspaceResult({ ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
-    } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
+      return workspaceResult({ ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex", ...(worktree ? { worktree } : {}) });
+    } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand) {
       const localId = crypto.randomUUID();
       const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
       const sessionName = body?.name || null;
@@ -5394,11 +5397,11 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
         return;
       }
-      return workspaceResult({ ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
+      return workspaceResult({ ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code", ...(worktree ? { worktree } : {}) });
     } else if (agentId === "antigravity" && await antigravityNeedsSignIn()) {
       // New session offers Antigravity's own sign-in in its place.
       throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
-    } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
+    } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && body?.terminal !== true) {
       const localId = crypto.randomUUID();
       // agy's stream mode does not read the model from its settings; a Magpie
       // model is named on the command line.
@@ -5408,10 +5411,13 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         conversationId: body?.conversationId || body?.resumeSessionId || null });
       antigravityStructuredSessions.set(localId, session);
       if (gone()) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
-      return workspaceResult({ ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
+      return workspaceResult({ ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity", ...(worktree ? { worktree } : {}) });
     } else {
       if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
-      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+      // Antigravity can continue one of its conversations in its own screen,
+      // where agy itself asks before an action it would refuse in the stream.
+      const resume = agentId === "antigravity" && body?.terminal === true && typeof body?.conversationId === "string" ? body.conversationId : null;
+      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree, ...(resume ? { resume } : {}) });
       return workspaceResult({ ...result, kind: "cli", agentId });
     }
   } finally {

@@ -1181,12 +1181,25 @@ function createAgentTaskService({
     throw lastError || new Error("Agent task supervisor did not start");
   }
 
-  async function open({ agentId, cwd, name, worktree = null } = {}) {
+  async function open({ agentId, cwd, name, worktree = null, resume = null } = {}) {
     const definition = definitionFor(agentId);
     if (!definition || definition.id === "pi") {
       const error = new Error("Use the native Pi connector for Pi Agent");
       error.statusCode = 400;
       throw error;
+    }
+    // A CLI's arguments never come from a browser. The one exception is the
+    // conversation to continue, for the agent that names one this way.
+    let args = [];
+    if (resume !== null && resume !== undefined) {
+      const conversation = String(resume);
+      if (definition.id !== "antigravity" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(conversation)) {
+        const error = new Error("This conversation cannot be continued here");
+        error.statusCode = 400;
+        error.code = "resume_invalid";
+        throw error;
+      }
+      args = ["--conversation", conversation];
     }
     const command = resolveCommand(definition, { piBin, env });
     if (!command) {
@@ -1268,7 +1281,7 @@ function createAgentTaskService({
     try {
       const launched = useDesktop
         ? await desktopClaude.launchTask({ id, name: task.name, cwd: spawnCwd, startedAt: now })
-        : await launchAgentSupervisor({ task, appHome: launchHome, command, ptyRuntime,
+        : await launchAgentSupervisor({ task, appHome: launchHome, command, ptyRuntime, args,
           env: definition.id === "antigravity" ? antigravityGatewayEnv(env, launchHome) : env });
       task.supervisorPid = launched.pid || null;
       task.transport = launched.transport;
