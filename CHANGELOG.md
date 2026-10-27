@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.10.0
+
+- Show a CLI session that runs in a terminal as the program's own screen, with a key bar (arrows, Tab, Space, Esc, Backspace, Enter) under it; keys typed into the screen go to the program. A message from the composer is now submitted with Enter: full-screen programs such as agy, Codex and Claude Code took the line feed Stepsemble sent as a new line in their box, so a message stayed there unsent, and their own questions (trust this folder, allow this file, agy's first-run pages) could not be answered.
+- Answer the questions a full-screen program asks its terminal as it starts, and press Enter a moment after the text. Codex waited about two seconds for each unanswered question and then took everything typed meanwhile, Enter included, as a paste; Claude Code ignored keys for its first two seconds.
+- Start Google Antigravity sessions in agy's documented stream by default (`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` returns to the terminal). The stream has no way to answer an approval, so agy refuses actions that need one: the conversation shows what was refused and offers Continue in the terminal, which opens the same conversation in agy's own screen, where agy asks first. Stepsemble passes no flag that approves on its own, and says so when agy's own settings approve without asking.
+- Open a session in an isolated worktree through the agent's structured channel (Claude Code, Codex, Grok Build, the ACP agents, OpenCode's server, Antigravity's stream) instead of the terminal.
+- Add a first-run step to New session for Antigravity. When agy's own first-run pages (colour scheme, Terms of Service, data sharing) are not done, the dialog says so and opens them in a terminal in the project for the person to answer; the session starts once agy has saved them, or right away with Start without it. The dialog notes that agy pre-ticks data sharing; Stepsemble never ticks, clears or stores that choice. Trusting the folder is a separate, unticked choice that adds only that folder to agy's documented `trustedWorkspaces` setting.
+- Show an Antigravity answer once instead of twice, and open an OpenCode task that runs in a terminal from the task list instead of a pane that said not_configured.
+
 ## 3.9.55
 
 - Open Google Antigravity on a Mac whose Stepsemble starts through SSH (the Mac mini's localhost launcher). agy 1.4.8 sees the SSH session's variables, treats its terminal as remote, asks it for its type and waits for an answer that never comes, so the Antigravity tab hung on an empty screen. Stepsemble now starts agy without SSH_CLIENT, SSH_CONNECTION, SSH_TTY and SSH_AUTH_SOCK, for the tab, its sign-in check, the opt-in stream mode and the model list.
