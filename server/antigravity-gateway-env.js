@@ -46,14 +46,28 @@ function readAntigravityMagpieRoute(home, { fsImpl = fs } = {}) {
   return { model };
 }
 
-// The environment to start agy with: `env` itself, or a copy with Magpie's key
-// and address when the settings route through Magpie and no key is set.
+// A Host started from an SSH login hands SSH_* to every child. agy 1.4.8 then
+// treats its terminal as remote, asks it for its type (DA2, ESC[>c) and waits
+// for an answer Stepsemble's terminal never gives, so the session never opens.
+// agy is started without them.
+const SSH_SESSION_KEYS = Object.freeze(["SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY", "SSH_AUTH_SOCK"]);
+
+function withoutSshSession(env) {
+  if (!SSH_SESSION_KEYS.some(key => Object.prototype.hasOwnProperty.call(env, key))) return env;
+  const copy = { ...env };
+  for (const key of SSH_SESSION_KEYS) delete copy[key];
+  return copy;
+}
+
+// The environment to start agy with: `env` itself, or a copy without the SSH
+// session's variables and, when the settings route through Magpie and no key
+// is set, with Magpie's key and address.
 function antigravityGatewayEnv(env, home, options = {}) {
-  const source = env || {};
+  const source = withoutSshSession(env || {});
   if (filled(source.GEMINI_API_KEY) || filled(source.GOOGLE_API_KEY)) return source;
   if (!readAntigravityMagpieRoute(home, options)) return source;
   return { ...source, GEMINI_API_KEY: MAGPIE_KEY,
     GOOGLE_GEMINI_BASE_URL: filled(source.GOOGLE_GEMINI_BASE_URL) ? source.GOOGLE_GEMINI_BASE_URL : MAGPIE_ORIGIN };
 }
 
-module.exports = { antigravityGatewayEnv, readAntigravityMagpieRoute, antigravitySettingsPath, MAGPIE_ORIGIN };
+module.exports = { antigravityGatewayEnv, SSH_SESSION_KEYS, readAntigravityMagpieRoute, antigravitySettingsPath, MAGPIE_ORIGIN };

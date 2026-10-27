@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { antigravityGatewayEnv, readAntigravityMagpieRoute, antigravitySettingsPath, MAGPIE_ORIGIN } = require("../server/antigravity-gateway-env");
+const { antigravityGatewayEnv, SSH_SESSION_KEYS, readAntigravityMagpieRoute, antigravitySettingsPath, MAGPIE_ORIGIN } = require("../server/antigravity-gateway-env");
 
 const magpieSettings = {
   model: "magpie/codex/gpt-6.1-sol",
@@ -82,4 +82,17 @@ test("only a Magpie model that is safe on the command line is reported", t => {
 test("an oversized settings file is not read", t => {
   const dir = home(t, JSON.stringify({ ...magpieSettings, padding: "x".repeat(1024 * 1024) }));
   assert.equal(readAntigravityMagpieRoute(dir), null);
+});
+
+test("agy is started without the SSH session's variables", t => {
+  const ssh = { SSH_CLIENT: "192.168.1.9 50000 22", SSH_CONNECTION: "192.168.1.9 50000 192.168.1.2 22",
+    SSH_TTY: "/dev/ttys001", SSH_AUTH_SOCK: "/tmp/agent.sock" };
+  assert.deepEqual([...SSH_SESSION_KEYS].sort(), Object.keys(ssh).sort());
+  const env = { PATH: "/usr/bin", ...ssh };
+  assert.deepEqual(antigravityGatewayEnv(env, home(t)), { PATH: "/usr/bin" }, "own sign-in");
+  const routed = antigravityGatewayEnv(env, home(t, magpieSettings));
+  assert.deepEqual(routed, { PATH: "/usr/bin", GEMINI_API_KEY: "magpie", GOOGLE_GEMINI_BASE_URL: MAGPIE_ORIGIN }, "through Magpie");
+  const own = antigravityGatewayEnv({ ...env, GEMINI_API_KEY: "user-key" }, home(t, magpieSettings));
+  assert.deepEqual(own, { PATH: "/usr/bin", GEMINI_API_KEY: "user-key" }, "the user's own key");
+  assert.equal(env.SSH_TTY, "/dev/ttys001", "the Host's own environment is not changed");
 });
