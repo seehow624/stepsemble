@@ -55,6 +55,17 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
   return;
 }
 
-// Interactive: say what it was started with, then behave like a TUI.
+// Interactive: say what it was started with, then behave like a TUI. Until
+// its first-run record says done, it opens on a colour-scheme menu and, when
+// that is answered, writes the record as agy does at Done.
 process.stdout.write("AGY_ARGS:" + JSON.stringify(args) + "\r\n");
+const record = path.join(process.env.HOME || "", ".gemini", "antigravity-cli", "cache", "onboarding.json");
+let onboarded = false;
+try { const value = JSON.parse(fs.readFileSync(record, "utf8")); onboarded = value.onboardingComplete === true || value.consumerOnboardingComplete === true; } catch {}
+if (!onboarded) {
+  process.stdout.write("Choose your color scheme:\r\n");
+  process.env.FAKE_TUI_MENU = "terminal,light,dark";
+  process.env.FAKE_TUI_CHOSE_FILE = record;
+  process.env.FAKE_TUI_CHOSE_JSON = JSON.stringify({ consumerOnboardingComplete: true, enterpriseOnboardingComplete: false, onboardingComplete: true });
+}
 require(path.join(__dirname, "fake-raw-tui.cjs"));

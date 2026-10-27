@@ -19,11 +19,16 @@ async function knownGitBinary() {
 }
 
 // A Host with a synthetic agy on PATH and a Git project with one commit.
-async function host(t, extraEnv = {}) {
+// agy's first-run pages are done unless a test says otherwise.
+async function host(t, extraEnv = {}, { onboarded = true } = {}) {
   const { freePort, waitForServer, stopServer } = await import("../scripts/host-performance-baseline.mjs");
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-agy-routing-"));
   const bin = path.join(home, "bin"), project = path.join(home, "Projects", "app"), log = path.join(home, "agy.log");
   await fs.mkdir(bin); await fs.mkdir(project, { recursive: true });
+  if (onboarded) {
+    await fs.mkdir(path.join(home, ".gemini/antigravity-cli/cache"), { recursive: true });
+    await fs.writeFile(path.join(home, ".gemini/antigravity-cli/cache/onboarding.json"), JSON.stringify({ onboardingComplete: true }));
+  }
   await fs.writeFile(path.join(bin, "agy"), `#!/bin/sh\nexec "${process.execPath}" "${path.join(root, "test-support/fake-agy.cjs")}" "$@"\n`, { mode: 0o755 });
   const git = await knownGitBinary();
   const gitEnv = { HOME: home, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: path.join(home, "gitconfig.disabled"), GIT_TERMINAL_PROMPT: "0" };
@@ -41,10 +46,10 @@ async function host(t, extraEnv = {}) {
   await waitForServer(child); child.stdout.resume(); child.stderr.resume();
   const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
   let cookie = "";
-  const request = (url, body) => fetch(base + url, { headers: { cookie, "content-type": "application/json", origin: base },
+  const request = (url, body, { origin = true } = {}) => fetch(base + url, { headers: { cookie, "content-type": "application/json", ...(origin ? { origin: base } : {}) },
     ...(body ? { method: "POST", body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20_000) });
   const login = await request("/api/login", { token }); cookie = login.headers.get("set-cookie").split(";", 1)[0];
-  const json = async (url, body) => { const response = await request(url, body); return { status: response.status, body: await response.json().catch(() => null) }; };
+  const json = async (url, body, options) => { const response = await request(url, body, options); return { status: response.status, body: await response.json().catch(() => null) }; };
   const starts = async () => (await fs.readFile(log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
   // agy starts a moment after the conversation is admitted.
   const startedWith = async predicate => {
@@ -115,4 +120,37 @@ test("STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0 keeps Antigravity in the terminal", un
   assert.equal(opened.status, 201, JSON.stringify(opened.body));
   assert.equal(opened.body.kind, "cli");
   assert.deepEqual(opened.body.terminal, { cols: 120, rows: 40, keys: true });
+});
+
+test("a new Antigravity session waits for agy's own first-run pages unless the person starts without them", unix, async t => {
+  const h = await host(t, {}, { onboarded: false });
+  const status = await h.json(`/api/agent-first-run?agentId=antigravity&cwd=${encodeURIComponent(h.project)}`);
+  assert.equal(status.status, 200);
+  assert.equal(status.body.onboarding, "needed");
+  assert.deepEqual(status.body.trust, { state: "untrusted", writable: true, key: "trustedWorkspaces" });
+  const held = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "First" });
+  assert.equal(held.status, 409);
+  assert.equal(held.body.code, "antigravity_setup_required");
+  assert.equal(await h.startedWith(row => row.args.includes("stream-json")), null, "agy did not start before its first-run pages");
+  // Starting without them is the person's choice; a terminal continuation
+  // shows agy's pages in that terminal itself.
+  const skipped = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "Skipped", firstRun: "skip" });
+  assert.equal(skipped.status, 201, JSON.stringify(skipped.body));
+  const terminal = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "Terminal", terminal: true, conversationId: "fake-conversation-1" });
+  assert.equal(terminal.status, 201, JSON.stringify(terminal.body));
+  // Trusting the folder is a separate request, never implied.
+  const settings = path.join(h.home, ".gemini/antigravity-cli/settings.json");
+  assert.equal(await fs.readFile(settings, "utf8").catch(() => null), null, "nothing was written so far");
+  assert.equal((await h.json("/api/agent-first-run/trust", { agentId: "antigravity", cwd: h.project }, { origin: false })).status, 403);
+  assert.equal((await h.json("/api/agent-first-run/trust", { agentId: "codex", cwd: h.project })).status, 400);
+  assert.equal((await h.json("/api/agent-first-run/trust", { agentId: "antigravity", cwd: "/" })).status, 400);
+  const trusted = await h.json("/api/agent-first-run/trust", { agentId: "antigravity", cwd: h.project });
+  assert.equal(trusted.status, 200);
+  assert.deepEqual(JSON.parse(await fs.readFile(settings, "utf8")), { trustedWorkspaces: [h.project] });
+  assert.equal((await h.json(`/api/agent-first-run?agentId=antigravity&cwd=${encodeURIComponent(h.project)}`)).body.trust.state, "trusted");
+  // Once agy has saved its pages, new sessions start straight away.
+  await fs.mkdir(path.join(h.home, ".gemini/antigravity-cli/cache"), { recursive: true });
+  await fs.writeFile(path.join(h.home, ".gemini/antigravity-cli/cache/onboarding.json"), JSON.stringify({ consumerOnboardingComplete: true }));
+  const opened = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "After setup" });
+  assert.equal(opened.status, 201, JSON.stringify(opened.body));
 });

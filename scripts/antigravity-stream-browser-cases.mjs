@@ -25,6 +25,9 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       await fs.writeFile(path.join(bin, "agy"), "#!/bin/sh\nexec " + quote(process.execPath) + " " + quote(path.join(root, "test-support/fake-agy.cjs")) + " \"$@\"\n", { mode: 0o700 });
       const piBin = path.join(bin, "pi"); await fs.copyFile(path.join(root, "test-support/rolling-pi.cjs"), piBin); await fs.chmod(piBin, 0o700);
       const project = path.join(home, "Projects", "agy-stream"); await fs.mkdir(project, { recursive: true });
+      // agy's own first-run pages are done here (the setup step has its own case).
+      await fs.mkdir(path.join(home, ".gemini/antigravity-cli/cache"), { recursive: true });
+      await fs.writeFile(path.join(home, ".gemini/antigravity-cli/cache/onboarding.json"), JSON.stringify({ onboardingComplete: true }));
       const port = await freePort(), base = "http://127.0.0.1:" + port;
       child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root,
         env: { ...cleanEnvironment(home), PATH: bin + path.delimiter + path.dirname(process.execPath) + path.delimiter + "/usr/bin:/bin",

@@ -8,6 +8,8 @@
 // one left waiting in the box.
 //   FAKE_TUI_PASTE=0        do not turn bracketed paste on
 //   FAKE_TUI_MENU=a,b,c     start on a menu chosen with arrows and Enter
+//   FAKE_TUI_CHOSE_FILE     when the menu is answered, write FAKE_TUI_CHOSE_JSON
+//                           there, the way agy records its first-run pages
 
 const say = text => process.stdout.write(text + "\r\n");
 if (!process.stdin.isTTY) { say("NOT_A_TTY"); process.exit(3); }
@@ -33,7 +35,16 @@ function key(name) {
 }
 
 function enter() {
-  if (menu.length) { say("CHOSE:" + menu[selected]); menu = []; return; }
+  if (menu.length) {
+    say("CHOSE:" + menu[selected]);
+    menu = [];
+    const file = process.env.FAKE_TUI_CHOSE_FILE;
+    if (file) {
+      require("node:fs").mkdirSync(require("node:path").dirname(file), { recursive: true });
+      require("node:fs").writeFileSync(file, process.env.FAKE_TUI_CHOSE_JSON || "{}");
+    }
+    return;
+  }
   say("SUBMIT:" + JSON.stringify(box));
   box = "";
 }

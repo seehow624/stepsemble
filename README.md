@@ -313,6 +313,17 @@ Enter. Sessions in an isolated Git worktree use each agent's structured
 channel (Claude Code, Codex, Grok Build, ACP agents, OpenCode's server,
 Antigravity's stream) like any other session.
 
+An agent's own first-run pages are never answered by Stepsemble. When a new
+Antigravity session finds agy's first-run setup not done (its colour scheme,
+Terms of Service and data-sharing choice, which agy records in
+`~/.gemini/antigravity-cli/cache/onboarding.json`), the New session dialog says
+so and opens agy's own pages in a terminal in that project, where the person
+chooses; the session starts once agy has saved them, or right away if the
+person starts without them. The dialog notes that agy pre-ticks data sharing;
+Stepsemble never ticks, clears or stores that choice (agy keeps it with the
+account). Trusting the folder is a separate, unticked choice that adds the
+folder to agy's documented `trustedWorkspaces` setting.
+
 Cline, Kilo Code, Oh My Pi, and Hermes use their official ACP stdio modes when the local
 executable is installed (`cline --acp`, `kilo acp`, `omp acp`, and `hermes acp`). Their
 session IDs, streamed updates, cancellation, and permission options stay

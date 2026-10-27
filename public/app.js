@@ -1394,6 +1394,14 @@ async function enterApp() {
           await openAgentTerminal({ agentId: signInAgent, action: "login" });
           return true;
         }
+        // An agent's own first-run pages, in the project of the new session.
+        const setupAgent = PAGE_QUERY.get("setup");
+        if (setupAgent !== null) {
+          if (!/^[a-z0-9-]{1,40}$/.test(setupAgent)) throw new Error("workspace_entry_not_found");
+          showChatEmpty(); el.chatEmpty.textContent = "";
+          await openAgentTerminal({ agentId: setupAgent, action: "setup", cwd: PAGE_QUERY.get("cwd") || "" });
+          return true;
+        }
         const entry = await api(`/api/workspace/entry?key=${encodeURIComponent(workspaceQuery.get("entry") || "")}`);
         const record = entry.record;
         if (record.agentId === "pi") {
@@ -14466,11 +14474,13 @@ function newAgentTerminalScreen(term) {
   term.raw = ""; term.links = []; term.codes = [];
 }
 
-async function openAgentTerminal({ agentId, action = "login", argument = "" } = {}) {
-  if (!agentTerminalApi || !el.agentTerminal || !agentId || !AGENT_TERMINAL_ACTIONS.includes(action)) return;
+// "setup" is not a slash command: the New session dialog opens it for an
+// agent whose own first-run pages are not done yet, in the project folder.
+async function openAgentTerminal({ agentId, action = "login", argument = "", cwd = "" } = {}) {
+  if (!agentTerminalApi || !el.agentTerminal || !agentId || !(AGENT_TERMINAL_ACTIONS.includes(action) || action === "setup")) return;
   closeAgentTerminal({ silent: true });
   const term = {
-    id: ++agentTerminalSequence, agentId, action, argument: String(argument || "").trim(), hostBase: apiBase,
+    id: ++agentTerminalSequence, agentId, action, argument: String(argument || "").trim(), hostBase: apiBase, cwd: String(cwd || ""),
     phase: "preparing", controls: [], notes: [], runId: null, es: null, lastEventId: -1, reconnectTimer: null, reconnectAttempt: 0,
     state: null, exitCode: null, done: false, secret: false, pi: null, legacyTimer: null, renderFrame: null, followOutput: true,
   };
@@ -14492,6 +14502,7 @@ function closeAgentTerminal({ silent = false, detach = false } = {}) {
   agentTerminal = null;
   if (term.reconnectTimer) clearTimeout(term.reconnectTimer);
   if (term.legacyTimer) clearTimeout(term.legacyTimer);
+  if (term.setupTimer) clearTimeout(term.setupTimer);
   if (term.renderFrame) cancelAnimationFrame(term.renderFrame);
   try { term.es?.close(); } catch {}
   // Closing stops the sign-in, except where it carries on without this sheet:
@@ -14509,13 +14520,18 @@ function closeAgentTerminal({ silent = false, detach = false } = {}) {
 
 // A sign-in opened from the Workspace's New session reports back to it.
 function notifyWorkspaceSignIn(term, state) {
-  if (!WORKSPACE_PANE || term?.action !== "login" || PAGE_QUERY.get("signin") !== term.agentId) return;
+  if (!WORKSPACE_PANE) return;
+  if (term?.action === "setup" && PAGE_QUERY.get("setup") === term.agentId) {
+    parent.postMessage({ type: "workspace-setup", agentId: term.agentId, state, completed: term.setupDone === true }, location.origin);
+    return;
+  }
+  if (term?.action !== "login" || PAGE_QUERY.get("signin") !== term.agentId) return;
   parent.postMessage({ type: "workspace-signin", agentId: term.agentId, state, completed: term.state === "completed" }, location.origin);
 }
 
 async function requestCloseAgentTerminal() {
   const term = agentTerminal;
-  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status") {
+  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status" && !term.setupDone) {
     if (!(await askConfirm(agentTerminalText("stopConfirm"), { action: "stop", destructive: true })) || agentTerminal !== term) return;
   }
   closeAgentTerminal();
@@ -14564,7 +14580,8 @@ async function prepareAgentTerminal(term) {
     try {
       const active = await api("/api/agent-auth/active?agentId=" + encodeURIComponent(term.agentId));
       if (agentTerminal !== term) return;
-      if (active?.run?.runId) {
+      // A first-run screen and a sign-in are different runs of the agent.
+      if (active?.run?.runId && (active.run.action === "setup") === (term.action === "setup")) {
         term.notes = [{ tone: "info", text: agentTerminalText("attached") }];
         attachAgentTerminalRun(term, active.run);
         return;
@@ -14577,6 +14594,19 @@ async function prepareAgentTerminal(term) {
     return;
   }
   const choices = Array.isArray(entry[term.action]) ? entry[term.action] : [];
+  if (term.action === "setup") {
+    if (!choices.length) {
+      agentTerminalLine(term, agentTerminalText("setup.unsupported", { agent: label }), "warn");
+      finishAgentTerminal(term, "failed");
+      return;
+    }
+    // The agent's own pages: the person chooses; Stepsemble answers nothing.
+    term.notes = [{ tone: "info", text: agentTerminalText("setup.intro", { agent: label }) }];
+    if (term.agentId === "antigravity") term.notes.push({ tone: "warn", text: agentTerminalText("setup.consent", { agent: label }) });
+    await startAgentTerminalRun(term, { choice: choices[0].id });
+    watchAgentSetup(term);
+    return;
+  }
   if (term.agentId === "omp" && term.action === "login") {
     await prepareOmpConnection(term, choices);
     return;
@@ -14648,6 +14678,29 @@ async function prepareOmpConnection(term, choices) {
   renderAgentTerminal();
 }
 
+// The agent saves its first-run setup when its own pages end (agy: Done);
+// the terminal then says so and the conversation can start. Only the
+// agent's record is read; the screen is not interpreted.
+function watchAgentSetup(term) {
+  const check = async () => {
+    term.setupTimer = null;
+    if (agentTerminal !== term || term.setupDone) return;
+    try {
+      const status = await api("/api/agent-first-run?agentId=" + encodeURIComponent(term.agentId) + "&cwd=" + encodeURIComponent(term.cwd || ""));
+      if (agentTerminal !== term) return;
+      if (status?.onboarding === "complete") {
+        // The sheet's own Close becomes "Done, start the conversation".
+        term.setupDone = true;
+        term.notes = [{ tone: "info", text: agentTerminalText("setup.done", { agent: agentTerminalLabel(term.agentId) }) }];
+        renderAgentTerminal();
+        return;
+      }
+    } catch {}
+    if (agentTerminal === term) term.setupTimer = setTimeout(check, 1500);
+  };
+  term.setupTimer = setTimeout(check, 1500);
+}
+
 function agentTerminalChoiceLabel(agentId, choiceId, host) {
   const specific = "choice." + agentId + "." + choiceId;
   const translated = agentTerminalText(specific, { host });
@@ -14660,7 +14713,8 @@ async function startAgentTerminalRun(term, { choice, provider = "" } = {}) {
   renderAgentTerminal();
   let result;
   try {
-    result = await post("/api/agent-auth/start", { agentId: term.agentId, action: term.action, choice, ...(provider ? { provider } : {}), cols: term.cols, rows: term.rows });
+    result = await post("/api/agent-auth/start", { agentId: term.agentId, action: term.action, choice, ...(provider ? { provider } : {}),
+      ...(term.action === "setup" ? { cwd: term.cwd } : {}), cols: term.cols, rows: term.rows });
   } catch (error) {
     if (agentTerminal !== term) return;
     const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
@@ -14977,7 +15031,7 @@ function renderAgentTerminal() {
   if (!term || !el.agentTerminal) return;
   const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
   el.agentTerminalHost.textContent = agentTerminalText("eyebrow", { host });
-  el.agentTerminalTitle.textContent = label + "  /" + term.action;
+  el.agentTerminalTitle.textContent = term.action === "setup" ? agentTerminalText("setup.title", { agent: label }) : label + "  /" + term.action;
   renderAgentTerminalControls(term);
   // The screen appears once there is something to show, so choosing a
   // method or provider gets the whole sheet.
@@ -14999,6 +15053,12 @@ function renderAgentTerminal() {
   el.agentTerminalSecret.classList.toggle("hidden", term.state === "awaiting_secret");
   el.agentTerminalStop.classList.toggle("hidden", !(running && term.action !== "status"));
   el.agentTerminalStatusButton.classList.toggle("hidden", !(term.done && term.action !== "status" && term.agentId));
+  // The page's language layer reads the key, so the key changes with the text.
+  const doneKey = term.setupDone ? "setup.finish" : "close";
+  if (el.agentTerminalDone.dataset.i18nKey !== "agentTerminal." + doneKey) {
+    el.agentTerminalDone.dataset.i18nKey = "agentTerminal." + doneKey;
+    el.agentTerminalDone.textContent = agentTerminalText(doneKey);
+  }
 }
 
 // ---- Pi: the same three commands, through Pi's own sign-in runtime ----

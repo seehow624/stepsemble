@@ -655,6 +655,13 @@ dialog header .btn:active { background: var(--control-fill-press); transform: sc
 .workspace-signin[hidden] { display: none; }
 #workspace-dialog-body .workspace-signin .btn { justify-self: start; min-height: 38px; padding: 0 18px; justify-content: center; }
 .workspace-signin-frame { width: 100%; height: min(620px, 66dvh); border: .5px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
+/* An agent's first-run step: what it is, the data-sharing note, an unticked
+   folder-trust choice, then the actions. */
+.workspace-setup-consent { margin: 0; color: var(--warn-ink); font-size: var(--text-sm); line-height: 1.5; }
+.workspace-setup-trust { display: flex; align-items: flex-start; gap: 8px; font-size: var(--text-sm); line-height: 1.45; cursor: pointer; }
+.workspace-setup-trust input { margin-top: 3px; flex: 0 0 auto; }
+.workspace-setup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#workspace-dialog-body .workspace-signin .workspace-setup-actions .btn { justify-self: auto; }
 /* While an agent signs in, the dialog fills the screen's height and the
    terminal takes whatever the fields above it leave, so nothing is cut off. */
 #workspace-dialog.workspace-signing-in[open] { display: flex; flex-direction: column; height: min(780px, calc(100dvh - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; }

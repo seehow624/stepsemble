@@ -78,8 +78,9 @@ const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createProjectFilesService } = require("./server/project-files");
 const { createPiResourcesService } = require("./server/pi-resources");
-const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
+const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS, safeConnectorId } = require("./server/agent-connectors");
 const { createAgentAuthService } = require("./server/agent-auth");
+const { firstRunStatus, trustAntigravityFolder } = require("./server/agent-first-run");
 const { windowsLaunch } = require("./server/windows-launch");
 const { opencodexSource, readQuotaConfig, writeQuotaConfig, findCodexBar, createCodexBarReader } = require("./server/quota-sources");
 const { createAgentModelCache, acpModelChoices } = require("./server/agent-model-cache");
@@ -2439,6 +2440,15 @@ if (antigravityBinOverride && path.isAbsolute(antigravityBinOverride)) {
   antigravityCommand = resolveCommand(antigravityDefinition, { env: process.env });
 }
 const antigravityStructuredEnabled = acpFlag("STEPSEMBLE_ANTIGRAVITY_STRUCTURED", true);
+// A new Antigravity conversation waits for agy's first-run pages unless the
+// person chose to start without them. An existing conversation, a terminal
+// continuation (agy shows those pages in that terminal itself) and background
+// work are never held back, nor is anything when agy's record is unreadable.
+function antigravityFirstRunPending(body, cwd) {
+  if (body?.firstRun === "skip" || body?.workflow || body?.terminal === true || body?.fork !== undefined
+    || body?.resumeSessionId || body?.conversationId) return false;
+  return firstRunStatus("antigravity", { home: APP_HOME, folder: cwd || null }).onboarding === "needed";
+}
 // Antigravity signed out waits at its own sign-in screen, and a conversation
 // with it then shows nothing at all. `agy models` says so within a second;
 // only that answer blocks a new conversation, never a slow or failed check.
@@ -2629,6 +2639,8 @@ const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, en
 const agentAuth = createAgentAuthService({
   home: APP_HOME,
   env: process.env,
+  // An agent's first-run screen runs in the project it is for.
+  validateFolder: value => projectDirectory(value),
   ptyRuntime: resolvePtyRuntime({ env: process.env }),
   windowsLaunch,
   resolveExecutable: agentId => {
@@ -5401,6 +5413,11 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
     } else if (agentId === "antigravity" && await antigravityNeedsSignIn()) {
       // New session offers Antigravity's own sign-in in its place.
       throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
+    } else if (agentId === "antigravity" && antigravityFirstRunPending(body, cwd)) {
+      // A new conversation first offers agy's own first-run pages, in a
+      // terminal in this project, for the person to answer; Stepsemble never
+      // answers them. Asking to start without them is the person's choice.
+      throw Object.assign(new Error("Google Antigravity has not finished its first-run setup"), { statusCode: 409, code: "antigravity_setup_required" });
     } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && body?.terminal !== true) {
       const localId = crypto.randomUUID();
       // agy's stream mode does not read the model from its settings; a Magpie
@@ -6344,6 +6361,30 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/agent-models" && req.method === "GET") {
         sendJSON(res, 200, agentModelCache.get(String(url.searchParams.get("agentId") || "")));
+        return;
+      }
+      // An agent's first-run state, read only (server/agent-first-run.js).
+      if (p === "/api/agent-first-run" && req.method === "GET") {
+        const agentId = safeConnectorId(url.searchParams.get("agentId"));
+        const folder = url.searchParams.get("cwd") ? projectDirectory(url.searchParams.get("cwd")) : null;
+        if (!agentId) { sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return; }
+        sendJSON(res, 200, firstRunStatus(agentId, { home: APP_HOME, folder }));
+        return;
+      }
+      // The one first-run value Stepsemble writes, and only on request: a
+      // folder in agy's documented trustedWorkspaces list.
+      if (p === "/api/agent-first-run/trust" && req.method === "POST") {
+        if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
+        try {
+          const body = await readJSON(req, 8 * 1024);
+          if (body?.agentId !== "antigravity") throw Object.assign(new Error("trust_unsupported"), { code: "trust_unsupported", statusCode: 400 });
+          const folder = projectDirectory(body?.cwd);
+          if (!folder) throw Object.assign(new Error("project_folder_unavailable"), { code: "project_folder_unavailable", statusCode: 400 });
+          sendJSON(res, 200, trustAntigravityFolder(APP_HOME, folder));
+        } catch (error) {
+          const code = typeof error?.code === "string" && /^[a-z_]{3,64}$/.test(error.code) ? error.code : "trust_failed";
+          sendJSON(res, [400, 409].includes(error?.statusCode) ? error.statusCode : 409, { error: code, code });
+        }
         return;
       }
       if (p === "/api/agent-auth/active" && req.method === "GET") {

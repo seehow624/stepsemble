@@ -16,7 +16,9 @@ const { withCommandDirectory } = require("./command-environment");
 const { antigravityGatewayEnv } = require("./antigravity-gateway-env");
 
 const AUTH_TERMINAL_VERSION = 1;
-const ACTIONS = Object.freeze(["status", "login", "logout"]);
+// setup: an agent's own first-run pages, in the project folder (see
+// server/agent-first-run.js); the person answers them, Stepsemble never does.
+const ACTIONS = Object.freeze(["status", "login", "logout", "setup"]);
 const PROVIDER_ARG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const RUN_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const MAX_RUNS = 6;
@@ -105,6 +107,9 @@ const AGENT_AUTH_COMMANDS = Object.freeze({
     status: Object.freeze({ args: ["models"] }),
     login: Object.freeze([Object.freeze({ id: "default", args: [], interactive: true, inApp: true })]),
     logout: Object.freeze([Object.freeze({ id: "default", args: [], interactive: true, inApp: true })]),
+    // agy's first-run pages (colour scheme, Terms of Service & Data Use, then
+    // whether to trust the folder) appear when it starts in the project.
+    setup: Object.freeze([Object.freeze({ id: "default", args: [], interactive: true, projectFolder: true })]),
   }),
 });
 
@@ -141,6 +146,7 @@ function publicChoice(choice) {
     provider: choice.provider === true,
     interactive: choice.interactive === true,
     inApp: choice.inApp === true,
+    projectFolder: choice.projectFolder === true,
   };
 }
 
@@ -288,7 +294,7 @@ function cleanDimension(value, fallback, min, max) {
 // hasActiveWork(agentId) is true while that agent has a running conversation.
 // remoteAgents maps an agent id to a runner in another process (the macOS
 // Claude desktop helper), which exposes start/read/input/cancel/available.
-function createAgentAuthService({ home, env = process.env, resolveExecutable, ptyRuntime = null, hasActiveWork = () => false,
+function createAgentAuthService({ home, env = process.env, resolveExecutable, ptyRuntime = null, hasActiveWork = () => false, validateFolder = null,
   remoteAgents = {}, onAuthChanged = () => {}, spawnImpl = spawn, platform = process.platform, windowsLaunch = null, now = Date.now,
   statusTimeoutMs = STATUS_TIMEOUT_MS, interactiveTimeoutMs = INTERACTIVE_TIMEOUT_MS, retainMs = RETAIN_MS,
   pollIntervalMs = 250, killDelayMs = KILL_DELAY_MS } = {}) {
@@ -336,7 +342,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     setState(run, state, { code: run.exitCode, signal: signal || null, reason: reason || null });
     // A finished sign-in or sign-out changes the account the agent's
     // long-running processes should use.
-    if (state === "completed" && run.action !== "status") {
+    if (state === "completed" && (run.action === "login" || run.action === "logout")) {
       try { Promise.resolve(onAuthChanged(run.agentId, run.action)).catch(() => {}); } catch {}
     }
     for (const end of run.endListeners) { try { end(); } catch {} }
@@ -356,6 +362,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
         status: !!entry.status,
         login: (entry.login || []).map(publicChoice),
         logout: (entry.logout || []).map(publicChoice),
+        setup: (entry.setup || []).map(publicChoice),
       };
     }
     return { version: AUTH_TERMINAL_VERSION, pty: !!ptyRuntime, agents };
@@ -374,12 +381,19 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     if (!args) throw problem("invalid_request", 400);
     const cols = cleanDimension(body?.cols, DEFAULT_COLS, 40, 200);
     const rows = cleanDimension(body?.rows, DEFAULT_ROWS, 10, 80);
-    return { agentId, action, choice, provider: choice.provider ? provider : "", args, cols, rows };
+    // A first-run screen runs in the project it is for, a folder the Host
+    // allows, so a folder-trust question is about that project.
+    let folder = null;
+    if (choice.projectFolder) {
+      folder = typeof validateFolder === "function" ? validateFolder(body?.cwd) : null;
+      if (!folder) throw problem("project_folder_unavailable", 400);
+    }
+    return { agentId, action, choice, provider: choice.provider ? provider : "", args, cols, rows, folder };
   }
 
-  function newRun({ agentId, action, choice, provider, command, pty, remote = false }) {
+  function newRun({ agentId, action, choice, provider, command, pty, remote = false, folder = null }) {
     return {
-      id: crypto.randomUUID(), agentId, action, choice: choice.id, provider, command, pty, remote,
+      id: crypto.randomUUID(), agentId, action, choice: choice.id, provider, command, pty, remote, folder,
       state: "starting", startedAt: now(), endedAt: null, exitCode: null, done: false,
       events: [], eventBytes: 0, eventSeq: 0, truncated: false, clients: new Set(), endListeners: new Set(),
       secrets: [], process: null, timer: null, poll: null, remoteId: null, awaitingSecret: false,
@@ -390,7 +404,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
   function startLocal(run, { executable, args, cols, rows, timeoutMs }) {
     const runEnv = { ...env, HOME: home };
     const launch = (extraOptions = {}) => {
-      const processHandle = createTerminalProcess({ command: executable, args, cwd: home,
+      const processHandle = createTerminalProcess({ command: executable, args, cwd: run.folder || home,
         env: run.agentId === "antigravity" ? antigravityGatewayEnv(runEnv, home) : runEnv,
         ptyRuntime, cols, rows, spawnImpl, platform, windowsLaunch, killDelayMs, ...extraOptions });
       run.process = processHandle; run.pty = processHandle.pty;
@@ -451,13 +465,14 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
 
   async function start(body) {
     const request = validateStart(body);
-    const { agentId, action, choice, provider, args, cols, rows } = request;
+    const { agentId, action, choice, provider, args, cols, rows, folder } = request;
     // Signing in or out while that agent is working would pull the account
-    // out from under a running conversation.
-    if (action !== "status" && hasActiveWork(agentId)) throw problem("agent_busy", 409);
+    // out from under a running conversation. Its first-run screen would not.
+    if (action !== "status" && action !== "setup" && hasActiveWork(agentId)) throw problem("agent_busy", 409);
     const existing = activeRuns().find(run => run.agentId === agentId && run.action !== "status");
     if (existing && action !== "status") {
-      if (existing.action === action && existing.choice === choice.id && (existing.provider || "") === provider) return { ...publicRun(existing), attached: true };
+      if (existing.action === action && existing.choice === choice.id && (existing.provider || "") === provider
+        && (existing.folder || null) === (folder || null)) return { ...publicRun(existing), attached: true };
       throw problem("auth_run_active", 409, { run: publicRun(existing) });
     }
     if (activeRuns().length >= MAX_RUNS) throw problem("too_many_runs", 429);
@@ -485,7 +500,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     let executable = null;
     try { executable = resolveExecutable(agentId); } catch {}
     if (!executable || !path.isAbsolute(executable)) throw problem("agent_not_installed", 404);
-    const run = newRun({ agentId, action, choice, provider, command: displayCommand(executable, args), pty: !!ptyRuntime });
+    const run = newRun({ agentId, action, choice, provider, command: displayCommand(executable, args), pty: !!ptyRuntime, folder });
     runs.set(run.id, run);
     try { startLocal(run, { executable, args, cols, rows, timeoutMs }); }
     catch (error) {
