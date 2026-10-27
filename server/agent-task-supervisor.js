@@ -23,7 +23,8 @@ const { spawn } = require("node:child_process");
 const { windowsLaunch } = require("./windows-launch");
 const { createLineDecoder, writeBounded } = require("./stream-safety");
 const { parseConnectorProtocolEventLine, parseConnectorAcknowledgementLine, STRUCTURED_ACK_PREFIX } = require("./connector-protocol");
-const { KEYS, MAX_TERMINAL_INPUT, terminalSubmission, terminalTyping, createPasteModeTracker } = require("./terminal-keys");
+const { KEYS, MAX_TERMINAL_INPUT, terminalSubmission, terminalTyping, createPasteModeTracker, createQueryResponder } = require("./terminal-keys");
+const { terminalSize } = require("./agent-supervisor-launch");
 
 const MAX_OUTPUT_TAIL = 64 * 1024;
 const MAX_EVENTS = 1200;
@@ -31,8 +32,9 @@ const MAX_EVENT_BYTES = 8 * 1024 * 1024;
 const MAX_MESSAGE = 1_000_000;
 const MAX_INPUT_EVENT_TEXT = 32 * 1024;
 const SUPERVISOR_VERSION = 1;
-// The pause between a pasted message and the Enter that submits it.
-const TERMINAL_KEY_GAP_MS = 60;
+// The pause between a message and the Enter that submits it. Codex takes an
+// Enter within about a tenth of a second of fast typing as part of a paste.
+const TERMINAL_ENTER_GAP_MS = 250;
 
 function parseArgs(argv) {
   const values = {};
@@ -146,6 +148,10 @@ let structuredOutputBuffer = "";
 let structuredOutputDiscarding = false;
 // A terminal program says when it accepts pasted text as one paste.
 const pasteMode = createPasteModeTracker();
+// It also asks the terminal about itself before drawing; answer as one would.
+const answerTerminalQueries = transport === "pty"
+  ? createQueryResponder({ ...terminalSize(process.env), write: answer => { if (childWritable()) child.stdin.write(answer); } })
+  : () => {};
 // Writes to the terminal go out one after another, in the order they came.
 let terminalWrites = Promise.resolve();
 
@@ -286,7 +292,7 @@ function childWritable() {
 function writeTerminal(chunks) {
   terminalWrites = terminalWrites.then(async () => {
     for (let index = 0; index < chunks.length; index += 1) {
-      if (index) await new Promise(resolve => setTimeout(resolve, TERMINAL_KEY_GAP_MS));
+      if (index) await new Promise(resolve => setTimeout(resolve, TERMINAL_ENTER_GAP_MS));
       if (!childWritable()) return;
       child.stdin.write(chunks[index]);
     }
@@ -399,7 +405,7 @@ function startChild() {
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
   child.stdout?.on("data", (chunk) => {
-    if (transport === "pty") pasteMode.observe(chunk);
+    if (transport === "pty") { pasteMode.observe(chunk); answerTerminalQueries(chunk); }
     appendOutput("stdout", chunk);
     inspectStructuredOutput(chunk);
   });

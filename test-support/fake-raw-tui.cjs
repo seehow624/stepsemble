@@ -10,19 +10,29 @@
 //   FAKE_TUI_MENU=a,b,c     start on a menu chosen with arrows and Enter
 //   FAKE_TUI_CHOSE_FILE     when the menu is answered, write FAKE_TUI_CHOSE_JSON
 //                           there, the way agy records its first-run pages
+//   FAKE_TUI_BURST_MS=120   like Codex, take an Enter that comes this soon after
+//                           typed text as part of a paste: it only adds a line
+//   FAKE_TUI_QUERY=1        ask where the cursor is before drawing, as Codex
+//                           does, and report the answer or that none came
 
 const say = text => process.stdout.write(text + "\r\n");
 if (!process.stdin.isTTY) { say("NOT_A_TTY"); process.exit(3); }
 process.stdin.setRawMode(true);
 process.stdin.setEncoding("utf8");
 const paste = process.env.FAKE_TUI_PASTE !== "0";
+const burstMs = Number(process.env.FAKE_TUI_BURST_MS) || 0;
+let askingCursor = process.env.FAKE_TUI_QUERY === "1";
+if (askingCursor) {
+  process.stdout.write("\x1b[6n");
+  setTimeout(() => { if (askingCursor) { askingCursor = false; say("CURSOR:none"); } }, 1500);
+}
 if (paste) process.stdout.write("\x1b[?2004h");
 let menu = String(process.env.FAKE_TUI_MENU || "").split(",").filter(Boolean);
 let selected = 0;
 say("READY raw paste=" + (paste ? "on" : "off"));
 if (menu.length) say("MENU:" + menu[selected]);
 
-let box = "", pasting = null;
+let box = "", pasting = null, typedAt = 0;
 const ARROWS = { A: "up", B: "down", C: "right", D: "left" };
 
 function key(name) {
@@ -63,11 +73,18 @@ process.stdin.on("data", data => {
       continue;
     }
     if (text.startsWith("\x1b[200~")) { pasting = ""; text = text.slice(6); continue; }
+    const cursor = /^\x1b\[([0-9]+;[0-9]+)R/.exec(text);
+    if (cursor) {
+      if (askingCursor) { askingCursor = false; say("CURSOR:" + cursor[1]); }
+      text = text.slice(cursor[0].length);
+      continue;
+    }
     const arrow = /^\x1b\[([ABCD])/.exec(text);
     if (arrow) { key(ARROWS[arrow[1]]); text = text.slice(3); continue; }
     const ch = text[0];
     text = text.slice(1);
     if (ch === "\x1b") key("escape");
+    else if (ch === "\r" && burstMs && Date.now() - typedAt < burstMs) { box += "\n"; say("NEWLINE"); }
     else if (ch === "\r") enter();
     else if (ch === "\n") { box += "\n"; say("NEWLINE"); }
     else if (ch === "\x7f") { box = box.slice(0, -1); say("KEY:backspace"); }
@@ -75,7 +92,7 @@ process.stdin.on("data", data => {
     else if (ch === "\x03") key("ctrl-c");
     else if (ch === "\x04") key("ctrl-d");
     else if (ch === " " && menu.length) key("space");
-    else if (ch >= " ") box += ch;
+    else if (ch >= " ") { box += ch; typedAt = Date.now(); }
     else say("CONTROL:" + ch.charCodeAt(0));
   }
 });

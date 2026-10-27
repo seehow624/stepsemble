@@ -25,12 +25,14 @@ function terminalText(value) {
 // then Enter. Full-screen programs read Enter as a carriage return; a line
 // feed only starts a new line in their input box, so it never submits. When
 // the program has turned bracketed paste on, several lines go in as one paste
-// so that a line break inside the message cannot submit it early. Enter is a
-// separate chunk: written together, some programs take it as pasted text.
+// so that a line break inside the message cannot submit it early. Enter is
+// always a separate chunk: Codex takes an Enter that arrives with, or right
+// after, fast typing as part of a paste and only adds a line.
 function terminalSubmission(message, { bracketedPaste = false } = {}) {
   const text = terminalText(message);
+  if (!text) return [KEYS.enter];
   if (bracketedPaste && text.includes("\n")) return [PASTE_START + text + PASTE_END, KEYS.enter];
-  return [text + KEYS.enter];
+  return [text, KEYS.enter];
 }
 
 // Text typed or pasted straight into the terminal view, without Enter.
@@ -60,4 +62,43 @@ function createPasteModeTracker() {
   });
 }
 
-module.exports = { KEYS, MAX_TERMINAL_INPUT, terminalText, terminalSubmission, terminalTyping, createPasteModeTracker };
+// Full-screen programs ask the terminal what it is before they draw; Codex
+// waits about two seconds for each answer. A browser is too far away to
+// answer inside their timeouts, so answer the common questions here, once per
+// question, the way a plain xterm that has just opened would.
+const QUERY_PATTERN = /\x1b\[(?:0?c|>0?c|5n|6n|\?[0-9]+\$p|18t|14t|>0?q)|\x1b\](?:10|11);\?(?:\x07|\x1b\\)/g;
+
+function queryAnswer(query, { cols, rows }) {
+  if (query === "\x1b[c" || query === "\x1b[0c") return "\x1b[?62;22c";
+  if (query === "\x1b[>c" || query === "\x1b[>0c") return "\x1b[>1;10;0c";
+  if (query === "\x1b[5n") return "\x1b[0n";
+  if (query === "\x1b[6n") return "\x1b[1;1R";
+  if (query === "\x1b[18t") return "\x1b[8;" + rows + ";" + cols + "t";
+  if (query === "\x1b[14t") return "\x1b[4;" + rows * 16 + ";" + cols * 8 + "t";
+  if (query === "\x1b[>q" || query === "\x1b[>0q") return "\x1bP>|Stepsemble\x1b\\";
+  const mode = /^\x1b\[\?([0-9]+)\$p$/.exec(query);
+  if (mode) return "\x1b[?" + mode[1] + ";0$y";
+  if (query.startsWith("\x1b]10;")) return "\x1b]10;rgb:e6e6/e6e6/e6e6\x1b\\";
+  if (query.startsWith("\x1b]11;")) return "\x1b]11;rgb:1c1c/1c1c/1c1c\x1b\\";
+  return "";
+}
+
+function createQueryResponder({ cols, rows, write }) {
+  let tail = "";
+  return chunk => {
+    const combined = tail + chunk;
+    QUERY_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = QUERY_PATTERN.exec(combined))) {
+      if (match.index + match[0].length <= tail.length) continue;
+      const answer = queryAnswer(match[0], { cols, rows });
+      if (answer) write(answer);
+    }
+    tail = combined.slice(-24);
+  };
+}
+
+module.exports = {
+  KEYS, MAX_TERMINAL_INPUT, terminalText, terminalSubmission, terminalTyping, createPasteModeTracker,
+  queryAnswer, createQueryResponder,
+};

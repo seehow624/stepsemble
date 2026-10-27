@@ -43,10 +43,11 @@ async function openReady(service, project) {
 
 test("terminal text keeps typing and line breaks but drops control bytes", () => {
   assert.equal(terminalText("a\tb\r\nc\rd\x1b[201~\x03\x00e\x7f"), "a\tb\nc\nd[201~e");
-  assert.deepEqual(terminalSubmission("hello"), ["hello\r"]);
-  assert.deepEqual(terminalSubmission("one\ntwo"), ["one\ntwo\r"], "without bracketed paste lines are typed, then Enter");
+  assert.deepEqual(terminalSubmission("hello"), ["hello", "\r"], "Enter is its own keystroke after the text");
+  assert.deepEqual(terminalSubmission("one\ntwo"), ["one\ntwo", "\r"], "without bracketed paste lines are typed, then Enter");
   assert.deepEqual(terminalSubmission("one\r\ntwo", { bracketedPaste: true }), ["\x1b[200~one\ntwo\x1b[201~", "\r"]);
-  assert.deepEqual(terminalSubmission("single", { bracketedPaste: true }), ["single\r"], "one line needs no paste");
+  assert.deepEqual(terminalSubmission("single", { bracketedPaste: true }), ["single", "\r"], "one line needs no paste");
+  assert.deepEqual(terminalSubmission(""), ["\r"], "an empty message is Enter alone");
   assert.equal(terminalTyping("y"), "y");
   assert.equal(terminalTyping("a\nb", { bracketedPaste: true }), "\x1b[200~a\nb\x1b[201~");
   assert.equal(KEYS.enter, "\r");
@@ -73,6 +74,25 @@ test("a composer message reaches a full-screen program as Enter, not a line feed
   assert.equal(service.send(task.id, "hello").sent, true);
   await until(() => tail().includes('SUBMIT:"hello"'), "the program saw Enter and submitted the message");
   assert.doesNotMatch(tail(), /NEWLINE/, "a line feed would only have added a line to the box");
+});
+
+// Codex takes an Enter that follows fast typing within about a tenth of a
+// second as part of a paste, and only adds a line to its box.
+test("Enter comes a moment after the text, so a program that reads a quick Enter as pasted still submits", unix, async t => {
+  const { service, project } = terminalAgent(t, { FAKE_TUI_BURST_MS: "120" });
+  const { task, tail } = await openReady(service, project);
+  service.send(task.id, "say ok");
+  await until(() => tail().includes('SUBMIT:"say ok"'), "the message was submitted, not left in the box");
+  assert.doesNotMatch(tail(), /NEWLINE/);
+});
+
+// Codex asks where the cursor is before it draws. Unanswered, it waits about
+// two seconds per question, and what arrives meanwhile reaches it as a paste.
+test("the session terminal answers a program's questions about the terminal", unix, async t => {
+  const { service, project } = terminalAgent(t, { FAKE_TUI_QUERY: "1" });
+  const { tail } = await openReady(service, project);
+  await until(() => /CURSOR:/.test(tail()), "the program got an answer or gave up", 4000);
+  assert.match(tail(), /CURSOR:1;1/, "answered the way a fresh terminal would");
 });
 
 test("several lines go in as one paste when the program allows it", unix, async t => {

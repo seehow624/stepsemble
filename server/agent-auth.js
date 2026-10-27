@@ -35,7 +35,7 @@ const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
 
 // Keys a phone keyboard cannot type, shared with the terminal view of a
 // CLI session.
-const { KEYS } = require("./terminal-keys");
+const { KEYS, queryAnswer, createQueryResponder } = require("./terminal-keys");
 
 // A choice may set:
 //   replaces     starting it signs out the account that is signed in now
@@ -147,41 +147,6 @@ function publicChoice(choice) {
     interactive: choice.interactive === true,
     inApp: choice.inApp === true,
     projectFolder: choice.projectFolder === true,
-  };
-}
-
-// Full-screen programs ask the terminal what it is before they draw. A browser
-// is too far away to answer inside their timeouts, so answer the common
-// questions here, once per question, the way a plain xterm would.
-const QUERY_PATTERN = /\x1b\[(?:0?c|>0?c|5n|6n|\?[0-9]+\$p|18t|14t|>0?q)|\x1b\](?:10|11);\?(?:\x07|\x1b\\)/g;
-
-function queryAnswer(query, { cols, rows }) {
-  if (query === "\x1b[c" || query === "\x1b[0c") return "\x1b[?62;22c";
-  if (query === "\x1b[>c" || query === "\x1b[>0c") return "\x1b[>1;10;0c";
-  if (query === "\x1b[5n") return "\x1b[0n";
-  if (query === "\x1b[6n") return "\x1b[1;1R";
-  if (query === "\x1b[18t") return "\x1b[8;" + rows + ";" + cols + "t";
-  if (query === "\x1b[14t") return "\x1b[4;" + rows * 16 + ";" + cols * 8 + "t";
-  if (query === "\x1b[>q" || query === "\x1b[>0q") return "\x1bP>|Stepsemble\x1b\\";
-  const mode = /^\x1b\[\?([0-9]+)\$p$/.exec(query);
-  if (mode) return "\x1b[?" + mode[1] + ";0$y";
-  if (query.startsWith("\x1b]10;")) return "\x1b]10;rgb:e6e6/e6e6/e6e6\x1b\\";
-  if (query.startsWith("\x1b]11;")) return "\x1b]11;rgb:1c1c/1c1c/1c1c\x1b\\";
-  return "";
-}
-
-function createQueryResponder({ cols, rows, write }) {
-  let tail = "";
-  return chunk => {
-    const combined = tail + chunk;
-    QUERY_PATTERN.lastIndex = 0;
-    let match;
-    while ((match = QUERY_PATTERN.exec(combined))) {
-      if (match.index + match[0].length <= tail.length) continue;
-      const answer = queryAnswer(match[0], { cols, rows });
-      if (answer) write(answer);
-    }
-    tail = combined.slice(-24);
   };
 }
 
