@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, paneFrame } from "./workspace-browser-helpers.mjs";
-import { stopAgentTasks } from "./session-terminal-browser-cases.mjs";
+import { stopAgentTasks, supervisorsExited } from "./session-terminal-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Antigravity opens in its stream by default. An action agy refuses there
@@ -75,6 +75,7 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
     } finally {
       await stopAgentTasks(page);
       await context?.close(); if (child) await stopServer(child);
+      await supervisorsExited(home);
       await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }

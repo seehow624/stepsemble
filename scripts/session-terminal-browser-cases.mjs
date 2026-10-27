@@ -20,6 +20,17 @@ export async function stopAgentTasks(page) {
   }).catch(() => {});
 }
 
+// A supervisor records its final state as it exits; removing the home before
+// then leaves that record behind in the temporary folder.
+export async function supervisorsExited(home) {
+  const directory = path.join(home, ".config/stepsemble/agent-tasks"), pids = [];
+  for (const name of (await fs.readdir(directory).catch(() => [])).filter(name => name.endsWith(".json"))) {
+    try { const { supervisorPid } = JSON.parse(await fs.readFile(path.join(directory, name), "utf8")); if (Number.isInteger(supervisorPid)) pids.push(supervisorPid); } catch {}
+  }
+  const alive = () => pids.filter(pid => { try { process.kill(pid, 0); return true; } catch { return false; } });
+  for (let attempt = 0; attempt < 50 && alive().length; attempt += 1) await new Promise(resolve => setTimeout(resolve, 100));
+}
+
 // A CLI session in a terminal (PTY): its own screen is drawn, the key bar and
 // the keyboard reach it, and a message from the composer is submitted with
 // Enter. The synthetic program reads keys in raw mode like agy or Codex.
@@ -101,6 +112,7 @@ export async function runSessionTerminalBrowserCases(browser, { screenshotDirect
     } finally {
       await stopAgentTasks(page);
       await context?.close(); if (child) await stopServer(child);
+      await supervisorsExited(home);
       await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }

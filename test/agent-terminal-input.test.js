@@ -28,10 +28,26 @@ function terminalAgent(t, env = {}) {
     validateCwd: value => value === project ? project : null,
   });
   t.after(async () => {
-    await service.shutdown();
+    await service.shutdown(); await waitForOwnedProcesses(service);
     fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   return { service, project };
+}
+
+// A supervisor records its final state as it exits, and the task list is
+// saved a moment after the last output; removing the folder before then
+// leaves those records behind.
+async function waitForOwnedProcesses(service) {
+  const pids = service.list().flatMap(({ id }) => {
+    const task = service.get(id);
+    return [task.pid, task.supervisorPid].filter(Number.isInteger);
+  });
+  const alive = () => pids.filter(pid => {
+    try { process.kill(pid, 0); return true; } catch { return false; }
+  });
+  for (let attempt = 0; attempt < 50 && alive().length; attempt += 1) await sleep(100);
+  assert.deepEqual(alive(), [], "the terminal program and its supervisor exited");
+  await until(() => service.list().every(({ id }) => !service.get(id)?.persistTimer), "the task list was saved", 2000);
 }
 
 async function openReady(service, project) {

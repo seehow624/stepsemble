@@ -64,9 +64,21 @@ async function host(t, extraEnv = {}, { onboarded = true } = {}) {
     const tasks = (await json("/api/agent-tasks").catch(() => ({ body: {} }))).body?.tasks || [];
     for (const task of tasks) await json("/api/agent/abort", { taskId: task.id }).catch(() => {});
     await stopServer(child);
+    await supervisorsExited(home);
     await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
   return { home, project: await fs.realpath(project), json, starts, startedWith };
+}
+
+// A supervisor records its final state as it exits; removing the home before
+// then leaves that record behind in the temporary folder.
+async function supervisorsExited(home) {
+  const directory = path.join(home, ".config/stepsemble/agent-tasks"), pids = [];
+  for (const name of (await fs.readdir(directory).catch(() => [])).filter(name => name.endsWith(".json"))) {
+    try { const { supervisorPid } = JSON.parse(await fs.readFile(path.join(directory, name), "utf8")); if (Number.isInteger(supervisorPid)) pids.push(supervisorPid); } catch {}
+  }
+  const alive = () => pids.filter(pid => { try { process.kill(pid, 0); return true; } catch { return false; } });
+  for (let attempt = 0; attempt < 50 && alive().length; attempt += 1) await new Promise(resolve => setTimeout(resolve, 100));
 }
 
 test("the stream arguments never carry a flag that approves on its own", () => {
