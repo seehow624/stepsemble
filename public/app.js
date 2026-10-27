@@ -1394,6 +1394,14 @@ async function enterApp() {
           await openAgentTerminal({ agentId: signInAgent, action: "login" });
           return true;
         }
+        // An agent's own first-run pages, in the project of the new session.
+        const setupAgent = PAGE_QUERY.get("setup");
+        if (setupAgent !== null) {
+          if (!/^[a-z0-9-]{1,40}$/.test(setupAgent)) throw new Error("workspace_entry_not_found");
+          showChatEmpty(); el.chatEmpty.textContent = "";
+          await openAgentTerminal({ agentId: setupAgent, action: "setup", cwd: PAGE_QUERY.get("cwd") || "" });
+          return true;
+        }
         const entry = await api(`/api/workspace/entry?key=${encodeURIComponent(workspaceQuery.get("entry") || "")}`);
         const record = entry.record;
         if (record.agentId === "pi") {
@@ -2851,7 +2859,11 @@ async function openAgentTaskFromHub(task) {
   // otherwise it would fall into the Claude/Codex transcript reader, which
   // intentionally accepts only claude-history:/codex-history: IDs and leaves
   // the chat on the empty state when the same row is opened again.
-  if (task.nativeOpenCode === true || task.agentId === "opencode") return openOpenCodeNativeTask(task);
+  // OpenCode without its own server runs in a terminal like the other CLIs;
+  // that task is opened as one, not looked up in OpenCode's server.
+  const openCodeTerminal = task.agentId === "opencode" && task.nativeOpenCode !== true
+    && (task.kind === "cli" || typeof task.transport === "string");
+  if (!openCodeTerminal && (task.nativeOpenCode === true || task.agentId === "opencode")) return openOpenCodeNativeTask(task);
   if (task.nativeHistoryReadonly === true) return openNativeHistoryTask(task);
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
@@ -5355,6 +5367,16 @@ function syncGenericInputState() {
     if (reason) { note.dataset.i18nKey = `agentHub.${reason}`; note.textContent = agentHubText(reason); }
     else { delete note.dataset.i18nKey; note.textContent = ""; }
   }
+  syncSessionTerminal(rpc);
+}
+
+// The terminal view's keys follow whether the task takes input now.
+function syncSessionTerminal(connection = rpc) {
+  const view = connection?.sessionTerminal;
+  if (!view) return;
+  const blocked = !!genericInputBlock(connection);
+  for (const button of view.keys.querySelectorAll("button")) button.disabled = blocked;
+  view.node.classList.toggle("is-idle", blocked);
 }
 
 function updateAgentTaskCache(task) {
@@ -5426,6 +5448,112 @@ function replaceClaudeStructuredOutputTail(connection, text) {
     ? Math.min(Math.max(0, connection.claudeOutputStart), current.length) : current.length;
   setGenericOutputText(node, current.slice(0, start) + clean);
   scrollBottom();
+}
+
+// ---- The terminal view of a CLI session ----
+// A CLI that runs in a terminal (PTY) draws its own full-screen interface:
+// menus, first-run pages, approvals. Its output is replayed onto a screen of
+// the task's grid, and keys go back the way a person presses them.
+// [key, label, accessible name]; a word key shows its own name.
+const SESSION_TERMINAL_KEYS = Object.freeze([
+  ["up", "↑", "Up"], ["down", "↓", "Down"], ["left", "←", "Left"], ["right", "→", "Right"],
+  ["tab"], ["space"], ["escape", "Esc"], ["backspace", "⌫", "Backspace"], ["enter"],
+]);
+
+function sessionTerminalFor(connection = rpc) {
+  if (!connection?.generic || !connection.terminal || !agentTerminalApi) return null;
+  if (connection.sessionTerminal?.node?.isConnected) return connection.sessionTerminal;
+  // The screen is the conversation itself, not a message in a turn: the work
+  // log's turns, timers and "Thinking" leave it alone.
+  const wrap = document.createElement("section");
+  wrap.className = "session-terminal-msg";
+  wrap.setAttribute("aria-label", connection.agentLabel || "Agent");
+  el.messages.appendChild(wrap);
+  keepSessionUsageAtEnd();
+  const bubble = wrap;
+  const node = document.createElement("div");
+  node.className = "session-terminal";
+  const screenNode = document.createElement("div");
+  screenNode.className = "agent-terminal-screen session-terminal-screen";
+  screenNode.tabIndex = 0;
+  screenNode.setAttribute("role", "group");
+  screenNode.setAttribute("aria-label", agentTerminalText("session.screen"));
+  screenNode.dataset.i18nIgnore = "";
+  const keys = document.createElement("div");
+  keys.className = "agent-terminal-keys session-terminal-keys";
+  keys.setAttribute("role", "group");
+  keys.setAttribute("aria-label", agentTerminalText("keys"));
+  for (const [key, label = key[0].toUpperCase() + key.slice(1), name] of SESSION_TERMINAL_KEYS) {
+    const button = document.createElement("button");
+    button.type = "button"; button.dataset.terminalKey = key; button.textContent = label;
+    if (name) button.setAttribute("aria-label", name);
+    button.dataset.i18nIgnore = "";
+    keys.appendChild(button);
+  }
+  const hint = document.createElement("p");
+  hint.className = "session-terminal-hint";
+  hint.textContent = agentTerminalText("session.hint");
+  node.append(screenNode, keys, hint);
+  bubble.appendChild(node);
+  const view = { node, screenNode, keys, connection, frame: null, follow: true, queue: Promise.resolve(),
+    screen: agentTerminalApi.createScreen({ cols: connection.terminal.cols, rows: connection.terminal.rows, scrollback: 1000 }) };
+  keys.addEventListener("click", event => {
+    const button = event.target.closest?.("[data-terminal-key]");
+    if (button && !button.disabled) void sendSessionTerminalInput(view, { key: button.dataset.terminalKey });
+  });
+  screenNode.addEventListener("keydown", event => handleSessionTerminalKey(view, event));
+  screenNode.addEventListener("paste", event => {
+    const text = String(event.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").slice(0, 8192);
+    if (!text) return;
+    event.preventDefault();
+    void sendSessionTerminalInput(view, { data: text });
+  });
+  connection.sessionTerminal = view;
+  syncSessionTerminal(connection);
+  return view;
+}
+
+function writeSessionTerminal(text, { replace = false } = {}, connection = rpc) {
+  const view = sessionTerminalFor(connection);
+  if (!view) return;
+  if (replace) { view.screen.reset(); view.follow = true; }
+  if (text) view.screen.write(String(text));
+  if (view.frame) return;
+  view.frame = requestAnimationFrame(() => {
+    view.frame = null;
+    if (!view.node.isConnected) return;
+    const node = view.screenNode;
+    const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+    drawTerminalRows(node, view.screen);
+    if (nearBottom || view.follow) { node.scrollTop = node.scrollHeight; view.follow = false; }
+  });
+}
+
+// Keys go out one at a time, in the order they were pressed.
+function sendSessionTerminalInput(view, payload) {
+  const connection = view.connection;
+  view.queue = view.queue.then(async () => {
+    if (rpc !== connection || !connection.terminal || genericInputBlock(connection)) return false;
+    try { await post("/api/agent/input", { taskId: connection.sid, ...payload }); return true; }
+    catch (error) {
+      if (rpc === connection) toast(agentTerminalText("session.inputFailed", { detail: error.message || "unknown error" }), true);
+      return false;
+    }
+  });
+  return view.queue;
+}
+
+function handleSessionTerminalKey(view, event) {
+  if (event.isComposing || event.metaKey || event.altKey) return;
+  if (event.ctrlKey) {
+    if (event.key.toLowerCase() === "c" && !event.shiftKey) { event.preventDefault(); void sendSessionTerminalInput(view, { key: "ctrl-c" }); }
+    return;
+  }
+  // Shift+Tab leaves the screen, so the keyboard is never trapped in it.
+  if (event.key === "Tab" && event.shiftKey) return;
+  const key = event.key === " " ? "space" : AGENT_TERMINAL_KEYMAP[event.key];
+  if (key) { event.preventDefault(); void sendSessionTerminalInput(view, { key }); return; }
+  if (event.key.length === 1) { event.preventDefault(); void sendSessionTerminalInput(view, { data: event.key }); }
 }
 
 function appendGenericInput(text, truncated = false) {
@@ -5523,6 +5651,8 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
     return;
   }
   if (ev.type === "output") {
+    // A terminal program's output is a screen, not a transcript.
+    if (rpc.terminal) { writeSessionTerminal(ev.text, { replace: ev.replace === true }); return; }
     if (ev.replace === true) {
       el.messages.querySelectorAll(".agent-terminal-output").forEach(node => node.closest(".msg")?.remove());
       rpc.genericOutputNode = null;
@@ -5531,6 +5661,8 @@ function handleAgentTaskEvent(ev, eventSid = rpc?.sid) {
     return;
   }
   if (ev.type === "input") {
+    // What was typed shows on the program's own screen.
+    if (rpc.terminal) return;
     const text = typeof ev.text === "string" ? ev.text : "";
     if (!text) return;
     const echoes = Array.isArray(rpc.genericInputEchoes) ? rpc.genericInputEchoes : [];
@@ -7618,7 +7750,7 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
 function renderAntigravityStructuredEvents(connection, events, { replace = false } = {}) {
   if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
   const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; connection.antigravityEventSeq = 0; }
+  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; connection.antigravityEventSeq = 0; connection.antigravityTurnStreamed = false; }
   // Numbered events are read on from the last number drawn, as for Claude.
   const numbered = rows.length > 0 && Number.isSafeInteger(rows[0]?.hostSeq);
   for (let index = numbered ? 0 : connection.antigravityEventIndex || 0; index < rows.length; index += 1) {
@@ -7627,11 +7759,87 @@ function renderAntigravityStructuredEvents(connection, events, { replace = false
       if (!Number.isSafeInteger(event?.hostSeq) || event.hostSeq < (connection.antigravityEventSeq || 0)) continue;
       connection.antigravityEventSeq = event.hostSeq + 1;
     }
-    const text = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || event?.result?.response || event?.result?.text || event?.response || event?.text || "";
-    if (text) appendGenericOutput(String(text), "stdout");
+    // A turn streams its answer in text deltas, then repeats it whole in the
+    // result; the result's copy is drawn only when nothing was streamed.
+    const delta = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || "";
+    if (event?.type === "result") {
+      const whole = event?.result?.response || event?.result?.text || event?.response || "";
+      if (whole && !connection.antigravityTurnStreamed) appendGenericOutput(String(whole), "stdout");
+      connection.antigravityTurnStreamed = false;
+    } else if (delta) {
+      appendGenericOutput(String(delta), "stdout");
+      connection.antigravityTurnStreamed = true;
+    } else if (event?.type !== "init" && typeof event?.text === "string" && event.text) appendGenericOutput(event.text, "stdout");
+    if (event?.type === "init") noteAntigravityPermissionMode(connection, event?.init?.permission_mode);
+    const denied = antigravityDeniedActions(event);
+    if (denied.length) appendAntigravityDenied(connection, denied);
   }
   connection.antigravityEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
+}
+
+// In its stream Antigravity cannot ask before an action that needs approval:
+// it refuses it, and the turn's result lists what it refused.
+function antigravityDeniedActions(event) {
+  if (event?.type !== "result") return [];
+  const rows = event?.result?.denied_actions ?? event?.denied_actions;
+  return Array.isArray(rows) ? rows.map(row => String(row?.display_name || row?.action || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 80))
+    .filter(Boolean).slice(0, 12) : [];
+}
+
+function antigravityCard(connection, className, titleText, bodyText) {
+  const shell = makeMsgShell("assistant", connection.agentLabel || "Google Antigravity");
+  const card = document.createElement("div");
+  card.className = "agent-approval-card " + className;
+  const title = document.createElement("strong");
+  title.textContent = titleText;
+  const body = document.createElement("p");
+  body.textContent = bodyText;
+  card.append(title, body);
+  shell.bubble.appendChild(card);
+  return card;
+}
+
+function appendAntigravityDenied(connection, names) {
+  connection.genericOutputNode = null;
+  const card = antigravityCard(connection, "antigravity-denied", agentTerminalText("antigravity.deniedTitle"),
+    agentTerminalText("antigravity.deniedBody", { actions: names.join(", ") }));
+  const actions = document.createElement("div");
+  actions.className = "agent-approval-actions";
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "btn";
+  button.textContent = agentTerminalText("antigravity.continueInTerminal");
+  button.addEventListener("click", () => void continueAntigravityInTerminal(connection, button));
+  actions.appendChild(button);
+  card.appendChild(actions);
+}
+
+// A permission mode from the person's own agy settings that does not refuse
+// is shown, never silently followed and never changed by Stepsemble.
+function noteAntigravityPermissionMode(connection, mode) {
+  const value = typeof mode === "string" ? mode.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
+  if (!value || ["request-review", "strict"].includes(value) || connection.antigravityModeNoted === value) return;
+  connection.antigravityModeNoted = value;
+  connection.genericOutputNode = null;
+  antigravityCard(connection, "antigravity-mode", agentTerminalText("antigravity.modeTitle"), agentTerminalText("antigravity.modeBody", { mode: value }));
+}
+
+// The same Antigravity conversation in its own screen, in a terminal: there
+// agy asks before such an action and the person decides.
+async function continueAntigravityInTerminal(connection, button) {
+  const conversationId = connection?.antigravityConversationId;
+  if (!conversationId) { toast(agentTerminalText("antigravity.noConversation"), true); return; }
+  if (button) button.disabled = true;
+  const base = String(connection.name || agentConnectorLabel("antigravity")).trim().slice(0, 100);
+  const name = agentTerminalText("antigravity.terminalName", { name: base });
+  try {
+    const result = await post("/api/agent/open", { agentId: "antigravity", cwd: connection.cwd || currentSessionCwd || "", name, terminal: true, conversationId });
+    const key = result?.workspaceEntry?.key;
+    if (WORKSPACE_PANE && key) parent.postMessage({ type: "workspace-open", key, title: name }, location.origin);
+    else if (result) await openGenericTask(result);
+  } catch (error) {
+    toast(agentTerminalText("antigravity.terminalFailed", { detail: String(error?.message || "").slice(0, 200) }), true);
+  } finally { if (button) button.disabled = false; }
 }
 
 function renderAntigravityStructuredPermissions(connection, permissions) {
@@ -7673,6 +7881,7 @@ async function refreshAntigravityStructuredSnapshot(connection, { initial = fals
     renderAntigravityStructuredPermissions(connection, pending?.permissions);
     connection.nativeLoading = false; connection.connectionLost = false;
     const status = snapshot?.status || {};
+    if (typeof status.nativeConversationId === "string" && status.nativeConversationId) connection.antigravityConversationId = status.nativeConversationId;
     connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed" : "waiting";
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "antigravity", status: connection.taskStatus,
       nativeAntigravityStructured: true, nativeStatus: status });
@@ -7879,6 +8088,9 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       cwd: result.cwd || options.cwd || currentSessionCwd || "",
       runStartedAt: taskTimestampMs(result.startedAt) || null,
       runEndedAt: taskTimestampMs(result.endedAt) || null,
+      // A CLI in a terminal: its screen is drawn and it takes keys.
+      terminal: sessionTerminalGrid(result.terminal),
+      sessionTerminal: null,
     };
     const connection = rpc;
     const ownsTask = () => rpc === connection && generation === viewGeneration && baseAtStart === apiBase;
@@ -7987,6 +8199,14 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
         if (esFail >= 3) scheduleReconnect(es);
       };
     };
+    if (rpc.terminal) {
+      // The screen is rebuilt from the output the Host still holds; the
+      // journal keeps only the start of a long session, not today's screen.
+      sessionTerminalFor(connection);
+      rpc.lastEventId = 0;
+      openStream(0, false);
+      return;
+    }
     rpc.lastEventId = Number.isSafeInteger(Number(result.eventSeq)) ? Number(result.eventSeq) : -1;
     const canonicalHistoryLoaded = await loadGenericCanonicalHistory(result, taskId, connection);
     openStream(rpc.lastEventId, canonicalHistoryLoaded);
@@ -8002,6 +8222,13 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
       ? { label: tKey("agentTerminal.signInAction"), run: () => void openAgentTerminal({ agentId: failedAgent, action: "login" }) } : null);
     if (!needsClaudeSignIn) showList();
   }
+}
+
+// The terminal grid a CLI task reports; a task without one is a transcript.
+function sessionTerminalGrid(value) {
+  const cols = value?.cols, rows = value?.rows;
+  return value?.keys === true && Number.isInteger(cols) && cols >= 20 && cols <= 400 && Number.isInteger(rows) && rows >= 5 && rows <= 200
+    ? { cols, rows } : null;
 }
 
 function closeChat(silent) {
@@ -12223,15 +12450,19 @@ async function sendCurrent() {
   // Codex's own item replaces this echo (reconcileCodexNativeEchoes) and its
   // transcript has no date lines, so native Codex skips the separator.
   const codexNativeSend = rpc.nativeCodexMutation ? rpc : null;
-  if (!codexNativeSend) maybeDateSeparator(Date.now());
+  // A terminal program has no turns: no date line, no "thinking" turn.
+  const terminalSend = generic && !!rpc.terminal;
+  if (!codexNativeSend && !terminalSend) maybeDateSeparator(Date.now());
   lastUserText = text;
   subagentTracker?.newTurn();
   // Sent while the agent is idle, the message starts a turn that shows it is
   // being worked on at once; sent during a run, it waits its turn.
   const sendConnection = rpc;
   const queuedSend = workLogRunState().running && !(rpc.pendingTurn && !rpc.pendingTurn.sawRun);
-  const pendingTurn = queuedSend ? null : beginPendingTurn(sendConnection);
-  const { wrap: userShell, bubble } = makeMsgShell("user", "你");
+  const pendingTurn = queuedSend || terminalSend ? null : beginPendingTurn(sendConnection);
+  // A terminal program shows what was typed on its own screen; a bubble
+  // below the screen would only repeat it.
+  const { wrap: userShell, bubble } = makeMsgShell("user", "你", terminalSend ? document.createElement("div") : el.messages);
   userShell.dataset.ts = String(Date.now());
   if (queuedSend) userShell.dataset.wlQueued = "1";
   if (text) bubble.appendChild(renderMarkdown(text));
@@ -14243,11 +14474,13 @@ function newAgentTerminalScreen(term) {
   term.raw = ""; term.links = []; term.codes = [];
 }
 
-async function openAgentTerminal({ agentId, action = "login", argument = "" } = {}) {
-  if (!agentTerminalApi || !el.agentTerminal || !agentId || !AGENT_TERMINAL_ACTIONS.includes(action)) return;
+// "setup" is not a slash command: the New session dialog opens it for an
+// agent whose own first-run pages are not done yet, in the project folder.
+async function openAgentTerminal({ agentId, action = "login", argument = "", cwd = "" } = {}) {
+  if (!agentTerminalApi || !el.agentTerminal || !agentId || !(AGENT_TERMINAL_ACTIONS.includes(action) || action === "setup")) return;
   closeAgentTerminal({ silent: true });
   const term = {
-    id: ++agentTerminalSequence, agentId, action, argument: String(argument || "").trim(), hostBase: apiBase,
+    id: ++agentTerminalSequence, agentId, action, argument: String(argument || "").trim(), hostBase: apiBase, cwd: String(cwd || ""),
     phase: "preparing", controls: [], notes: [], runId: null, es: null, lastEventId: -1, reconnectTimer: null, reconnectAttempt: 0,
     state: null, exitCode: null, done: false, secret: false, pi: null, legacyTimer: null, renderFrame: null, followOutput: true,
   };
@@ -14269,6 +14502,7 @@ function closeAgentTerminal({ silent = false, detach = false } = {}) {
   agentTerminal = null;
   if (term.reconnectTimer) clearTimeout(term.reconnectTimer);
   if (term.legacyTimer) clearTimeout(term.legacyTimer);
+  if (term.setupTimer) clearTimeout(term.setupTimer);
   if (term.renderFrame) cancelAnimationFrame(term.renderFrame);
   try { term.es?.close(); } catch {}
   // Closing stops the sign-in, except where it carries on without this sheet:
@@ -14286,13 +14520,18 @@ function closeAgentTerminal({ silent = false, detach = false } = {}) {
 
 // A sign-in opened from the Workspace's New session reports back to it.
 function notifyWorkspaceSignIn(term, state) {
-  if (!WORKSPACE_PANE || term?.action !== "login" || PAGE_QUERY.get("signin") !== term.agentId) return;
+  if (!WORKSPACE_PANE) return;
+  if (term?.action === "setup" && PAGE_QUERY.get("setup") === term.agentId) {
+    parent.postMessage({ type: "workspace-setup", agentId: term.agentId, state, completed: term.setupDone === true }, location.origin);
+    return;
+  }
+  if (term?.action !== "login" || PAGE_QUERY.get("signin") !== term.agentId) return;
   parent.postMessage({ type: "workspace-signin", agentId: term.agentId, state, completed: term.state === "completed" }, location.origin);
 }
 
 async function requestCloseAgentTerminal() {
   const term = agentTerminal;
-  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status") {
+  if (term && !term.done && term.runId && term.mode !== "legacy" && term.action !== "status" && !term.setupDone) {
     if (!(await askConfirm(agentTerminalText("stopConfirm"), { action: "stop", destructive: true })) || agentTerminal !== term) return;
   }
   closeAgentTerminal();
@@ -14341,7 +14580,8 @@ async function prepareAgentTerminal(term) {
     try {
       const active = await api("/api/agent-auth/active?agentId=" + encodeURIComponent(term.agentId));
       if (agentTerminal !== term) return;
-      if (active?.run?.runId) {
+      // A first-run screen and a sign-in are different runs of the agent.
+      if (active?.run?.runId && (active.run.action === "setup") === (term.action === "setup")) {
         term.notes = [{ tone: "info", text: agentTerminalText("attached") }];
         attachAgentTerminalRun(term, active.run);
         return;
@@ -14354,6 +14594,19 @@ async function prepareAgentTerminal(term) {
     return;
   }
   const choices = Array.isArray(entry[term.action]) ? entry[term.action] : [];
+  if (term.action === "setup") {
+    if (!choices.length) {
+      agentTerminalLine(term, agentTerminalText("setup.unsupported", { agent: label }), "warn");
+      finishAgentTerminal(term, "failed");
+      return;
+    }
+    // The agent's own pages: the person chooses; Stepsemble answers nothing.
+    term.notes = [{ tone: "info", text: agentTerminalText("setup.intro", { agent: label }) }];
+    if (term.agentId === "antigravity") term.notes.push({ tone: "warn", text: agentTerminalText("setup.consent", { agent: label }) });
+    await startAgentTerminalRun(term, { choice: choices[0].id });
+    watchAgentSetup(term);
+    return;
+  }
   if (term.agentId === "omp" && term.action === "login") {
     await prepareOmpConnection(term, choices);
     return;
@@ -14425,6 +14678,29 @@ async function prepareOmpConnection(term, choices) {
   renderAgentTerminal();
 }
 
+// The agent saves its first-run setup when its own pages end (agy: Done);
+// the terminal then says so and the conversation can start. Only the
+// agent's record is read; the screen is not interpreted.
+function watchAgentSetup(term) {
+  const check = async () => {
+    term.setupTimer = null;
+    if (agentTerminal !== term || term.setupDone) return;
+    try {
+      const status = await api("/api/agent-first-run?agentId=" + encodeURIComponent(term.agentId) + "&cwd=" + encodeURIComponent(term.cwd || ""));
+      if (agentTerminal !== term) return;
+      if (status?.onboarding === "complete") {
+        // The sheet's own Close becomes "Done, start the conversation".
+        term.setupDone = true;
+        term.notes = [{ tone: "info", text: agentTerminalText("setup.done", { agent: agentTerminalLabel(term.agentId) }) }];
+        renderAgentTerminal();
+        return;
+      }
+    } catch {}
+    if (agentTerminal === term) term.setupTimer = setTimeout(check, 1500);
+  };
+  term.setupTimer = setTimeout(check, 1500);
+}
+
 function agentTerminalChoiceLabel(agentId, choiceId, host) {
   const specific = "choice." + agentId + "." + choiceId;
   const translated = agentTerminalText(specific, { host });
@@ -14437,7 +14713,8 @@ async function startAgentTerminalRun(term, { choice, provider = "" } = {}) {
   renderAgentTerminal();
   let result;
   try {
-    result = await post("/api/agent-auth/start", { agentId: term.agentId, action: term.action, choice, ...(provider ? { provider } : {}), cols: term.cols, rows: term.rows });
+    result = await post("/api/agent-auth/start", { agentId: term.agentId, action: term.action, choice, ...(provider ? { provider } : {}),
+      ...(term.action === "setup" ? { cwd: term.cwd } : {}), cols: term.cols, rows: term.rows });
   } catch (error) {
     if (agentTerminal !== term) return;
     const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
@@ -14581,8 +14858,15 @@ function renderAgentTerminalScreen(term) {
   const screen = el.agentTerminalScreen;
   if (!screen || !term.screen) return;
   const nearBottom = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 24;
+  drawTerminalRows(screen, term.screen);
+  if (nearBottom || term.followOutput) { screen.scrollTop = screen.scrollHeight; term.followOutput = false; }
+}
+
+// The rows of a terminal screen with their colours. The conversation terminal
+// and the terminal view of a CLI session draw the same way.
+function drawTerminalRows(container, terminalScreen) {
   const fragment = document.createDocumentFragment();
-  for (const runs of term.screen.styledRows()) {
+  for (const runs of terminalScreen.styledRows()) {
     const line = document.createElement("div");
     line.className = "agent-terminal-line";
     for (const run of runs) {
@@ -14605,8 +14889,7 @@ function renderAgentTerminalScreen(term) {
     if (!line.childNodes.length) line.appendChild(document.createTextNode("\u00a0"));
     fragment.appendChild(line);
   }
-  screen.replaceChildren(fragment);
-  if (nearBottom || term.followOutput) { screen.scrollTop = screen.scrollHeight; term.followOutput = false; }
+  container.replaceChildren(fragment);
 }
 
 function renderAgentTerminalLinks(term) {
@@ -14748,7 +15031,7 @@ function renderAgentTerminal() {
   if (!term || !el.agentTerminal) return;
   const label = agentTerminalLabel(term.agentId), host = agentTerminalHostName(term.hostBase);
   el.agentTerminalHost.textContent = agentTerminalText("eyebrow", { host });
-  el.agentTerminalTitle.textContent = label + "  /" + term.action;
+  el.agentTerminalTitle.textContent = term.action === "setup" ? agentTerminalText("setup.title", { agent: label }) : label + "  /" + term.action;
   renderAgentTerminalControls(term);
   // The screen appears once there is something to show, so choosing a
   // method or provider gets the whole sheet.
@@ -14770,6 +15053,12 @@ function renderAgentTerminal() {
   el.agentTerminalSecret.classList.toggle("hidden", term.state === "awaiting_secret");
   el.agentTerminalStop.classList.toggle("hidden", !(running && term.action !== "status"));
   el.agentTerminalStatusButton.classList.toggle("hidden", !(term.done && term.action !== "status" && term.agentId));
+  // The page's language layer reads the key, so the key changes with the text.
+  const doneKey = term.setupDone ? "setup.finish" : "close";
+  if (el.agentTerminalDone.dataset.i18nKey !== "agentTerminal." + doneKey) {
+    el.agentTerminalDone.dataset.i18nKey = "agentTerminal." + doneKey;
+    el.agentTerminalDone.textContent = agentTerminalText(doneKey);
+  }
 }
 
 // ---- Pi: the same three commands, through Pi's own sign-in runtime ----

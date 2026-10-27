@@ -11,6 +11,9 @@ import { freePort, waitForServer, stopServer } from "./host-performance-baseline
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { signInToWorkspace, adoptIntoWorkspace, openFromSidebar, paneFrame } from "./workspace-browser-helpers.mjs";
 import { runAgentTerminalBrowserCases } from "./agent-terminal-browser-cases.mjs";
+import { runSessionTerminalBrowserCases } from "./session-terminal-browser-cases.mjs";
+import { runAntigravityStreamBrowserCases } from "./antigravity-stream-browser-cases.mjs";
+import { runAgentSetupBrowserCases } from "./agent-setup-browser-cases.mjs";
 import { runMagpieGatewayBrowserCases } from "./magpie-gateway-browser-cases.mjs";
 import { runPiSessionBrowserCases } from "./pi-session-browser-cases.mjs";
 import { runProjectPickerBrowserCases } from "./project-picker-browser-cases.mjs";
@@ -189,6 +192,9 @@ try {
     }
     console.log("Rolling browser compatibility: 8 real-source pair/viewport cases passed; synthetic Pi only, no service-worker or physical-device claim.");
     await runAgentTerminalBrowserCases(browser);
+    await runSessionTerminalBrowserCases(browser);
+    await runAntigravityStreamBrowserCases(browser);
+    await runAgentSetupBrowserCases(browser);
     await runMagpieGatewayBrowserCases(browser);
     await runPiSessionBrowserCases(browser);
     await runProjectPickerBrowserCases(browser);

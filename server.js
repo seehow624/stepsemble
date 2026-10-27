@@ -78,8 +78,9 @@ const { negotiate, protocolError } = require("./server/platform-protocol");
 const { createGitChangesService } = require("./server/git-changes");
 const { createProjectFilesService } = require("./server/project-files");
 const { createPiResourcesService } = require("./server/pi-resources");
-const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS } = require("./server/agent-connectors");
+const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS, safeConnectorId } = require("./server/agent-connectors");
 const { createAgentAuthService } = require("./server/agent-auth");
+const { firstRunStatus, trustAntigravityFolder } = require("./server/agent-first-run");
 const { windowsLaunch } = require("./server/windows-launch");
 const { opencodexSource, readQuotaConfig, writeQuotaConfig, findCodexBar, createCodexBarReader } = require("./server/quota-sources");
 const { createAgentModelCache, acpModelChoices } = require("./server/agent-model-cache");
@@ -2144,7 +2145,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -2418,9 +2419,12 @@ function claudeStructuredStatus() {
     persistedSessionCount: claudeStructuredKnownSessions.size,
     lastError: claudeStructuredEnabled && !claudeStructuredCommand ? "claude_executable_unavailable" : null };
 }
-// Antigravity's stream protocol is opt-in for the same reason as the other
-// native bridges: without an explicit flag, keep the normal bounded CLI path
-// and never inspect the user's Antigravity credential/session files.
+// Antigravity runs through its documented stream protocol (agy
+// --input-format/--output-format stream-json) whenever agy is installed: that
+// mode never stops at agy's first-run pages or its folder-trust question, and
+// an action that needs approval is refused by agy itself, never approved.
+// STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0 returns to the terminal (PTY). Stepsemble
+// still never reads Antigravity's credential or session files.
 const antigravityDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "antigravity");
 const antigravityBinOverride = String(process.env.STEPSEMBLE_ANTIGRAVITY_BIN || "").trim();
 let antigravityCommand = null;
@@ -2435,7 +2439,16 @@ if (antigravityBinOverride && path.isAbsolute(antigravityBinOverride)) {
 } else {
   antigravityCommand = resolveCommand(antigravityDefinition, { env: process.env });
 }
-const antigravityStructuredEnabled = new Set(["1", "true", "yes", "on"]).has(String(process.env.STEPSEMBLE_ANTIGRAVITY_STRUCTURED || "").trim().toLowerCase());
+const antigravityStructuredEnabled = acpFlag("STEPSEMBLE_ANTIGRAVITY_STRUCTURED", true);
+// A new Antigravity conversation waits for agy's first-run pages unless the
+// person chose to start without them. An existing conversation, a terminal
+// continuation (agy shows those pages in that terminal itself) and background
+// work are never held back, nor is anything when agy's record is unreadable.
+function antigravityFirstRunPending(body, cwd) {
+  if (body?.firstRun === "skip" || body?.workflow || body?.terminal === true || body?.fork !== undefined
+    || body?.resumeSessionId || body?.conversationId) return false;
+  return firstRunStatus("antigravity", { home: APP_HOME, folder: cwd || null }).onboarding === "needed";
+}
 // Antigravity signed out waits at its own sign-in screen, and a conversation
 // with it then shows nothing at all. `agy models` says so within a second;
 // only that answer blocks a new conversation, never a slow or failed check.
@@ -2626,6 +2639,8 @@ const claudeAuth = desktopClaude || createClaudeAuthService({ home: APP_HOME, en
 const agentAuth = createAgentAuthService({
   home: APP_HOME,
   env: process.env,
+  // An agent's first-run screen runs in the project it is for.
+  validateFolder: value => projectDirectory(value),
   ptyRuntime: resolvePtyRuntime({ env: process.env }),
   windowsLaunch,
   resolveExecutable: agentId => {
@@ -5205,7 +5220,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       }
       return workspaceResult({ ...result, kind: "pi", agentId: "pi",
         worktree: worktree ? { ...worktree, path: result.cwd } : null });
-    } else if (agentId === "opencode" && openCodeNative.status().ready && !worktree) {
+    } else if (agentId === "opencode" && openCodeNative.status().ready) {
       // When the explicit OpenCode server probe is healthy, prefer its
       // native session API. Without that opt-in the existing PTY path
       // below remains unchanged and keeps working for plain `opencode`.
@@ -5231,15 +5246,15 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         return workspaceResult({ ...fallback, kind: "cli", agentId,
           nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
       }
-    } else if (agentId === "grok-build" && grokAcp && !worktree) {
+    } else if (agentId === "grok-build" && grokAcp) {
       const session = body.resumeSessionId
         ? await grokAcp.loadSession(body.resumeSessionId, nativeAgentDirectory(cwd, "Grok ACP"), { name: body?.name || null })
         : await grokAcp.createSession({ directory: nativeAgentDirectory(cwd, "Grok ACP"), name: body?.name || null });
       if (session.kind === "reject") { const error = new Error(session.code); error.statusCode = 409; throw error; }
       await applyAcpChoice("grok-build", grokAcp, session.sessionId, { choice: body.resumeSessionId ? null : body.choice });
       if (gone()) return;
-      return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build" });
-    } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId) && !worktree) {
+      return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build", ...(worktree ? { worktree } : {}) });
+    } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
       const adapter = acpAdapterForAgent(agentId);
       const session = await adapter.createSession({
         directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"),
@@ -5266,8 +5281,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       if (session.kind === "loaded") await restoreAcpMode(agentId, adapter, session.sessionId);
       await applyAcpChoice(agentId, adapter, session.sessionId, { loaded: session.kind === "loaded", choice: body.choice });
       if (gone()) return;
-      return workspaceResult({ ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId });
-    } else if (agentId === "codex" && codexNative.status().mutationReady && !worktree) {
+      return workspaceResult({ ...publicAgentClientProtocolTask(agentId, { id: session.sessionId, cwd: session.cwd, status: "idle", eventCount: 0, name: body?.name || null }), kind: "acp", agentId, ...(worktree ? { worktree } : {}) });
+    } else if (agentId === "codex" && codexNative.status().mutationReady) {
       const nativeCwd = nativeAgentDirectory(cwd, "Codex");
       // Opening a project with an existing native thread must resume
       // that exact thread; silently starting another Codex thread is a
@@ -5295,8 +5310,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       const task = thread ? codexTaskFromThread(thread) : null;
       if (!task || !started.threadId) { const error = new Error("codex_native_thread_invalid"); error.statusCode = 502; throw error; }
       if (gone()) return;
-      return workspaceResult({ ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex" });
-    } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand && !worktree) {
+      return workspaceResult({ ...task, mutation: "native_api", nativeCodex: true, kind: "codex-native", agentId: "codex", ...(worktree ? { worktree } : {}) });
+    } else if (agentId === "claude-code" && claudeStructuredEnabled && claudeStructuredCommand) {
       const localId = crypto.randomUUID();
       const sessionCwd = nativeAgentDirectory(cwd, "Claude Code");
       const sessionName = body?.name || null;
@@ -5394,11 +5409,16 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         if (result.cleanupConfirmed) claudeStructuredSessions.delete(localId);
         return;
       }
-      return workspaceResult({ ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code" });
+      return workspaceResult({ ...publicClaudeStructuredTask(localId, session), kind: "claude-structured", agentId: "claude-code", ...(worktree ? { worktree } : {}) });
     } else if (agentId === "antigravity" && await antigravityNeedsSignIn()) {
       // New session offers Antigravity's own sign-in in its place.
       throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
-    } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && !worktree) {
+    } else if (agentId === "antigravity" && antigravityFirstRunPending(body, cwd)) {
+      // A new conversation first offers agy's own first-run pages, in a
+      // terminal in this project, for the person to answer; Stepsemble never
+      // answers them. Asking to start without them is the person's choice.
+      throw Object.assign(new Error("Google Antigravity has not finished its first-run setup"), { statusCode: 409, code: "antigravity_setup_required" });
+    } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && body?.terminal !== true) {
       const localId = crypto.randomUUID();
       // agy's stream mode does not read the model from its settings; a Magpie
       // model is named on the command line.
@@ -5408,10 +5428,24 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         conversationId: body?.conversationId || body?.resumeSessionId || null });
       antigravityStructuredSessions.set(localId, session);
       if (gone()) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
-      return workspaceResult({ ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity" });
+      return workspaceResult({ ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity", ...(worktree ? { worktree } : {}) });
     } else {
       if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
-      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+      // Antigravity can continue one of its conversations in its own screen,
+      // where agy itself asks before an action it would refuse in the stream.
+      const resume = agentId === "antigravity" && body?.terminal === true && typeof body?.conversationId === "string" ? body.conversationId : null;
+      // agy warns when one conversation is open in two of its processes;
+      // the stream that held it lets go before the terminal takes it.
+      if (resume) {
+        for (const [id, session] of [...antigravityStructuredSessions]) {
+          let held = false;
+          try { held = session.status()?.nativeConversationId === resume; } catch {}
+          if (!held) continue;
+          await session.close().catch(() => {});
+          antigravityStructuredSessions.delete(id);
+        }
+      }
+      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree, ...(resume ? { resume } : {}) });
       return workspaceResult({ ...result, kind: "cli", agentId });
     }
   } finally {
@@ -6338,6 +6372,30 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === "/api/agent-models" && req.method === "GET") {
         sendJSON(res, 200, agentModelCache.get(String(url.searchParams.get("agentId") || "")));
+        return;
+      }
+      // An agent's first-run state, read only (server/agent-first-run.js).
+      if (p === "/api/agent-first-run" && req.method === "GET") {
+        const agentId = safeConnectorId(url.searchParams.get("agentId"));
+        const folder = url.searchParams.get("cwd") ? projectDirectory(url.searchParams.get("cwd")) : null;
+        if (!agentId) { sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return; }
+        sendJSON(res, 200, firstRunStatus(agentId, { home: APP_HOME, folder }));
+        return;
+      }
+      // The one first-run value Stepsemble writes, and only on request: a
+      // folder in agy's documented trustedWorkspaces list.
+      if (p === "/api/agent-first-run/trust" && req.method === "POST") {
+        if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
+        try {
+          const body = await readJSON(req, 8 * 1024);
+          if (body?.agentId !== "antigravity") throw Object.assign(new Error("trust_unsupported"), { code: "trust_unsupported", statusCode: 400 });
+          const folder = projectDirectory(body?.cwd);
+          if (!folder) throw Object.assign(new Error("project_folder_unavailable"), { code: "project_folder_unavailable", statusCode: 400 });
+          sendJSON(res, 200, trustAntigravityFolder(APP_HOME, folder));
+        } catch (error) {
+          const code = typeof error?.code === "string" && /^[a-z_]{3,64}$/.test(error.code) ? error.code : "trust_failed";
+          sendJSON(res, [400, 409].includes(error?.statusCode) ? error.statusCode : 409, { error: code, code });
+        }
         return;
       }
       if (p === "/api/agent-auth/active" && req.method === "GET") {
@@ -8429,6 +8487,19 @@ const server = http.createServer(async (req, res) => {
           } else sendJSON(res, 200, agentTasks.send(taskId, body?.message));
         }
         catch (error) { sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send to agent" }); }
+        return;
+      }
+
+      // A key (or typed text) from the terminal view of a CLI task, the way
+      // a person presses it at a terminal: arrows, Enter, Esc, Space...
+      if (p === "/api/agent/input" && req.method === "POST") {
+        const body = await readJSON(req, 64 * 1024);
+        try {
+          const payload = typeof body?.key === "string" ? { key: body.key } : Object.hasOwn(body || {}, "data") ? { data: body.data } : {};
+          sendJSON(res, 200, agentTasks.input(String(body?.taskId || ""), payload));
+        } catch (error) {
+          sendJSON(res, error.statusCode || 409, { error: error.message || "Could not send the key", ...(error.code ? { code: String(error.code) } : {}) });
+        }
         return;
       }
 

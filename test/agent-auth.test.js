@@ -117,6 +117,30 @@ test("requests are validated and a busy agent is left alone", unix, async () => 
   assert.equal(svc.isBusy("codex"), false);
 });
 
+test("an agent's first-run screen opens in the project it is for, and only there", unix, async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agent-setup-"));
+  try {
+    const project = path.join(home, "Projects", "app"); fs.mkdirSync(project, { recursive: true });
+    const script = path.join(home, "where.cjs");
+    fs.writeFileSync(script, "process.stdout.write('CWD=' + process.cwd() + '\\n');\n");
+    const exe = path.join(home, "agy");
+    fs.writeFileSync(exe, `#!/bin/sh\nexec "${process.execPath}" "${script}"\n`, { mode: 0o755 });
+    const real = fs.realpathSync(project);
+    const svc = createAgentAuthService({ home, env: process.env, resolveExecutable: () => exe, ptyRuntime: pty,
+      validateFolder: value => value === project ? real : null, hasActiveWork: () => true });
+    assert.deepEqual(svc.catalog().agents.antigravity.setup.map(choice => [choice.id, choice.projectFolder]), [["default", true]]);
+    assert.deepEqual(svc.catalog().agents.codex.setup, [], "only an agent with first-run pages offers them");
+    await assert.rejects(svc.start({ agentId: "antigravity", action: "setup" }), error => error.code === "project_folder_unavailable");
+    await assert.rejects(svc.start({ agentId: "antigravity", action: "setup", cwd: "/" }), error => error.code === "project_folder_unavailable");
+    await assert.rejects(svc.start({ agentId: "codex", action: "setup", cwd: project }), error => error.code === "action_unsupported");
+    // Working conversations are no reason to hold back a first-run screen.
+    const run = await svc.start({ agentId: "antigravity", action: "setup", cwd: project });
+    assert.equal(run.action, "setup");
+    const { output } = await collect(svc, run.runId);
+    assert.ok(output.includes("CWD=" + real), output);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test("a missing agent is reported, not guessed", async () => {
   const svc = service({ resolveExecutable: () => null });
   await assert.rejects(svc.start({ agentId: "opencode", action: "status" }), error => error.code === "agent_not_installed");

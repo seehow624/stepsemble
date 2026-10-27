@@ -2807,6 +2807,14 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   color: var(--pine-text);
 }
 .agent-terminal-output.stderr { color: var(--danger, #e0715c); }
+/* The terminal view of a CLI session: the program's own screen, its keys,
+   and a line on how to use them. The grid keeps the program's width and
+   scrolls sideways on a narrow screen instead of wrapping its layout. */
+.session-terminal { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.session-terminal-screen { flex: 0 0 auto; min-height: 240px; max-height: min(72vh, 780px); }
+.session-terminal.is-idle .session-terminal-screen { opacity: .82; }
+.session-terminal-keys button:disabled { opacity: .45; cursor: default; transform: none; }
+.session-terminal-hint { margin: 0; color: var(--pine-soft); font-size: var(--text-xs); line-height: 1.45; }
 .agent-structured-output {
   min-width: 0;
   color: var(--ink);

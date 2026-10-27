@@ -1787,9 +1787,66 @@
       $("workspace-dialog").classList.add("workspace-signing-in");
       notice.replaceChildren(signInFrame);
     }
+    // An agent whose own first-run pages are not done (Antigravity: colour
+    // scheme, terms, whether to share data) offers them here, in a terminal
+    // in this project, where the person answers them. Trusting the folder is
+    // a separate choice, unticked until the person ticks it.
+    let skipFirstRun = false;
+    async function offerSetup(agentId, { again = false } = {}) {
+      const label = [...select.options].find(option => option.value === agentId)?.textContent || agentId;
+      let status = null;
+      try { status = await api(`/api/agent-first-run?agentId=${encodeURIComponent(agentId)}&cwd=${encodeURIComponent(cwd)}`, undefined, target); } catch {}
+      if (epoch !== dialogEpoch) return;
+      $("workspace-dialog").classList.remove("workspace-signing-in");
+      const parts = [node("p", t(again ? "setupStillNeeded" : "setupNeeded", { agent: label, host: hostName(target) }))];
+      if (agentId === "antigravity") parts.push(node("p", t("setupConsent", { agent: label }), "workspace-setup-consent"));
+      let trustBox = null;
+      if (status?.trust?.writable === true && status.trust.state === "untrusted") {
+        trustBox = node("input"); trustBox.type = "checkbox"; trustBox.id = "workspace-setup-trust"; trustBox.checked = false;
+        const trust = node("label", "", "workspace-setup-trust"); trust.htmlFor = trustBox.id;
+        trust.append(trustBox, node("span", t("setupTrust", { agent: label })));
+        parts.push(trust);
+      }
+      const go = button(t("setupStart"), async () => {
+        go.disabled = true;
+        if (trustBox?.checked) {
+          try { await api("/api/agent-first-run/trust", { agentId, cwd }, target); }
+          catch (error) { go.disabled = false; toast(t("setupTrustFailed", { detail: error.message })); return; }
+        }
+        startSetup(agentId);
+      }, t("setupStart"), "btn primary workspace-setup-start");
+      // Starting without the pages is the person's choice; agy then shows
+      // them in a terminal later, and its stream works without them.
+      const skip = button(t("setupSkip"), () => { skipFirstRun = true; notice.hidden = true; if (!start.disabled) start.click(); }, t("setupSkip"), "btn ghost workspace-setup-skip");
+      const row = node("div", "", "workspace-setup-actions"); row.append(go, skip);
+      notice.replaceChildren(...parts, row);
+      notice.hidden = false;
+    }
+    function startSetup(agentId) {
+      const url = new URL("/index.html", location.origin);
+      url.searchParams.set("pane", "1"); url.searchParams.set("host", target); url.searchParams.set("setup", agentId); url.searchParams.set("cwd", cwd);
+      signInFrame = node("iframe", "", "workspace-signin-frame"); signInFrame.title = t("setupStart"); signInFrame.src = url.href;
+      $("workspace-dialog").classList.add("workspace-signing-in");
+      notice.replaceChildren(signInFrame);
+    }
+    async function onSetup(agentId) {
+      signInFrame = null;
+      let status = null;
+      try { status = await api(`/api/agent-first-run?agentId=${encodeURIComponent(agentId)}&cwd=${encodeURIComponent(cwd)}`, undefined, target); } catch {}
+      if (epoch !== dialogEpoch) return;
+      if (status?.onboarding === "complete") {
+        $("workspace-dialog").classList.remove("workspace-signing-in");
+        const label = [...select.options].find(option => option.value === agentId)?.textContent || agentId;
+        notice.replaceChildren(node("p", t("setupDone", { agent: label }))); if (!start.disabled) start.click();
+      } else void offerSetup(agentId, { again: true });
+    }
     function onSignIn(event) {
       if (epoch !== dialogEpoch) { window.removeEventListener("message", onSignIn); return; }
-      if (event.origin !== location.origin || !signInFrame || event.source !== signInFrame.contentWindow || event.data?.type !== "workspace-signin") return;
+      if (event.origin !== location.origin || !signInFrame || event.source !== signInFrame.contentWindow) return;
+      // The first-run terminal reports when it is closed; the agent's own
+      // record then says whether its pages are done.
+      if (event.data?.type === "workspace-setup") { if (event.data.state === "closed") void onSetup(String(event.data.agentId || select.value)); return; }
+      if (event.data?.type !== "workspace-signin") return;
       const agentId = String(event.data.agentId || select.value);
       const completed = event.data.state === "completed" || event.data.completed === true;
       // A sign-in that failed stays on screen with its message until the
@@ -1803,19 +1860,21 @@
     const start = button(t("create"), async () => {
       start.disabled = true;
       try {
-        const data = await api("/api/agent/open", { agentId: select.value, cwd, name: name.value.trim() || null, ...(worktreeBox.checked && !worktree.hidden ? { worktree: true } : {}) }, target);
+        const data = await api("/api/agent/open", { agentId: select.value, cwd, name: name.value.trim() || null, ...(worktreeBox.checked && !worktree.hidden ? { worktree: true } : {}),
+          ...(skipFirstRun ? { firstRun: "skip" } : {}) }, target);
         if (!data.workspaceEntry) throw new Error(data.workspaceError || t("createdUntracked"));
         closeDialog(); const entry = data.workspaceEntry;
         open({ host: target, key: entry.key, title: plainTitle(entry.record.name) || select.value }); await refresh();
       } catch (error) {
         if (signInError(error)) { start.disabled = false; offerSignIn(select.value); return; }
+        if (/_setup_required$/.test(String(error.code || ""))) { start.disabled = false; void offerSetup(select.value); return; }
         // Claude Code refuses a folder its helper does not hold yet.
         const folder = { claude_folder_pending: "claudeFolderPending", desktop_workspace_denied: "claudeFolderDenied" }[error.code || error.message];
         toast(folder ? t(folder) : error.message); start.disabled = !(error.status >= 400 && error.status < 500); if (start.disabled) body.append(node("p", t("createUncertain")));
       }
     }, t("create"), "btn primary workspace-new-session-create"); start.disabled = true;
     name.addEventListener("keydown", event => { if (isEnter(event) && !start.disabled) { event.preventDefault(); start.click(); } });
-    select.addEventListener("change", () => { if (!signInFrame) notice.hidden = true; });
+    select.addEventListener("change", () => { skipFirstRun = false; if (!signInFrame) notice.hidden = true; });
     fields.append(select, name); actions.append(worktree, start); body.append(fields, actions, notice);
     try { const data = await api("/api/agents", undefined, target); if (epoch !== dialogEpoch) return; for (const agent of data.connectors || []) if (window.StepsembleAgentIdentity?.startsConversations ? window.StepsembleAgentIdentity.startsConversations(agent) : agent.installed && agent.category !== "personal") { const opt = node("option", agent.label || agent.name || agent.id); opt.value = agent.id; select.append(opt); capabilities.set(agent.id, agent.capabilities); } syncWorktree(); start.disabled = !select.options.length; if (!select.options.length) body.append(node("p", t("noAgents"))); }
     catch (error) { if (epoch === dialogEpoch) body.append(node("p", error.message)); }

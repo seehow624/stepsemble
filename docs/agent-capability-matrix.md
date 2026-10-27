@@ -150,7 +150,8 @@ ACP permission 回覆只接受目前 request 所提供的 `optionId`，並送出
 ### Google Antigravity
 
 ```sh
-export STEPSEMBLE_ANTIGRAVITY_STRUCTURED=1
+# Default since this branch: the stream is used whenever agy is installed.
+# export STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0   # back to the terminal (PTY)
 # Optional: use an explicit absolute binary when agy is not on PATH.
 export STEPSEMBLE_ANTIGRAVITY_BIN=/absolute/path/to/agy
 ```
@@ -164,9 +165,15 @@ session；輸入為 `{"event":"user","message":{"content":"…"}}`，輸出只�
 - `GET /api/antigravity/structured/pending`：只顯示 upstream 明確標記的 approval observation。
 - `POST /api/antigravity/structured/prompt`、`POST /api/antigravity/structured/close`：送出／關閉。
 
-目前 headless stream 沒有公開、可驗證的 approval response envelope；因此
+目前 headless stream 沒有公開、可驗證的 approval response envelope（官方文件：輸入
+`control_request`／`control_response` 會讓 session 以 ERROR 結束）；因此
 `/permission` 固定回 `antigravity_permission_requires_native_ui`，不會把任意 pipe write
-當成核准。未設定旗標時不啟動 structured process，仍使用 bounded CLI connector。
+當成核准。需要批准的動作由 agy 自己拒絕（agy 1.4.8 實測：`write_file`、`run_command`
+都被拒，result 帶 `denied_actions`）；Stepsemble 不加 `--dangerously-skip-permissions`、
+`--mode`、`--sandbox`。對話會顯示被拒絕的動作；若 `init.permission_mode` 不是
+`request-review`／`strict`（使用者自己的 agy 設定），也會明確提示。「在終端機模式繼續」
+以 `agy --conversation <id>` 在 PTY 開同一個對話，由 agy 自己的畫面詢問。
+`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 時不啟動 structured process，改用 PTY connector。
 
 ## 為什麼其他 harness 仍然分級
 
