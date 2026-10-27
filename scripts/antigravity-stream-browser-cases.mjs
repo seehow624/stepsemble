@@ -66,7 +66,7 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       // The same conversation continues in agy's own screen.
       await denied.locator("button").click();
       const terminalPane = await paneFrame(page, "Stream session（終端機）");
-      await terminalPane.waitForFunction(() => /AGY_ARGS:\["--conversation","fake-conversation-1"\]/.test(document.querySelector(".session-terminal-screen")?.textContent || ""));
+      await terminalPane.waitForFunction(() => /AGY_ARGS:\["--conversation","fake-conversation-\d+"\]/.test(document.querySelector(".session-terminal-screen")?.textContent || ""));
       await terminalPane.locator('.session-terminal-keys [data-terminal-key="enter"]').waitFor();
       assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
       console.log(JSON.stringify({ case: "Antigravity stream (" + viewport.width + ")", result: "passed", syntheticOnly: true, modeNote: true, deniedCard: true, terminalContinue: true, pageErrors: 0 }));

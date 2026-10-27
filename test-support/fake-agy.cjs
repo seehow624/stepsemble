@@ -24,7 +24,8 @@ if (args[0] === "models") {
 }
 
 if (args.includes("--input-format") && args.includes("stream-json")) {
-  const conversation = args.includes("--conversation") ? args[args.indexOf("--conversation") + 1] : "fake-conversation-1";
+  // Like agy, every new conversation has its own id.
+  const conversation = args.includes("--conversation") ? args[args.indexOf("--conversation") + 1] : "fake-conversation-" + process.pid;
   const emit = value => process.stdout.write(JSON.stringify(value) + "\n");
   emit({ event: "init", conversation_id: conversation, init: { cwd: process.cwd(), tools: ["write_file", "run_command"],
     permission_mode: process.env.FAKE_AGY_MODE || "request-review" } });

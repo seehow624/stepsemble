@@ -5434,6 +5434,17 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       // Antigravity can continue one of its conversations in its own screen,
       // where agy itself asks before an action it would refuse in the stream.
       const resume = agentId === "antigravity" && body?.terminal === true && typeof body?.conversationId === "string" ? body.conversationId : null;
+      // agy warns when one conversation is open in two of its processes;
+      // the stream that held it lets go before the terminal takes it.
+      if (resume) {
+        for (const [id, session] of [...antigravityStructuredSessions]) {
+          let held = false;
+          try { held = session.status()?.nativeConversationId === resume; } catch {}
+          if (!held) continue;
+          await session.close().catch(() => {});
+          antigravityStructuredSessions.delete(id);
+        }
+      }
       const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree, ...(resume ? { resume } : {}) });
       return workspaceResult({ ...result, kind: "cli", agentId });
     }

@@ -97,16 +97,30 @@ test("Antigravity opens in its stream by default, in a new worktree too, and con
   assert.equal(worktree.body.cwd, worktree.body.worktree.path);
   assert.ok(await h.startedWith(row => row.args.includes("stream-json") && row.cwd === worktree.body.worktree.path), "agy ran in the worktree");
 
-  const terminal = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "Terminal", terminal: true, conversationId: "fake-conversation-1" });
+  // The stream that holds the conversation lets go first: agy warns when one
+  // conversation is open in two of its processes.
+  const conversationId = await (async () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const events = (await h.json(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(opened.body.nativeSessionId)}`)).body?.events || [];
+      const init = events.find(event => event.type === "init");
+      if (init?.conversationId) return init.conversationId;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return null;
+  })();
+  assert.match(conversationId || "", /^fake-conversation-\d+$/);
+  const terminal = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "Terminal", terminal: true, conversationId });
   assert.equal(terminal.status, 201, JSON.stringify(terminal.body));
   assert.equal(terminal.body.kind, "cli");
+  assert.equal((await h.json(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(opened.body.nativeSessionId)}`)).status, 404, "the stream session was closed");
+  assert.equal((await h.json(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(worktree.body.nativeSessionId)}`)).status, 200, "another conversation keeps its stream");
   assert.equal(terminal.body.transport, "pty");
   let tail = "";
   for (let attempt = 0; attempt < 100 && !tail.includes("AGY_ARGS:"); attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 50));
     tail = (await h.json(`/api/agent-task?taskId=${encodeURIComponent(terminal.body.id)}`)).body?.task?.outputTail || "";
   }
-  assert.match(tail, /AGY_ARGS:\["--conversation","fake-conversation-1"\]/, "the same conversation, in agy's own screen");
+  assert.ok(tail.includes('AGY_ARGS:["--conversation","' + conversationId + '"]'), "the same conversation, in agy's own screen");
 
   for (const conversationId of ["bad id", "--mode=auto", "x".repeat(300)]) {
     const refused = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, terminal: true, conversationId });
