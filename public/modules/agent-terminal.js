@@ -19,14 +19,29 @@
 
   // East Asian wide characters and most emoji take two cells.
   function charWidth(code) {
+    if ((code >= 0x0300 && code <= 0x036f) || (code >= 0x200b && code <= 0x200f) || (code >= 0xfe00 && code <= 0xfe0f)) return 0;
     if (code < 0x1100) return 1;
     if ((code >= 0x1100 && code <= 0x115f) || code === 0x2329 || code === 0x232a
       || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) || (code >= 0xac00 && code <= 0xd7a3)
       || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe30 && code <= 0xfe4f) || (code >= 0xff00 && code <= 0xff60)
       || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1f64f) || (code >= 0x1f900 && code <= 0x1f9ff)
       || (code >= 0x20000 && code <= 0x3fffd)) return 2;
-    if ((code >= 0x0300 && code <= 0x036f) || (code >= 0x200b && code <= 0x200f) || (code >= 0xfe00 && code <= 0xfe0f)) return 0;
     return 1;
+  }
+
+  const MAX_CSI_PARAM = 9999;
+  const MAX_CSI_LENGTH = 64;
+
+  // Saturate while reading digits, before a parameter can become a large
+  // number. Keep leading zeroes and the existing SGR subparameter handling.
+  function csiParameter(part) {
+    let value = 0;
+    for (const digit of part) {
+      if (digit === ":") break;
+      value = Math.min(MAX_CSI_PARAM, value * 10 + digit.charCodeAt(0) - 48);
+      if (value === MAX_CSI_PARAM) break;
+    }
+    return value;
   }
 
   function color256(index) {
@@ -67,6 +82,7 @@
     const clampY = y => Math.max(0, Math.min(height - 1, y));
 
     function scrollUp(count = 1) {
+      count = Math.min(count, bottom - top + 1);
       for (let i = 0; i < count; i++) {
         const removed = lines.splice(top, 1)[0];
         if (lines === primary && top === 0 && removed) { history.push(removed); if (history.length > scrollback) history.shift(); }
@@ -74,6 +90,7 @@
       }
     }
     function scrollDown(count = 1) {
+      count = Math.min(count, bottom - top + 1);
       for (let i = 0; i < count; i++) {
         lines.splice(bottom, 1);
         lines.splice(top, 0, blankRow(width));
@@ -86,7 +103,9 @@
     }
     function put(ch, cellWidth) {
       if (cellWidth === 0) {
-        const x = Math.max(0, cursor.x - 1), cell = lines[cursor.y][x];
+        let x = wrapPending ? cursor.x : Math.max(0, cursor.x - 1);
+        while (x > 0 && lines[cursor.y][x].ch === "") x--;
+        const cell = lines[cursor.y][x];
         if (cell) cell.ch += ch;
         return;
       }
@@ -171,27 +190,32 @@
     }
     function csi(final, raw) {
       const privateMode = raw.startsWith("?");
-      const body = raw.replace(/^[?>=<]/, "").replace(/[ -/]+$/, "");
-      const values = body === "" ? [] : body.split(";").map(part => part === "" ? 0 : Number.parseInt(part.split(":")[0], 10) || 0);
+      const body = raw.replace(/^[?>=<]/, "");
+      // None of the supported commands use intermediate bytes. Reject them
+      // and malformed numbers rather than accepting a parseInt prefix.
+      if (!/^[0-9;:]*$/.test(body)) return;
+      const values = body === "" ? [] : body.split(";").map(csiParameter);
       const n = values[0] || 1;
+      const horizontal = Math.min(n, width), vertical = Math.min(n, height);
+      const cells = Math.min(n, width - cursor.x);
       if (/^[>=<]/.test(raw) && final !== "m") return;
       switch (final) {
-        case "A": cursor.y = Math.max(cursor.y >= top ? top : 0, cursor.y - n); wrapPending = false; break;
-        case "B": cursor.y = Math.min(cursor.y <= bottom ? bottom : height - 1, cursor.y + n); wrapPending = false; break;
-        case "C": cursor.x = clampX(cursor.x + n); wrapPending = false; break;
-        case "D": cursor.x = clampX(cursor.x - n); wrapPending = false; break;
-        case "E": cursor.x = 0; cursor.y = clampY(cursor.y + n); wrapPending = false; break;
-        case "F": cursor.x = 0; cursor.y = clampY(cursor.y - n); wrapPending = false; break;
-        case "G": case "\x60": cursor.x = clampX(n - 1); wrapPending = false; break;
-        case "d": cursor.y = clampY(n - 1); wrapPending = false; break;
+        case "A": cursor.y = Math.max(cursor.y >= top ? top : 0, cursor.y - vertical); wrapPending = false; break;
+        case "B": cursor.y = Math.min(cursor.y <= bottom ? bottom : height - 1, cursor.y + vertical); wrapPending = false; break;
+        case "C": cursor.x = clampX(cursor.x + horizontal); wrapPending = false; break;
+        case "D": cursor.x = clampX(cursor.x - horizontal); wrapPending = false; break;
+        case "E": cursor.x = 0; cursor.y = clampY(cursor.y + vertical); wrapPending = false; break;
+        case "F": cursor.x = 0; cursor.y = clampY(cursor.y - vertical); wrapPending = false; break;
+        case "G": case "\x60": cursor.x = horizontal - 1; wrapPending = false; break;
+        case "d": cursor.y = vertical - 1; wrapPending = false; break;
         case "H": case "f": cursor.y = clampY((values[0] || 1) - 1); cursor.x = clampX((values[1] || 1) - 1); wrapPending = false; break;
         case "J": eraseInDisplay(values[0] || 0); break;
         case "K": eraseInLine(values[0] || 0); break;
-        case "L": if (cursor.y >= top && cursor.y <= bottom) for (let i = 0; i < n; i++) { lines.splice(bottom, 1); lines.splice(cursor.y, 0, blankRow(width)); } break;
-        case "M": if (cursor.y >= top && cursor.y <= bottom) for (let i = 0; i < n; i++) { lines.splice(cursor.y, 1); lines.splice(bottom, 0, blankRow(width)); } break;
-        case "P": { const row = lines[cursor.y]; row.splice(cursor.x, n); while (row.length < width) row.push({ ch: " ", attr: DEFAULT_ATTR }); break; }
-        case "@": { const row = lines[cursor.y]; for (let i = 0; i < n; i++) row.splice(cursor.x, 0, { ch: " ", attr: DEFAULT_ATTR }); row.length = width; break; }
-        case "X": for (let x = cursor.x; x < Math.min(width, cursor.x + n); x++) lines[cursor.y][x] = { ch: " ", attr: DEFAULT_ATTR }; break;
+        case "L": if (cursor.y >= top && cursor.y <= bottom) for (let i = 0; i < Math.min(n, bottom - cursor.y + 1); i++) { lines.splice(bottom, 1); lines.splice(cursor.y, 0, blankRow(width)); } break;
+        case "M": if (cursor.y >= top && cursor.y <= bottom) for (let i = 0; i < Math.min(n, bottom - cursor.y + 1); i++) { lines.splice(cursor.y, 1); lines.splice(bottom, 0, blankRow(width)); } break;
+        case "P": { const row = lines[cursor.y]; row.splice(cursor.x, cells); while (row.length < width) row.push({ ch: " ", attr: DEFAULT_ATTR }); break; }
+        case "@": { const row = lines[cursor.y]; for (let i = 0; i < cells; i++) row.splice(cursor.x, 0, { ch: " ", attr: DEFAULT_ATTR }); row.length = width; break; }
+        case "X": for (let x = cursor.x; x < cursor.x + cells; x++) lines[cursor.y][x] = { ch: " ", attr: DEFAULT_ATTR }; break;
         case "S": scrollUp(n); break;
         case "T": scrollDown(n); break;
         case "r": top = clampY((values[0] || 1) - 1); bottom = values[1] ? clampY(values[1] - 1) : height - 1; if (bottom <= top) { top = 0; bottom = height - 1; } cursor = { x: 0, y: 0 }; break;
@@ -240,10 +264,18 @@
           continue;
         }
         if (state === "charset") { state = "text"; continue; }
-        if (state === "csi") {
-          if (code >= 0x40 && code <= 0x7e) { csi(ch, params); state = "text"; }
-          else if (params.length < 64) params += ch;
-          else state = "text";
+        if (state === "csi" || state === "csi-ignore") {
+          if (ch === "\x1b") { state = "esc"; params = ""; }
+          else if (ch === "\x18" || ch === "\x1a") { state = "text"; params = ""; }
+          else if (code >= 0x40 && code <= 0x7e) {
+            if (state === "csi") csi(ch, params);
+            state = "text"; params = "";
+          } else if (state === "csi") {
+            if (code >= 0x20 && code <= 0x3f && params.length < MAX_CSI_LENGTH) params += ch;
+            // Consume the rest even across writes: an oversized or invalid
+            // sequence must not turn its remaining digits into screen text.
+            else { state = "csi-ignore"; params = ""; }
+          }
           continue;
         }
         if (state === "osc") {
