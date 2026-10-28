@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.10.2
+
+- Show how long each Antigravity turn worked and how fast the model wrote, as for Claude Code, Codex and Pi: "Worked for …" with tok/s and tok/min on the turn. The speed is agy's own count of what the model wrote, its thinking included; it was an estimate from the visible answer, about seven times too low on a measured 5.5-minute turn. While agy works, the speed shown is its average so far.
+- Keep a finished turn's work time and speed when an ACP conversation (Antigravity, Cline, Kilo, Oh My Pi, Hermes, Grok Build) is opened again, on another device or after a restart: it showed only "Worked". An Antigravity conversation replayed from agy's transcript keeps the times agy wrote, and an answer shows the time it was written.
+- When Stepsemble adds a folder to agy's trusted folders and agy's settings file is a link, change the file it points to and keep the link and its permissions; a broken link is never replaced. A sign-in terminal keeps a bounded history (at most 16 runs of 2 MiB each), and large output is split without cutting a character.
+
 ## 3.10.1
 
 - Bring Google Antigravity conversations to what Claude Code, Codex and Pi do in Stepsemble. An Antigravity conversation now opens like Cline's and Kilo's: choose the model and its reasoning level (agy takes low, medium and high for Magpie's models), see the context ring (its capacity comes from Magpie's model list), attach pictures (saved for agy to read, since its stream takes text only), stop a turn, queue messages sent while agy works, start Goals, and reference the conversation from another one. agy reads the model, level and plan mode only when it starts, so a change applies from the next message, on the same conversation.
