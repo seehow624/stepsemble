@@ -28,6 +28,8 @@ const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 // while to answer, so the gate waits; agy's limit only stops a lost hook.
 const HOOK_TIMEOUT_SECONDS = 24 * 60 * 60;
 const TOKEN = /^[a-f0-9]{64}$/;
+// Pictures saved for agy to read are kept this long after their conversation's last one.
+const ATTACHMENT_DAYS = 7;
 
 function shellQuote(value) { return "'" + String(value).replace(/'/g, "'\\''") + "'"; }
 function cmdQuote(value) { return '"' + String(value).replace(/"/g, '""') + '"'; }
@@ -76,9 +78,21 @@ function createAntigravityGate({
   fs.mkdirSync(path.join(directory, ".agents"), { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.join(directory, "attachments"), { recursive: true, mode: 0o700 });
   fs.mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
-  // Rewritten at every start: the Host's own paths change when it updates.
-  writePrivate(path.join(directory, ".agents", "hooks.json"),
-    JSON.stringify(hooksDocument({ nodePath, hookScript, platform, timeoutSeconds }), null, 2) + "\n");
+  // Written again before every agy start: the Host's own paths change when it
+  // updates, and agy works in this folder too, so it must find Stepsemble's
+  // hook as Stepsemble wrote it. A copy that cannot be made so stops the start.
+  const hooksFile = path.join(directory, ".agents", "hooks.json");
+  const hooksText = JSON.stringify(hooksDocument({ nodePath, hookScript, platform, timeoutSeconds }), null, 2) + "\n";
+  const writeHooks = () => {
+    writePrivate(hooksFile, hooksText);
+    if (fs.readFileSync(hooksFile, "utf8") !== hooksText) throw new Error("antigravity_gate_hooks_unwritten");
+  };
+  writeHooks();
+  const cutoff = Date.now() - ATTACHMENT_DAYS * 24 * 60 * 60 * 1000;
+  for (const name of (() => { try { return fs.readdirSync(path.join(directory, "attachments")); } catch { return []; } })()) {
+    const folder = path.join(directory, "attachments", name);
+    try { if (fs.lstatSync(folder).mtimeMs < cutoff) fs.rmSync(folder, { recursive: true, force: true }); } catch {}
+  }
   const socketPath = socketPathFor(runDirectory, platform);
   const tokens = new Map();
   const live = new Set();
@@ -139,6 +153,7 @@ function createAntigravityGate({
     revoke(token) { tokens.delete(token); },
     /** What the agy process needs: the flags and the hook's environment. */
     launch(token) {
+      writeHooks();
       return { args: ["--dangerously-skip-permissions", "--add-dir", directory],
         env: { STEPSEMBLE_AGY_GATE: socketPath, STEPSEMBLE_AGY_GATE_TOKEN: token } };
     },

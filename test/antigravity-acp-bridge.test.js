@@ -115,6 +115,24 @@ test("the gate answers only an agy process it started, and asks the bridge for i
   assert.equal(asked.length, 1);
 });
 
+test("agy finds Stepsemble's hook as Stepsemble wrote it at every start, and old pictures go", unix, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agy-gate-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const old = path.join(root, "gate", "attachments", "old-conversation"), recent = path.join(root, "gate", "attachments", "recent-conversation");
+  fs.mkdirSync(old, { recursive: true }); fs.mkdirSync(recent, { recursive: true });
+  const longAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  fs.utimesSync(old, longAgo, longAgo);
+  const gate = createAntigravityGate({ directory: path.join(root, "gate"), runDirectory: path.join(root, "run"), decide: async () => ({ decision: "deny" }) });
+  t.after(() => gate.close());
+  assert.deepEqual(fs.readdirSync(path.join(root, "gate", "attachments")), ["recent-conversation"]);
+  const file = path.join(root, "gate", ".agents", "hooks.json"), written = fs.readFileSync(file, "utf8");
+  // An agent that changed the file (it works in this folder too) does not
+  // change what the next agy process runs.
+  fs.writeFileSync(file, JSON.stringify({ "stepsemble-approval": { PreToolUse: [] } }));
+  gate.launch(gate.issue("owner"));
+  assert.equal(fs.readFileSync(file, "utf8"), written);
+});
+
 test("a new conversation is agy's own, answers in the stream, reports context and is kept for a restart", unix, async t => {
   const s = setup(t);
   const created = await s.bridge.createSession({ directory: s.project, name: "First" });

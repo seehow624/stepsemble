@@ -335,9 +335,9 @@ function createAntigravityAcpBridge({
     const epoch = ++epochs;
     // The gate tells which conversation, and which of its agy processes, asks.
     const token = gate.issue({ key: session.key, epoch });
-    const gateLaunch = gate.launch(token);
     let child;
     try {
+      const gateLaunch = gate.launch(token);
       child = spawnImpl(command, [...args, ...gateLaunch.args], {
         cwd: session.cwd, env: { ...baseEnv(), ...gateLaunch.env, AGY_CLI_DISABLE_AUTO_UPDATE: "true" },
         shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
