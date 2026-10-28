@@ -24,7 +24,10 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
   function start(agent, id, runId = randomUUID(), at = now()) {
     const key = keyOf(agent, id), prior = runs.get(key);
     if (prior?.meter.endedAt === null || prior?.runId === runId) return prior;
-    const run = { agent, id, runId, entry: entryFor(agent, id), meter: Rate.createMeter({ startedAt: at, liveAverage: agent === "codex" }),
+    // Codex shows a reply only once it is written, and Antigravity shows
+    // neither its thinking nor its tool calls as it writes them: while they
+    // work, their speed is the average so far.
+    const run = { agent, id, runId, entry: entryFor(agent, id), meter: Rate.createMeter({ startedAt: at, liveAverage: agent === "codex" || agent === "antigravity" }),
       busy: new Set(), counts: new Map(), texts: new Map(), streamed: new Set(), messageId: null, totalBefore: null, total: prior?.total ?? null };
     runs.delete(key); runs.set(key, run);
     // Retain recent completed runs for late native usage, without retaining
@@ -139,6 +142,14 @@ function createHostOutputRates({ store, entries, now = Date.now, onError = () =>
       const activity = Presentation.acpUpdate(event.update);
       if (["message_delta", "thinking_delta"].includes(activity?.kind)) text(run, activity.text);
       if (activity?.kind === "tool") tool(run, activity.tool);
+      // Antigravity's bridge counts what agy wrote in the turn so far, its
+      // thinking included (server/antigravity-acp-bridge.js).
+      const written = Number(event.update?.turnOutputTokens);
+      if (event.update?.sessionUpdate === "usage_update" && Number.isFinite(written) && written >= 0) {
+        if (written > run.meter.reported) run.lastEmissionAt = now();
+        Rate.reportTotal(run.meter, written);
+        sample(run);
+      }
     }
     if (event.type === "rate.permission") busy(run, `ui:${event.requestId}`, !event.resolved);
     if (event.type === "rate.turn.ended") {

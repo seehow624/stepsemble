@@ -5583,6 +5583,7 @@ function appendTurnErrorNotice(connection, message) {
   shell.bubble.appendChild(box);
   connection.genericOutputNode = null;
   scrollBottom();
+  return shell.wrap;
 }
 
 function appendGenericTerminalNotice(status, event = {}) {
@@ -6972,6 +6973,7 @@ function appendStructuredTool(connection, tool, label, fallbackKey) {
   // being appended to the response bubble that preceded it.
   connection.genericOutputNode = null;
   connection.structuredThinking = null;
+  return card;
 }
 
 // The person's message in an ACP conversation. An agent replays it in parts,
@@ -7015,29 +7017,33 @@ function appendStructuredUserImage(connection, image) {
   scrollBottom();
 }
 
-function renderAgentProtocolUpdate(connection, update, label, fallbackKey) {
+// at: the Host's time of the update. A conversation opened again finds each
+// turn's work time and speed by it, as a live one does by the moment it sent.
+function renderAgentProtocolUpdate(connection, update, label, fallbackKey, at = null) {
   const view = agentTranscriptPresentation.acpUpdate(update);
   if (!view) return;
-  if (view.kind === "user_delta") {
-    appendStructuredUserText(connection, view.text);
-    return;
-  }
-  if (view.kind === "user_image") {
-    appendStructuredUserImage(connection, view.image);
+  if (view.kind === "user_delta" || view.kind === "user_image") {
+    if (view.kind === "user_delta") appendStructuredUserText(connection, view.text);
+    else appendStructuredUserImage(connection, view.image);
+    stampEventTime(connection.structuredUserNode?.wrap, at, { first: true });
     return;
   }
   // Whatever the agent writes next ends the person's message above it.
   connection.structuredUserNode = null;
+  let node = null;
   if (view.kind === "message_delta") {
     connection.structuredThinking = null;
     appendGenericOutput(view.text, "stdout");
+    node = connection.genericOutputNode;
   } else if (view.kind === "thinking_delta") {
     appendStructuredThinking(connection, view.text, label);
+    node = connection.structuredThinking?.wrap;
   } else if (view.kind === "tool") {
-    appendStructuredTool(connection, view.tool, label, fallbackKey);
+    node = appendStructuredTool(connection, view.tool, label, fallbackKey);
   } else if (view.kind === "turn_error") {
-    appendTurnErrorNotice(connection, view.text);
+    node = appendTurnErrorNotice(connection, view.text);
   }
+  stampEventTime(node, at);
 }
 
 function renderGrokAcpEvents(connection, events, { replace = false } = {}) {
@@ -7045,7 +7051,7 @@ function renderGrokAcpEvents(connection, events, { replace = false } = {}) {
   const rows = Array.isArray(events) ? events : [];
   if (replace) { el.messages.innerHTML = ""; connection.grokEventIndex = 0; resetStructuredTranscriptPresentation(connection); }
   for (let index = connection.grokEventIndex || 0; index < rows.length; index += 1) {
-    renderAgentProtocolUpdate(connection, rows[index]?.update, connection.agentLabel || "Grok Build", `grok-${index}`);
+    renderAgentProtocolUpdate(connection, rows[index]?.update, connection.agentLabel || "Grok Build", `grok-${index}`, rows[index]?.at);
   }
   connection.grokEventIndex = rows.length;
   keepSessionUsageAtEnd();
@@ -7624,7 +7630,7 @@ function renderAgentClientProtocolEvents(connection, events, { replace = false }
   const rows = Array.isArray(events) ? events : [];
   if (replace) { el.messages.innerHTML = ""; connection.acpEventIndex = 0; resetStructuredTranscriptPresentation(connection); }
   for (let index = connection.acpEventIndex || 0; index < rows.length; index += 1) {
-    renderAgentProtocolUpdate(connection, rows[index]?.update || {}, acpAgentLabel(connection), `acp-${index}`);
+    renderAgentProtocolUpdate(connection, rows[index]?.update || {}, acpAgentLabel(connection), `acp-${index}`, rows[index]?.at);
   }
   connection.acpEventIndex = rows.length;
   keepSessionUsageAtEnd(); scrollBottom();
@@ -9846,6 +9852,15 @@ function stampMessageTime(wrap, value) {
   const text = String(value).trim();
   const ms = /^\d+(?:\.\d+)?$/.test(text) ? normalizedTimestampMs(Number(text)) : Date.parse(text);
   if (Number.isFinite(ms) && ms > 0) wrap.dataset.ts = String(Math.floor(ms));
+}
+// An agent's update stamped with the time the Host recorded it: a message
+// starts at its first part, the agent's reply ends at its latest.
+function stampEventTime(node, at, { first = false } = {}) {
+  const wrap = node?.closest?.(".msg");
+  const ms = Number(at);
+  if (!wrap || !Number.isFinite(ms) || ms <= 0) return;
+  const current = Number(wrap.dataset.ts) || 0;
+  if (first ? !current : ms > current) wrap.dataset.ts = String(Math.floor(ms));
 }
 // A finished live run knows its real end; history falls back to timestamps.
 function stampWorkTurnEnd() {
