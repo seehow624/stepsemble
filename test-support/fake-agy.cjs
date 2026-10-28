@@ -120,7 +120,8 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
     return { allowed: true };
   }
 
-  let buffer = "", turn = 0, busy = null, queue = [];
+  // agy numbers the steps of a conversation, not of a turn.
+  let buffer = "", turn = 0, busy = null, queue = [], index = transcriptStep;
   const step = (stepIndex, extra) => emit({ event: "step_update", step_update: { conversation_id: conversation, step_index: stepIndex, ...extra } });
   process.on("SIGINT", () => {
     if (busy) emit({ event: "result", result: { conversation_id: conversation, status: "ERROR", response: "", error: "interrupted", num_turns: turn } });
@@ -128,7 +129,7 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
   });
   async function runTurn(text) {
     turn += 1;
-    let index = 0, inputs = 0, written = 0, thought = 0;
+    let inputs = 0, written = 0, thought = 0;
     const denied = [];
     const used = Number(process.env.FAKE_AGY_CONTEXT_TOKENS) || 1000 * turn;
     const callMs = Number(process.env.FAKE_AGY_CALL_MS) || 0;
