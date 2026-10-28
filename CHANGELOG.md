@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.10.3
+
+- Make the Bot page read like a messaging app: each answer is a bubble with the time it was written, and what the Bot did on the way, its thinking and tool steps, stays above it without a box.
+- Keep talking to a Bot while it works: a message sent then no longer stops it. A text message is added to the work under way (Hermes's steer), and what the Bot does next shows below it, marked "Added to the current work". One that cannot be added, because the Bot has just finished, is summarizing earlier messages, or the message carries files, waits for the next turn, marked "Queued for after this turn". Stop drops waiting messages too, and says so. Hermes's own setting for messages that arrive while it works, which Telegram follows, is left as it is.
+- Set how hard each Bot thinks beside its model, in the Bot's settings: Reasoning, from Off to Max, applied with the model by Apply. It is the Bot's own setting, so Telegram uses it from its next message and routines from their next run; conversations open in Stepsemble change at once. The console names the levels the same way.
+- Show a Bot's own reasoning under "Thinking", while it thinks when the Bot shows it and otherwise with the answer, instead of Hermes's waiting line; a reopened conversation keeps it for the newest 20 answers. While Hermes summarizes a long conversation, the answer says "Summarizing earlier messages…" instead of only "Working…".
+- A turn stopped with Stop no longer sends a "finished" notification, and a failed turn sends one. Work a Bot handed to background helpers shows as a notice when it comes back, never as something the person said.
+- The Hermes console shows the default model and its provider again: Hermes gives only the model's name in the setting it read them from.
+
 ## 3.10.2
 
 - Show how long each Antigravity turn worked and how fast the model wrote, as for Claude Code, Codex and Pi: "Worked for …" with tok/s and tok/min on the turn. The speed is agy's own count of what the model wrote, its thinking included; it was an estimate from the visible answer, about seven times too low on a measured 5.5-minute turn. While agy works, the speed shown is its average so far.
