@@ -406,9 +406,10 @@ When any paired computer runs [Hermes Agent](https://github.com/NousResearch/her
 the Workspace shows a **Workspace | Assistant** switch. The Assistant page is a
 phone-first client for Hermes Bot Mode on that computer (if several run Hermes, choose
 one): sign in once with the Hermes dashboard account, then chat with each Bot's
-permanent Bot Chat, answer approvals, questions, sudo and secret prompts (with push
+permanent Bot Chat (a message sent while it works joins that work instead of
+stopping it), answer approvals, questions, sudo and secret prompts (with push
 notifications), read Telegram and routine conversations, manage routines, hold group
-chats of 2–6 Bots, create and edit Bots (look, picture, personality, model, skills,
+chats of 2–6 Bots, create and edit Bots (look, picture, personality, model and reasoning, skills,
 Skill Hub installs after Hermes's security scan, toolsets, MCP servers) and delete
 them. **Settings → Agents & models → Hermes** opens the console for the gateway,
 default and auxiliary models, reasoning, fallback models, provider API keys, custom

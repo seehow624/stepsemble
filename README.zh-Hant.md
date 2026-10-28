@@ -179,8 +179,8 @@ Stepsemble 也會把既有的 Claude Code 與 Codex session 顯示成有界的**
 
 已配對的任一台電腦執行 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 時，Workspace 頂部會出現「工作區｜助理」切換。
 助理頁是那台電腦 Hermes Bot Mode 的手機優先客戶端（多台都有時可選擇）：用 Hermes 控制台帳號登入一次後，
-就能和每個 Bot 的永久對話（Bot Chat）聊天、回覆核准／提問／sudo／secret（有推播）、查看 Telegram 與例行工作的對話、
-管理例行工作、和 2～6 個 Bot 開群組、建立與編輯 Bot（外觀、圖片、個性、模型、技能、經 Hermes 安全檢查後從技能中心安裝、
+就能和每個 Bot 的永久對話（Bot Chat）聊天（Bot 工作中傳的訊息會補充到目前的工作，不會中斷它）、回覆核准／提問／sudo／secret（有推播）、查看 Telegram 與例行工作的對話、
+管理例行工作、和 2～6 個 Bot 開群組、建立與編輯 Bot（外觀、圖片、個性、模型與推理強度、技能、經 Hermes 安全檢查後從技能中心安裝、
 工具組、MCP），也能刪除 Bot。**設定 → Agent 與模型 → Hermes** 是控制台：閘道、預設與輔助模型、推理強度、備援模型、
 提供者 API 金鑰、自訂端點，以及 7／30／90 天用量。Hermes 不再出現在「新增對話」，以前用 ACP 開的 Hermes 對話仍可打開。
 
