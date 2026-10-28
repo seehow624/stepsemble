@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.10.4
+
+- Open long Codex conversations whose history page exceeds the 8 MiB limit: discard the oversized page and retry with fewer items on the same cursor, instead of showing `Could not load history: native_frame_invalid` and closing the shared app-server. Keep the native order and complete contents of each successful page; never skip or truncate items.
+- Refuse a single oversized history item or turn without interrupting other reads or a running turn on that app-server. Keep the existing 4 MiB row, 8 MiB page and 28 MiB decoder limits; malformed frames and invalid request IDs still fail closed. Native conversation files and account settings are not changed.
+
 ## 3.10.3
 
 - Make the Bot page read like a messaging app: each answer is a bubble with the time it was written, and what the Bot did on the way, its thinking and tool steps, stays above it without a box.
