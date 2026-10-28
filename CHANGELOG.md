@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.10.1
+
+- Bring Google Antigravity conversations to what Claude Code, Codex and Pi do in Stepsemble. An Antigravity conversation now opens like Cline's and Kilo's: choose the model and its reasoning level (agy takes low, medium and high for Magpie's models), see the context ring (its capacity comes from Magpie's model list), attach pictures (saved for agy to read, since its stream takes text only), stop a turn, queue messages sent while agy works, start Goals, and reference the conversation from another one. agy reads the model, level and plan mode only when it starts, so a change applies from the next message, on the same conversation.
+- Ask before Antigravity acts. agy's stream cannot ask, so Stepsemble now starts agy with `--dangerously-skip-permissions` together with its own PreToolUse hook as the only approval: every tool call, a subagent's included, waits on an Allow / Deny card unless the conversation's approval mode says otherwise. The approval control offers Manual (the default), Accept edits (file edits in the project), Plan (no changes) and Bypass permissions. The gate fails closed, its hook file is written again before every agy start, a changing action that finishes without the gate's approval stops the conversation, and a new agy release is taken only after its release check shows that a command the gate denies never runs. This replaces 3.10.0's refusal of every such action.
+- List the conversations begun in agy's own screen with the others, and open and continue them in Stepsemble. A conversation Stepsemble 3.10.0 opened in agy's stream is matched to agy's own once after the update and keeps its name.
+- Keep agy's own screen commands from ending its stream: `/model` and `/effort` open the model sheet, and the others (such as `/rewind` and `/config`) offer Continue in the terminal, which opens the same conversation in agy's own screen. A turn that failed says why in the conversation, and a subagent shows as a card like Claude Code's.
+- Keep a CLI session's terminal screen bounded when a program sends very large cursor, scroll or repeat counts, and keep accents and other combining characters on the character they belong to.
+
 ## 3.10.0
 
 - Show a CLI session that runs in a terminal as the program's own screen, with a key bar (arrows, Tab, Space, Esc, Backspace, Enter) under it; keys typed into the screen go to the program. A message from the composer is now submitted with Enter: full-screen programs such as agy, Codex and Claude Code took the line feed Stepsemble sent as a new line in their box, so a message stayed there unsent, and their own questions (trust this folder, allow this file, agy's first-run pages) could not be answered.
