@@ -135,7 +135,7 @@ Google Antigravity 只要装了 `agy`，就走它官方文档记载的 headless 
 Stepsemble 不会替 Agent 回答它自己的首次设置页。新建 Antigravity 会话时，如果 agy 的首次设置还没完成
 （配色、服务条款与数据共享的选择，agy 记在 `~/.gemini/antigravity-cli/cache/onboarding.json`），
 新建会话窗口会说明，并在那个项目的终端里打开 agy 自己的设置页，由你自己选；agy 保存后会话才开始，
-也可以按“先不设置，直接开始”。窗口会提醒 agy 默认勾选数据共享；Stepsemble 不会替你勾选、取消或保存这个选择。
+也可以按“先不设置，直接开始”。窗口会提醒 agy 默认勾选数据共享；Stepsemble 不会替你勾选、取消或保存这个选择（agy 官方文档说，CLI 把这个选择保存在账号那边）。
 “信任这个文件夹”是另一个默认不勾的选项，勾了才会把文件夹加进 agy 官方文档记载的 `trustedWorkspaces` 设置。
 
 ## 助理（Hermes）

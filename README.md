@@ -320,9 +320,9 @@ Terms of Service and data-sharing choice, which agy records in
 so and opens agy's own pages in a terminal in that project, where the person
 chooses; the session starts once agy has saved them, or right away if the
 person starts without them. The dialog notes that agy pre-ticks data sharing;
-Stepsemble never ticks, clears or stores that choice. Trusting the folder is a
-separate, unticked choice that adds the folder to agy's documented
-`trustedWorkspaces` setting.
+Stepsemble never ticks, clears or stores that choice (agy's documentation says
+the CLI saves it with the account). Trusting the folder is a separate, unticked
+choice that adds the folder to agy's documented `trustedWorkspaces` setting.
 
 Cline, Kilo Code, Oh My Pi, and Hermes use their official ACP stdio modes when the local
 executable is installed (`cline --acp`, `kilo acp`, `omp acp`, and `hermes acp`). Their
