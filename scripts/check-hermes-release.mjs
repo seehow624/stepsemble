@@ -21,8 +21,8 @@ import { readRecords, recordFileFor, writeRecord } from "./agent-release-lib.mjs
 // Methods on Hermes's /api/ws JSON-RPC socket.
 export const HERMES_METHODS = [
   "client.capabilities", "profiles.list", "profiles.describe", "profiles.configure", "profiles.create", "profiles.set_asset", "profiles.get_asset",
-  "session.list", "session.create", "session.title", "session.resume", "session.events.since", "session.interrupt", "prompt.submit",
-  "image.attach_bytes", "file.attach", "model.options", "config.set",
+  "session.list", "session.create", "session.title", "session.resume", "session.events.since", "session.interrupt", "session.steer", "prompt.submit",
+  "image.attach_bytes", "file.attach", "model.options", "config.get", "config.set",
   "groups.capabilities", "groups.list", "groups.create", "groups.send", "groups.log", "groups.state", "groups.stop", "groups.approve",
   "groups.retry", "groups.rename", "groups.disband",
 ];

@@ -57,7 +57,11 @@ function names(list) {
   return [...new Set(list.map(String))].map(name => { if (!NAME.test(name)) throw invalid("invalid_list"); return name; });
 }
 
-function createHermesBots({ client }) {
+// A Bot's thinking strength (Hermes's reasoning effort), as the console offers it.
+const REASONING = Object.freeze(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+// liveSessions(profile): the live ids of that Bot's conversations open now.
+function createHermesBots({ client, liveSessions = () => [] }) {
   const rpc = (method, params, timeoutMs = 30_000) => client.request(method, params, { timeoutMs });
   let creating = Promise.resolve();
 
@@ -119,14 +123,30 @@ function createHermesBots({ client }) {
     if (changes.disabledSkills !== undefined) params.disabled_skills = names(changes.disabledSkills);
     if (changes.enabledToolsets !== undefined) params.enabled_toolsets = names(changes.enabledToolsets);
     if (changes.enabledMcpServers !== undefined) params.enabled_mcp_servers = names(changes.enabledMcpServers);
-    if (Object.keys(params).length === 1) return { ok: true, confirm: null };
-    const result = await rpc("profiles.configure", params);
-    const applied = result?.applied && typeof result.applied === "object" ? result.applied : {};
-    if (applied.ui_meta_conflicts) throw new HermesError("bot_changed", "This Bot was changed somewhere else; reopen it and try again", 409);
-    const failed = Object.entries(applied).filter(([, done]) => done === false).map(([key]) => key);
-    if (failed.length) throw new HermesError("bot_save_failed", `Hermes could not save: ${failed.join(", ")}`, 502);
-    if (result?.confirm_required === true) return { ok: false, confirm: clip(result.confirm_message, 1000) || "Confirm this model" };
+    const reasoning = changes.reasoning === undefined ? null : String(changes.reasoning);
+    if (reasoning !== null && !REASONING.includes(reasoning)) throw invalid("invalid_reasoning");
+    if (Object.keys(params).length > 1) {
+      const result = await rpc("profiles.configure", params);
+      const applied = result?.applied && typeof result.applied === "object" ? result.applied : {};
+      if (applied.ui_meta_conflicts) throw new HermesError("bot_changed", "This Bot was changed somewhere else; reopen it and try again", 409);
+      const failed = Object.entries(applied).filter(([, done]) => done === false).map(([key]) => key);
+      if (failed.length) throw new HermesError("bot_save_failed", `Hermes could not save: ${failed.join(", ")}`, 502);
+      // A model to confirm first: its thinking strength goes with the confirmation.
+      if (result?.confirm_required === true) return { ok: false, confirm: clip(result.confirm_message, 1000) || "Confirm this model" };
+    }
+    if (reasoning !== null) await setReasoning(profile, reasoning);
     return { ok: true, confirm: null };
+  }
+
+  // The Bot's own setting, which Telegram and routines read at their next
+  // message; a conversation open now keeps its level until Hermes rebuilds
+  // it, so the setting is written through each one, which applies it at once.
+  async function setReasoning(profile, level) {
+    let written = false;
+    for (const id of liveSessions(profile)) {
+      try { await rpc("config.set", { key: "reasoning", value: level, session_id: id, scope: "global" }); written = true; } catch {}
+    }
+    if (!written) await rpc("config.set", { key: "reasoning", value: level, profile, scope: "global" });
   }
 
   function create(fields) {
@@ -181,9 +201,12 @@ function createHermesBots({ client }) {
   }
 
   async function models(value) {
-    const result = await rpc("model.options", { profile: profileName(value) }, 60_000);
+    const profile = profileName(value);
+    const [result, reasoning] = await Promise.all([rpc("model.options", { profile }, 60_000),
+      rpc("config.get", { key: "reasoning", profile }).catch(() => null)]);
     return {
       current: { provider: clip(result?.provider, 100), model: clip(result?.model, 200) },
+      reasoning: REASONING.includes(String(reasoning?.value)) ? String(reasoning.value) : null, reasoningLevels: REASONING,
       providers: (Array.isArray(result?.providers) ? result.providers : []).filter(item => typeof item?.slug === "string").slice(0, 100).map(item => ({
         slug: clip(item.slug, 100), name: clip(item.name, 120) || clip(item.slug, 100),
         models: (Array.isArray(item.models) ? item.models : []).filter(model => typeof model === "string").slice(0, 500).map(model => model.slice(0, 200)) })),

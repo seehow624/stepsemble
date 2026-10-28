@@ -41,14 +41,16 @@ function createHermesConsole({ client }) {
       settle(rest("GET", "/api/status")), settle(rest("GET", "/api/config")), settle(rest("GET", "/api/model/auxiliary")),
       settle(client.request("model.options", {}, { timeoutMs: 60_000 })), settle(rest("GET", "/api/providers/custom-endpoints")), settle(rest("GET", "/api/env")),
     ]);
-    const model = config?.model && typeof config.model === "object" ? config.model : {};
+    // Hermes's /api/config gives the main model as a plain string, without
+    // its provider; model.options names both.
+    const model = config?.model && typeof config.model === "object" ? config.model : { default: typeof config?.model === "string" ? config.model : "" };
     const fallback = Array.isArray(config?.fallback_model) ? config.fallback_model : config?.fallback_model && typeof config.fallback_model === "object" ? [config.fallback_model] : [];
     const platforms = status?.gateway_platforms && typeof status.gateway_platforms === "object" ? status.gateway_platforms : {};
     return {
       gateway: status ? { running: status.gateway_running === true, state: clip(status.gateway_state, 40), activeSessions: num(status.active_sessions),
         platforms: Object.entries(platforms).filter(([, row]) => row && typeof row === "object").map(([name, row]) => ({ name: clip(name, 80),
           state: clip(row.state, 40), error: clip(row.error_message, 300) })).sort((a, b) => a.name.localeCompare(b.name)) } : null,
-      main: { provider: clip(model.provider, 100), model: clip(model.default || model.name, 200) },
+      main: { provider: clip(options?.provider, 100) || clip(model.provider, 100), model: clip(options?.model, 200) || clip(model.default || model.name, 200) },
       reasoning: typeof config?.agent?.reasoning_effort === "string" ? clip(config.agent.reasoning_effort, 20) : config?.agent?.reasoning_effort === false ? "none" : "",
       fallback: fallback.filter(row => row && typeof row === "object").slice(0, 20).map(row => ({ provider: clip(row.provider, 100), model: clip(row.model, 200) })),
       auxiliary: (Array.isArray(auxiliary?.tasks) ? auxiliary.tasks : []).filter(row => typeof row?.task === "string").map(row => ({ task: clip(row.task, 64),

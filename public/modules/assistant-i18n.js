@@ -663,8 +663,46 @@
     "pt-BR": ["Fechar", "Abrir em uma nova aba", "Tela cheia"],
     "it": ["Chiudi", "Apri in una nuova scheda", "Schermo intero"],
   };
+  // Talking to a Bot while it works, and how hard it thinks.
+  const BUSY_KEYS = ["busyHint", "steered", "queued", "dropped", "compacting", "delegationDone", "reasoningNote", "applyModel",
+    "reasoningNone", "reasoningMinimal", "reasoningLow", "reasoningMedium", "reasoningHigh", "reasoningXhigh", "reasoningMax"];
+  const busyRows = {
+    "en": ["Sending now adds to the current work, or waits for this turn to end; it won’t interrupt.", "Added to the current work", "Queued for after this turn", "Stopped before this was handled",
+      "Summarizing earlier messages…", "Background work finished", "Higher thinks more carefully but answers more slowly. Telegram and routines use it too; open conversations change at once.", "Apply",
+      "Off", "Minimal", "Low", "Medium", "High", "Extra high", "Max"],
+    "zh-Hant": ["現在送出會補充到目前的工作，或排到這輪之後，不會中斷它。", "已補充到目前的工作", "排隊中，這輪做完後處理", "已停止，這則沒有處理",
+      "正在整理較早的對話…", "背景工作完成", "越高想得越仔細，但回得越慢。Telegram 和例行工作也用這個設定；開著的對話立刻生效。", "套用",
+      "關閉", "最少", "低", "中", "高", "很高", "最高"],
+    "zh-Hans": ["现在发送会补充到当前的工作，或排到这轮之后，不会中断它。", "已补充到当前的工作", "排队中，这轮做完后处理", "已停止，这条没有处理",
+      "正在整理较早的对话…", "后台工作完成", "越高想得越仔细，但回得越慢。Telegram 和例行工作也用这个设置；打开着的对话立即生效。", "应用",
+      "关闭", "最少", "低", "中", "高", "很高", "最高"],
+    "ja": ["今送ると、いまの作業に追加されるか、このターンの後に回ります。中断はしません。", "いまの作業に追加しました", "このターンの後に処理します", "停止したため処理されませんでした",
+      "以前の会話を整理しています…", "バックグラウンドの作業が完了", "高いほど丁寧に考えますが、返答は遅くなります。Telegram と定期タスクにも適用され、開いている会話にはすぐ反映されます。", "適用",
+      "オフ", "最小", "低", "中", "高", "かなり高", "最大"],
+    "ko": ["지금 보내면 현재 작업에 추가되거나 이번 차례가 끝난 뒤 처리되며, 중단되지 않습니다.", "현재 작업에 추가됨", "이번 차례가 끝나면 처리", "중지되어 처리되지 않음",
+      "이전 대화를 정리하는 중…", "백그라운드 작업 완료", "높을수록 더 꼼꼼히 생각하지만 답이 느려집니다. Telegram과 정기 작업에도 적용되며, 열려 있는 대화에는 바로 반영됩니다.", "적용",
+      "끔", "최소", "낮음", "중간", "높음", "매우 높음", "최대"],
+    "tr": ["Şimdi göndermek mevcut işe ekler ya da bu turun bitmesini bekler; işi kesmez.", "Mevcut işe eklendi", "Bu turdan sonra işlenecek", "Durduruldu, işlenmedi",
+      "Önceki mesajlar özetleniyor…", "Arka plan işi bitti", "Yükseldikçe daha dikkatli düşünür ama daha yavaş yanıtlar. Telegram ve rutinler de bunu kullanır; açık sohbetler hemen değişir.", "Uygula",
+      "Kapalı", "En az", "Düşük", "Orta", "Yüksek", "Çok yüksek", "En yüksek"],
+    "fr": ["Envoyer maintenant ajoute au travail en cours, ou attend la fin de ce tour ; rien n’est interrompu.", "Ajouté au travail en cours", "En file, après ce tour", "Arrêté avant d’être traité",
+      "Résumé des messages précédents…", "Travail en arrière-plan terminé", "Plus c’est élevé, plus la réflexion est soignée, mais la réponse plus lente. Telegram et les routines l’utilisent aussi ; les conversations ouvertes changent aussitôt.", "Appliquer",
+      "Désactivé", "Minimal", "Faible", "Moyen", "Élevé", "Très élevé", "Maximal"],
+    "de": ["Jetzt zu senden ergänzt die laufende Arbeit oder wartet auf das Ende dieser Runde; nichts wird unterbrochen.", "Zur laufenden Arbeit hinzugefügt", "Wartet bis nach dieser Runde", "Gestoppt, bevor es bearbeitet wurde",
+      "Frühere Nachrichten werden zusammengefasst…", "Hintergrundarbeit erledigt", "Höher heißt gründlicher, aber langsamer. Telegram und Routinen verwenden es auch; offene Unterhaltungen ändern sich sofort.", "Übernehmen",
+      "Aus", "Minimal", "Niedrig", "Mittel", "Hoch", "Sehr hoch", "Maximal"],
+    "es": ["Enviar ahora se suma al trabajo en curso o espera a que termine este turno; no lo interrumpe.", "Añadido al trabajo en curso", "En cola, después de este turno", "Detenido antes de procesarse",
+      "Resumiendo mensajes anteriores…", "Trabajo en segundo plano terminado", "Cuanto más alto, más cuidadoso, pero responde más lento. Telegram y las rutinas también lo usan; las conversaciones abiertas cambian al instante.", "Aplicar",
+      "Desactivado", "Mínimo", "Bajo", "Medio", "Alto", "Muy alto", "Máximo"],
+    "pt-BR": ["Enviar agora soma ao trabalho em andamento ou espera este turno terminar; nada é interrompido.", "Adicionado ao trabalho em andamento", "Na fila, depois deste turno", "Parado antes de ser tratado",
+      "Resumindo mensagens anteriores…", "Trabalho em segundo plano concluído", "Quanto mais alto, mais cuidadoso, mas responde mais devagar. Telegram e as rotinas também usam; conversas abertas mudam na hora.", "Aplicar",
+      "Desligado", "Mínimo", "Baixo", "Médio", "Alto", "Muito alto", "Máximo"],
+    "it": ["Inviare ora si aggiunge al lavoro in corso o attende la fine di questo turno; non lo interrompe.", "Aggiunto al lavoro in corso", "In coda, dopo questo turno", "Fermato prima di essere gestito",
+      "Riassunto dei messaggi precedenti…", "Lavoro in background completato", "Più è alto, più ragiona con cura, ma risponde più lentamente. Lo usano anche Telegram e le routine; le conversazioni aperte cambiano subito.", "Applica",
+      "Disattivato", "Minimo", "Basso", "Medio", "Alto", "Molto alto", "Massimo"],
+  };
   const tables = {};
-  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows], [MENU_KEYS, menuRows], [VIEWER_KEYS, viewerRows]]) {
+  for (const [keys, set] of [[KEYS, rows], [ROUTINE_KEYS, routineRows], [GROUP_KEYS, groupRows], [BOT_KEYS, botRows], [CONSOLE_KEYS, consoleRows], [LAYOUT_KEYS, layoutRows], [GUIDE_KEYS, guideRows], [AUTH_KEYS, authRows], [MOBILE_KEYS, mobileRows], [AVATAR_KEYS, avatarRows], [FILE_KEYS, fileRows], [MENU_KEYS, menuRows], [VIEWER_KEYS, viewerRows], [BUSY_KEYS, busyRows]]) {
     for (const [locale, values] of Object.entries(set)) {
       if (values.length !== keys.length) throw new Error(`assistant-i18n: ${locale} has ${values.length} strings, expected ${keys.length}`);
       tables[locale] = { ...(tables[locale] || {}), ...Object.fromEntries(keys.map((key, index) => [key, values[index]])) };

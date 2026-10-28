@@ -39,11 +39,19 @@ const ROUTINE_CHECK_MS = 60_000, ROUTINE_PAGE = 50, MAX_ROUTINE_SENT = 512, LIVE
 // gives at most 500 rows a page. Messages before a compaction are kept, as the
 // resume showed them.
 const HISTORY_PAGE = 500, HISTORY_ROWS = 1000;
+// thinking.delta is Hermes's waiting line, not reasoning; the reasoning comes
+// as reasoning.delta (when the Bot shows it) and whole with message.complete.
+// (reasoning.available is a 500-character preview of either, so it is left.)
+// Hermes 0.22 says how a turn ended in message.complete's status.
 const FIELDS = Object.freeze({
-  "message.start": [], "message.delta": ["text"], "thinking.delta": ["text"], "message.complete": ["text", "interrupted"],
+  "message.start": [], "message.delta": ["text"], "thinking.delta": ["text"], "message.complete": ["text", "interrupted", "status", "reasoning"],
+  "reasoning.delta": ["text"],
   "tool.start": ["tool_id", "name", "args_text", "context"], "tool.complete": ["tool_id", "name", "summary", "result_text"],
   "status.update": ["kind", "text"], error: ["message"],
 });
+// A Bot's reasoning comes with the answers it is kept for: the newest ones,
+// each up to 16 KB, so a long conversation still opens quickly.
+const HISTORY_REASONING = 20, MAX_REASONING = 16 * 1024;
 
 const clip = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
 const count = value => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0);
@@ -86,12 +94,23 @@ function storedMessages(rows) {
       out.push({ role: "tool", name: clip(row.tool_name, 200) || "tool", context: clip(labels.get(String(row.tool_call_id || "")) || "", 4000) });
       continue;
     }
+    // Work a Bot handed to background helpers comes back as a turn Hermes
+    // starts itself; its row is a notice, not something the person said.
+    if (row.display_kind === "async_delegation_complete") {
+      const meta = row.display_metadata && typeof row.display_metadata === "object" ? row.display_metadata : {};
+      out.push({ role: "system", kind: "delegation", text: clip(meta.display_text, 2000), ...(count(row.timestamp) ? { at: count(row.timestamp) } : {}) });
+      continue;
+    }
     if (!["user", "assistant", "system"].includes(row.role)) continue;
     const text = typeof row.display_content === "string" ? row.display_content : typeof row.content === "string" ? row.content : "";
     // at: when Hermes wrote it (seconds), shown in the message's bubble.
-    if (text.trim()) out.push({ role: row.role, text: clip(text, MAX_TEXT), ...(count(row.timestamp) ? { at: count(row.timestamp) } : {}) });
+    const reasoning = row.role === "assistant" ? clip(typeof row.reasoning === "string" && row.reasoning.trim() ? row.reasoning : row.reasoning_content, MAX_REASONING) : "";
+    if (text.trim()) out.push({ role: row.role, text: clip(text, MAX_TEXT), ...(count(row.timestamp) ? { at: count(row.timestamp) } : {}), ...(reasoning.trim() ? { thinking: reasoning } : {}) });
   }
-  return out.slice(-1000);
+  const kept = out.slice(-1000);
+  let answers = 0;
+  for (let index = kept.length - 1; index >= 0; index -= 1) if (kept[index].thinking && ++answers > HISTORY_REASONING) delete kept[index].thinking;
+  return kept;
 }
 // What a tool call did, in a line: Hermes's own labels for the tools it labels,
 // otherwise the command or arguments it was given.
@@ -205,7 +224,7 @@ function createHermesAssistantService({ client, installed = () => false, notify 
   function track(storedId, liveId, profile) {
     let entry = sessions.get(storedId);
     if (!entry) {
-      entry = { storedId, liveId, profile: profile || "default", running: false, lastSeq: null, resyncing: false, buffer: [] };
+      entry = { storedId, liveId, profile: profile || "default", running: false, compacting: false, failureNoticed: false, lastSeq: null, resyncing: false, buffer: [] };
       sessions.set(storedId, entry);
     }
     if (entry.liveId !== liveId) { byLive.delete(entry.liveId); entry.liveId = liveId; entry.lastSeq = null; }
@@ -226,18 +245,31 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     }
     if (event.type === "request.cancel") { closeAsk(String(event.payload?.id || ""), clip(event.payload?.reason, 64) || "withdrawn"); return; }
     if (!FIELDS[event.type]) return;
-    if (event.type === "message.start") { entry.running = true; updateTurnHold(); }
+    if (event.type === "message.start") { entry.running = true; entry.compacting = false; entry.failureNoticed = false; updateTurnHold(); }
+    // While Hermes compacts the conversation, a message waits for the next
+    // turn. Compaction ends with a "compacted" status or the work going on.
+    if (event.type === "status.update" && event.payload?.kind === "compacting") entry.compacting = true;
+    if (event.type === "status.update" && event.payload?.kind === "compacted") entry.compacting = false;
+    if (["message.delta", "reasoning.delta", "tool.start"].includes(event.type)) entry.compacting = false;
     if (event.type === "message.complete") offerMedia(event.payload?.text);
     publish(entry.storedId, event.type, trimPayload(event.type, event.payload));
+    const failed = message => {
+      if (entry.failureNoticed) return;
+      entry.failureNoticed = true;
+      if (!isWatched(entry.storedId)) notifyLive(entry, "failed", message);
+    };
     if (event.type === "message.complete") {
-      entry.running = false;
+      entry.running = false; entry.compacting = false;
       updateTurnHold();
-      if (event.payload?.interrupted !== true && !isWatched(entry.storedId)) notifyLive(entry, "completed", event.payload?.text);
+      // A turn stopped with Stop is not a finished one.
+      const ended = clip(event.payload?.status, 20);
+      if (ended === "error") failed(clip(event.payload?.error, 2000) || event.payload?.text);
+      else if (ended !== "interrupted" && event.payload?.interrupted !== true && !isWatched(entry.storedId)) notifyLive(entry, "completed", event.payload?.text);
     }
     if (event.type === "error") {
-      entry.running = false;
+      entry.running = false; entry.compacting = false;
       updateTurnHold();
-      if (!isWatched(entry.storedId)) notifyLive(entry, "failed", event.payload?.message);
+      failed(event.payload?.message);
     }
   }
 
@@ -496,7 +528,18 @@ function createHermesAssistantService({ client, installed = () => false, notify 
         if (typeof attached?.ref_text === "string" && attached.ref_text) body = body ? `${body}\n${attached.ref_text}` : attached.ref_text;
       }
     }
-    await client.request("prompt.submit", { session_id: entry.liveId, text: body });
+    // A message sent while the Bot works is added to the work under way
+    // (Hermes's steer): nothing is thrown away, and the Bot takes it before
+    // its next step. One it cannot add (the Bot has just finished, is
+    // compacting, or the message carries files) waits for the next turn,
+    // which queued asks for; it never interrupts the turn. Hermes's own
+    // busy setting, which Telegram also follows, is left as it is.
+    if (entry.running && !entry.compacting && !files.length) {
+      const steered = await client.request("session.steer", { session_id: entry.liveId, text: body }).catch(() => null);
+      if (steered?.status === "queued") return "steered";
+    }
+    const sent = await client.request("prompt.submit", { session_id: entry.liveId, text: body, queued: true });
+    return ["queued", "steered", "redirected"].includes(sent?.status) ? sent.status : "started";
   }
 
   async function prompt({ sessionId, text, attachments } = {}) {
@@ -506,16 +549,18 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     const files = cleanAttachments(attachments);
     if (!body.trim() && !files.length) throw invalid("empty_message");
     if (!sessions.has(storedId)) await openSession({ sessionId: storedId });
-    let entry = sessions.get(storedId);
-    try { await submit(entry, body, files); } catch (error) {
+    let entry = sessions.get(storedId), delivered;
+    try { delivered = await submit(entry, body, files); } catch (error) {
       if (!/session not found/i.test(String(error?.message))) throw error;
       await openSession({ sessionId: storedId, profile: entry.profile });
       entry = sessions.get(storedId);
-      await submit(entry, body, files);
+      delivered = await submit(entry, body, files);
     }
     entry.running = true;
     updateTurnHold();
-    return { ok: true };
+    // delivered: started (a new turn), steered (added to the work under
+    // way) or queued (waits for the next turn), for the page to say so.
+    return { ok: true, delivered };
   }
 
   async function interrupt({ sessionId } = {}) {
@@ -609,6 +654,8 @@ function createHermesAssistantService({ client, installed = () => false, notify 
     bots, checkRoutineReplies, openBotChat, openSession, prompt, interrupt, respond,
     pendingAsks: () => [...asks.values()].map(ask => ({ ...ask })),
     listSessions, renameSession, markRead, deleteSession, watch, subscribe, offerMedia, mediaFile,
+    // The live ids of a Bot's conversations open now, for a setting to reach them at once.
+    liveSessions: profile => [...sessions.values()].filter(entry => entry.profile === profile && entry.liveId).map(entry => entry.liveId),
   });
 }
 

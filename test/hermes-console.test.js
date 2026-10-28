@@ -23,6 +23,12 @@ async function setup(t) {
   return { fake, hermes: createHermesConsole({ client }) };
 }
 
+test("the default model and its provider come from model.options, as Hermes's config gives only the model's name", async t => {
+  const { fake, hermes } = await setup(t);
+  fake.state.config.model = "gpt-6-luna";
+  assert.deepEqual((await hermes.overview()).main, { provider: "openai-codex", model: "gpt-6-luna" });
+});
+
 test("the overview shows models, keys and the gateway without ever carrying a secret", async t => {
   const { hermes } = await setup(t);
   const view = await hermes.overview();

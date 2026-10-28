@@ -240,45 +240,63 @@
       return box;
     }
 
+    // The model and how hard it thinks (Hermes's reasoning effort), applied together.
     function modelSection(bot) {
       const box = section(t("model"));
-      const provider = el("select"), model = el("select");
+      const provider = el("select"), model = el("select"), reasoning = el("select");
       provider.setAttribute("aria-label", t("provider"));
       model.setAttribute("aria-label", t("model"));
+      reasoning.setAttribute("aria-label", t("reasoningLabel"));
       const note = el("p", "assistant-hint");
       note.hidden = true;
-      const use = button(t("useModel"), "btn primary", () => void apply(false));
+      const use = button(t("applyModel"), "btn primary", () => void apply(false));
       const anyway = button(t("useAnyway"), "btn ghost", () => void apply(true));
       anyway.hidden = true;
-      let providers = [];
+      let providers = [], level = null;
+      const option = (label, value) => { const node = el("option", "", label); node.value = value; return node; };
+      const levelName = value => t(`reasoning${value[0].toUpperCase()}${value.slice(1)}`);
       const fillModels = selected => {
         const row = providers.find(item => item.slug === provider.value);
-        model.replaceChildren(...(row?.models || []).map(name => { const option = el("option", "", name); option.value = name; return option; }));
+        model.replaceChildren(...(row?.models || []).map(name => option(name, name)));
         if (selected && row?.models.includes(selected)) model.value = selected;
       };
       provider.addEventListener("change", () => { fillModels(null); note.hidden = anyway.hidden = true; });
       model.addEventListener("change", () => { note.hidden = anyway.hidden = true; });
       async function apply(confirmExpensive) {
+        // Only what changed is sent, so a new level alone leaves the model be.
+        const changes = {};
+        if (model.value && (provider.value !== bot.model.provider || model.value !== bot.model.model)) {
+          Object.assign(changes, { model: { provider: provider.value, model: model.value }, confirmExpensive });
+        }
+        if (reasoning.value && reasoning.value !== level) changes.reasoning = reasoning.value;
+        if (!Object.keys(changes).length) return;
         use.disabled = anyway.disabled = true;
         try {
-          const result = await api.configureBot(bot.name, { model: { provider: provider.value, model: model.value }, confirmExpensive });
+          const result = await api.configureBot(bot.name, changes);
           if (result.confirm) { note.textContent = t("confirmModel", { message: result.confirm }); note.hidden = false; anyway.hidden = false; return; }
           note.hidden = anyway.hidden = true;
-          bot.model = { provider: provider.value, model: model.value };
+          if (changes.model) bot.model = changes.model;
+          if (changes.reasoning) level = changes.reasoning;
           toast(t("saved"));
           onChanged(bot.name);
         } catch (error) { failed(error); } finally { use.disabled = anyway.disabled = false; }
       }
       const actions = el("div", "assistant-ask-actions");
       actions.append(use, anyway);
-      box.append(labeled(t("provider"), provider), labeled(t("model"), model), note, actions);
+      box.append(labeled(t("provider"), provider), labeled(t("model"), model), labeled(t("reasoningLabel"), reasoning),
+        el("p", "assistant-hint quiet", t("reasoningNote")), note, actions);
       box.addEventListener("toggle", async () => {
         if (!box.open || providers.length) return;
         try {
-          providers = (await api.botModels(bot.name)).providers;
-          provider.replaceChildren(...providers.map(row => { const option = el("option", "", row.name); option.value = row.slug; return option; }));
+          const options = await api.botModels(bot.name);
+          providers = options.providers;
+          provider.replaceChildren(...providers.map(row => option(row.name, row.slug)));
           if (providers.some(row => row.slug === bot.model.provider)) provider.value = bot.model.provider;
           fillModels(bot.model.model);
+          // A level Hermes did not report stays unchosen until one is picked.
+          level = options.reasoning || null;
+          reasoning.replaceChildren(...(level ? [] : [option("—", "")]), ...(options.reasoningLevels || []).map(value => option(levelName(value), value)));
+          reasoning.value = level || "";
         } catch (error) { failed(error); }
       });
       return box;

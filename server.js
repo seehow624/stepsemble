@@ -5918,7 +5918,7 @@ const hermesAssistant = createHermesAssistantService({
 // A Bot answers a routine with no browser connected, so no live event says so.
 setInterval(() => { hermesAssistant.checkRoutineReplies().catch(() => {}); }, ROUTINE_CHECK_MS).unref();
 const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, routines: createHermesRoutines({ client: hermesClient }),
-  groups: createHermesGroups({ client: hermesClient }), bots: createHermesBots({ client: hermesClient }), skills: createHermesSkills({ client: hermesClient }),
+  groups: createHermesGroups({ client: hermesClient }), bots: createHermesBots({ client: hermesClient, liveSessions: profile => hermesAssistant.liveSessions(profile) }), skills: createHermesSkills({ client: hermesClient }),
   console: createHermesConsole({ client: hermesClient }),
   readJSON, sendJSON, sseFrame, trySseWrite });
 
