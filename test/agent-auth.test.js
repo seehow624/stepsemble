@@ -18,12 +18,56 @@ function service(options = {}) {
 function collect(svc, runId) {
   return new Promise(resolve => {
     let output = "";
+    let maxOutputBytes = 0;
     const states = [];
     svc.subscribe(runId, -1, packet => {
-      if (packet.event.type === "output") output += packet.event.data;
+      if (packet.event.type === "output") {
+        output += packet.event.data;
+        maxOutputBytes = Math.max(maxOutputBytes, Buffer.byteLength(packet.event.data, "utf8"));
+      }
       if (packet.event.type === "state") states.push(packet.event);
-    }, () => resolve({ output, states }));
+    }, () => resolve({ output, states, maxOutputBytes }));
   });
+}
+
+function syntheticOutputSpawn(text, exitCode = 0) {
+  return () => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => {
+      child.stdout.emit("data", Buffer.from(text, "utf8"));
+      child.emit("close", exitCode, null);
+    });
+    return child;
+  };
+}
+
+async function waitForDone(svc, runId) {
+  for (let i = 0; i < 200; i++) {
+    const run = svc.snapshot(runId);
+    if (["completed", "failed", "cancelled", "timed_out"].includes(run.state)) return run;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.fail("synthetic auth command did not finish");
+}
+
+async function readRegistryRun(registry, id) {
+  let after = 0, output = "", maxChunkBytes = 0;
+  for (let i = 0; i < 2000; i++) {
+    const page = registry.read({ id, after });
+    for (const event of page.events) {
+      const bytes = Buffer.from(event.data, "base64");
+      maxChunkBytes = Math.max(maxChunkBytes, bytes.length);
+      output += bytes.toString("utf8");
+      after = event.seq;
+    }
+    if (page.done) return { output, maxChunkBytes };
+    await new Promise(resolve => setTimeout(resolve, 2));
+  }
+  assert.fail("synthetic helper run did not finish reading");
 }
 
 test("every agent's commands are fixed argument lists with no shell or browser-supplied values", () => {
@@ -86,6 +130,50 @@ test("status reports the command's own words and exit code", unix, async () => {
   assert.match(output, /Not logged in/);
   assert.equal(states.at(-1).state, "failed");
   assert.equal(states.at(-1).code, 1);
+});
+
+test("one large UTF-8 auth output chunk is split and its latest bytes remain replayable", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-auth-output-limit-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const payload = "OLD_START" + "🙂".repeat(600_000) + "NEWEST_END"; // More than 2 MiB in UTF-8.
+  const svc = createAgentAuthService({ home, env: process.env, resolveExecutable: () => path.join(home, "fake-agent"),
+    ptyRuntime: null, spawnImpl: syntheticOutputSpawn(payload), retainMs: 60_000 });
+  const run = await svc.start({ agentId: "codex", action: "status" });
+  await waitForDone(svc, run.runId);
+  const replay = await collect(svc, run.runId);
+  assert.ok(Buffer.byteLength(replay.output, "utf8") <= 2 * 1024 * 1024, "replay is bounded by UTF-8 bytes, not JS string length");
+  assert.ok(replay.output.length < payload.length, "old output was evicted");
+  assert.ok(!replay.output.includes("OLD_START"), "the oldest output is no longer retained");
+  assert.ok(replay.output.endsWith("NEWEST_END"), "the newest output remains retained");
+  assert.ok(replay.maxOutputBytes <= 32 * 1024, "a single replay event is kept small");
+  assert.equal(svc.snapshot(run.runId).truncated, true);
+});
+
+test("ordinary auth output is unchanged", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-auth-output-normal-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const payload = "Login successful 🙂\r\n";
+  const svc = createAgentAuthService({ home, env: process.env, resolveExecutable: () => path.join(home, "fake-agent"),
+    ptyRuntime: null, spawnImpl: syntheticOutputSpawn(payload), retainMs: 60_000 });
+  const run = await svc.start({ agentId: "codex", action: "status" });
+  await waitForDone(svc, run.runId);
+  assert.equal((await collect(svc, run.runId)).output, payload);
+});
+
+test("completed auth runs have a global retention limit and keep the newest run", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-auth-run-limit-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const svc = createAgentAuthService({ home, env: process.env, resolveExecutable: () => path.join(home, "fake-agent"),
+    ptyRuntime: null, spawnImpl: syntheticOutputSpawn("status ok\n"), retainMs: 60_000 });
+  let first = null, newest = null;
+  for (let i = 0; i < 17; i++) {
+    const run = await svc.start({ agentId: "codex", action: "status" });
+    if (!first) first = run;
+    await waitForDone(svc, run.runId);
+    newest = run;
+  }
+  assert.throws(() => svc.snapshot(first.runId), error => error.code === "run_not_found");
+  assert.equal((await collect(svc, newest.runId)).output, "status ok\n");
 });
 
 test("requests are validated and a busy agent is left alone", unix, async () => {
@@ -237,6 +325,47 @@ test("the helper-side registry pages output and hides secrets", unix, async () =
   assert.equal(page.done, true);
   assert.equal(page.state, "completed");
   assert.ok(!text.includes("registry-secret-value"));
+});
+
+test("the desktop helper bounds a large UTF-8 chunk and pages the latest output", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-auth-helper-limit-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const payload = "OLD_START" + "🙂".repeat(600_000) + "NEWEST_END";
+  const registry = createTerminalRunRegistry({ home, ptyRuntime: null, spawnImpl: syntheticOutputSpawn(payload) });
+  const started = registry.start({ command: path.join(home, "fake-agent"), args: [], action: "status" });
+  const replay = await readRegistryRun(registry, started.id);
+  assert.ok(Buffer.byteLength(replay.output, "utf8") <= 2 * 1024 * 1024, "helper replay obeys its per-run byte cap");
+  assert.ok(!replay.output.includes("OLD_START"), "helper discards the oldest output");
+  assert.ok(replay.output.endsWith("NEWEST_END"), "helper keeps the newest output");
+  assert.ok(replay.maxChunkBytes <= 24 * 1024, "one desktop event fits the default read page");
+});
+
+test("the desktop helper enforces a global completed-run limit", async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-auth-helper-runs-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const registry = createTerminalRunRegistry({ home, ptyRuntime: null, spawnImpl: syntheticOutputSpawn("ok") });
+  let first = null, newest = null;
+  for (let i = 0; i < 17; i++) {
+    const run = registry.start({ command: path.join(home, "fake-agent"), args: [], action: "status" });
+    if (!first) first = run;
+    await readRegistryRun(registry, run.id);
+    newest = run;
+  }
+  assert.throws(() => registry.read({ id: first.id, after: 0 }), error => error.code === "run_not_found");
+  assert.equal((await readRegistryRun(registry, newest.id)).output, "ok");
+});
+
+test("cancelling a helper before secret input schedules history cleanup without launching a process", async () => {
+  const registry = createTerminalRunRegistry({ home: __dirname, retainMs: 20,
+    spawnImpl: () => { throw new Error("a cancelled secret prompt must not launch a process"); } });
+  const run = registry.start({ command: fixture, args: [], action: "login", stdinSecret: true });
+  assert.equal(run.state, "awaiting_secret");
+  assert.deepEqual(registry.cancel({ id: run.id }), { cancelled: true });
+  assert.equal(registry.read({ id: run.id }).state, "cancelled");
+  assert.equal(registry.read({ id: run.id }).done, true);
+  assert.equal(registry.busy(), false);
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.throws(() => registry.read({ id: run.id }), error => error.code === "run_not_found");
 });
 
 test("small helpers stay strict", () => {

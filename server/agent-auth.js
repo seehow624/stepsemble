@@ -22,8 +22,12 @@ const ACTIONS = Object.freeze(["status", "login", "logout", "setup"]);
 const PROVIDER_ARG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const RUN_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const MAX_RUNS = 6;
+// Keep a fixed global history as well as the per-run caps below. With at most
+// 16 retained runs and 2 MiB per run, terminal replay storage stays bounded.
+const MAX_RETAINED_RUNS = 16;
 const MAX_EVENTS = 4000;
 const MAX_EVENT_BYTES = 2 * 1024 * 1024;
+const MAX_OUTPUT_CHUNK_BYTES = 32 * 1024;
 const MAX_INPUT = 8192;
 const STATUS_TIMEOUT_MS = 45 * 1000;
 const INTERACTIVE_TIMEOUT_MS = 20 * 60 * 1000;
@@ -32,6 +36,26 @@ const KILL_DELAY_MS = 1500;
 const DEFAULT_COLS = 100;
 const DEFAULT_ROWS = 30;
 const PTY_BRIDGE_FILE = path.join(__dirname, "pty-bridge.py");
+
+// Split large output without cutting a UTF-8 code point. This keeps a single
+// child or desktop-helper chunk from exceeding the replay/page budget, while
+// preserving every byte for live readers and leaving ordinary chunks intact.
+function forEachUtf8Chunk(text, maxBytes, visit) {
+  let start = 0, bytes = 0;
+  const emit = end => visit(Buffer.from(text.slice(start, end), "utf8").toString("utf8"));
+  for (let index = 0; index < text.length;) {
+    const code = text.codePointAt(index);
+    const units = code > 0xffff ? 2 : 1;
+    const size = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : 3 + (code > 0xffff ? 1 : 0);
+    if (bytes && bytes + size > maxBytes) {
+      emit(index);
+      start = index; bytes = 0;
+    }
+    bytes += size;
+    index += units;
+  }
+  if (start < text.length) emit(text.length);
+}
 
 // Keys a phone keyboard cannot type, shared with the terminal view of a
 // CLI session.
@@ -269,6 +293,23 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
 
   function activeRuns() { return [...runs.values()].filter(run => !run.done); }
 
+  function discardRun(run) {
+    for (const timer of [run.timer, run.poll, run.cleanupTimer]) if (timer) clearTimeout(timer);
+    run.timer = null; run.poll = null; run.cleanupTimer = null;
+    if (runs.get(run.id) === run) runs.delete(run.id);
+    run.events.length = 0; run.eventBytes = 0;
+    run.clients.clear(); run.endListeners.clear(); run.secrets = [];
+    run.process = null; run.remoteRunner = null; run.launchLater = null;
+  }
+
+  function makeRoomForRun() {
+    while (runs.size >= MAX_RETAINED_RUNS) {
+      const oldestDone = [...runs.values()].find(run => run.done);
+      if (!oldestDone) throw problem("too_many_runs", 429);
+      discardRun(oldestDone);
+    }
+  }
+
   function publicRun(run) {
     return { runId: run.id, agentId: run.agentId, action: run.action, choice: run.choice, command: run.command,
       provider: run.provider || null, state: run.state, pty: run.pty, startedAt: run.startedAt, endedAt: run.endedAt,
@@ -290,7 +331,8 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
 
   function output(run, text) {
     if (!text) return;
-    emit(run, { type: "output", data: redact(text, run.secrets) });
+    const safe = redact(text, run.secrets);
+    forEachUtf8Chunk(safe, MAX_OUTPUT_CHUNK_BYTES, data => emit(run, { type: "output", data }));
   }
 
   function setState(run, state, extra = {}) {
@@ -303,6 +345,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     run.done = true; run.endedAt = now(); run.exitCode = Number.isInteger(code) ? code : null;
     if (run.timer) clearTimeout(run.timer);
     if (run.poll) clearTimeout(run.poll);
+    run.timer = null; run.poll = null;
     run.secrets = [];
     setState(run, state, { code: run.exitCode, signal: signal || null, reason: reason || null });
     // A finished sign-in or sign-out changes the account the agent's
@@ -312,8 +355,8 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     }
     for (const end of run.endListeners) { try { end(); } catch {} }
     run.endListeners.clear();
-    const cleanup = setTimeout(() => { if (runs.get(run.id) === run) runs.delete(run.id); }, retainMs);
-    cleanup.unref?.();
+    run.cleanupTimer = setTimeout(() => { run.cleanupTimer = null; discardRun(run); }, retainMs);
+    run.cleanupTimer.unref?.();
   }
 
   function catalog() {
@@ -361,7 +404,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
       id: crypto.randomUUID(), agentId, action, choice: choice.id, provider, command, pty, remote, folder,
       state: "starting", startedAt: now(), endedAt: null, exitCode: null, done: false,
       events: [], eventBytes: 0, eventSeq: 0, truncated: false, clients: new Set(), endListeners: new Set(),
-      secrets: [], process: null, timer: null, poll: null, remoteId: null, awaitingSecret: false,
+      secrets: [], process: null, timer: null, poll: null, cleanupTimer: null, remoteId: null, awaitingSecret: false,
       spec: choice,
     };
   }
@@ -446,6 +489,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     if (remote && typeof remote.available === "function" && remote.available()) {
       if (typeof remote.supported === "function" && !(await remote.supported())) throw problem("desktop_terminal_unavailable", 409);
       const run = newRun({ agentId, action, choice, provider, command: displayCommand(agentId === "claude-code" ? "claude" : agentId, args), pty: true, remote: true });
+      makeRoomForRun();
       runs.set(run.id, run);
       let started;
       try {
@@ -453,7 +497,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
         if (typeof started?.id !== "string" || !RUN_ID.test(started.id)) throw problem("desktop_unreachable", 503);
         run.remoteId = started.id; run.remoteSeq = 0; run.remoteRunner = remote;
       } catch (error) {
-        runs.delete(run.id);
+        discardRun(run);
         throw problem(error?.code && /^[a-z_]{3,64}$/.test(error.code) ? error.code : "desktop_unreachable", error?.statusCode || 503);
       }
       setState(run, started?.state === "awaiting_secret" ? "awaiting_secret" : "running");
@@ -466,6 +510,7 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
     try { executable = resolveExecutable(agentId); } catch {}
     if (!executable || !path.isAbsolute(executable)) throw problem("agent_not_installed", 404);
     const run = newRun({ agentId, action, choice, provider, command: displayCommand(executable, args), pty: !!ptyRuntime, folder });
+    makeRoomForRun();
     runs.set(run.id, run);
     try { startLocal(run, { executable, args, cols, rows, timeoutMs }); }
     catch (error) {
@@ -574,25 +619,56 @@ function createAgentAuthService({ home, env = process.env, resolveExecutable, pt
 function createTerminalRunRegistry({ spawnImpl = spawn, ptyRuntime = null, env = process.env, home, platform = process.platform,
   windowsLaunch = null, now = Date.now, statusTimeoutMs = STATUS_TIMEOUT_MS, interactiveTimeoutMs = INTERACTIVE_TIMEOUT_MS,
   retainMs = RETAIN_MS, killDelayMs = KILL_DELAY_MS, maxPageBytes = 24 * 1024 } = {}) {
+  const pageBytes = Math.max(4, Number.isSafeInteger(maxPageBytes) && maxPageBytes > 0 ? maxPageBytes : 24 * 1024);
+  const recordChunkBytes = Math.min(MAX_OUTPUT_CHUNK_BYTES, pageBytes);
   const runs = new Map();
   function active() { return [...runs.values()].find(run => !run.done) || null; }
+
+  function finishRun(run, state, code = null) {
+    if (run.done) return;
+    run.done = true; run.state = state; run.exitCode = Number.isInteger(code) ? code : null; run.secrets = [];
+    if (run.timer) clearTimeout(run.timer);
+    run.timer = null; run.launch = null;
+    run.cleanupTimer = setTimeout(() => { run.cleanupTimer = null; discardRun(run); }, retainMs);
+    run.cleanupTimer.unref?.();
+  }
+
+  function discardRun(run) {
+    for (const timer of [run.timer, run.cleanupTimer]) if (timer) clearTimeout(timer);
+    run.timer = null; run.cleanupTimer = null;
+    if (runs.get(run.id) === run) runs.delete(run.id);
+    run.chunks.length = 0; run.bytes = 0; run.secrets = [];
+    run.process = null; run.launch = null;
+  }
+
+  function makeRoomForRun() {
+    while (runs.size >= MAX_RETAINED_RUNS) {
+      const oldestDone = [...runs.values()].find(run => run.done);
+      if (!oldestDone) throw problem("too_many_runs", 429);
+      discardRun(oldestDone);
+    }
+  }
+
   function start({ command, args, action, stdinSecret = false, cols = DEFAULT_COLS, rows = DEFAULT_ROWS }) {
     if (active()) throw problem("auth_run_active", 409);
+    makeRoomForRun();
     const run = { id: crypto.randomUUID(), action, state: "starting", done: false, exitCode: null, chunks: [], seq: 0, bytes: 0,
-      secrets: [], process: null, awaitingSecret: false, timer: null, startedAt: now() };
+      secrets: [], process: null, awaitingSecret: false, timer: null, cleanupTimer: null, startedAt: now() };
     runs.set(run.id, run);
     const record = text => {
       if (!text) return;
-      const data = Buffer.from(redact(text, run.secrets), "utf8");
-      run.chunks.push({ seq: ++run.seq, data }); run.bytes += data.length;
-      while (run.bytes > MAX_EVENT_BYTES && run.chunks.length > 1) { const removed = run.chunks.shift(); run.bytes -= removed.data.length; }
+      const safe = redact(text, run.secrets);
+      forEachUtf8Chunk(safe, recordChunkBytes, piece => {
+        const data = Buffer.from(piece, "utf8");
+        run.chunks.push({ seq: ++run.seq, data }); run.bytes += data.length;
+        while (run.chunks.length > MAX_EVENTS || run.bytes > MAX_EVENT_BYTES) {
+          const removed = run.chunks.shift();
+          if (!removed) break;
+          run.bytes -= removed.data.length; run.truncated = true;
+        }
+      });
     };
-    const end = (state, code = null) => {
-      if (run.done) return;
-      run.done = true; run.state = state; run.exitCode = Number.isInteger(code) ? code : null; run.secrets = [];
-      if (run.timer) clearTimeout(run.timer);
-      const cleanup = setTimeout(() => runs.delete(run.id), retainMs); cleanup.unref?.();
-    };
+    const end = (state, code = null) => finishRun(run, state, code);
     const launch = usePty => {
       const handle = createTerminalProcess({ command, args, cwd: home, env: { ...env, HOME: home }, ptyRuntime, cols, rows, usePty,
         spawnImpl, platform, windowsLaunch, killDelayMs });
@@ -625,7 +701,7 @@ function createTerminalRunRegistry({ spawnImpl = spawn, ptyRuntime = null, env =
     let size = 0;
     for (const chunk of run.chunks) {
       if (chunk.seq <= floor) continue;
-      if (events.length && size + chunk.data.length > maxPageBytes) break;
+      if (events.length && size + chunk.data.length > pageBytes) break;
       events.push({ seq: chunk.seq, data: chunk.data.toString("base64") });
       size += chunk.data.length;
     }
@@ -658,7 +734,7 @@ function createTerminalRunRegistry({ spawnImpl = spawn, ptyRuntime = null, env =
     if (run.done) return { cancelled: false };
     run.cancelled = true;
     if (run.process) run.process.terminate();
-    else { run.done = true; run.state = "cancelled"; }
+    else finishRun(run, "cancelled");
     return { cancelled: true };
   }
   function busy() { return !!active(); }
