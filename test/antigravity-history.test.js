@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const { readAntigravityConversations, matchStreamEntries } = require("../server/antigravity-history");
 
 const ID = n => `${String(n).repeat(8)}-1111-4222-8333-${String(n).repeat(12)}`;
@@ -22,9 +23,9 @@ test("agy's conversations are read while agy holds its list open, without a suba
       step_count integer NOT NULL DEFAULT 0, last_modified_time datetime NOT NULL, workspace_uris text NOT NULL,
       parent_conversation_id text NOT NULL DEFAULT "", nesting_depth integer NOT NULL DEFAULT 0, PRIMARY KEY (conversation_id));`);
   const add = db.prepare("INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-  const uri = folder => JSON.stringify(["file://" + folder]);
+  const uri = folder => JSON.stringify([pathToFileURL(folder).href]);
   add.run(ID(1), "", "fix the build\nand more", 4, "2026-10-28 01:46:56.505768+00:00", uri(project), "", 0);
-  add.run(ID(2), "Named one", "", 2, "2026-10-27 01:00:00+00:00", JSON.stringify(["file://" + gate, "file://" + project]), "", 0);
+  add.run(ID(2), "Named one", "", 2, "2026-10-27 01:00:00+00:00", JSON.stringify([pathToFileURL(gate).href, pathToFileURL(project).href]), "", 0);
   add.run(ID(3), "", "a subagent", 2, "2026-10-28 02:00:00+00:00", uri(project), ID(1), 1);
   add.run(ID(4), "", "", 0, "0001-01-01 00:00:00+00:00", uri(project), "", 0);
   add.run(ID(5), "", "only the gate", 2, "2026-10-28 03:00:00+00:00", uri(gate), "", 0);
