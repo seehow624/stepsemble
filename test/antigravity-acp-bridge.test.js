@@ -147,7 +147,7 @@ test("a new conversation is agy's own, answers in the stream, reports context an
   const mode = created.configOptions.find(option => option.category === "mode");
   assert.equal(mode.currentValue, "default");
   const result = await s.bridge.prompt(created.sessionId, "hello");
-  assert.deepEqual(result, { kind: "prompted", sessionId: created.sessionId, result: { stopReason: "end_turn" } });
+  assert.deepEqual(result, { kind: "prompted", sessionId: created.sessionId, result: { stopReason: "end_turn", _meta: { usage: { outputTokens: 12 } } } });
   assert.match(texts(s.bridge, created.sessionId), /fake answer 1 \(magpie\/fake\/model\)/);
   assert.deepEqual(updates(s.bridge, created.sessionId, "user_message_chunk").map(update => update.content.text), ["hello"]);
   const usage = updates(s.bridge, created.sessionId, "usage_update").pop();
@@ -281,6 +281,25 @@ test("a new kind of event, a line that is not JSON and an unknown result status 
   assert.equal(updates(s.bridge, sessionId, "turn_error").length, 0);
   assert.equal((await s.bridge.prompt(sessionId, "and then")).kind, "prompted");
   assert.equal(s.starts().length, 1, "the same agy process kept the conversation");
+});
+
+test("what agy counts the model wrote, its thinking included, is the turn's, and history keeps agy's own times", unix, async t => {
+  const s = setup(t);
+  const { sessionId } = await s.bridge.createSession({ directory: s.project });
+  const turn = await s.bridge.prompt(sessionId, `two reads [read:${s.project}/a.txt] [read:${s.project}/b.txt]`);
+  // A model call before each tool (40 each, as the fake agy counts) and the answer (12).
+  assert.deepEqual(turn.result, { stopReason: "end_turn", _meta: { usage: { outputTokens: 92 } } });
+  assert.deepEqual(updates(s.bridge, sessionId, "usage_update").map(update => update.turnOutputTokens), [40, 80, 92]);
+  // Opened again after a restart, each step is shown at the time agy wrote it.
+  await s.bridge.close();
+  s.bridge = s.make();
+  await s.bridge.createSession({ sessionId, directory: s.project });
+  const transcript = fs.readFileSync(path.join(s.root, ".gemini", "antigravity-cli", "brain", sessionId, ".system_generated", "logs", "transcript.jsonl"), "utf8")
+    .trim().split("\n").map(line => JSON.parse(line));
+  const rows = s.bridge.sessionEvents(sessionId);
+  assert.equal(rows.find(row => row.update.sessionUpdate === "user_message_chunk").at, Date.parse(transcript.find(row => row.type === "USER_INPUT").created_at));
+  assert.equal(rows.at(-1).at, Date.parse(transcript.at(-1).created_at), "the reply ends when agy wrote it");
+  assert.ok(rows.every(row => row.replay === true && row.at <= Date.now()));
 });
 
 test("a picture is saved for agy to read, because its stream takes text only", unix, async t => {

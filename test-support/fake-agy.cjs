@@ -29,6 +29,9 @@
 //   FAKE_AGY_MODE    permission mode init reports (default request-review)
 //   FAKE_AGY_DENY=1  every turn refuses a write_file and a command (old stream)
 //   FAKE_AGY_CONTEXT_TOKENS  input tokens reported per turn (default 1000 × turn)
+// As agy does, each model call (one before every tool step, and the answer)
+// reports its usage, its output counting its thinking; the result carries
+// the turn's sums. FAKE_AGY_CALL_MS: how long each model call takes.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -117,7 +120,8 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
     return { allowed: true };
   }
 
-  let buffer = "", turn = 0, busy = null, queue = [];
+  // agy numbers the steps of a conversation, not of a turn.
+  let buffer = "", turn = 0, busy = null, queue = [], index = transcriptStep;
   const step = (stepIndex, extra) => emit({ event: "step_update", step_update: { conversation_id: conversation, step_index: stepIndex, ...extra } });
   process.on("SIGINT", () => {
     if (busy) emit({ event: "result", result: { conversation_id: conversation, status: "ERROR", response: "", error: "interrupted", num_turns: turn } });
@@ -125,8 +129,14 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
   });
   async function runTurn(text) {
     turn += 1;
-    let index = 0;
+    let inputs = 0, written = 0, thought = 0;
     const denied = [];
+    const used = Number(process.env.FAKE_AGY_CONTEXT_TOKENS) || 1000 * turn;
+    const callMs = Number(process.env.FAKE_AGY_CALL_MS) || 0;
+    const call = (output, thinking) => {
+      inputs += used; written += output; thought += thinking;
+      return { input_tokens: used, output_tokens: output, thinking_tokens: thinking, cache_read_tokens: 0, total_tokens: used + output };
+    };
     step(index++, { state: "DONE", step_type: "user_input" });
     writeTranscript({ step_index: transcriptStep++, source: "USER_EXPLICIT", type: "USER_INPUT", content: `<USER_REQUEST>\n${text}\n</USER_REQUEST>` });
     if (process.env.FAKE_AGY_DENY === "1") {
@@ -151,6 +161,8 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
       const name = { run: "run_command", write: "write_file", edit: "edit_file", read: "read_file", search: "search_web" }[kind];
       const toolArgs = kind === "run" ? { CommandLine: value, WaitMsBeforeAsync: 3000 } : kind === "search" ? { query: value }
         : kind === "write" ? { Path: value, Content: "written by the fake agy\n" } : kind === "edit" ? { Path: value, Target: "old", Replacement: "new" } : { Path: value };
+      if (callMs) await new Promise(resolve => setTimeout(resolve, callMs));
+      step(index++, { state: "DONE", step_type: "agent_response", usage: call(40, 30) });
       const stepIndex = index++;
       step(stepIndex, { state: "ACTIVE", step_type: "tool", tool_name: name, tool_info: { name, parameters: toolArgs } });
       writeTranscript({ step_index: transcriptStep++, source: "MODEL", type: "PLANNER_RESPONSE", tool_calls: [{ name, args: Object.fromEntries(Object.entries(toolArgs).map(([key, item]) => [key, JSON.stringify(item)])) }] });
@@ -183,10 +195,10 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
       return;
     }
     const answer = `fake answer ${turn} (${model}${effort ? ", " + effort : ""}${mode ? ", " + mode : ""})`;
-    const used = Number(process.env.FAKE_AGY_CONTEXT_TOKENS) || 1000 * turn;
-    const usage = { input_tokens: used, output_tokens: 5, thinking_tokens: 0, cache_read_tokens: 0, total_tokens: used + 5 };
-    step(index++, { state: "DONE", step_type: "agent_response", text_delta: answer, usage });
+    if (callMs) await new Promise(resolve => setTimeout(resolve, callMs));
+    step(index++, { state: "DONE", step_type: "agent_response", text_delta: answer, usage: call(12, 7) });
     writeTranscript({ step_index: transcriptStep++, source: "MODEL", type: "PLANNER_RESPONSE", content: answer });
+    const usage = { input_tokens: inputs, output_tokens: written, thinking_tokens: thought, cache_read_tokens: 0, total_tokens: inputs + written };
     emit({ event: "result", result: { conversation_id: conversation, status: "SUCCESS", response: answer, num_turns: turn, usage,
       ...(denied.length ? { denied_actions: denied } : {}) } });
   }

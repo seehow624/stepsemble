@@ -13,9 +13,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Antigravity opens in its stream behind the Host's ACP bridge. An action
 // that needs approval waits on a card in the conversation, where it is
-// allowed or denied; the approval mode, model and reasoning are chosen in the
-// composer; /model opens the model sheet, and a command only agy's own
-// screen has offers to continue the conversation there.
+// allowed or denied; each turn shows how long it worked and how fast the model
+// wrote, by agy's own count, also once the conversation is opened again; the
+// approval mode, model and reasoning are chosen in the composer; /model opens
+// the model sheet, and a command only agy's own screen has offers to continue
+// the conversation there.
 export async function runAntigravityStreamBrowserCases(browser, { screenshotDirectory } = {}) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-agy-stream-"));
@@ -35,7 +37,7 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root,
         env: { ...cleanEnvironment(home), PATH: bin + path.delimiter + path.dirname(process.execPath) + path.delimiter + "/usr/bin:/bin",
           PI_HOME: home, PI_BIN: piBin, STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0",
-          FAKE_AGY_COMMANDS: commands, FAKE_AGY_UUID_IDS: "1" },
+          FAKE_AGY_COMMANDS: commands, FAKE_AGY_UUID_IDS: "1", FAKE_AGY_CALL_MS: "400" },
         stdio: ["ignore", "pipe", "pipe"] });
       await waitForServer(child); child.stdout.resume(); child.stderr.resume();
       context = await browser.newContext({ viewport, serviceWorkers: "block", locale: "zh-TW", reducedMotion: "reduce" });
@@ -92,6 +94,19 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       assert.deepEqual(await ran(), ["echo allowed", "echo bypassed"], "bypass runs without a card");
       assert.equal(await pane.locator(".agent-approval-card[data-acp-permission]").count(), 2);
 
+      // The turn says how long it worked and how fast the model wrote, by
+      // agy's own count (no "≈"); the same once the conversation is opened again.
+      const workLine = () => pane.waitForFunction(() => {
+        const head = [...document.querySelectorAll("#messages .wl-head")].pop();
+        const label = head?.querySelector(".wl-head-label")?.textContent || "", rate = head?.querySelector(".wl-rate")?.textContent || "";
+        return /^工作了 /.test(label) && /^[\d.,]+ tok\/s · [\d.,]+ tok\/min$/.test(rate) ? { label, rate } : null;
+      }, null, { timeout: 15000 }).then(handle => handle.jsonValue());
+      const live = await workLine();
+      await pane.goto(pane.url());
+      await pane.locator("#messages").getByText(/fake answer 4\b/).first().waitFor({ timeout: 30000 });
+      assert.equal((await workLine()).rate, live.rate, "the same numbers once opened again");
+      await pane.waitForFunction(() => !document.querySelector("#btn-send")?.disabled, null, { timeout: 30000 });
+
       // Reasoning applies from the next turn, on the same conversation.
       await pane.locator("#thinking-select").evaluate(node => { node.value = "low"; node.dispatchEvent(new Event("change")); });
       await send("think less");
@@ -113,7 +128,7 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       await terminalPane.locator('.session-terminal-keys [data-terminal-key="enter"]').waitFor();
       assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
       console.log(JSON.stringify({ case: "Antigravity stream (" + viewport.width + ")", result: "passed", syntheticOnly: true, approvalCard: true,
-        approvalModes: modes.length, reasoning: true, modelSheet: true, terminalContinue: true, pageErrors: 0 }));
+        approvalModes: modes.length, workTime: true, exactRate: true, reasoning: true, modelSheet: true, terminalContinue: true, pageErrors: 0 }));
     } catch (error) {
       // What the conversation showed, to tell a slow machine from a fault.
       const shown = await page?.frames().find(frame => frame !== page.mainFrame())?.locator("#messages").textContent({ timeout: 2000 }).catch(() => "") || "";

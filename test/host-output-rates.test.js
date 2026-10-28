@@ -65,6 +65,29 @@ test("Claude counts each message once and ignores subagent output while a tool r
   assert.equal(row.tokens, 150); assert.equal(row.modelMs, 3000); assert.equal(row.totalMs, 6000);
 });
 
+test("Antigravity's speed is agy's own count of what it wrote, its thinking included; while it works, the average so far", t => {
+  const f = fixture(t, "antigravity", { nativeAcp: true });
+  const event = value => f.host.acp("antigravity", { sessionId: "session", ...value });
+  const update = value => event({ type: "session.update", update: value });
+  event({ type: "rate.turn.started" });
+  // A model call wrote 400 tokens before asking for a tool, which ran for 2 s.
+  f.at(14000); update({ sessionUpdate: "usage_update", used: 900, outputTokens: 400, thinkingTokens: 300, turnOutputTokens: 400 });
+  update({ sessionUpdate: "tool_call", toolCallId: "1-1", name: "run_command", status: "in_progress" });
+  f.at(16000); update({ sessionUpdate: "tool_call_update", toolCallId: "1-1", name: "run_command", status: "completed" });
+  const live = f.read().active;
+  assert.equal(live.liveAverage, true);
+  assert.equal(live.estimated, false, "agy's own count, not an estimate from the text");
+  assert.equal(live.liveRate, 100, "400 tokens over the 4 s the model worked");
+  // The answer is shown as it is written; its call's count arrives with its end.
+  f.at(19000); update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "a short answer" } });
+  f.at(20000); update({ sessionUpdate: "usage_update", used: 950, outputTokens: 600, thinkingTokens: 500, turnOutputTokens: 1000 });
+  event({ type: "rate.turn.ended", result: { stopReason: "end_turn", _meta: { usage: { outputTokens: 1000 } } } });
+  const [row] = f.read().rates;
+  assert.deepEqual({ tokens: row.tokens, estimated: row.estimated, totalMs: row.totalMs, modelMs: row.modelMs },
+    { tokens: 1000, estimated: false, totalMs: 10000, modelMs: 8000 });
+  assert.equal(f.reopen().rates[0].tokens, 1000, "kept for every device");
+});
+
 test("Codex duplicate start notifications and late usage cannot mix consecutive turns", t => {
   const f = fixture(t, "codex", { nativeCodex: true, mutation: "native_api" });
   const event = value => f.host.codex({ threadId: "session", ...value });

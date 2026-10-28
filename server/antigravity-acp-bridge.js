@@ -413,7 +413,11 @@ function createAntigravityAcpBridge({
       if (type === "agent_response") {
         const text = displayText(body.text_delta ?? body.text ?? "", MAX_TEXT);
         if (text) { record(session, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } }); if (live.turn) live.turn.streamed = true; }
-        reportUsage(session, body.usage);
+        // agy counts each model call's output, its thinking included; the
+        // turn's sum is how much the model wrote, for its speed.
+        const written = Number(body.usage?.output_tokens);
+        if (live.turn && step !== null && Number.isFinite(written) && written >= 0) live.turn.written.set(step, written);
+        reportUsage(session, body.usage, live.turn ? turnWritten(live.turn) : null);
         return;
       }
       const name = safeText(body.tool_name ?? body.tool_info?.name, 128);
@@ -451,14 +455,16 @@ function createAntigravityAcpBridge({
       return `Started ${who || "a subagent"}${row.status ? ` · ${safeText(row.status, 40)}` : ""}`;
     }).join("\n");
   }
-  function reportUsage(session, usage) {
+  function turnWritten(turn) { let sum = 0; for (const value of turn.written.values()) sum += value; return sum; }
+  function reportUsage(session, usage, turnOutput = null) {
     if (!plain(usage)) return;
     const used = Number(usage.input_tokens);
     if (!Number.isFinite(used) || used < 0) return;
     const size = modelEntry(currentModel(session)).contextWindow;
     session.usage = { used, size };
     record(session, { sessionUpdate: "usage_update", used, ...(size ? { size } : {}),
-      outputTokens: Number(usage.output_tokens) || 0, thinkingTokens: Number(usage.thinking_tokens) || 0 });
+      outputTokens: Number(usage.output_tokens) || 0, thinkingTokens: Number(usage.thinking_tokens) || 0,
+      ...(Number.isFinite(turnOutput) ? { turnOutputTokens: turnOutput } : {}) });
   }
   function tripwire(session, live, name) {
     lastError = "antigravity_gate_bypassed";
@@ -485,9 +491,14 @@ function createAntigravityAcpBridge({
       const names = body.denied_actions.map(row => displayText(row?.display_name || row?.action || "", 80)).filter(Boolean).slice(0, 12);
       record(session, { sessionUpdate: "turn_error", message: `Antigravity refused: ${names.join(", ")}.` });
     }
+    // How much the model wrote in the turn, its thinking included: the sum
+    // of its calls, or the turn's own count when that is more. The page and
+    // the Host's meter read it as an ACP turn's usage.
+    const written = Math.max(turnWritten(turn), Number(body?.usage?.output_tokens) || 0);
+    const usage = written > 0 ? { _meta: { usage: { outputTokens: written } } } : {};
     let result;
-    if (interrupted) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "cancelled" } }; }
-    else if (!failed) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "end_turn" } }; }
+    if (interrupted) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "cancelled", ...usage } }; }
+    else if (!failed) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "end_turn", ...usage } }; }
     else {
       session.status = "error";
       record(session, { sessionUpdate: "turn_error", message: errorText || "Antigravity could not finish this turn." });
@@ -590,31 +601,34 @@ function createAntigravityAcpBridge({
       } finally { fs.closeSync(fd); }
     } catch { return; }
     const tools = [];
-    let replayed = 0;
+    let replayed = 0, when = { replay: true };
     for (const line of lines.slice(-4000)) {
       let row; try { row = JSON.parse(line); } catch { continue; }
       if (!plain(row)) continue;
       const type = String(row.type || "");
+      // The time agy wrote the step: a turn opened again keeps its work time.
+      const at = Date.parse(row.created_at);
+      if (at > 0) when = { replay: true, at };
       if (type === "USER_INPUT" && row.source !== "SYSTEM") {
         const text = displayText(userRequestText(row.content), MAX_TEXT);
-        if (text) { record(session, { sessionUpdate: "user_message_chunk", content: { type: "text", text } }, { replay: true }); replayed += 1; }
+        if (text) { record(session, { sessionUpdate: "user_message_chunk", content: { type: "text", text } }, when); replayed += 1; }
       } else if (type === "PLANNER_RESPONSE") {
         const text = displayText(row.content || "", MAX_TEXT);
-        if (text) record(session, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } }, { replay: true });
+        if (text) record(session, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } }, when);
         for (const call of Array.isArray(row.tool_calls) ? row.tool_calls.slice(0, 32) : []) {
           const name = safeText(call?.name, 128); if (!name) continue;
           const args = transcriptArgs(call.args), id = `replay-${row.step_index}-${tools.length}`;
           tools.push({ id, name, args });
           record(session, { sessionUpdate: "tool_call", toolCallId: id, name: displayName(name), title: toolTitle(name, args),
-            kind: classifyTool(name, args), status: "in_progress", rawInput: displayArgs(args) }, { replay: true });
+            kind: classifyTool(name, args), status: "in_progress", rawInput: displayArgs(args) }, when);
         }
       } else if (type === "GENERIC" && tools.length) {
         const tool = tools.shift();
         record(session, { sessionUpdate: "tool_call_update", toolCallId: tool.id, name: displayName(tool.name), status: row.status === "ERROR" ? "failed" : "completed",
-          output: displayText(row.content || "", MAX_OUTPUT_TEXT), rawInput: displayArgs(tool.args) }, { replay: true });
+          output: displayText(row.content || "", MAX_OUTPUT_TEXT), rawInput: displayArgs(tool.args) }, when);
       }
     }
-    for (const tool of tools) record(session, { sessionUpdate: "tool_call_update", toolCallId: tool.id, name: displayName(tool.name), status: "completed", output: "", rawInput: displayArgs(tool.args) }, { replay: true });
+    for (const tool of tools) record(session, { sessionUpdate: "tool_call_update", toolCallId: tool.id, name: displayName(tool.name), status: "completed", output: "", rawInput: displayArgs(tool.args) }, when);
     return replayed;
   }
 
@@ -707,7 +721,7 @@ function createAntigravityAcpBridge({
       ? `${value}${value ? "\n\n" : ""}[The person attached ${pictures.length === 1 ? "a picture" : `${pictures.length} pictures`}: ${pictures.join(", ")}. Read ${pictures.length === 1 ? "it" : "them"} with read_file before you answer.]`
       : value;
     return new Promise(resolve => {
-      live.turn = { resolve, uuid, streamed: false, cancelled: false, startedAt: Date.now() };
+      live.turn = { resolve, uuid, streamed: false, cancelled: false, startedAt: Date.now(), written: new Map() };
       try { live.child.stdin.write(JSON.stringify({ event: "user", message: { content: message } }) + "\n"); }
       catch { finishTurn(session, live, { status: "ERROR", error: "Antigravity could not take the message." }); }
     });
