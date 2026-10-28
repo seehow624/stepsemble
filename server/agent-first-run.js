@@ -19,7 +19,7 @@ function readJson(file) {
   if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return { error: true };
   try {
     const text = fs.readFileSync(file, "utf8");
-    return { text, value: JSON.parse(text) };
+    return { text, value: JSON.parse(text), stat };
   } catch { return { error: true }; }
 }
 
@@ -63,31 +63,56 @@ function problem(code, statusCode = 409) {
   return Object.assign(new Error(code), { code, statusCode });
 }
 
+// Resolve existing files through every symlink, but distinguish a new file
+// from a broken link. A broken link is an unreadable setting, never a place
+// to create a replacement. Resolve the parent too when only the file is new.
+function settingsWriteTarget(file) {
+  let entry;
+  try { entry = fs.lstatSync(file); }
+  catch (error) { if (error?.code !== "ENOENT") throw problem("antigravity_settings_unreadable"); }
+  if (entry) {
+    if (!entry.isFile() && !entry.isSymbolicLink()) throw problem("antigravity_settings_unreadable");
+    try { return { file: fs.realpathSync(file), existed: true }; }
+    catch { throw problem("antigravity_settings_unreadable"); }
+  }
+  try { return { file: path.join(fs.realpathSync(path.dirname(file)), path.basename(file)), existed: false }; }
+  catch (error) {
+    if (error?.code !== "ENOENT") throw problem("antigravity_settings_unreadable");
+    return { file, existed: false };
+  }
+}
+
 // Adds one folder to agy's trustedWorkspaces, keeping every other key as it
-// is. A file that cannot be read as agy's settings is never replaced. The
-// file is replaced in one step and checked again just before, so a change
-// another program made meanwhile is not lost.
+// is. Replace the resolved target in its own directory, preserving symlinks
+// and the target's permissions. Recheck identity, content and permissions
+// before replacement to detect intervening changes (not a cross-process lock).
 function trustAntigravityFolder(home, folder) {
   const real = realFolder(folder);
   if (!real) throw problem("project_folder_unavailable", 400);
   const directory = antigravityDirectory(home), file = path.join(directory, "settings.json");
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const read = readJson(file);
-    if (read.error && !read.missing) throw problem("antigravity_settings_unreadable");
+    const target = settingsWriteTarget(file);
+    const read = readJson(target.file);
+    if (read.error && (!read.missing || target.existed)) throw problem("antigravity_settings_unreadable");
     const settings = read.missing ? {} : read.value;
     if (!settings || typeof settings !== "object" || Array.isArray(settings)) throw problem("antigravity_settings_unreadable");
     const list = settings.trustedWorkspaces === undefined ? [] : settings.trustedWorkspaces;
     if (!Array.isArray(list) || !list.every(item => typeof item === "string")) throw problem("antigravity_settings_unreadable");
     if (list.includes(real)) return { trusted: true, written: false, folder: real };
     const next = JSON.stringify({ ...settings, trustedWorkspaces: [...list, real] }, null, 2) + "\n";
-    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    const mode = read.missing ? 0o600 : read.stat.mode & 0o777;
+    fs.mkdirSync(path.dirname(target.file), { recursive: true, mode: 0o700 });
+    const temporary = `${target.file}.${process.pid}.${crypto.randomUUID()}.tmp`;
     try {
       fs.writeFileSync(temporary, next, { mode: 0o600, flag: "wx" });
-      const current = readJson(file);
-      if ((current.missing ? null : current.text ?? Symbol("unreadable")) !== (read.missing ? null : read.text)) continue;
-      fs.renameSync(temporary, file);
-      try { fs.chmodSync(file, 0o600); } catch {}
+      // chmod before publication also preserves modes masked by the umask.
+      fs.chmodSync(temporary, mode);
+      const currentTarget = settingsWriteTarget(file);
+      if (currentTarget.file !== target.file || currentTarget.existed !== target.existed) continue;
+      const current = readJson(target.file);
+      if (read.missing ? !current.missing : current.error || current.text !== read.text
+        || current.stat.dev !== read.stat.dev || current.stat.ino !== read.stat.ino || current.stat.mode !== read.stat.mode) continue;
+      fs.renameSync(temporary, target.file);
       return { trusted: true, written: true, folder: real };
     } finally { try { fs.unlinkSync(temporary); } catch {} }
   }
