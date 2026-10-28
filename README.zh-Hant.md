@@ -141,7 +141,7 @@ Google Antigravity 只要裝了 `agy`，就走它官方文件記載的 headless 
 Stepsemble 不會替 Agent 回答它自己的第一次設定頁。新增 Antigravity 對話時，如果 agy 的第一次設定還沒完成
 （配色、服務條款與資料分享的選擇，agy 記在 `~/.gemini/antigravity-cli/cache/onboarding.json`），
 新增對話視窗會說明，並在那個專案的終端機裡打開 agy 自己的設定頁，由你自己選；agy 存好後對話才開始，
-也可以按「先不設定，直接開始」。視窗會提醒 agy 預設勾選資料分享；Stepsemble 不會替你勾選、取消或保存這個選擇。
+也可以按「先不設定，直接開始」。視窗會提醒 agy 預設勾選資料分享；Stepsemble 不會替你勾選、取消或保存這個選擇（agy 官方文件說，CLI 把這個選擇存在帳號那邊）。
 「信任這個資料夾」是另一個預設不勾的選項，勾了才會把資料夾加進 agy 官方文件記載的 `trustedWorkspaces` 設定。
 
 Stepsemble 只在同一個本機使用者環境中啟動這些 CLI，不會複製、匯出、改寫或上傳
