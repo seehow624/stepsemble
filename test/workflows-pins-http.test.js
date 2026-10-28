@@ -18,7 +18,7 @@ test("a pinned model and permission mode reach the new conversation before its f
   const peer=async mode=>(await fs.readFile(log,"utf8").catch(()=>"")).trim().split("\n").filter(Boolean).map(line=>JSON.parse(line)).filter(row=>row.mode===mode).map(row=>row.command);
   const config={title:"Pinned",objective:"Verify the implementation",mode:"task",limits:{minutes:1,turns:3}};
 
-  assert.equal((await request("/api/workflows/options?agentId=antigravity")).status,400);
+  assert.equal((await request("/api/workflows/options?agentId=gemini-cli")).status,400);
   const claudeOptions=await json("/api/workflows/options?agentId=claude-code&cwd="+encodeURIComponent(projects.claude));
   assert(claudeOptions.modes.some(mode=>mode.id==="acceptEdits"));assert(Array.isArray(claudeOptions.models));
   const state=await json("/api/workflows");assert.equal(typeof state.keepsAwake,"boolean");

@@ -13,7 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // true: reports models inside a conversation; false: never reports them.
-const AGENTS = Object.freeze({ "claude-code": true, kilo: true, hermes: true, cline: true, omp: true, "grok-build": false, antigravity: false });
+const AGENTS = Object.freeze({ "claude-code": true, kilo: true, hermes: true, cline: true, omp: true, "grok-build": false, antigravity: true });
 const MAX_MODELS = 200;
 const REFRESH_MS = 60 * 60 * 1000;
 

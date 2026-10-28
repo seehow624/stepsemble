@@ -254,6 +254,17 @@ test("agy's own screen commands are refused before they end the session; a faile
   assert.equal(updates(s.bridge, sessionId, "turn_error").pop().message, "model request failed");
 });
 
+test("a new kind of event, a line that is not JSON and an unknown result status never end the conversation", unix, async t => {
+  const s = setup(t);
+  const { sessionId } = await s.bridge.createSession({ directory: s.project });
+  const odd = await s.bridge.prompt(sessionId, "something new [odd]");
+  assert.equal(odd.kind, "prompted"); assert.deepEqual(odd.result, { stopReason: "end_turn" });
+  assert.equal(texts(s.bridge, sessionId), "odd answer", "an answer that was not streamed is drawn whole");
+  assert.equal(updates(s.bridge, sessionId, "turn_error").length, 0);
+  assert.equal((await s.bridge.prompt(sessionId, "and then")).kind, "prompted");
+  assert.equal(s.starts().length, 1, "the same agy process kept the conversation");
+});
+
 test("a picture is saved for agy to read, because its stream takes text only", unix, async t => {
   const s = setup(t);
   const { sessionId } = await s.bridge.createSession({ directory: s.project });

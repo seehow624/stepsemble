@@ -108,8 +108,14 @@ test("configured ACP and Antigravity paths stay bounded to what their protocols 
   const antigravity = capabilityContract("antigravity", { installed: true, journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "configured" } });
   assert.equal(antigravity.features.followUp.status, "ready");
-  assert.equal(antigravity.features.images.status, "unavailable");
-  assert.equal(antigravity.features.approval.status, "unavailable");
+  // Behind the ACP bridge: the gate approves, a model applies from the next
+  // turn, a picture is a file agy reads, levels stop at high for a gateway model.
+  assert.equal(antigravity.features.approval.status, "ready");
+  assert.equal(antigravity.features.approval.authority, "stepsemble-approval-gate");
+  assert.equal(antigravity.features.model.status, "ready");
+  assert.equal(antigravity.features.images.status, "limited");
+  assert.equal(antigravity.features.reasoning.status, "limited");
+  assert.equal(antigravity.features.recovery.status, "ready");
 });
 
 test("Agent Hub catalog exposes the contract without leaking adapter-only fields", () => {

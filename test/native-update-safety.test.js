@@ -24,7 +24,7 @@ test("native mutation routes are allow-listed and reserved before the first body
   for (const pathname of [
     "/api/open", "/api/send", "/api/agent/open", "/api/codex/mutation/resume", "/api/codex/mutation/goal",
     "/api/opencode/message", "/api/grok/acp/prompt", "/api/claude/structured/prompt",
-    "/api/antigravity/structured/permission",
+    "/api/antigravity/acp/prompt", "/api/antigravity/acp/permission", "/api/antigravity/acp/config",
   ]) assert.equal(route.test(pathname), true, pathname);
   for (const pathname of ["/api/harness-updates/apply", "/api/harness-updates/apply-all", "/api/codex/mutation", "/api/session-search"])
     assert.equal(route.test(pathname), false, pathname);

@@ -94,7 +94,8 @@ const { launchClaudeStructuredSession, parkIdleClaudeStructuredSession } = requi
 const { createClaudeIdleRelease, idleReleaseDelay } = require("./server/claude-idle-release");
 const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = require("./server/claude-desktop-upgrade");
 const { desktopPaths } = require("./server/claude-desktop-state");
-const { createAntigravityStructuredSession, ANTIGRAVITY_STRUCTURED_VERSION } = require("./server/antigravity-cli-structured-adapter");
+const { createAntigravityAcpBridge, MODE_OPTIONS: ANTIGRAVITY_MODE_OPTIONS } = require("./server/antigravity-acp-bridge");
+const { createAntigravityGate } = require("./server/antigravity-gate");
 const { antigravityGatewayEnv, readAntigravityMagpieRoute } = require("./server/antigravity-gateway-env");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
@@ -2145,7 +2146,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp)\/acp\/(?:session|prompt|permission)|(?:claude|antigravity)\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp|antigravity)\/acp\/(?:session|prompt|permission|config)|claude\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -2290,8 +2291,16 @@ function choiceForSession(agentId, sessionId) {
   const choice = { ...last, ...own };
   return Object.keys(choice).length ? choice : null;
 }
+// The agents behind the ACP adapter's interface: Cline, Kilo Code, Hermes and
+// Oh My Pi over their own ACP servers, Antigravity through the bridge over
+// agy's stream (server/antigravity-acp-bridge.js).
+const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "hermes", "omp", "antigravity"]);
+const ACP_TASK_ID = /^(cline|kilo|hermes|omp|antigravity):/;
+const ACP_LABELS = Object.freeze({ cline: "Cline", kilo: "Kilo Code", hermes: "Hermes Agent", omp: "Oh My Pi", antigravity: "Google Antigravity" });
+const ACP_DIRECTORY_LABELS = Object.freeze({ cline: "Cline ACP", kilo: "Kilo Code ACP", hermes: "Hermes ACP", omp: "Oh My Pi ACP", antigravity: "Google Antigravity" });
 function acpAdapterForAgent(agentId) {
-  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : agentId === "omp" ? ompAcp : null;
+  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : agentId === "omp" ? ompAcp
+    : agentId === "antigravity" ? antigravityAcp : null;
 }
 
 // The last turn a Claude conversation recorded, read from the end of Claude's
@@ -2459,15 +2468,36 @@ function antigravityNeedsSignIn() {
       (_error, stdout, stderr) => resolve(/please sign in|sign in to|authentication required|not signed in|log in/i.test(`${stdout || ""}\n${stderr || ""}`)));
   });
 }
-const antigravityStructuredSessions = new Map();
-function antigravityStructuredStatus() {
-  return { adapter: ANTIGRAVITY_STRUCTURED_VERSION, version: ANTIGRAVITY_STRUCTURED_VERSION,
-    state: antigravityStructuredEnabled && antigravityCommand ? "configured" : "disabled",
-    configured: antigravityStructuredEnabled && !!antigravityCommand, ready: antigravityStructuredSessions.size > 0,
-    approvalReady: false, sessionReady: antigravityStructuredSessions.size > 0,
-    sessionCount: antigravityStructuredSessions.size,
-    lastError: antigravityStructuredEnabled && !antigravityCommand ? "antigravity_executable_unavailable" : null };
+// Antigravity conversations run in agy's stream behind the ACP bridge, with
+// Stepsemble's approval gate (server/antigravity-gate.js) as agy's only
+// approval; STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0 returns them to the terminal.
+// Model names, context windows and levels come from Magpie's catalog when agy
+// goes through Magpie ("magpie/<id>").
+let antigravityModelRows = new Map(), antigravityModelsCheckedAt = 0;
+function antigravityModelInfo(id) {
+  if (Date.now() - antigravityModelsCheckedAt > 60_000) {
+    antigravityModelsCheckedAt = Date.now();
+    magpieGateway.catalog().then(snapshot => {
+      if (Array.isArray(snapshot?.rows)) antigravityModelRows = new Map(snapshot.rows.map(row => ["magpie/" + row.id, row]));
+    }).catch(() => {});
+  }
+  const row = antigravityModelRows.get(String(id || ""));
+  return row ? { name: row.name, contextWindow: row.contextWindow, efforts: row.efforts?.length ? row.efforts : null } : null;
 }
+const antigravityGate = antigravityStructuredEnabled && antigravityCommand ? createAntigravityGate({
+  directory: path.join(CONFIG_DIR, "antigravity-gate"), runDirectory: path.join(CONFIG_DIR, "run"),
+  decide: (owner, payload, options) => antigravityAcp
+    ? antigravityAcp.decide(owner, payload, options) : { decision: "deny", reason: "Antigravity is not running in Stepsemble." },
+}) : null;
+const antigravityAcp = antigravityGate ? createAntigravityAcpBridge({
+  command: antigravityCommand, cwd: APP_HOME, env: () => antigravityGatewayEnv(process.env, APP_HOME), gate: antigravityGate,
+  agyHome: path.join(APP_HOME, ".gemini", "antigravity-cli"), registryFile: path.join(CONFIG_DIR, "acp-antigravity-sessions.json"),
+  defaultModel: () => readAntigravityMagpieRoute(APP_HOME)?.model || null,
+  gatewayOnly: () => !!readAntigravityMagpieRoute(APP_HOME),
+  modelInfo: antigravityModelInfo,
+  onRateEvent: event => { hostRates.acp("antigravity", event); workflowEvents.emit("antigravity", event.sessionId, event); },
+}) : null;
+antigravityModelInfo(null);
 // OpenCode can be started after Stepsemble (for example when the user opens
 // the OpenCode desktop app later).  Re-probe on a bounded, unref'd timer so a
 // transient startup race upgrades the Agent Hub without requiring a page
@@ -2531,8 +2561,9 @@ const agentTasks = createAgentTaskService({
   nativeAdapterStatus: (agentId) => agentId === "opencode" ? openCodeNative.status()
     : agentId === "codex" ? codexNative.status() : agentId === "grok-build" ? grokAcp?.status() || null
       : agentId === "claude-code" ? claudeStructuredStatus()
-        : agentId === "antigravity" ? antigravityStructuredStatus()
-          : ["cline", "kilo", "hermes", "omp"].includes(agentId) ? acpAdapterForAgent(agentId)?.status() || { state: "disabled", configured: false, ready: false, lastError: "acp_executable_unavailable" } : null,
+        : agentId === "antigravity" ? antigravityAcp?.status() || { state: "disabled", configured: false, ready: false,
+          lastError: antigravityCommand ? "antigravity_stream_disabled" : "antigravity_executable_unavailable" }
+          : ACP_AGENT_IDS.includes(agentId) ? acpAdapterForAgent(agentId)?.status() || { state: "disabled", configured: false, ready: false, lastError: "acp_executable_unavailable" } : null,
   hostId: selfMachineId(),
 });
 // Harness upgrades are a separate, explicit control plane.  The service only
@@ -3246,8 +3277,7 @@ function activeAgentTasksForUpdate() {
     if (agentAuth?.isBusy()) tasks.push({ id: "agent-auth", status: "running" });
     const native = [];
     for (const [id, session] of claudeStructuredSessions) native.push(publicClaudeStructuredTask(id, session));
-    for (const [id, session] of antigravityStructuredSessions) native.push(publicAntigravityStructuredTask(id, session));
-    for (const [agentId, adapter] of [["grok-build", grokAcp], ["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp], ["omp", ompAcp]]) {
+    for (const [agentId, adapter] of [["grok-build", grokAcp], ...ACP_AGENT_IDS.map(id => [id, acpAdapterForAgent(id)])]) {
       if (!adapter) continue;
       if (adapter.pendingPermissions().length) tasks.push({ id: `${agentId}:approval`, status: "waiting" });
       for (const session of adapter.sessions()) native.push(agentId === "grok-build" ? publicGrokAcpTask(session) : publicAgentClientProtocolTask(agentId, session));
@@ -3364,7 +3394,7 @@ function publicGrokAcpTask(session) {
 }
 
 function publicAgentClientProtocolTask(agentId, session) {
-  if (!session?.id || !["cline", "kilo", "hermes", "omp"].includes(agentId)) return null;
+  if (!session?.id || !ACP_AGENT_IDS.includes(agentId)) return null;
   const cwd = projectDirectory(session.cwd) || (session.cwd === APP_HOME ? APP_HOME : null);
   if (!cwd) return null;
   const running = session.status === "running";
@@ -3379,7 +3409,7 @@ function publicAgentClientProtocolTask(agentId, session) {
     nativeSessionId: session.id,
     needsLoad: session.loaded === false,
     persisted: session.persisted === true,
-    name: session.name || `${agentId === "cline" ? "Cline" : agentId === "kilo" ? "Kilo Code" : agentId === "omp" ? "Oh My Pi" : "Hermes Agent"} ${session.id.slice(0, 8)}`,
+    name: session.name || `${ACP_LABELS[agentId]} ${session.id.slice(0, 8)}`,
     cwd,
     // An idle ACP session is a stored conversation, not queued work. Calling
     // it "waiting" made it claim to be a pending task and, because the update
@@ -3559,31 +3589,6 @@ function publicClaudeStructuredResumeTask(row) {
   };
 }
 
-function publicAntigravityStructuredTask(id, session) {
-  if (!id || !session) return null;
-  const status = session.status();
-  return {
-    id: `antigravity:${id}`,
-    taskId: `antigravity:${id}`,
-    agentId: "antigravity",
-    agent: "antigravity",
-    connector: "antigravity",
-    nativeAntigravityStructured: true,
-    nativeSessionId: id,
-    nativeConversationId: status.nativeConversationId || null,
-    name: session.name || `Antigravity ${(status.nativeConversationId || id).slice(0, 8)}`,
-    cwd: session.cwd || "",
-    status: status.closed ? "stopped" : status.failed ? "failed" : "waiting",
-    isRunning: !status.closed && !status.failed,
-    startedAt: null,
-    endedAt: status.closed ? Date.now() : null,
-    lastActivityAt: null,
-    nativeStatus: status,
-    history: "native_api",
-    readOnly: false,
-  };
-}
-
 async function listAgentTasksWithOpenCode() {
   const tasks = listAgentTasks();
   if (nativeWorkRequests || openCodeSetupPromise || claudeDesktopUpgrade?.isRunning()) tasks.push({ id: "native:request", taskId: "native:request",
@@ -3624,7 +3629,7 @@ async function listAgentTasksWithOpenCode() {
       // Optional ACP failure must not hide other task sources.
     }
   }
-  for (const [agentId, adapter] of [["cline", clineAcp], ["kilo", kiloAcp], ["hermes", hermesAcp], ["omp", ompAcp]]) {
+  for (const [agentId, adapter] of ACP_AGENT_IDS.map(id => [id, acpAdapterForAgent(id)])) {
     if (!adapter?.status().configured) continue;
     try { tasks.push(...adapter.sessions().map(session => publicAgentClientProtocolTask(agentId, session)).filter(Boolean)); }
     catch { /* optional ACP failure must not hide other task sources */ }
@@ -3647,10 +3652,6 @@ async function listAgentTasksWithOpenCode() {
       const task = publicClaudeStructuredResumeTask(row);
       if (task) { tasks.push(task); claudeNativeIds.add(row.id); }
     }
-  }
-  for (const [id, session] of antigravityStructuredSessions) {
-    const task = publicAntigravityStructuredTask(id, session);
-    if (task) tasks.push(task);
   }
   // Local provider history is an observation, not a live task. Keep it in the
   // same snapshot so Sessions and All conversations share one stable source,
@@ -5052,7 +5053,7 @@ async function readJSON(req, maxBytes) {
   const body = await readJSONRaw(req, maxBytes);
   const route = String(req.url || "").split("?")[0];
   const mutatingPiCommand = ["/api/rpc-cmd", "/api/cmd"].includes(route) && !/^get_/.test(String(body?.command?.type || body?.type || "")) && !["abort"].includes(body?.command?.type || body?.type);
-  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|cline|kilo|hermes|omp)\/acp\/prompt)$/.test(route)) {
+  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|cline|kilo|hermes|omp|antigravity)\/acp\/prompt)$/.test(route)) {
     const ids = [body?.sid, body?.taskId, body?.threadId, body?.sessionId].filter(Boolean);
     const entry = workspaceRegistry.list().entries.find(row => [row.record.sid, row.record.id, row.record.taskId, row.record.nativeThreadId, row.record.nativeSessionId].some(id => id && ids.includes(id)));
     if (entry && workflows.locked(entry.key)) throw Object.assign(new Error("Pause the Goal before sending another message"), { statusCode: 409 });
@@ -5182,9 +5183,9 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         if (!codexNative.status().mutationReady || !fork.threadId) throw forkFailure("codex_fork_unavailable", "Codex cannot branch this conversation here");
         const forked = await codexNative.forkThread({ threadId: fork.threadId, lastTurnId: fork.turnId || null });
         body.resumeSessionId = forked.threadId;
-      } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
+      } else if (ACP_AGENT_IDS.includes(agentId) && acpAdapterForAgent(agentId)) {
         const adapter = acpAdapterForAgent(agentId);
-        const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"), name: body?.name || null });
+        const forked = await adapter.forkSession(fork.sessionId, { directory: nativeAgentDirectory(cwd, ACP_DIRECTORY_LABELS[agentId]), name: body?.name || null });
         if (forked.kind === "reject") throw forkFailure(forked.code, forked.code === "acp_fork_unsupported" ? "This agent cannot branch a conversation" : forked.error || "The agent could not branch this conversation");
         body.resumeSessionId = forked.sessionId;
       } else if (agentId === "opencode" && openCodeNative.status().ready) {
@@ -5254,12 +5255,25 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       await applyAcpChoice("grok-build", grokAcp, session.sessionId, { choice: body.resumeSessionId ? null : body.choice });
       if (gone()) return;
       return workspaceResult({ ...publicGrokAcpTask({ id: session.sessionId, cwd: session.cwd, name: session.name, status: "idle", eventCount: 0 }), kind: "grok-acp", agentId: "grok-build", ...(worktree ? { worktree } : {}) });
-    } else if (["cline", "kilo", "hermes", "omp"].includes(agentId) && acpAdapterForAgent(agentId)) {
+    } else if (ACP_AGENT_IDS.includes(agentId) && acpAdapterForAgent(agentId) && !(agentId === "antigravity" && body?.terminal === true)) {
       const adapter = acpAdapterForAgent(agentId);
+      const resumeId = typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim() ? body.resumeSessionId.trim()
+        : agentId === "antigravity" && typeof body?.conversationId === "string" && body.conversationId.trim() ? body.conversationId.trim() : null;
+      if (agentId === "antigravity") {
+        // Signed out, agy stops at its own sign-in; New session offers it.
+        if (await antigravityNeedsSignIn()) throw Object.assign(new Error("Google Antigravity is not signed in"), { statusCode: 409, code: "antigravity_auth_required" });
+        // A new conversation first offers agy's own first-run pages, in a
+        // terminal in this project, for the person to answer; Stepsemble never
+        // answers them. Asking to start without them is the person's choice.
+        if (antigravityFirstRunPending(body, cwd)) throw Object.assign(new Error("Google Antigravity has not finished its first-run setup"), { statusCode: 409, code: "antigravity_setup_required" });
+      }
       const session = await adapter.createSession({
-        directory: nativeAgentDirectory(cwd, agentId === "cline" ? "Cline ACP" : agentId === "kilo" ? "Kilo Code ACP" : agentId === "omp" ? "Oh My Pi ACP" : "Hermes ACP"),
-        sessionId: typeof body?.resumeSessionId === "string" && body.resumeSessionId.trim() ? body.resumeSessionId.trim() : null,
+        directory: nativeAgentDirectory(cwd, ACP_DIRECTORY_LABELS[agentId]),
+        sessionId: resumeId,
         name: body?.name || null,
+        // agy reads its model, level and mode only at launch: a new
+        // conversation starts with the last ones chosen.
+        ...(agentId === "antigravity" && !resumeId ? { choice: { ...(body.choice || agentChoices.last("antigravity") || {}), mode: body.permission || null } } : {}),
       });
       if (session.kind === "reject") {
         // An agent that is not signed in yet gets its sign-in offered;
@@ -5418,17 +5432,6 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       // terminal in this project, for the person to answer; Stepsemble never
       // answers them. Asking to start without them is the person's choice.
       throw Object.assign(new Error("Google Antigravity has not finished its first-run setup"), { statusCode: 409, code: "antigravity_setup_required" });
-    } else if (agentId === "antigravity" && antigravityStructuredEnabled && antigravityCommand && body?.terminal !== true) {
-      const localId = crypto.randomUUID();
-      // agy's stream mode does not read the model from its settings; a Magpie
-      // model is named on the command line.
-      const session = createAntigravityStructuredSession({ command: antigravityCommand, cwd: nativeAgentDirectory(cwd, "Google Antigravity"),
-        env: antigravityGatewayEnv(process.env, APP_HOME), model: readAntigravityMagpieRoute(APP_HOME)?.model || null,
-        name: body?.name || null,
-        conversationId: body?.conversationId || body?.resumeSessionId || null });
-      antigravityStructuredSessions.set(localId, session);
-      if (gone()) { void session.close(); antigravityStructuredSessions.delete(localId); return; }
-      return workspaceResult({ ...publicAntigravityStructuredTask(localId, session), kind: "antigravity-structured", agentId: "antigravity", ...(worktree ? { worktree } : {}) });
     } else {
       if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
       // Antigravity can continue one of its conversations in its own screen,
@@ -5436,15 +5439,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       const resume = agentId === "antigravity" && body?.terminal === true && typeof body?.conversationId === "string" ? body.conversationId : null;
       // agy warns when one conversation is open in two of its processes;
       // the stream that held it lets go before the terminal takes it.
-      if (resume) {
-        for (const [id, session] of [...antigravityStructuredSessions]) {
-          let held = false;
-          try { held = session.status()?.nativeConversationId === resume; } catch {}
-          if (!held) continue;
-          await session.close().catch(() => {});
-          antigravityStructuredSessions.delete(id);
-        }
-      }
+      if (resume) await antigravityAcp?.release(resume).catch(() => {});
       const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree, ...(resume ? { resume } : {}) });
       return workspaceResult({ ...result, kind: "cli", agentId });
     }
@@ -5526,6 +5521,8 @@ const workflowOptions = require("./server/workflow-options").createWorkflowOptio
       return (await openCodeNative.agents({ directory: openCodeDirectory(cwd) }))
         .filter(agent => (agent.mode === "primary" || agent.mode === "all") && !agent.hidden).map(agent => ({ id: agent.name, label: agent.name, description: agent.description }));
     }
+    // Antigravity's modes are the gate's own; they need no conversation.
+    if (agentId === "antigravity") return antigravityAcp ? ANTIGRAVITY_MODE_OPTIONS.map(mode => ({ id: mode.value, label: mode.name, description: mode.description })) : [];
     // ACP agents list their modes inside a conversation; any open one tells.
     const adapter = agentId === "grok-build" ? grokAcp : acpAdapterForAgent(agentId);
     for (const row of adapter?.sessions() || []) {
@@ -6787,7 +6784,7 @@ const server = http.createServer(async (req, res) => {
       // Standard ACP endpoints for Kilo Code and Hermes. They intentionally
       // mirror the Grok adapter's browser contract while sharing the protocol
       // implementation and preserving the agent-owned session identity.
-      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes|omp)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
+      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes|omp|antigravity)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
       if (acpMatch) {
         const agentId = acpMatch[1];
         const action = acpMatch[2] || "root";
@@ -6799,7 +6796,7 @@ const server = http.createServer(async (req, res) => {
           if (action === "session" && req.method === "POST") {
             const body = await readJSON(req, 64 * 1024);
             const result = await adapter.createSession({
-              directory: nativeAgentDirectory(body?.cwd || body?.directory, agentId),
+              directory: nativeAgentDirectory(body?.cwd || body?.directory, ACP_DIRECTORY_LABELS[agentId]),
               sessionId: typeof body?.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null,
               name: body?.name || null,
             });
@@ -6950,56 +6947,6 @@ const server = http.createServer(async (req, res) => {
           if (result.cleanupConfirmed) claudeStructuredSessions.delete(resolved.id);
           sendJSON(res, result.cleanupConfirmed ? 200 : 409, result);
         } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "claude_close_failed" }); }
-        return;
-      }
-
-      if (p === "/api/antigravity/structured" && req.method === "GET") {
-        sendJSON(res, 200, { adapter: antigravityStructuredStatus(), sessions: [...antigravityStructuredSessions]
-          .map(([id, session]) => publicAntigravityStructuredTask(id, session)).filter(Boolean) });
-        return;
-      }
-      if (p === "/api/antigravity/structured/events" && req.method === "GET") {
-        const id = String(url.searchParams.get("sessionId") || "").replace(/^antigravity:/, "");
-        const session = antigravityStructuredSessions.get(id);
-        if (!session) { sendJSON(res, 404, { error: "antigravity_session_unavailable" }); return; }
-        sendJSON(res, 200, { events: session.events(), status: session.status() });
-        return;
-      }
-      if (p === "/api/antigravity/structured/pending" && req.method === "GET") {
-        const id = String(url.searchParams.get("sessionId") || "").replace(/^antigravity:/, "");
-        const session = antigravityStructuredSessions.get(id);
-        if (!session) { sendJSON(res, 404, { error: "antigravity_session_unavailable" }); return; }
-        sendJSON(res, 200, { permissions: session.pendingPermissions(), status: session.status() });
-        return;
-      }
-      if (p === "/api/antigravity/structured/prompt" && req.method === "POST") {
-        try {
-          const body = await readJSON(req, 2 * 1024 * 1024);
-          const id = String(body?.sessionId || "").replace(/^antigravity:/, "");
-          const session = antigravityStructuredSessions.get(id);
-          if (!session) { const error = new Error("Antigravity structured session unavailable"); error.statusCode = 404; error.code = "antigravity_session_unavailable"; throw error; }
-          sendJSON(res, 200, await session.send(body?.text || body?.message || ""));
-        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "antigravity_prompt_failed" }); }
-        return;
-      }
-      if (p === "/api/antigravity/structured/permission" && req.method === "POST") {
-        try {
-          const body = await readJSON(req, 64 * 1024);
-          const id = String(body?.sessionId || "").replace(/^antigravity:/, "");
-          const session = antigravityStructuredSessions.get(id);
-          if (!session) { const error = new Error("Antigravity structured session unavailable"); error.statusCode = 404; error.code = "antigravity_session_unavailable"; throw error; }
-          sendJSON(res, 409, session.acknowledgePermission(body?.requestId, body?.decision));
-        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "antigravity_permission_failed" }); }
-        return;
-      }
-      if (p === "/api/antigravity/structured/close" && req.method === "POST") {
-        try {
-          const body = await readJSON(req, 64 * 1024);
-          const id = String(body?.sessionId || "").replace(/^antigravity:/, "");
-          const session = antigravityStructuredSessions.get(id);
-          if (!session) { sendJSON(res, 404, { error: "antigravity_session_unavailable" }); return; }
-          const result = await session.close(); antigravityStructuredSessions.delete(id); sendJSON(res, 200, result);
-        } catch (error) { sendJSON(res, error.statusCode || 409, { error: error.code || "antigravity_close_failed" }); }
         return;
       }
 
@@ -7408,7 +7355,7 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, { task, adapter: grokAcp.status() });
           return;
         }
-        if (/^(cline|kilo|hermes|omp):/.test(taskId)) {
+        if (ACP_TASK_ID.test(taskId)) {
           const agentId = taskId.split(":", 1)[0];
           const adapter = acpAdapterForAgent(agentId);
           const sessionId = taskId.slice(agentId.length + 1);
@@ -7428,12 +7375,6 @@ const server = http.createServer(async (req, res) => {
           const nativeId = taskId.slice("claude-code:".length);
           const persisted = publicClaudeStructuredResumeTask(claudeStructuredKnownSessions.get(nativeId));
           if (persisted) { sendJSON(res, 200, { task: persisted, adapter: claudeStructuredStatus() }); return; }
-        }
-        if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
-          const id = taskId.slice("antigravity:".length);
-          const task = publicAntigravityStructuredTask(id, antigravityStructuredSessions.get(id));
-          sendJSON(res, 200, { task, adapter: antigravityStructuredStatus() });
-          return;
         }
         const task = agentTasks.get(taskId);
         if (!task) { sendJSON(res, 404, { error: "no such agent task" }); return; }
@@ -8470,7 +8411,7 @@ const server = http.createServer(async (req, res) => {
             const message = await grokAcp.prompt(taskId.slice("grok-build:".length), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
-          } else if (/^(cline|kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+          } else if (ACP_TASK_ID.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
             const agentId = taskId.split(":", 1)[0];
             const message = await acpAdapterForAgent(agentId).prompt(taskId.slice(agentId.length + 1), body?.message, { images: body?.images });
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
@@ -8478,10 +8419,6 @@ const server = http.createServer(async (req, res) => {
           } else if (taskId.startsWith("claude-code:") && (resolveClaudeStructuredSession(taskId) || claudeIdleRelease.released(taskId)
             || claudeStructuredKnownSessions.has(taskId.slice("claude-code:".length)))) {
             const message = await sendToClaudeStructured(taskId, body?.message || "", { images: body?.images });
-            if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
-            sendJSON(res, 200, { sent: true, taskId, message });
-          } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
-            const message = await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).send(body?.message || "");
             if (message.kind === "reject") { const error = new Error(message.code); error.statusCode = 409; throw error; }
             sendJSON(res, 200, { sent: true, taskId, message });
           } else sendJSON(res, 200, agentTasks.send(taskId, body?.message));
@@ -8537,17 +8474,15 @@ const server = http.createServer(async (req, res) => {
           catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
-        } else if (/^(kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+        } else if (ACP_TASK_ID.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
           try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
         } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
           composerQueue.pause("claude-code", taskId.slice("claude-code:".length));
           try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.interrupt(); ok = result.kind === "sent"; } catch { ok = false; }
-        } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
-          try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
         } else {
           ok = await agentTasks.stop(taskId);
         }
-        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes|omp):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || ACP_TASK_ID.test(taskId) || resolveClaudeStructuredSession(taskId) || (!taskId.startsWith("pi:") && agentTasks.get(taskId));
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { stopped: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -8560,14 +8495,12 @@ const server = http.createServer(async (req, res) => {
           try { ok = (await hostRates.abortOpenCode(openCodeNative, taskId.slice("opencode:".length), { directory: openCodeDirectory(body?.cwd || body?.directory || null) })).aborted === true; } catch { ok = false; }
         } else if (taskId.startsWith("grok-build:") && grokAcp) {
           try { ok = (await grokAcp.cancel(taskId.slice("grok-build:".length))).kind === "cancelled"; } catch { ok = false; }
-        } else if (/^(cline|kilo|hermes|omp):/.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
+        } else if (ACP_TASK_ID.test(taskId) && acpAdapterForAgent(taskId.split(":", 1)[0])) {
           try { const agentId = taskId.split(":", 1)[0]; ok = (await acpAdapterForAgent(agentId).cancel(taskId.slice(agentId.length + 1))).kind === "cancelled"; } catch { ok = false; }
         } else if (taskId.startsWith("claude-code:") && resolveClaudeStructuredSession(taskId)) {
           try { const resolved = resolveClaudeStructuredSession(taskId); const result = await resolved.session.close(); ok = result.cleanupConfirmed === true; if (ok) claudeStructuredSessions.delete(resolved.id); } catch { ok = false; }
-        } else if (taskId.startsWith("antigravity:") && antigravityStructuredSessions.has(taskId.slice("antigravity:".length))) {
-          try { ok = (await antigravityStructuredSessions.get(taskId.slice("antigravity:".length)).close()).cleanupConfirmed === true; antigravityStructuredSessions.delete(taskId.slice("antigravity:".length)); } catch { ok = false; }
         } else ok = await agentTasks.stop(taskId);
-        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || /^(cline|kilo|hermes|omp):/.test(taskId) || resolveClaudeStructuredSession(taskId) || taskId.startsWith("antigravity:") || agentTasks.get(taskId);
+        const exists = taskId.startsWith("opencode:") || taskId.startsWith("grok-build:") || ACP_TASK_ID.test(taskId) || resolveClaudeStructuredSession(taskId) || agentTasks.get(taskId);
         sendJSON(res, ok ? 200 : exists ? 409 : 404, ok ? { closed: true } : { error: exists ? "Agent stop could not be confirmed; reconnect and retry" : "no such agent task" });
         return;
       }
@@ -8879,10 +8812,11 @@ function shutdown(signal) {
     try { return await session.close(); }
     finally { claudeStructuredSessions.delete(id); }
   }));
-  const antigravityStructuredCleanup = Promise.all([...antigravityStructuredSessions.entries()].map(async ([id, session]) => {
-    try { return await session.close(); }
-    finally { antigravityStructuredSessions.delete(id); }
-  }));
+  const antigravityCleanup = (async () => {
+    const result = antigravityAcp ? await antigravityAcp.close() : { kind: "disabled", cleanupConfirmed: true };
+    await antigravityGate?.close().catch(() => {});
+    return [result];
+  })();
   const historyCleanup = Promise.all([
     usageAnalytics.shutdown(),
     historyHost.shutdown(),
@@ -8895,7 +8829,7 @@ function shutdown(signal) {
     hermesAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     ompAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
-    antigravityStructuredCleanup,
+    antigravityCleanup,
     openCodeManaged.close(),
   ]).then(([usageResult, historyResult, nativeHistoryResult, persistedResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
     ...(historyResult || {}),

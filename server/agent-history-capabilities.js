@@ -115,15 +115,15 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
   }
-  if (id === "antigravity" && adapter?.configured === true && adapter?.adapter === "antigravity-cli-stream-json-v1") {
+  if (id === "antigravity" && adapter?.configured === true && adapter?.adapter === "antigravity-acp-v1") {
     return {
       ...base,
-      mode: "structured",
-      history: "canonical_bounded",
-      subagents: "unavailable",
-      approval: "unavailable",
-      session: "structured_cli",
-      source: "antigravity-cli-stream-json-v1",
+      mode: "native_api",
+      history: "native_api",
+      subagents: "native_observed",
+      approval: "structured_ack_required",
+      session: "native_api",
+      source: "antigravity-acp-v1",
       adapter: adapter.adapter,
       nativeVersion: adapter.version || null,
       readOnly: false,

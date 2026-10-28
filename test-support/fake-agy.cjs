@@ -21,6 +21,8 @@
 //   [run:<command>] [write:<path>] [edit:<path>] [read:<path>] [search:<query>]
 //   [subagent-run:<command>] (a subagent's command: hooked, not streamed)
 //   [slow] (waits until interrupted) [fail] (the turn ends in an error)
+//   [odd] (what a later agy may send: a new kind of event, a line that is not
+//   JSON, a step of an unknown kind, a result with an unknown status)
 // FAKE_AGY_LOG (a file) records each start: arguments, directory, whether the
 // gate's environment was present. FAKE_AGY_COMMANDS (a file) records each
 // command it "ran"; commands are never executed.
@@ -166,6 +168,13 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
     if (/\[slow\]/.test(text)) await new Promise(() => {});
     if (/\[fail\]/.test(text)) {
       emit({ event: "result", result: { conversation_id: conversation, status: "ERROR", response: "", error: "model request failed", num_turns: turn } });
+      return;
+    }
+    if (/\[odd\]/.test(text)) {
+      emit({ event: "heartbeat", heartbeat: { conversation_id: conversation } });
+      process.stdout.write("not json\n");
+      step(index++, { state: "SOMETHING", step_type: "new_kind", event_id: "bad id!" });
+      emit({ event: "result", result: { conversation_id: conversation, status: "PAUSED", response: "odd answer", num_turns: turn } });
       return;
     }
     const answer = `fake answer ${turn} (${model}${effort ? ", " + effort : ""}${mode ? ", " + mode : ""})`;

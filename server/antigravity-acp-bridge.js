@@ -62,6 +62,13 @@ const EDIT_TOOLS = new Set(["write_file", "edit_file", "write_to_file", "replace
 // The steps the gate must have allowed before they finish (the tripwire).
 const GATED_TOOLS = new Set([...EDIT_TOOLS, "run_command", "send_command_input", "search_web", "read_url_content",
   "call_mcp_tool", "notebook_execution", "generate_image", "schedule", "delete_knowledge", "run_workflow", "open_browser_url"]);
+// The approval modes, as Claude Code names them; the gate applies them.
+const MODE_OPTIONS = Object.freeze([
+  { value: "default", name: "Ask before acting", description: "Asks before editing files, running commands, going online or using MCP tools." },
+  { value: "acceptEdits", name: "Accept edits", description: "Edits files in the project without asking; asks for everything else." },
+  { value: "plan", name: "Plan", description: "Reads and plans; refuses edits and commands." },
+  { value: "bypassPermissions", name: "Bypass permissions", description: "Runs everything without asking." },
+].map(Object.freeze));
 const reject = (code, extra = {}) => ({ kind: "reject", code, ...extra });
 const clone = value => structuredClone(value);
 
@@ -205,6 +212,8 @@ function createAntigravityAcpBridge({
   if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new TypeError("antigravity_cwd_absolute_required");
   if (!gate || typeof gate.issue !== "function" || typeof gate.launch !== "function") throw new TypeError("antigravity_gate_required");
   const rateEvent = event => { try { onRateEvent?.(event); } catch {} };
+  // The environment is read at each start: a gateway's address or key may change.
+  const baseEnv = () => withCommandDirectory((typeof env === "function" ? env() : env) || {}, command);
   const sessions = new Map(), known = readRegistry(registryFile), permissions = new Map(), events = [];
   const unsupportedEffort = new Set();
   let closed = false, nextPermission = 0, epochs = 0, catalog = null, catalogAt = 0, catalogLoading = null, lastError = null;
@@ -235,7 +244,7 @@ function createAntigravityAcpBridge({
     if (!force && catalog && Date.now() - catalogAt < 5 * 60_000) return Promise.resolve(catalog);
     if (catalogLoading) return catalogLoading;
     catalogLoading = new Promise(resolve => {
-      execFileImpl(command, ["models"], { cwd, env: withCommandDirectory(env, command), timeout: 15_000, maxBuffer: 256 * 1024, windowsHide: true },
+      execFileImpl(command, ["models"], { cwd, env: baseEnv(), timeout: 15_000, maxBuffer: 256 * 1024, windowsHide: true },
         (error, stdout) => {
           catalogLoading = null;
           const rows = parseModelList(stdout).filter(row => !gatewayOnly() || row.id.startsWith("magpie/"));
@@ -273,12 +282,7 @@ function createAntigravityAcpBridge({
       options: [{ value: "auto", name: "Auto", description: "The model decides how much to think" },
         ...levels.map(level => ({ value: level, name: level[0].toUpperCase() + level.slice(1), description: null }))] });
     options.push({ id: "mode", name: "Approval", category: "mode", type: "select", currentValue: session.choice.mode || "default",
-      options: [
-        { value: "default", name: "Ask before acting", description: "Asks before editing files, running commands, going online or using MCP tools." },
-        { value: "acceptEdits", name: "Accept edits", description: "Edits files in the project without asking; asks for everything else." },
-        { value: "plan", name: "Plan", description: "Reads and plans; refuses edits and commands." },
-        { value: "bypassPermissions", name: "Bypass permissions", description: "Runs everything without asking." },
-      ] });
+      options: MODE_OPTIONS.map(option => ({ ...option })) });
     return options;
   }
 
@@ -330,7 +334,7 @@ function createAntigravityAcpBridge({
     let child;
     try {
       child = spawnImpl(command, [...args, ...gateLaunch.args], {
-        cwd: session.cwd, env: { ...withCommandDirectory(env, command), ...gateLaunch.env, AGY_CLI_DISABLE_AUTO_UPDATE: "true" },
+        cwd: session.cwd, env: { ...baseEnv(), ...gateLaunch.env, AGY_CLI_DISABLE_AUTO_UPDATE: "true" },
         shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
       });
     } catch (error) { gate.revoke(token); return Promise.resolve(reject("antigravity_start_failed", { error: safeText(error?.message, 300) })); }
@@ -458,6 +462,8 @@ function createAntigravityAcpBridge({
     const status = String(body?.status || "").toUpperCase();
     const errorText = displayText(body?.error ?? "", 2000);
     const interrupted = turn.cancelled || /interrupt/i.test(errorText) || status === "CANCELED" || status === "INTERRUPTED";
+    // A status a later agy adds ends the turn as answered; only a failure fails it.
+    const failed = /^(?:ERROR|FAILED|FAILURE|INVALID)$/.test(status) || !status && !!errorText;
     if (interrupted) live.closing = true;
     // An answer that was not streamed is drawn whole.
     if (!turn.streamed && typeof body?.response === "string" && body.response) {
@@ -468,8 +474,8 @@ function createAntigravityAcpBridge({
       record(session, { sessionUpdate: "turn_error", message: `Antigravity refused: ${names.join(", ")}.` });
     }
     let result;
-    if (status === "SUCCESS" && !interrupted) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "end_turn" } }; }
-    else if (interrupted) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "cancelled" } }; }
+    if (interrupted) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "cancelled" } }; }
+    else if (!failed) { session.status = "idle"; result = { kind: "prompted", sessionId: session.id, result: { stopReason: "end_turn" } }; }
     else {
       session.status = "error";
       record(session, { sessionUpdate: "turn_error", message: errorText || "Antigravity could not finish this turn." });
@@ -599,7 +605,14 @@ function createAntigravityAcpBridge({
     return replayed;
   }
 
-  async function createSession({ directory = cwd, sessionId = null, name = null } = {}) {
+  // A valid model, level and mode from a caller (the Host's last choice).
+  function validChoice(value) {
+    if (!plain(value)) return null;
+    return { model: MODEL.test(String(value.model || "")) ? value.model : null,
+      effort: EFFORTS.includes(value.effort) || value.effort === "auto" ? value.effort : null,
+      mode: MODES.includes(value.mode) ? value.mode : null };
+  }
+  async function createSession({ directory = cwd, sessionId = null, name = null, choice = null } = {}) {
     if (closed) return reject("acp_closed");
     if (typeof directory !== "string" || !path.isAbsolute(directory) || sessionId !== null && !safeId(sessionId)) return reject("acp_session_invalid");
     await gate.ready;
@@ -615,8 +628,8 @@ function createAntigravityAcpBridge({
       await loadCatalog();
       return { kind: "loaded", sessionId, cwd: session.cwd, name: session.name, configOptions: configOptions(session) };
     }
-    // A new conversation starts with what was chosen last, set by the Host.
-    const session = newSessionShell({ directory, name, choice: null });
+    // A new conversation starts with what was chosen last, so agy starts with it.
+    const session = newSessionShell({ directory, name, choice: validChoice(choice) });
     const started = await startProcess(session, { resume: false });
     if (started.kind === "reject") {
       stopProcess(session);
@@ -726,6 +739,15 @@ function createAntigravityAcpBridge({
     return { kind: "configured", sessionId: session.id, configId, value: next, configOptions: configOptions(session),
       appliesNextTurn: configId !== "mode" && session.promptInFlight };
   }
+  // The conversation goes on in agy's own screen (a terminal); agy must not
+  // hold it open twice, so this side lets go of it.
+  async function release(sessionId) {
+    const session = sessions.get(String(sessionId || ""));
+    if (!session) return { kind: "released" };
+    if (session.promptInFlight) await cancel(session.id);
+    stopProcess(session);
+    return { kind: "released" };
+  }
   function compactionSupport() { return { supported: false, instructions: false, reason: "compaction_unavailable" }; }
   async function compact() { return reject("compaction_unavailable"); }
 
@@ -756,7 +778,7 @@ function createAntigravityAcpBridge({
 
   return Object.freeze({
     version: ANTIGRAVITY_ACP_VERSION, start, initialize, createSession, forkSession, loadSession, prompt, cancel, respondPermission,
-    sessionConfigOptions, setConfigOption, compactionSupport, compact, decide, models: () => loadCatalog(),
+    sessionConfigOptions, setConfigOption, compactionSupport, compact, decide, release, models: () => loadCatalog(),
     pendingPermissions: () => [...permissions.values()].map(row => clone({ id: row.id, method: row.method, sessionId: row.sessionId, params: row.params, createdAt: row.createdAt })),
     events: () => clone(events),
     sessionEvents: sessionId => clone(sessions.get(String(sessionId))?.events || []),
@@ -766,4 +788,4 @@ function createAntigravityAcpBridge({
   });
 }
 
-module.exports = { ANTIGRAVITY_ACP_VERSION, SCREEN_COMMANDS, createAntigravityAcpBridge, classifyTool, displayArgs, toolTitle, parseModelList, userRequestText };
+module.exports = { ANTIGRAVITY_ACP_VERSION, SCREEN_COMMANDS, MODE_OPTIONS, createAntigravityAcpBridge, classifyTool, displayArgs, toolTitle, parseModelList, userRequestText };
