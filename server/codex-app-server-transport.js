@@ -55,6 +55,9 @@ const LARGE_TURN_NOTIFICATIONS = Object.freeze(new Set([
 const LARGE_HISTORY_RESPONSES = Object.freeze(new Set([
   "thread/resume", "thread/read", "thread/list", "thread/turns/list", "thread/items/list",
 ]));
+const PAGINATED_HISTORY_RESPONSES = Object.freeze(new Set([
+  "thread/turns/list", "thread/items/list",
+]));
 
 const reject = code => ({ kind: "reject", code });
 const clone = value => structuredClone(value);
@@ -74,6 +77,7 @@ const MAX_HISTORY_CURSOR = 512;
 const MAX_HISTORY_PAGE = 100;
 const MAX_HISTORY_REQUEST_BYTES = 128 * 1024;
 const MAX_HISTORY_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_HISTORY_ROW_BYTES = 4 * 1024 * 1024;
 const MAX_MODEL_PAGE = MAX_HISTORY_PAGE;
 const MAX_MODEL_ID = 256;
 const MAX_MODEL_TEXT = 4096;
@@ -138,14 +142,14 @@ function boundedHistory(value, limit = MAX_HISTORY_RESPONSE_BYTES) {
 
 function normalizeTurn(value) {
   if (!plain(value) || !nativeId(value.id) || !TURN_STATUSES.has(value.status) || !Array.isArray(value.items)) return null;
-  const result = boundedHistory(value, 4 * 1024 * 1024);
+  const result = boundedHistory(value, MAX_HISTORY_ROW_BYTES);
   if (!result || !Array.isArray(result.items)) return null;
   return result;
 }
 
 function normalizeThreadItem(value) {
   if (!plain(value) || !nativeId(value.id) || typeof value.type !== "string" || !value.type.length || value.type.length > 64) return null;
-  return boundedHistory(value, 4 * 1024 * 1024);
+  return boundedHistory(value, MAX_HISTORY_ROW_BYTES);
 }
 
 function normalizeThreadItemEntry(value) {
@@ -762,6 +766,21 @@ function createCodexAppServerTransport({
     });
   };
 
+  async function requestHistoryPage(method, params, normalize) {
+    // A count-bounded page can still exceed the byte budget. Retry the SAME
+    // cursor with fewer rows; only a successfully validated page owns the
+    // next cursor. Never truncate data or retry protocol/transport failures.
+    let limit = params.limit || MAX_HISTORY_PAGE;
+    for (;;) {
+      try { return await request(method, params, { check: value => normalize(value) !== null }); }
+      catch (error) {
+        if (error?.code !== "native_history_page_too_large" || limit <= 1) throw error;
+        limit = Math.max(1, Math.floor(limit / 2));
+        params = { ...params, limit };
+      }
+    }
+  }
+
   const ensureInitialized = () => {
     // An idle process can die with no request pending. Preserve that failure
     // on the next read so the adapter can retire it, rather than returning a
@@ -792,7 +811,7 @@ function createCodexAppServerTransport({
     if (!ensureInitialized()) return reject("native_lifecycle_conflict");
     if (!validHistoryRequest(params, { threadId: true })) return reject("invalid_native_params");
     const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
-    const response = await request("thread/turns/list", body, { check: value => normalizeThreadTurnsResponse(value) !== null });
+    const response = await requestHistoryPage("thread/turns/list", body, normalizeThreadTurnsResponse);
     const result = normalizeThreadTurnsResponse(response);
     return result ? { kind: "thread_turns", ...result, threadId: params.threadId } : reject("native_response_invalid");
   }
@@ -801,7 +820,7 @@ function createCodexAppServerTransport({
     if (!ensureInitialized()) return reject("native_lifecycle_conflict");
     if (!validHistoryRequest(params, { threadId: true })) return reject("invalid_native_params");
     const body = bounded(params, MAX_HISTORY_REQUEST_BYTES);
-    const response = await request("thread/items/list", body, { check: value => normalizeThreadItemsResponse(value) !== null });
+    const response = await requestHistoryPage("thread/items/list", body, normalizeThreadItemsResponse);
     const result = normalizeThreadItemsResponse(response);
     return result ? { kind: "thread_items", ...result, threadId: params.threadId, turnId: params.turnId ?? null } : reject("native_response_invalid");
   }
@@ -1001,6 +1020,16 @@ function createCodexAppServerTransport({
         if (value.error.code === -32601 || /\b(unknown variant|unknown method|method not found)\b/i.test(message)) error.methodUnsupported = true;
         row.reject(error); return;
       }
+      if (PAGINATED_HISTORY_RESPONSES.has(row.method) && plain(value.result)
+        && Array.isArray(value.result.data) && value.result.data.length <= MAX_HISTORY_PAGE
+        && value.result.data.some(entry => {
+          const item = row.method === "thread/items/list" ? entry?.item : entry;
+          return plain(item) && Buffer.byteLength(JSON.stringify(item), "utf8") > MAX_HISTORY_ROW_BYTES;
+        })) {
+        // Shrinking cannot fix a single oversized row. It is still refused
+        // at the original 4 MiB cap, but is not a broken protocol/process.
+        row.reject(writeError("native_history_item_too_large")); return;
+      }
       row.resolve(value.result); return;
     }
     if (value.kind === "request") {
@@ -1034,11 +1063,29 @@ function createCodexAppServerTransport({
     return false;
   }
 
+  function rejectOversizedHistoryPage(value, bytes) {
+    if (bytes <= MAX_HISTORY_RESPONSE_BYTES || bytes > MAX_TURN_FRAME_BYTES
+      || value.kind !== "response" || value.error || !plain(value.result)
+      || !Array.isArray(value.result.data) || value.result.data.length > MAX_HISTORY_PAGE) return false;
+    const row = pending.get(key(value.id));
+    if (!row || !PAGINATED_HISTORY_RESPONSES.has(row.method)) return false;
+    // This complete, correlated page is discarded, not admitted above the
+    // 8 MiB limit. Keep other requests (and a live turn) on this process alive.
+    pending.delete(key(value.id)); clearTimeout(row.timer);
+    row.reject(writeError("native_history_page_too_large"));
+    return true;
+  }
+
   decoder = createLineDecoder({ maxBytes: MAX_TURN_FRAME_BYTES, onError: () => fail("native_frame_invalid"), onLine: line => {
     try {
       const frame = JSON.parse(line);
       const value = validateFrame(frame);
-      if (!value || !frameWithinLimit(value, Buffer.byteLength(line, "utf8"))) { fail("native_frame_invalid"); return; }
+      if (!value) { fail("native_frame_invalid"); return; }
+      const bytes = Buffer.byteLength(line, "utf8");
+      if (!frameWithinLimit(value, bytes)) {
+        if (!rejectOversizedHistoryPage(value, bytes)) fail("native_frame_invalid");
+        return;
+      }
       handleFrame(frame);
     } catch { fail("native_frame_invalid"); }
   } });

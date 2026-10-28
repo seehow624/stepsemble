@@ -61,6 +61,15 @@ export STEPSEMBLE_CODEX_CWD="$HOME"
   上限約束，未載入的頁面會明確保留 cursor；
   `/api/codex/thread` 的 HTTP 預設是 metadata-only，只有明確傳
   `includeTurns=1` 才會要求舊式 full-history response。
+  turn/item page 若為完整、可關聯到 pending request 的回應，且超過 8 MiB
+  但未超過既有 28 MiB decoder 上限，會丟棄該頁，沿用同一 cursor/filter
+  將筆數減半後重試，直到一筆；只採用成功頁的資料與 cursor，不截斷內容，
+  也不關閉其他正在使用的請求。單筆仍超限時回報
+  `native_history_page_too_large`；頁面已小於 8 MiB，但其中一筆 turn/item
+  超過 4 MiB 時，以 `native_history_item_too_large` 單獨拒絕該請求，
+  不重試也不終止程序。8 MiB page、4 MiB turn/item、28 MiB decoder 與
+  其他方法的既有上限不變；不完整／非法 envelope、錯誤 ID 或
+  超過 decoder 上限仍 fail closed，不走縮頁重試。
 - Agent Hub／All conversations 的 Codex rows：標成 `nativeCodex`、
   `readOnly`，可以開啟 transcript，但不會送訊息、resume、abort 或回答
   approval。
