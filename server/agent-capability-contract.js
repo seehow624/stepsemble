@@ -128,17 +128,20 @@ function acpFeatures(history, adapter, journalAvailable, { grok = false } = {}) 
 function antigravityFeatures(history, adapter, journalAvailable) {
   if (adapter?.configured !== true || ["closed", "degraded", "disabled"].includes(adapter?.state)) return boundedCli({ journalAvailable });
   return {
-    session: feature("ready", "antigravity-stream-json"), followUp: feature("ready", "antigravity-stream-json"),
-    model: feature("unavailable", "none", "native_model_control_unavailable"),
-    reasoning: feature("unavailable", "none", "native_reasoning_control_unavailable"),
-    images: feature("unavailable", "none", "text_transport_only"),
+    // agy's stream behind the ACP bridge (server/antigravity-acp-bridge.js):
+    // model, level and plan apply from the next turn, approvals go through
+    // Stepsemble's gate, a picture is a file agy reads.
+    session: feature("ready", "antigravity-acp"), followUp: feature("ready", "antigravity-acp"),
+    model: feature("ready", "antigravity-acp"),
+    reasoning: feature("limited", "antigravity-acp", "gateway_models_take_low_medium_high"),
+    images: feature("limited", "antigravity-acp", "pictures_read_from_saved_files"),
     files: feature("limited", "project-filesystem", "no_structured_artifact_receipt"),
-    approval: feature("unavailable", "none", "native_permission_response_unavailable"),
-    interrupt: feature("ready", "antigravity-stream-json"),
-    recovery: feature("limited", "antigravity-conversation-id", "resume_depends_on_upstream_conversation"),
-    history: feature("limited", "host-journal", "canonical_history_only"),
-    context: feature("unknown", "none", "native_context_not_reported"),
-    subagents: feature("unknown", "none", "native_subagents_not_reported"),
+    approval: feature("ready", "stepsemble-approval-gate"),
+    interrupt: feature("ready", "antigravity-acp"),
+    recovery: feature("ready", "antigravity-conversation-id"),
+    history: feature("limited", "antigravity-transcript", "turns_replayed_from_agy_transcript"),
+    context: feature("limited", "antigravity-acp", "capacity_from_gateway_catalog"),
+    subagents: feature("limited", "antigravity-acp", "observed_not_independently_controlled"),
   };
 }
 

@@ -1,13 +1,13 @@
 "use strict";
-// Antigravity runs through its documented stream by default, also in a new
-// Git worktree; it never gets a flag that approves on its own; and one of its
-// conversations can continue in its own screen (a terminal) on request.
+// Antigravity runs through its documented stream by default, behind the ACP
+// bridge, also in a new Git worktree; agy's own approval is switched off only
+// with Stepsemble's gate in its place; and one of its conversations can
+// continue in its own screen (a terminal) on request.
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os");
 const { spawn, execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const execFileAsync = promisify(execFile);
-const { buildAntigravityStructuredArgs } = require("../server/antigravity-cli-structured-adapter");
 const root = path.resolve(__dirname, "..");
 const unix = { skip: process.platform === "win32" ? "the synthetic agy is a POSIX shell shim" : false };
 
@@ -81,51 +81,48 @@ async function supervisorsExited(home) {
   for (let attempt = 0; attempt < 50 && alive().length; attempt += 1) await new Promise(resolve => setTimeout(resolve, 100));
 }
 
-test("the stream arguments never carry a flag that approves on its own", () => {
-  for (const options of [{}, { model: "magpie/antigravity/gemini-3.8-flash" }, { conversationId: "conv-1" },
-    { model: "gemini-4-argon-high", conversationId: "4e502687-290c-4030-b908-5ed6c68fa5dc" }]) {
-    const args = buildAntigravityStructuredArgs(options);
-    assert.deepEqual(args.slice(0, 4), ["--input-format", "stream-json", "--output-format", "stream-json"]);
-    for (const flag of ["--dangerously-skip-permissions", "--mode", "--sandbox", "-p", "--print"]) assert.ok(!args.includes(flag), flag);
-  }
-  assert.throws(() => buildAntigravityStructuredArgs({ model: "--dangerously-skip-permissions" }));
-  assert.throws(() => buildAntigravityStructuredArgs({ conversationId: "--mode=auto" }));
-});
-
-test("Antigravity opens in its stream by default, in a new worktree too, and continues in a terminal on request", unix, async t => {
+test("Antigravity opens in its stream behind the ACP bridge, in a new worktree too, and continues in a terminal on request", unix, async t => {
   const h = await host(t);
   const opened = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "Stream" });
   assert.equal(opened.status, 201, JSON.stringify(opened.body));
-  assert.equal(opened.body.kind, "antigravity-structured", "no flag is needed for the stream");
+  assert.equal(opened.body.kind, "acp");
+  assert.equal(opened.body.nativeAcp, true);
+  assert.equal(opened.body.acpAgentId, "antigravity");
+  const conversationId = opened.body.nativeSessionId;
+  assert.match(conversationId, /^fake-conversation-\d+$/, "the conversation is agy's own");
+  assert.equal(opened.body.id, `antigravity:${conversationId}`);
   const stream = await h.startedWith(row => row.args.includes("stream-json"));
   assert.ok(stream, "agy started in its stream");
-  for (const flag of ["--dangerously-skip-permissions", "--mode", "--sandbox"]) assert.ok(!stream.args.includes(flag), flag);
   assert.equal(stream.cwd, h.project);
+  // agy's own approval is off only because Stepsemble's gate takes its place.
+  assert.ok(stream.args.includes("--dangerously-skip-permissions"));
+  assert.equal(stream.args[stream.args.indexOf("--add-dir") + 1], path.join(h.home, ".config/stepsemble/antigravity-gate"));
+  assert.ok(stream.gate, "the hook can reach the gate");
+  for (const flag of ["--sandbox", "-p", "--print"]) assert.ok(!stream.args.includes(flag), flag);
+  assert.ok(!stream.args.includes("--mode"), "a new conversation asks before acting");
+  const hooks = JSON.parse(await fs.readFile(path.join(h.home, ".config/stepsemble/antigravity-gate/.agents/hooks.json"), "utf8"));
+  assert.match(hooks["stepsemble-approval"].PreToolUse[0].hooks[0].command, /antigravity-approval-hook\.js/);
+
+  const config = await h.json(`/api/antigravity/acp/config?sessionId=${encodeURIComponent(conversationId)}`);
+  assert.deepEqual(config.body.configOptions.map(option => option.category), ["model", "thought_level", "mode"]);
+  const answered = await h.json("/api/antigravity/acp/prompt", { sessionId: conversationId, text: "hello" });
+  assert.equal(answered.status, 200, JSON.stringify(answered.body));
+  const events = (await h.json(`/api/antigravity/acp/events?sessionId=${encodeURIComponent(conversationId)}`)).body.events;
+  assert.ok(events.some(row => row.update?.sessionUpdate === "agent_message_chunk" && /fake answer 1/.test(row.update.content?.text)));
 
   const worktree = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "In a worktree", worktree: true });
   assert.equal(worktree.status, 201, JSON.stringify(worktree.body));
-  assert.equal(worktree.body.kind, "antigravity-structured", "a worktree no longer falls back to the terminal");
+  assert.equal(worktree.body.kind, "acp", "a worktree does not fall back to the terminal");
   assert.match(worktree.body.worktree?.branch || "", /^pi-worktree\//);
   assert.equal(worktree.body.cwd, worktree.body.worktree.path);
   assert.ok(await h.startedWith(row => row.args.includes("stream-json") && row.cwd === worktree.body.worktree.path), "agy ran in the worktree");
 
-  // The stream that holds the conversation lets go first: agy warns when one
-  // conversation is open in two of its processes.
-  const conversationId = await (async () => {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const events = (await h.json(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(opened.body.nativeSessionId)}`)).body?.events || [];
-      const init = events.find(event => event.type === "init");
-      if (init?.conversationId) return init.conversationId;
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    return null;
-  })();
-  assert.match(conversationId || "", /^fake-conversation-\d+$/);
+  // The stream lets go of the conversation before the terminal takes it:
+  // agy warns when one conversation is open in two of its processes.
+  const starts = (await h.starts()).length;
   const terminal = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, name: "Terminal", terminal: true, conversationId });
   assert.equal(terminal.status, 201, JSON.stringify(terminal.body));
   assert.equal(terminal.body.kind, "cli");
-  assert.equal((await h.json(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(opened.body.nativeSessionId)}`)).status, 404, "the stream session was closed");
-  assert.equal((await h.json(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(worktree.body.nativeSessionId)}`)).status, 200, "another conversation keeps its stream");
   assert.equal(terminal.body.transport, "pty");
   let tail = "";
   for (let attempt = 0; attempt < 100 && !tail.includes("AGY_ARGS:"); attempt += 1) {
@@ -133,6 +130,10 @@ test("Antigravity opens in its stream by default, in a new worktree too, and con
     tail = (await h.json(`/api/agent-task?taskId=${encodeURIComponent(terminal.body.id)}`)).body?.task?.outputTail || "";
   }
   assert.ok(tail.includes('AGY_ARGS:["--conversation","' + conversationId + '"]'), "the same conversation, in agy's own screen");
+  // Back in the stream, a new agy process continues the conversation.
+  assert.equal((await h.json("/api/antigravity/acp/prompt", { sessionId: conversationId, text: "back here" })).status, 200);
+  const resumed = (await h.starts()).slice(starts).find(row => row.args.includes("stream-json"));
+  assert.equal(resumed?.args[resumed.args.indexOf("--conversation") + 1], conversationId);
 
   for (const conversationId of ["bad id", "--mode=auto", "x".repeat(300)]) {
     const refused = await h.json("/api/agent/open", { agentId: "antigravity", cwd: h.project, terminal: true, conversationId });

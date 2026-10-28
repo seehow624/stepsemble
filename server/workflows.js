@@ -5,7 +5,7 @@ const fs = require("node:fs"), path = require("node:path"), { randomUUID, create
 const ACTIVE = new Set(["starting", "running", "waiting"]);
 const RESUMABLE = new Set(["paused", "blocked", "interrupted"]);
 const FINISHED = new Set(["limited", "completed", "failed", "stopped"]);
-const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build"];
+const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build", "antigravity"];
 const CHOICE = /^[^\s\u0000-\u001f\u007f]{1,256}$/, PERMISSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 // A temporary failure retries the same turn; a usage limit waits for its reset.
 const RETRY_DELAYS = [30000, 120000, 480000];

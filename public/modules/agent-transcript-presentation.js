@@ -303,6 +303,10 @@
         isError: !!update.error || !!call.error,
       }) };
     }
+    // A turn that ended in an error, as the Host's Antigravity bridge records it.
+    if (kind === "turn_error" && typeof update.message === "string" && update.message) {
+      return { kind: "turn_error", text: text(update.message, 2000) };
+    }
     return null;
   }
 

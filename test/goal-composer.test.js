@@ -163,7 +163,7 @@ test("late creation replies after switching context cannot clear or populate the
 for (const [name, options, submitOptions, errorKey] of [
   ["read-only", { connection: { readOnly: true } }, {}, "unsupported"],
   ["native history read-only", { connection: { nativeHistoryReadonly: true } }, {}, "unsupported"],
-  ["unsupported agent", { agent: "antigravity" }, {}, "unsupported"],
+  ["unsupported agent", { agent: "gemini-cli" }, {}, "unsupported"],
   ["busy model", { connection: { streaming: true } }, {}, "busy"],
   ["busy ACP", { connection: { acpPromptInFlight: true } }, {}, "busy"],
   ["attachments", {}, { hasAttachments: true }, "attachments"],

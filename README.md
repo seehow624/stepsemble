@@ -226,9 +226,10 @@ left, then the context ring, the model and a round Send button on the right.
 **Approval** offers the permission modes of the conversation's own agent: Read
 only, Default and Full access for Codex; Manual, Accept edits, Plan, Auto,
 Don't ask and Bypass permissions for Claude Code; Build and Plan for OpenCode;
-the modes that Hermes, Kilo and Cline report; and Default and Plan for Grok
-Build, the two it confirms. Pi and
-Antigravity have no such modes, so the control is hidden for them. Each
+the modes that Hermes, Kilo and Cline report; Default and Plan for Grok
+Build, the two it confirms; and Manual, Accept edits, Plan and Bypass
+permissions for Google Antigravity, which Stepsemble's own approval gate
+applies (below). Pi has no such modes, so the control is hidden for it. Each
 conversation remembers its choice. Codex applies it from your next message; the
 other agents apply it at once. Bypass permissions needs a Claude Code CLI that
 supports it. On a Mac where Claude Code starts through Stepsemble's desktop
@@ -298,13 +299,33 @@ normal CLI connector. See
 
 Google Antigravity runs through its documented headless stream (stream-json)
 whenever the local `agy` CLI is installed; `STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0`
-returns it to the terminal. Stepsemble locks each task to one upstream
-conversation ID and supports bounded event replay, prompts, and close. The
-stream never stops at agy's first-run pages or its folder-trust question. It has
-no approval response: an action that needs approval is refused by agy itself
-(Stepsemble passes no flag that approves on its own), the conversation shows
-what was refused, and **Continue in the terminal** opens the same conversation
-in agy's own screen, where agy asks first.
+returns it to the terminal. Each conversation is one of agy's own, shown like
+the ACP agents' conversations: the model and reasoning level (agy takes low,
+medium and high for a gateway's models), the context ring (its capacity comes
+from Magpie's model list when agy goes through Magpie), pictures (saved for agy
+to read, since its stream takes text only), Stop, the message queue and Goals.
+Conversations begun in agy's own screen are listed too, and open and continue
+in Stepsemble. agy reads the model, level and plan mode only when it starts, so
+a change applies from the next message, on the same conversation. The stream
+never stops at agy's first-run pages or its folder-trust question.
+
+agy's stream cannot ask before an action, so Stepsemble starts agy with
+`--dangerously-skip-permissions` together with its own PreToolUse hook (in a
+folder it adds with `--add-dir`), and that hook is the only approval: every
+tool call agy or one of its subagents makes is sent to the Host, which answers
+by the conversation's approval mode. In Manual, the default, an action that
+changes something waits on an Allow / Deny card in the conversation; Accept
+edits allows file edits inside the project; Plan refuses changes; Bypass
+permissions runs everything. Reading is never asked about. The gate fails
+closed: a hook that cannot reach the Host, gets no clear answer or times out
+makes agy deny, and a changing action that finishes without the gate's
+approval stops the conversation. The hook's file is written again before every
+agy start, and a new agy release is taken only after its release check shows
+that a command the gate denies never runs. Commands of agy's own screen (such
+as `/rewind` or `/config`) would end the stream, so Stepsemble keeps them and
+offers **Continue in the terminal**, which opens the same conversation in agy's
+own screen; `/model` and `/effort` open the model sheet. agy's stream has no
+branch (fork), compaction or thinking text, so those are not offered.
 
 A CLI session that runs in a terminal (PTY) shows the program's own screen with
 a key bar (arrows, Tab, Space, Esc, Backspace, Enter); keys typed into the

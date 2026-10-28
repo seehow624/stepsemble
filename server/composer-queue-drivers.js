@@ -184,4 +184,37 @@ function createClaudeQueueDriver({ resolveSession, send, saved = () => null, con
   });
 }
 
-module.exports = { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver };
+// Antigravity: the conversation id agy named, in the Host's bridge
+// (server/antigravity-acp-bridge.js). The bridge takes a message at once and
+// answers when its turn ends, so a message goes only between turns: agy's
+// stream has nothing to put one into a turn under way.
+function createAntigravityQueueDriver({ bridge, confirmWithin = 15_000 }) {
+  const loaded = id => { try { return bridge.sessions().some(row => row.id === id && row.loaded !== false); } catch { return false; } };
+  function busy(id) {
+    try { return bridge.sessionWorking(id) || bridge.pendingPermissions().some(row => row.sessionId === id); } catch { return true; }
+  }
+  return Object.freeze({
+    resolve: ref => typeof ref === "string" && THREAD.test(ref) && loaded(ref) ? ref : null,
+    available: loaded,
+    canJump: () => false,
+    busy,
+    async deliver(id, item, payload, { jump = false } = {}) {
+      if (busy(id)) return { kind: jump ? "unsupported" : "busy" };
+      const turn = bridge.prompt(id, payload.text, { images: payload.images, uuid: item.id });
+      // Taken: the turn has started (its start names the message); the
+      // answer comes when the turn ends.
+      if (bridge.sessionWorking(id)) { void turn.catch(() => {}); return { kind: "accepted", confirmWithin }; }
+      const result = await turn;
+      return result?.kind === "reject" ? reject(result.code || "antigravity_prompt_failed") : { kind: "delivered" };
+    },
+    fromEvent(sessionId, event) {
+      if (event?.type === "rate.turn.started" && typeof event.uuid === "string" && event.uuid) return { id: sessionId, delivered: event.uuid };
+      if (event?.type === "rate.turn.ended") {
+        return { id: sessionId, turnEnded: event.outcome === "stopped" ? "stopped" : event.outcome === "failed" ? "failed" : "completed" };
+      }
+      return null;
+    },
+  });
+}
+
+module.exports = { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver, createAntigravityQueueDriver };

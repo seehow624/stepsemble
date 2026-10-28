@@ -23,7 +23,7 @@ test("the last models an agent offered are kept, bounded and owner-only", () => 
     // Agents that never report models, and unknown ids, are not stored.
     assert.equal(cache.record("grok-build", choices), false);
     assert.equal(cache.record("../x", choices), false);
-    assert.deepEqual(cache.get("antigravity"), { agentId: "antigravity", supported: false, models: [], observedAt: null });
+    assert.deepEqual(cache.get("antigravity"), { agentId: "antigravity", supported: true, models: [], observedAt: null });
     assert.equal(cache.get("../x").supported, false);
     assert.equal(cache.record("claude-code", Array.from({ length: 300 }, (_, i) => ({ id: "m" + i }))), true);
     assert.equal(cache.get("claude-code").models.length, 200);

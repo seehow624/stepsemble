@@ -20,8 +20,8 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { normalizeImages, IMAGE_LIMITS } = require("./prompt-attachments");
 
-const AGENTS = Object.freeze(["pi", "codex", "claude-code"]);
-const IMAGE_LIMIT = Object.freeze({ pi: IMAGE_LIMITS.pi, codex: IMAGE_LIMITS.codex, "claude-code": IMAGE_LIMITS.claude });
+const AGENTS = Object.freeze(["pi", "codex", "claude-code", "antigravity"]);
+const IMAGE_LIMIT = Object.freeze({ pi: IMAGE_LIMITS.pi, codex: IMAGE_LIMITS.codex, "claude-code": IMAGE_LIMITS.claude, antigravity: IMAGE_LIMITS.acp });
 const MAX_ITEMS = 20;
 const MAX_CONVERSATIONS = 200;
 const MAX_TEXT = 1024 * 1024;

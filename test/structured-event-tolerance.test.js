@@ -6,7 +6,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createLineDecoder } = require("../server/stream-safety");
 const { createClaudeStructuredParser } = require("../server/claude-code-structured-adapter");
-const { createAntigravityStructuredParser } = require("../server/antigravity-cli-structured-adapter");
 const { claudeMessages } = require("../server/native-history-catalog");
 
 const line = value => JSON.stringify(value) + "\n";
@@ -76,21 +75,6 @@ test("an image a tool returned to Claude is not kept, and the rest of its result
   assert.deepEqual(events[0].tool_use_result, { omitted: true, bytes: Buffer.byteLength(JSON.stringify({ type: "image", file: { base64: data, type: "image/jpeg" } })) });
   assert.deepEqual(events[1].tool_use_result, { stdout: "ok", stderr: "" }, "a short record is kept");
   assert.ok(parser.status().bytes < 4096);
-});
-
-test("Antigravity's new kinds of event, an unknown result status and unreadable lines never end the conversation", () => {
-  const events = [];
-  const parser = createAntigravityStructuredParser({ onEvent: event => events.push(event) });
-  parser.push(line({ type: "init", conversation_id: "c1" }));
-  parser.push(line({ type: "heartbeat", conversation_id: "c1" }));
-  parser.push("not json\n");
-  parser.push(line({ type: "step_update", conversation_id: "c1", event_id: "bad id!" }));
-  parser.push(line({ type: "result", conversation_id: "c1", status: "PAUSED", response: "ok" }));
-  const status = parser.status();
-  assert.equal(status.failed, null);
-  assert.equal(status.skippedEvents, 2);
-  assert.deepEqual(events.map(event => event.type), ["init", "heartbeat", "result"]);
-  assert.equal(events[2].resultStatus, null);
 });
 
 test("Claude's history shows tool calls as tool rows and only what the person wrote as theirs", () => {

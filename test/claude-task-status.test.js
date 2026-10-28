@@ -7,7 +7,10 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
 function load(name, next) {
   const start = source.indexOf(`function ${name}(`);
-  const end = source.indexOf(`function ${next}(`, start);
+  // The function ends where the next top-level function begins.
+  const following = /\n(?:async )?function /g;
+  following.lastIndex = start + 1;
+  const end = next ? source.indexOf(`function ${next}(`, start) : following.exec(source)?.index ?? -1;
   assert.ok(start > 0 && end > start);
   return vm.runInNewContext(`(${source.slice(start, end).trim()})`, {
     projectDirectory: value => value === "/owned" ? value : null,
@@ -15,7 +18,7 @@ function load(name, next) {
   });
 }
 const live = load("publicClaudeStructuredTask", "resolveClaudeStructuredSession");
-const stored = load("publicClaudeStructuredResumeTask", "publicAntigravityStructuredTask");
+const stored = load("publicClaudeStructuredResumeTask");
 test("persisted unloaded Claude conversation is history, never pending work", () => {
   const task = stored({ id: "owned-session", cwd: "/owned" });
   assert.equal(task.status, "history");

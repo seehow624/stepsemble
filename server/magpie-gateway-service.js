@@ -414,6 +414,9 @@ function createMagpieGatewayService({
     quotaReports,
     quotaSource,
     speedCapability,
+    // The gateway's models with their names, context windows and levels
+    // (Antigravity reaches Magpie's models as "magpie/<id>").
+    catalog,
     origin,
   };
 }

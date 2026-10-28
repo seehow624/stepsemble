@@ -5,7 +5,7 @@
   if (root) root.StepsembleWorkflows = api;
 })(typeof window !== "undefined" ? window : null, function (root) {
   "use strict";
-  const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build"];
+  const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "hermes", "grok-build", "antigravity"];
   const ACTIVE = ["queued", "starting", "running", "waiting", "stopping"];
   const RESUMABLE = ["paused", "blocked", "interrupted"];
   const ATTENTION = ["waiting", "blocked", "interrupted", "failed", "limited"];
