@@ -101,7 +101,7 @@ cat ~/.config/stepsemble/token
 
 登入 Agent：在該 Agent 的對話輸入 `/login`；`/logout` 和 `/status` 用法相同。Stepsemble 會在對話所在的主機執行該 Agent 自己的指令，並以終端機畫面呈現：登入連結變成按鈕、一次性代碼可以複製，輸入的內容會送回指令；API key、token、密碼這類輸入會自動隱藏，也會在輸出中遮蔽。在 Pi 對話輸入 `/login`，會列出 Pi 支援的服務商，可用帳號登入或 API key。
 
-輸入框採用 Codex 的排版：左邊是附件和**核准模式**，右邊依序是 context 圓環、模型和圓形送出鍵。**核准模式**列出這個對話所用 Agent 自己的權限模式：Codex 是唯讀、預設、完整權限；Claude Code 是手動確認、自動接受編輯、規劃、自動、不詢問、略過權限；OpenCode 是 Build 和 Plan；Hermes、Kilo、Cline 列出它們回報的模式；Grok Build 是預設和規劃，這是它實際會套用的兩種。Pi 和 Antigravity 沒有這類模式，所以不會顯示。每個對話會記住自己的選擇；Codex 從下一則訊息開始套用，其他 Agent 立即生效。略過權限需要 Claude Code 的 CLI 支援；如果這台 Mac 透過 Stepsemble 的 Claude 桌面助手啟動 Claude Code，助手也要是新版，可在設定的 Claude Code 頁面查看並更新。
+輸入框採用 Codex 的排版：左邊是附件和**核准模式**，右邊依序是 context 圓環、模型和圓形送出鍵。**核准模式**列出這個對話所用 Agent 自己的權限模式：Codex 是唯讀、預設、完整權限；Claude Code 是手動確認、自動接受編輯、規劃、自動、不詢問、略過權限；OpenCode 是 Build 和 Plan；Hermes、Kilo、Cline 列出它們回報的模式；Grok Build 是預設和規劃，這是它實際會套用的兩種；Google Antigravity 是手動確認、自動接受編輯、規劃和略過權限，由 Stepsemble 自己的核准關卡執行（見下方）。Pi 沒有這類模式，所以不會顯示。每個對話會記住自己的選擇；Codex 從下一則訊息開始套用，其他 Agent 立即生效。略過權限需要 Claude Code 的 CLI 支援；如果這台 Mac 透過 Stepsemble 的 Claude 桌面助手啟動 Claude Code，助手也要是新版，可在設定的 Claude Code 頁面查看並更新。
 
 **Settings → Agents & models → Models & providers** 會列出主機上安裝的每個 Agent。每個 Agent 的頁面會說明怎麼登入、列出它提供的模型，以及它自己的設定：Pi 的模型顯示、自訂 Provider 與最近 7 天用量、OpenCode 的服務商與本機伺服器，還有主機裝有 Magpie 或 OpenCodex 時，Codex 與 Claude Code 的轉送。同一區的 **Quota sources** 用來選擇訂閱與 API 額度從哪裡讀取：各 Agent 自己的登入、Pi 的登入與 key、Magpie、OpenCodex，或 CodexBar 的 CLI。每個來源都能開關；同一個服務有多個來源時，也能指定要用哪一個。
 
@@ -130,9 +130,20 @@ Oh My Pi 用 Bun 安裝（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bu
 `omp` 還沒登入模型供應商時，新增 Oh My Pi 對話會先提供 `omp login`。
 
 Google Antigravity 只要裝了 `agy`，就走它官方文件記載的 headless 串流（stream-json）；
-`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 可改回終端機。這個串流不會停在 agy 的第一次設定頁或信任資料夾的詢問上。
-它沒有回覆核准的管道：需要核准的動作由 agy 自己拒絕（Stepsemble 不加任何會自動核准的參數），
-對話裡會顯示被拒絕的動作；**在終端機模式繼續**會在 agy 自己的畫面打開同一個對話，由 agy 先問你。
+`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 可改回終端機。每個對話就是 agy 自己的對話，畫面和 ACP Agent 的對話一樣：
+可以選模型和思考強度（經 gateway 的模型，agy 只接受 low、medium、high）、看 context 圓環（經 Magpie 時，上限取自 Magpie 的模型清單）、
+附圖片（agy 的串流只收文字，所以圖片會先存成檔案讓 agy 讀）、停止、排隊送出和 Goal。在 agy 自己畫面開始的對話也會列出來，
+可以在 Stepsemble 打開接著做。agy 只在啟動時讀模型、思考強度和規劃模式，所以換了之後從下一則訊息開始套用，仍是同一個對話。
+這個串流不會停在 agy 的第一次設定頁或信任資料夾的詢問上。
+
+agy 的串流沒辦法在動作前先問你，所以 Stepsemble 啟動 agy 時加上 `--dangerously-skip-permissions`，
+同時用 `--add-dir` 加入自己的 PreToolUse hook，由這個 hook 擔任唯一的核准關卡：agy 和它的子代理每一次呼叫工具，
+都會先問主機，主機依這個對話的核准模式回答。手動確認（預設）時，會改東西的動作會在對話裡出現「允許／拒絕」卡片，等你決定；
+自動接受編輯會放行專案內的檔案修改；規劃會拒絕所有修改；略過權限全部放行。讀取不會問。
+關卡出問題一律拒絕：hook 連不到主機、拿不到明確答案或逾時，agy 都會拒絕；會改東西的動作如果沒有經過關卡同意就完成，對話會被停止。
+每次啟動 agy 前都會重寫 hook 檔；agy 的新版本要先通過發版檢查（關卡拒絕的指令確實沒有執行）才會採用。
+agy 自己畫面的指令（例如 `/rewind`、`/config`）會讓串流結束，所以 Stepsemble 會先攔下，並提供**在終端機模式繼續**，
+在 agy 自己的畫面打開同一個對話；`/model` 和 `/effort` 會打開模型選單。agy 的串流沒有分支（fork）、壓縮和思考過程的文字，所以這幾項不提供。
 
 在終端機（PTY）執行的 CLI 對話會顯示程式自己的畫面和一排按鍵（方向鍵、Tab、空白、Esc、Backspace、Enter）；
 在畫面上打的字會直接送給程式，輸入框送出的訊息會按 Enter 送出。勾選隔離 Git worktree 的對話，
