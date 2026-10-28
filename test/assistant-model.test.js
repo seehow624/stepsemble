@@ -41,6 +41,18 @@ test("history becomes a transcript, and live events extend it in order", () => {
   assert.deepEqual([items.at(-1).role, items.at(-1).text], ["system", "Model unavailable"]);
 });
 
+test("each message keeps the time it was written, for its bubble", () => {
+  // Hermes's history gives seconds; the Host's events milliseconds.
+  const items = M.fromHistory([{ role: "user", text: "hi", at: 1_760_000_000 }, { role: "assistant", text: "Hello", at: 1_760_000_005 }, { role: "assistant", text: "no time" }]);
+  assert.deepEqual(items.map(item => item.at), [1_760_000_000_000, 1_760_000_005_000, 0]);
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  M.applyEvent(items, { type: "message.delta", payload: { text: "Do" } });
+  assert.equal(items.at(-1).at, 0, "an answer still being written has no time yet");
+  M.applyEvent(items, { type: "message.complete", payload: { text: "Done" }, at: 1_760_000_100_000 });
+  assert.equal(items.at(-1).at, 1_760_000_100_000, "the time the Host recorded its end");
+  assert.ok(M.userItem("now").at >= Date.now() - 1000, "the person's message, when it was sent");
+});
+
 test("a reply already in progress continues where it was", () => {
   const items = M.withInflight(M.fromHistory([{ role: "user", text: "earlier" }]), { user: "now", assistant: "Half" });
   assert.deepEqual(items.map(item => [item.role, item.text, item.streaming]), [["user", "earlier", false], ["user", "now", false], ["assistant", "Half", true]]);

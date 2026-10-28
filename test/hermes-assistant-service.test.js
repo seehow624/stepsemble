@@ -77,7 +77,7 @@ test("a long conversation still opens: its transcript comes over HTTP, never who
   assert.equal(fake.state.resumes.at(-1).omitMessages, true, "the resume carries no transcript");
   assert.equal(opened.messages.length, 1000, "the newest thousand rows");
   assert.equal(opened.messages[0].text, "question 100");
-  assert.deepEqual(opened.messages.at(-1), { role: "assistant", text: "answer 599 " + "x".repeat(2000) });
+  assert.deepEqual(opened.messages.at(-1), { role: "assistant", text: "answer 599 " + "x".repeat(2000), at: 1_760_000_000 });
   assert.deepEqual(fake.state.messageReads, [chat.id, chat.id], "two pages of 500, newest first");
 });
 
@@ -87,8 +87,9 @@ test("a reopened transcript keeps tool steps with their labels and leaves out wh
   chat.messages.push({ role: "user", text: "check the site" }, { role: "tool", name: "browser", context: "Opening example.test" },
     { role: "user", text: "[System: the stream was cut; continue]", hidden: true }, { role: "assistant", text: "It is up." });
   const opened = await service.openBotChat("default");
-  assert.deepEqual(opened.messages, [{ role: "user", text: "check the site" }, { role: "tool", name: "browser", context: "Opening example.test" },
-    { role: "assistant", text: "It is up." }]);
+  // Each message keeps the time Hermes wrote it, for its bubble.
+  assert.deepEqual(opened.messages, [{ role: "user", text: "check the site", at: 1_760_000_000 }, { role: "tool", name: "browser", context: "Opening example.test" },
+    { role: "assistant", text: "It is up.", at: 1_760_000_000 }]);
 });
 
 test("a reply streams to subscribers; a finished reply reaches the phone only when nobody watches", async t => {

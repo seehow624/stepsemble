@@ -21,12 +21,16 @@
     return { choices, selected };
   }
 
+  // at: when the message was written, in milliseconds (0 while it is being written).
   function item(role, text = "") {
-    return { id: `${role}-${++counter}`, role, text, thinking: "", tools: [], attachments: [], streaming: false, rev: 0 };
+    return { id: `${role}-${++counter}`, role, text, thinking: "", tools: [], attachments: [], streaming: false, rev: 0, at: 0 };
   }
-  function userItem(text, attachments = []) {
+  // Hermes gives seconds, the Host's events milliseconds.
+  const millis = value => { const number = Number(value); return Number.isFinite(number) && number > 0 ? (number < 1e12 ? number * 1000 : number) : 0; };
+  function userItem(text, attachments = [], at = Date.now()) {
     const value = item("user", text);
     value.attachments = [...attachments];
+    value.at = millis(at);
     return value;
   }
   const systemItem = text => item("system", text);
@@ -43,7 +47,9 @@
         continue;
       }
       const role = message?.role === "user" ? "user" : message?.role === "system" ? "system" : "assistant";
-      items.push(item(role, typeof message?.text === "string" ? message.text : ""));
+      const value = item(role, typeof message?.text === "string" ? message.text : "");
+      value.at = millis(message?.at);
+      items.push(value);
     }
     return items;
   }
@@ -107,6 +113,7 @@
         if (!value) return false;
         value.streaming = false;
         if (!value.text && typeof payload.text === "string") value.text = payload.text;
+        value.at = millis(event.at) || Date.now();
         value.rev += 1;
         return true;
       }

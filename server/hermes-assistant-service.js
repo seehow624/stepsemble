@@ -88,7 +88,8 @@ function storedMessages(rows) {
     }
     if (!["user", "assistant", "system"].includes(row.role)) continue;
     const text = typeof row.display_content === "string" ? row.display_content : typeof row.content === "string" ? row.content : "";
-    if (text.trim()) out.push({ role: row.role, text: clip(text, MAX_TEXT) });
+    // at: when Hermes wrote it (seconds), shown in the message's bubble.
+    if (text.trim()) out.push({ role: row.role, text: clip(text, MAX_TEXT), ...(count(row.timestamp) ? { at: count(row.timestamp) } : {}) });
   }
   return out.slice(-1000);
 }

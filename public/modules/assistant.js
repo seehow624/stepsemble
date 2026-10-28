@@ -198,7 +198,7 @@
     consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, iconButton, toast, locale: prefs.locale,
       onBack: () => { if (history.length > 1) history.back(); else location.assign("/index.html?settings=1&section=connection"); } });
     if (!groupDrafts.has(next.id)) groupDrafts.set(next.id, new Map());
-    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots, drafts: groupDrafts.get(next.id),
+    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, stampTime, bots: () => bots, drafts: groupDrafts.get(next.id),
       onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) { tell({ type: "assistant-changed" }); showRoster(); } }); } });
     historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, icon, M, locale: prefs.locale, showPanel, plain: content.plain,
       onSelect: (profile, row) => { if (epoch === startRevision) openBot(profile, row.id, { title: row.title }); } });
@@ -554,6 +554,18 @@
     const badge = el("span", "assistant-chip-badge", (ext || "file").slice(0, 4).toUpperCase()); badge.setAttribute("aria-hidden", "true");
     chip.append(badge, el("span", "assistant-chip-name", name)); return chip;
   }
+  // The time a message was written, in its bubble's corner as a messaging app
+  // shows it; the full date and time on hover.
+  function stampTime(bubble, at) {
+    const value = Number(at), when = new Date(value > 0 && value < 1e12 ? value * 1000 : value);
+    if (!(value > 0) || Number.isNaN(when.getTime())) return;
+    let short, full;
+    try { short = when.toLocaleTimeString(prefs.locale, { hour: "numeric", minute: "2-digit" }); full = when.toLocaleString(prefs.locale); }
+    catch { short = when.toISOString().slice(11, 16); full = when.toISOString(); }
+    const time = el("time", "assistant-time", short);
+    time.dateTime = when.toISOString(); time.title = full;
+    bubble.append(time);
+  }
   function itemNode(item) {
     const cached = chat.nodes.get(item.id);
     if (cached && cached.rev === item.rev) return cached.node;
@@ -572,6 +584,7 @@
       if (item.text || files.length) {
         const bubble = el("div", "assistant-bubble", item.text);
         for (const entry of files) bubble.append(fileChip(entry?.name ?? entry));
+        stampTime(bubble, item.at);
         node.append(bubble);
       }
     } else if (item.role === "system") node.textContent = item.text;
@@ -595,8 +608,15 @@
         }
         steps.append(group);
       }
+      // What the Bot did on the way (thinking, tools) stays above, unboxed; its
+      // answer is a bubble, as in a messaging app.
       if (steps.childElementCount) body.append(steps);
-      if (item.text) body.append(markdown(item.text, { complete: !item.streaming }));
+      if (item.text) {
+        const bubble = el("div", "assistant-bubble bot");
+        bubble.append(markdown(item.text, { complete: !item.streaming }));
+        if (!item.streaming) stampTime(bubble, item.at);
+        body.append(bubble);
+      }
       if (item.streaming && !item.text) body.append(el("p", "assistant-working", t("working")));
       node.append(avatar(chat.bot), body);
     }
