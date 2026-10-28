@@ -95,6 +95,11 @@ test("ACP replays of the person's message and OpenCode's failed replies are show
     info: { role: "assistant", error: { name: "APIError", data: { message: "You need to sign in to use this model.", statusCode: 401 } } } });
   assert.equal(failed.error, "You need to sign in to use this model.");
   assert.equal(presentation.openCodeMessage({ role: "assistant", parts: [{ type: "text", text: "fine" }] }).error, undefined);
+  // A turn the Antigravity bridge ended in an error says why.
+  assert.deepEqual(presentation.acpUpdate({ sessionUpdate: "turn_error", message: "model request failed" }), {
+    kind: "turn_error", text: "model request failed",
+  });
+  assert.equal(presentation.acpUpdate({ sessionUpdate: "turn_error" }), null);
 });
 
 test("Claude tool requests and results reconcile through their native call id", () => {

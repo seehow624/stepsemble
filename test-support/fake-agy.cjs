@@ -139,6 +139,11 @@ if (args.includes("--input-format") && args.includes("stream-json")) {
       const kind = marker[1], value = marker[2];
       if (kind === "subagent-run") {
         const child = "fake-subagent-" + crypto.randomUUID();
+        // agy starts the subagent and goes on; the subagent works on its own.
+        const stepIndex = index++, invoke = { Role: "Helper", TypeName: "general" };
+        step(stepIndex, { state: "ACTIVE", step_type: "tool", tool_name: "invoke_subagent", tool_info: { name: "invoke_subagent", parameters: invoke } });
+        step(stepIndex, { state: "DONE", step_type: "subagent", tool_name: "invoke_subagent", subagent_info: { subagents: [{ type_name: "general", role: "Helper",
+          initial_prompt: `Run ${value}`, conversation_id: child, workspace_uris: ["file://" + process.cwd()] }] } });
         const decision = await gate("run_command", { CommandLine: value }, 2, child);
         if (decision.allowed && process.env.FAKE_AGY_COMMANDS) fs.appendFileSync(process.env.FAKE_AGY_COMMANDS, `subagent:${value}\n`);
         continue;

@@ -194,12 +194,12 @@ test("unknown and unavailable context are localized and never rendered as zero",
 
 test("an agent that never reports its context has no ring, and says so", () => {
   const h = renderHarness();
-  h.setRpc({ generic: true, nativeAntigravityStructured: true, agentId: "antigravity", agentLabel: "Google Antigravity" });
+  h.setRpc({ generic: true, agentId: "gemini-cli", agentLabel: "Gemini CLI" });
   h.setContext(null, "awaiting");
   h.render();
   assert.equal(h.el.contextDashboard.dataset.contextState, "unsupported");
   assert.equal(h.el.contextDashboard.title, "contextDashboard.notSupported");
-  assert.equal(h.translationArgs.findLast(call => call.key === "contextDashboard.notSupported").vars.agent, "Google Antigravity");
+  assert.equal(h.translationArgs.findLast(call => call.key === "contextDashboard.notSupported").vars.agent, "Gemini CLI");
   // An agent that reports it shows the empty ring until it has.
   h.setRpc({ generic: true, nativeClaudeStructured: true });
   h.render();

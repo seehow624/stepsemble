@@ -34,7 +34,7 @@ const { createNativeComposerRoutes, withObservedContext } = require("./server/na
 const { createAgentSpeedRoutes } = require("./server/agent-speed-routes");
 const { createPiSpeed } = require("./server/pi-speed");
 const { createComposerQueueStore, createComposerQueue, createComposerQueueRoutes } = require("./server/composer-queue");
-const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver } = require("./server/composer-queue-drivers");
+const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver, createAntigravityQueueDriver } = require("./server/composer-queue-drivers");
 const { createAgentModeStore } = require("./server/agent-mode-store");
 const { createAgentChoiceStore } = require("./server/agent-choice-store");
 const { createPiChoice } = require("./server/pi-choice");
@@ -96,6 +96,7 @@ const { createClaudeDesktopUpgradeService, createClaudeHelperAutoUpdate } = requ
 const { desktopPaths } = require("./server/claude-desktop-state");
 const { createAntigravityAcpBridge, MODE_OPTIONS: ANTIGRAVITY_MODE_OPTIONS } = require("./server/antigravity-acp-bridge");
 const { createAntigravityGate } = require("./server/antigravity-gate");
+const { readAntigravityConversations, readAntigravityTranscript, matchStreamEntries } = require("./server/antigravity-history");
 const { antigravityGatewayEnv, readAntigravityMagpieRoute } = require("./server/antigravity-gateway-env");
 const { createClaudeAuthService, handleClaudeAuthRequest } = require("./server/claude-auth");
 const { createDesktopClaudeClient } = require("./server/claude-desktop-client");
@@ -2495,9 +2496,36 @@ const antigravityAcp = antigravityGate ? createAntigravityAcpBridge({
   defaultModel: () => readAntigravityMagpieRoute(APP_HOME)?.model || null,
   gatewayOnly: () => !!readAntigravityMagpieRoute(APP_HOME),
   modelInfo: antigravityModelInfo,
-  onRateEvent: event => { hostRates.acp("antigravity", event); workflowEvents.emit("antigravity", event.sessionId, event); },
+  history: () => readAntigravityConversations({ agyHome: path.join(APP_HOME, ".gemini", "antigravity-cli"), exclude: [antigravityGate.directory] }),
+  onRateEvent: event => { hostRates.acp("antigravity", event); workflowEvents.emit("antigravity", event.sessionId, event); composerQueue.observe("antigravity", event.sessionId, event); },
 }) : null;
 antigravityModelInfo(null);
+// Stepsemble 3.10.0 kept a conversation it opened in agy's stream under its
+// own id; each such entry is matched once to agy's conversation
+// (server/antigravity-history.js) and then continues through the bridge.
+async function migrateAntigravityStreamEntries() {
+  const entries = workspaceRegistry.list().entries;
+  const old = entries.filter(row => row.record.agentId === "antigravity" && row.record.nativeAntigravityStructured === true);
+  if (!old.length || !antigravityAcp) return;
+  const agyHome = path.join(APP_HOME, ".gemini", "antigravity-cli");
+  const conversations = await readAntigravityConversations({ agyHome, exclude: [antigravityGate.directory] });
+  // When agy began a conversation: it writes the conversation's folder at the first message.
+  const began = id => {
+    try { const at = fs.statSync(path.join(agyHome, "brain", id)).birthtimeMs; if (at > 0) return at; } catch {}
+    try {
+      const fd = fs.openSync(path.join(agyHome, "brain", id, ".system_generated", "logs", "transcript.jsonl"), "r"), head = Buffer.alloc(64 * 1024);
+      try { return Date.parse(JSON.parse(head.subarray(0, fs.readSync(fd, head, 0, head.length, 0)).toString("utf8").split("\n", 1)[0]).created_at) || null; }
+      finally { fs.closeSync(fd); }
+    } catch { return null; }
+  };
+  const claimed = entries.filter(row => row.record.agentId === "antigravity" && row.record.nativeAcp).map(row => row.record.nativeSessionId);
+  for (const { key, id } of matchStreamEntries({ entries: old.map(row => ({ key: row.key, addedAt: row.addedAt, cwd: row.record.cwd })), conversations, claimed, began })) {
+    workspaceRegistry.update(key, { id: `antigravity:${id}`, taskId: `antigravity:${id}`, nativeSessionId: id, nativeConversationId: id,
+      nativeAcp: true, nativeAntigravityStructured: undefined, kind: "acp", needsLoad: true, persisted: true, status: "history" });
+    console.log(`[stepsemble] Antigravity: a conversation from 3.10.0 continues as ${id.slice(0, 8)}`);
+  }
+}
+if (antigravityAcp) setImmediate(() => void migrateAntigravityStreamEntries().catch(error => console.warn("[stepsemble] Antigravity entries:", error.message)));
 // OpenCode can be started after Stepsemble (for example when the user opens
 // the OpenCode desktop app later).  Re-probe on a bounded, unref'd timer so a
 // transient startup race upgrades the Agent Hub without requiring a page
@@ -5738,6 +5766,7 @@ const handleCompactionRoute = require("./server/agent-compaction").createCompact
 // written by the summarizer chosen in Settings, kept only in memory.
 const sessionTranscripts = require("./server/session-transcript").createSessionTranscripts({
   resolve: key => workspaceRegistry.get(key), catalog: nativeHistoryCatalog, openCode: openCodeNative,
+  readAntigravity: id => readAntigravityTranscript({ agyHome: path.join(APP_HOME, ".gemini", "antigravity-cli"), id }),
   readPiSession: async rel => {
     const abs = safeSessionPath(rel);
     if (!abs) throw Object.assign(new Error("reference_source_unavailable"), { code: "reference_source_unavailable", statusCode: 409 });
@@ -5815,7 +5844,7 @@ function composerQueueEntry(agent, id) {
   const sids = agent === "pi" ? new Set(piQueueDriver.liveSids(id)) : null;
   return workspaceRegistry.list().entries.find(row => row.record.agentId === agent && (agent === "pi" ? row.record.file === id || sids.has(row.record.sid)
     : agent === "codex" ? row.record.nativeThreadId === id || row.record.id === `codex:${id}`
-      : row.record.nativeSessionId === id || row.record.id === `claude-code:${id}`)) || null;
+      : row.record.nativeSessionId === id || row.record.id === `${agent}:${id}`)) || null;
 }
 const composerQueue = createComposerQueue({
   store: createComposerQueueStore({ file: path.join(CONFIG_DIR, "composer-queue.json") }),
@@ -5824,11 +5853,12 @@ const composerQueue = createComposerQueue({
     codex: createCodexQueueDriver({ codex: codexNative, ensure: ensureCodexNativeProbe, permissions: threadId => codexTurnPermissions(agentModes.get("codex", threadId)) }),
     "claude-code": createClaudeQueueDriver({ resolveSession: resolveClaudeStructuredSession, send: sendToClaudeStructured,
       saved: value => savedClaudeConversation(value)?.nativeSessionId || null }),
+    ...(antigravityAcp ? { antigravity: createAntigravityQueueDriver({ bridge: antigravityAcp }) } : {}),
   },
   // A Goal or a compaction holds its conversation; queued messages wait.
   locked: (agent, id) => { const entry = composerQueueEntry(agent, id); return !!entry && (workflows.locked(entry.key) || compactions.locked(entry.key)); },
-  // Pi's page hears its stream; Codex and Claude pages read the queue with
-  // the state they poll.
+  // Pi's page hears its stream; Codex, Claude and Antigravity pages read the
+  // queue with the state they poll.
   onChange: (agent, id, queue) => {
     if (agent !== "pi") return;
     const frame = sseFrame({ type: "composer_queue", queue: { ...queue, canJump: true } }, null, null);
@@ -6806,18 +6836,30 @@ const server = http.createServer(async (req, res) => {
           }
           if (action === "events" && req.method === "GET") {
             const sessionId = url.searchParams.get("sessionId") || "";
-            sendJSON(res, 200, { sessionId, events: adapter.sessionEvents(sessionId), working: adapter.sessionWorking?.(sessionId) === true, adapter: adapter.status() }); return;
+            sendJSON(res, 200, { sessionId, events: adapter.sessionEvents(sessionId), working: adapter.sessionWorking?.(sessionId) === true, adapter: adapter.status(),
+              ...(agentId === "antigravity" ? { composerQueue: composerQueueSnapshot("antigravity", sessionId) } : {}) }); return;
           }
           if (action === "pending" && req.method === "GET") {
             sendJSON(res, 200, { permissions: adapter.pendingPermissions(), adapter: adapter.status() }); return;
           }
           if (action === "prompt" && req.method === "POST") {
             const body = await readJSON(req, ACP_PROMPT_ROUTE_BYTES);
-            const result = await adapter.prompt(body?.sessionId, body?.text || body?.message || "", { images: body?.images });
+            const text = body?.text || body?.message || "";
+            // A message sent while Antigravity works waits in the queue for
+            // the turn to end (server/composer-queue.js).
+            if (agentId === "antigravity" && await composerQueue.shouldQueue("antigravity", body?.sessionId).catch(() => false)) {
+              sendJSON(res, 200, { kind: "queued", queued: true, ...composerQueue.add("antigravity", body.sessionId, { text, images: body?.images, deviceId: body?.deviceId }) });
+              return;
+            }
+            const turn = adapter.prompt(body?.sessionId, text, { images: body?.images });
+            if (agentId === "antigravity" && adapter.sessionWorking(body?.sessionId)) composerQueue.noteDirectSend("antigravity", body.sessionId);
+            const result = await turn;
             sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
           }
           if (action === "cancel" && req.method === "POST") {
             const body = await readJSON(req, 64 * 1024);
+            // Stop pauses the conversation's queue: nothing more goes in by itself.
+            if (agentId === "antigravity") composerQueue.pause("antigravity", body?.sessionId);
             const result = await adapter.cancel(body?.sessionId);
             sendJSON(res, result.kind === "reject" ? 409 : 200, result); return;
           }

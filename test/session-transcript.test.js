@@ -185,3 +185,28 @@ test("a page that no longer joins the newer one ends the record there", async ()
   assert.deepEqual(reads, [null, 4]);
   assert.deepEqual(value.turns.map(turn => turn.user), ["Newest"]);
 });
+
+test("Antigravity is read from agy's own transcript: the person's words, agy's replies and its tool calls", async t => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const { readAntigravityTranscript } = require("../server/antigravity-history");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agy-transcript-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const id = "a14e8cb8-35c5-40cb-ae2e-a391796d0fe3", logs = path.join(home, "brain", id, ".system_generated", "logs");
+  fs.mkdirSync(logs, { recursive: true });
+  fs.writeFileSync(path.join(logs, "transcript.jsonl"), [
+    { step_index: 0, source: "USER_EXPLICIT", type: "USER_INPUT", content: "<USER_REQUEST>\nFix the login redirect\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is now.\n</ADDITIONAL_METADATA>" },
+    { step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", content: "Looking.", tool_calls: [{ name: "view_file", args: { AbsolutePath: JSON.stringify("/owned/src/auth.js") } }] },
+    { step_index: 2, source: "MODEL", type: "GENERIC", content: "huge file ".repeat(500) },
+    { step_index: 3, source: "SYSTEM", type: "USER_INPUT", content: "<SYSTEM_MESSAGE>a subagent finished</SYSTEM_MESSAGE>" },
+    { step_index: 4, source: "MODEL", type: "PLANNER_RESPONSE", content: "Kept the URL in the session." },
+  ].map(row => JSON.stringify(row)).join("\n") + "\n");
+  const transcripts = createSessionTranscripts({ resolve: key => key === KEY ? { key, record: { agentId: "antigravity", nativeSessionId: id, name: "Login", cwd: "/owned" } } : null,
+    catalog: {}, readPiSession: async () => "", openCode: {}, readAntigravity: value => readAntigravityTranscript({ agyHome: home, id: value }) });
+  const value = await transcripts.read(KEY);
+  assert.equal(value.turns.length, 1);
+  assert.equal(value.turns[0].user, "Fix the login redirect");
+  assert.deepEqual(value.turns[0].replies, ["Looking.", "Kept the URL in the session."]);
+  assert.deepEqual(value.turns[0].tools, ["view_file /owned/src/auth.js"]);
+  assert.doesNotMatch(render(value), /huge file|a subagent finished|ADDITIONAL_METADATA/);
+  assert.equal(await readAntigravityTranscript({ agyHome: home, id: "../escape" }), null);
+});

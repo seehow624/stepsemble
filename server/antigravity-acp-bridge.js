@@ -98,10 +98,11 @@ function displayArgs(args) {
   const alias = (from, to) => { if (value[from] !== undefined && value[to] === undefined) value[to] = value[from]; };
   alias("CommandLine", "command"); alias("Path", "path"); alias("AbsolutePath", "path"); alias("TargetFile", "path");
   alias("Target", "old_string"); alias("Replacement", "new_string"); alias("Content", "content"); alias("Url", "url");
-  alias("Prompt", "prompt"); alias("Role", "description");
+  alias("Prompt", "prompt"); alias("Role", "description"); alias("TypeName", "subagent_type");
   return value;
 }
-function displayName(name) { return name === "search_web" ? "web_search" : String(name || "tool"); }
+// A subagent is drawn as the page draws one of Claude Code's.
+function displayName(name) { return name === "search_web" ? "web_search" : name === "invoke_subagent" ? "Agent" : String(name || "tool"); }
 
 /** One line naming the call, for an approval card. */
 function toolTitle(name, args = {}) {
@@ -206,6 +207,9 @@ function createAntigravityAcpBridge({
   gatewayOnly = () => false,
   startTimeoutMs = 45_000,
   idleReleaseMs = 10 * 60_000,
+  // agy's own conversations ({ id, cwd, name, lastActivityAt }), those
+  // started in its own screen included (server/antigravity-history.js).
+  history = null,
   onRateEvent = null,
 } = {}) {
   if (typeof command !== "string" || !path.isAbsolute(command)) throw new TypeError("antigravity_command_absolute_required");
@@ -217,6 +221,7 @@ function createAntigravityAcpBridge({
   const sessions = new Map(), known = readRegistry(registryFile), permissions = new Map(), events = [];
   const unsupportedEffort = new Set();
   let closed = false, nextPermission = 0, epochs = 0, catalog = null, catalogAt = 0, catalogLoading = null, lastError = null;
+  let historyRows = [], historyAt = 0, historyLoading = null;
 
   function status() {
     return Object.freeze({
@@ -414,7 +419,10 @@ function createAntigravityAcpBridge({
       const name = safeText(body.tool_name ?? body.tool_info?.name, 128);
       if (!name || step === null) return;
       const id = toolCallId(live, step);
-      const args = plain(body.tool_info?.parameters) ? body.tool_info.parameters : live.steps.get(step)?.args || {};
+      let args = plain(body.tool_info?.parameters) ? body.tool_info.parameters : live.steps.get(step)?.args || {};
+      // A subagent's step names its role, kind and task once it has started.
+      const started = Array.isArray(body.subagent_info?.subagents) ? body.subagent_info.subagents.find(plain) : null;
+      if (started) args = { ...args, Role: args.Role ?? started.role, TypeName: args.TypeName ?? started.type_name, Prompt: args.Prompt ?? started.initial_prompt };
       const state = String(body.state || "").toUpperCase();
       if (!live.steps.has(step)) {
         live.steps.set(step, { name, args });
@@ -435,9 +443,13 @@ function createAntigravityAcpBridge({
     }
     if (kind === "result") finishTurn(session, live, body);
   }
+  // agy runs a subagent on its own; its answer comes back to the conversation later.
   function subagentSummary(info) {
-    const rows = Array.isArray(info?.subagents) ? info.subagents : [];
-    return rows.slice(0, 8).map(row => [row?.role || row?.name || row?.type_name, row?.status].filter(Boolean).join(": ")).filter(Boolean).join("\n");
+    const rows = Array.isArray(info?.subagents) ? info.subagents.filter(plain) : [];
+    return rows.slice(0, 8).map(row => {
+      const who = [safeText(row.role, 120), row.type_name && row.role ? `(${safeText(row.type_name, 80)})` : safeText(row.type_name, 80)].filter(Boolean).join(" ");
+      return `Started ${who || "a subagent"}${row.status ? ` · ${safeText(row.status, 40)}` : ""}`;
+    }).join("\n");
   }
   function reportUsage(session, usage) {
     if (!plain(usage)) return;
@@ -481,8 +493,9 @@ function createAntigravityAcpBridge({
       record(session, { sessionUpdate: "turn_error", message: errorText || "Antigravity could not finish this turn." });
       result = reject("antigravity_turn_failed", { error: errorText || "Antigravity could not finish this turn." });
     }
+    // A turn that failed names no result, as the other ACP agents' do.
     rateEvent({ type: "rate.turn.ended", sessionId: session.id, uuid: turn.uuid || null,
-      result: result.kind === "prompted" ? result.result : { stopReason: "error" }, outcome: interrupted ? "stopped" : result.kind === "prompted" ? "completed" : "failed" });
+      ...(result.kind === "prompted" ? { result: result.result } : {}), outcome: interrupted ? "stopped" : result.kind === "prompted" ? "completed" : "failed" });
     remember(session);
     if (session.proc === live) scheduleIdleRelease(session);
     turn.resolve(result);
@@ -685,7 +698,7 @@ function createAntigravityAcpBridge({
     if (ready.kind === "reject") {
       session.promptInFlight = false; session.status = "error";
       record(session, { sessionUpdate: "turn_error", message: ready.error || "Antigravity could not start." });
-      rateEvent({ type: "rate.turn.ended", sessionId: session.id, uuid, result: { stopReason: "error" }, outcome: "failed" });
+      rateEvent({ type: "rate.turn.ended", sessionId: session.id, uuid, outcome: "failed" });
       return ready;
     }
     const live = session.proc;
@@ -751,7 +764,16 @@ function createAntigravityAcpBridge({
   function compactionSupport() { return { supported: false, instructions: false, reason: "compaction_unavailable" }; }
   async function compact() { return reject("compaction_unavailable"); }
 
+  // agy's list is read again at most every half minute, in the background.
+  function refreshHistory() {
+    if (!history || historyLoading || Date.now() - historyAt < 30_000) return;
+    historyAt = Date.now();
+    historyLoading = Promise.resolve().then(() => history()).then(rows => {
+      historyRows = (Array.isArray(rows) ? rows : []).filter(row => safeId(row?.id) && typeof row?.cwd === "string" && path.isAbsolute(row.cwd)).slice(0, 200);
+    }, () => {}).finally(() => { historyLoading = null; });
+  }
   function listSessions() {
+    refreshHistory();
     const rows = [...sessions.values()].filter(row => row.id).map(row => ({ id: row.id, cwd: row.cwd, name: row.name || null,
       status: row.promptInFlight ? "running" : row.status, eventCount: row.events.length, persisted: !!registryFile, loaded: true,
       lastActivityAt: row.lastActivityAt || null }));
@@ -759,6 +781,11 @@ function createAntigravityAcpBridge({
       if (sessions.has(row.id)) continue;
       rows.push({ id: row.id, cwd: row.cwd, name: row.name || null, status: "available", eventCount: 0, persisted: true, loaded: false,
         lastActivityAt: row.lastActivityAt || null });
+    }
+    for (const row of historyRows) {
+      if (sessions.has(row.id) || known.has(row.id)) continue;
+      rows.push({ id: row.id, cwd: row.cwd, name: safeText(row.name, 120) || null, status: "available", eventCount: 0, persisted: true, loaded: false,
+        lastActivityAt: Number(row.lastActivityAt) || null });
     }
     return rows;
   }

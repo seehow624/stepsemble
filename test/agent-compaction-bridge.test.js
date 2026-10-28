@@ -27,7 +27,7 @@ test("an owned Codex thread may be resumed, but is never replaced by another con
 });
 test("unsupported ACP and Antigravity remain disabled; Hermes is excluded",async()=>{
  const f=fixture();f.acp.compactionSupport=()=>({supported:false,instructions:false,reason:"compaction_unavailable"});assert.equal((await f.bridge.describe(records.cline)).supported,false);
- for(const record of [{agentId:"antigravity",nativeAntigravityStructured:true},{agentId:"hermes",nativeAcp:true}]){assert.equal((await f.bridge.describe(record)).supported,false);await assert.rejects(f.bridge.run(record,{}));}
+ for(const record of [{agentId:"antigravity",nativeAcp:true},{agentId:"hermes",nativeAcp:true}]){assert.equal((await f.bridge.describe(record)).supported,false);await assert.rejects(f.bridge.run(record,{}));}
  assert.equal(f.calls.length,0);
 });
 test("terminal-only conversations never claim a structured compaction capability",async()=>{

@@ -21,7 +21,7 @@ async function until(predicate, label, timeoutMs = 10_000) {
 const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415408d763f8cfc0000003010100c9fe92ef0000000049454e44ae426082", "hex");
 
 // A throwaway HOME with the fake agy on a fixed path, a gate and a bridge.
-function setup(t, { env = {}, gateOverride = null, models = true } = {}) {
+function setup(t, { env = {}, gateOverride = null, models = true, history = null } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-agy-bridge-")));
   const bin = path.join(root, "bin"), project = path.join(root, "project"), config = path.join(root, "config");
   fs.mkdirSync(bin); fs.mkdirSync(project); fs.mkdirSync(config);
@@ -35,7 +35,7 @@ function setup(t, { env = {}, gateOverride = null, models = true } = {}) {
     decide: (owner, payload, options) => bridge.decide(owner, payload, options) });
   const make = (registry = path.join(config, "acp-antigravity-sessions.json")) => createAntigravityAcpBridge({
     command: agy, cwd: root, env: fullEnv, gate, agyHome: path.join(root, ".gemini", "antigravity-cli"), registryFile: registry,
-    defaultModel: () => "magpie/fake/model", gatewayOnly: () => models,
+    defaultModel: () => "magpie/fake/model", gatewayOnly: () => models, history,
     modelInfo: id => id === "magpie/fake/model" ? { name: "Fake Model", contextWindow: 200000, efforts: ["low", "medium", "high", "xhigh"] }
       : id === "magpie/fake/other" ? { name: "Other Model", contextWindow: 1000000, efforts: ["low", "high"] } : null,
   });
@@ -299,6 +299,26 @@ test("after a restart the conversation is listed, opened with its turns and cont
   assert.equal(last[last.indexOf("--model") + 1], "magpie/fake/other");
 });
 
+test("a conversation begun in agy's own screen is listed from agy's list, opened with its turns and continued", unix, async t => {
+  let s = null, own = null;
+  s = setup(t, { history: async () => own ? [{ id: own, cwd: s.project, name: "From the terminal", lastActivityAt: 1000 }] : [] });
+  // agy wrote this conversation; the bridge never opened it.
+  const { sessionId } = await s.bridge.createSession({ directory: s.project });
+  await s.bridge.prompt(sessionId, "started elsewhere");
+  await s.bridge.close();
+  fs.rmSync(path.join(s.config, "acp-antigravity-sessions.json"));
+  own = sessionId;
+  s.bridge = s.make();
+  s.bridge.sessions();
+  await until(() => s.bridge.sessions().some(row => row.id === sessionId), "listed from agy's list");
+  assert.deepEqual(s.bridge.sessions().find(row => row.id === sessionId), { id: sessionId, cwd: s.project, name: "From the terminal", status: "available", eventCount: 0, persisted: true, loaded: false, lastActivityAt: 1000 });
+  const loaded = await s.bridge.createSession({ sessionId, directory: s.project, name: "From the terminal" });
+  assert.equal(loaded.kind, "loaded");
+  assert.deepEqual(updates(s.bridge, sessionId, "user_message_chunk").map(update => update.content.text), ["started elsewhere"]);
+  assert.equal(s.bridge.sessions().filter(row => row.id === sessionId).length, 1, "listed once");
+  assert.equal((await s.bridge.prompt(sessionId, "continued here")).kind, "prompted");
+});
+
 test("a subagent's action is asked about too, and named as the subagent's", unix, async t => {
   const s = setup(t);
   const { sessionId } = await s.bridge.createSession({ directory: s.project });
@@ -310,6 +330,13 @@ test("a subagent's action is asked about too, and named as the subagent's", unix
   s.bridge.respondPermission(ask.id, { outcome: { outcome: "selected", optionId: "reject_once" } });
   await turn;
   assert.deepEqual(s.ran(), []);
+  // The subagent itself is drawn as Claude Code's are.
+  const started = updates(s.bridge, sessionId, "tool_call_update").find(update => update.name === "Agent");
+  assert.equal(started.status, "completed");
+  assert.equal(started.output, "Started Helper (general)");
+  assert.equal(started.rawInput.description, "Helper");
+  assert.equal(started.rawInput.subagent_type, "general");
+  assert.equal(started.rawInput.prompt, "Run rm -rf data");
 });
 
 test("an action that finishes without the gate stops the conversation (tripwire)", unix, async t => {

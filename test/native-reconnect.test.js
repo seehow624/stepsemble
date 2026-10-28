@@ -21,7 +21,6 @@ test("native foreground reconciliation is single-flight for every polled connect
     ["refreshClaudeStructuredSnapshot", "openClaudeStructuredTask"],
     ["refreshAgentClientProtocolSnapshot", "openAgentClientProtocolTask"],
     ["refreshGrokAcpSnapshot", "openGrokAcpTask"],
-    ["refreshAntigravityStructuredSnapshot", "openAntigravityStructuredTask"],
   ];
   for (const [name, nextName] of functions) {
     const body = functionBody(name, nextName);

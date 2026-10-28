@@ -48,11 +48,11 @@ const scenarios = [
     journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "configured" },
   }, { followUp: "ready", model: "limited", reasoning: "unknown", approval: "ready", recovery: "limited" }],
-  ["antigravity-structured", "antigravity", {
+  ["antigravity-acp", "antigravity", {
     installed: true,
     journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "configured" },
-  }, { followUp: "ready", model: "unavailable", images: "unavailable", approval: "unavailable" }],
+  }, { followUp: "ready", model: "ready", reasoning: "limited", images: "limited", approval: "ready", context: "limited", recovery: "ready" }],
   ["omp-configured-acp", "omp", {
     installed: true,
     journalAvailable: true,

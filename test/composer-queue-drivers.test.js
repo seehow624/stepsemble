@@ -1,9 +1,10 @@
 "use strict";
 // How each agent takes a queued message, with synthetic transports only:
-// Pi's RPC commands, Codex's pool (turn/start, turn/steer) and a Claude
-// session's user frames. No agent process, account or model.
+// Pi's RPC commands, Codex's pool (turn/start, turn/steer), a Claude
+// session's user frames and Antigravity's bridge. No agent process, account
+// or model.
 const test = require("node:test"), assert = require("node:assert/strict");
-const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver } = require("../server/composer-queue-drivers");
+const { createPiQueueDriver, createCodexQueueDriver, createClaudeQueueDriver, createAntigravityQueueDriver } = require("../server/composer-queue-drivers");
 const { createComposerQueueStore, createComposerQueue } = require("../server/composer-queue");
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -184,4 +185,53 @@ test("Claude: one message per turn; a message Claude holds in its own queue wait
   status.state = "waiting";
   queue.observe("claude-code", "local-1", { type: "result", subtype: "success" }); await flush(); await flush();
   assert.deepEqual(sends, [a.id, b.id]);
+});
+
+// A bridge that takes a message at once and answers when its turn ends, as
+// server/antigravity-acp-bridge.js does; its turn events reach the queue.
+function antigravityBridge(queue) {
+  const bridge = { working: false, prompts: [], finish: null, loaded: true };
+  Object.assign(bridge, {
+    sessions: () => bridge.loaded ? [{ id: "aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb", loaded: true }] : [{ id: "aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb", loaded: false }],
+    sessionWorking: () => bridge.working,
+    pendingPermissions: () => [],
+    prompt(id, text, { uuid }) {
+      bridge.prompts.push({ id, text, uuid });
+      bridge.working = true;
+      queue().observe("antigravity", id, { type: "rate.turn.started", sessionId: id, uuid });
+      return new Promise(resolve => { bridge.finish = (outcome = "completed") => {
+        bridge.working = false;
+        queue().observe("antigravity", id, { type: "rate.turn.ended", sessionId: id, uuid, outcome });
+        resolve({ kind: "prompted" });
+      }; });
+    },
+  });
+  return bridge;
+}
+
+test("Antigravity: a queued message starts the next turn after the one under way, and its start names it", async t => {
+  let queue = null;
+  const bridge = antigravityBridge(() => queue), id = "aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb";
+  const driver = createAntigravityQueueDriver({ bridge });
+  queue = createComposerQueue({ store: createComposerQueueStore(), drivers: { antigravity: driver }, sweepMs: 0 });
+  t.after(() => queue.close());
+  assert.equal(driver.canJump(), false, "agy's stream has nothing to put a message into a turn under way");
+  bridge.working = true;
+  assert.equal(await queue.shouldQueue("antigravity", id), true);
+  const a = queue.add("antigravity", id, { text: "first" }).item, b = queue.add("antigravity", id, { text: "second" }).item;
+  await flush();
+  assert.deepEqual(bridge.prompts, [], "nothing goes while agy works");
+  assert.deepEqual(await driver.deliver(id, a, { text: "first", images: [] }, { jump: true }), { kind: "unsupported" });
+  bridge.working = false;
+  queue.observe("antigravity", id, { type: "rate.turn.ended", sessionId: id, outcome: "completed" }); await flush(); await flush();
+  assert.deepEqual(bridge.prompts.map(row => [row.text, row.uuid]), [["first", a.id]]);
+  assert.deepEqual(queue.snapshot("antigravity", id).items.map(row => row.id), [b.id], "taken when its turn started");
+  bridge.finish(); await flush(); await flush();
+  assert.deepEqual(bridge.prompts.map(row => row.uuid), [a.id, b.id]);
+  // Stop pauses the queue; a conversation the bridge has not opened takes none.
+  bridge.finish("stopped"); await flush();
+  assert.equal(driver.fromEvent(id, { type: "rate.turn.ended", outcome: "stopped" }).turnEnded, "stopped");
+  assert.equal(driver.fromEvent(id, { type: "rate.turn.started" }), null, "a turn the person started names no queued message");
+  bridge.loaded = false;
+  assert.equal(driver.resolve(id), null);
 });

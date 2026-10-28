@@ -80,7 +80,7 @@ function piRows(content) {
   return { rows, name };
 }
 
-function createSessionTranscripts({ resolve, catalog, readPiSession, openCode }) {
+function createSessionTranscripts({ resolve, catalog, readPiSession, openCode, readAntigravity = null }) {
   // Claude Code and Codex history comes a page at a time from the newest. A
   // handoff reads back to the start, as a Pi session is read whole, within
   // MAX_HISTORY_TEXT of messages (the newest kept); a page that no longer
@@ -134,6 +134,11 @@ function createSessionTranscripts({ resolve, catalog, readPiSession, openCode })
         if (view) rows.push({ role: view.role, text: view.text, tools: (view.tools || []).map(tool => toolLine(tool.name, tool.args || {})) });
       }
       return { rows };
+    }
+    // Antigravity: agy's own transcript of the conversation.
+    if (record.agentId === "antigravity" && readAntigravity && HISTORY_ID.test(String(record.nativeSessionId || ""))) {
+      const rows = await readAntigravity(record.nativeSessionId);
+      if (Array.isArray(rows) && rows.length) return { rows: rows.map(row => ({ role: row.role, text: row.text, tools: (row.tools || []).map(tool => toolLine(tool.name, tool.args || {})) })) };
     }
     throw failure("reference_source_unavailable", 409);
   }

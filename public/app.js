@@ -251,7 +251,8 @@ let codexNativePollTimer = null;
 let grokAcpPollTimer = null;
 let acpPollTimer = null;
 let claudeStructuredPollTimer = null;
-let antigravityStructuredPollTimer = null;
+// Agents the Host runs through its ACP adapters (server.js ACP_AGENT_IDS).
+const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "hermes", "omp", "antigravity"]);
 let codexNativeHistoryButton = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
@@ -2867,9 +2868,11 @@ async function openAgentTaskFromHub(task) {
   if (task.nativeHistoryReadonly === true) return openNativeHistoryTask(task);
   if (task.nativeCodex === true || task.nativeThreadId && task.agentId === "codex") return openCodexNativeTask(task);
   if (task.nativeGrokAcp === true || task.nativeSessionId && task.agentId === "grok-build") return openGrokAcpTask(task);
-  if (task.nativeAcp === true || task.nativeSessionId && ["cline", "kilo", "hermes", "omp"].includes(task.agentId)) return openAgentClientProtocolTask(task);
+  // A conversation Stepsemble 3.10.0 opened in agy's stream that the Host
+  // could not match to agy's own: agy keeps it in this project's list.
+  if (task.nativeAntigravityStructured === true) { toast(agentTerminalText("antigravity.olderConversation"), true); return; }
+  if (task.nativeAcp === true || task.nativeSessionId && ACP_AGENT_IDS.includes(task.agentId)) return openAgentClientProtocolTask(task);
   if (task.nativeClaudeStructured === true || task.nativeSessionId && task.agentId === "claude-code") return openClaudeStructuredTask(task);
-  if (task.nativeAntigravityStructured === true || task.nativeSessionId && task.agentId === "antigravity") return openAntigravityStructuredTask(task);
   if (task.nativeOpenCode === true || task.nativeSessionId) return openOpenCodeNativeTask(task);
   return openGenericTask(task);
 }
@@ -5198,11 +5201,6 @@ function genericInputBlock(connection = rpc) {
       || !(resumable || ["running", "waiting"].includes(connection.taskStatus))) return "inputUnavailable";
     return null;
   }
-  if (connection?.nativeAntigravityStructured) {
-    if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
-    if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
-    return null;
-  }
   if (connection?.nativeGrokAcp) {
     if (genericTaskTerminal(connection.taskStatus)) return "taskReadOnly";
     if (connection.nativeLoading || connection.connectionLost || connection.stopPending || !["running", "waiting"].includes(connection.taskStatus)) return "inputUnavailable";
@@ -5395,7 +5393,7 @@ function ensureGenericOutputNode(stream = "stdout") {
   if (!rpc?.generic) return null;
   if (!rpc.genericOutputNode || rpc.genericOutputNode.dataset.stream !== stream) {
     const shell = makeMsgShell("assistant", rpc.agentLabel || "Agent");
-    const structured = stream === "stdout" && !!(rpc.nativeClaudeStructured || rpc.nativeGrokAcp || rpc.nativeAcp || rpc.nativeAntigravityStructured);
+    const structured = stream === "stdout" && !!(rpc.nativeClaudeStructured || rpc.nativeGrokAcp || rpc.nativeAcp);
     const output = document.createElement(structured ? "div" : "pre");
     output.className = structured ? "agent-structured-output" : `agent-terminal-output ${stream === "stderr" ? "stderr" : "stdout"}`;
     output.dataset.stream = stream;
@@ -7037,6 +7035,8 @@ function renderAgentProtocolUpdate(connection, update, label, fallbackKey) {
     appendStructuredThinking(connection, view.text, label);
   } else if (view.kind === "tool") {
     appendStructuredTool(connection, view.tool, label, fallbackKey);
+  } else if (view.kind === "turn_error") {
+    appendTurnErrorNotice(connection, view.text);
   }
 }
 
@@ -7653,7 +7653,8 @@ function renderAgentClientProtocolPermissions(connection, permissions) {
         actions.querySelectorAll("button").forEach(item => { item.disabled = true; });
         try {
           await post(`/api/${connection.acpAgentId}/acp/permission`, { requestId: permission.id, result: { outcome: { outcome: "selected", optionId } } });
-          state.textContent = `Decision sent: ${label} · waiting for ${acpAgentLabel(connection)} confirmation`;
+          // Stepsemble's own gate answers Antigravity at once.
+          state.textContent = connection.acpAgentId === "antigravity" ? `Decision sent: ${label}` : `Decision sent: ${label} · waiting for ${acpAgentLabel(connection)} confirmation`;
         } catch (error) {
           state.textContent = error?.message || "Could not record the decision";
           actions.querySelectorAll("button").forEach(item => { item.disabled = false; });
@@ -7683,6 +7684,7 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
     // Working while the agent answers a prompt, whether this page sent it or
     // the page was reloaded meanwhile.
     connection.taskStatus = snapshot?.working === true || connection.acpPromptInFlight ? "running" : "waiting";
+    applyComposerQueue(connection, snapshot?.composerQueue);
     connection.acpForkable = snapshot?.adapter?.forkable === true;
     if (connection.taskStatus !== "running") attachAcpReplyActions(connection, { live: !initial });
     applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: connection.acpAgentId, nativeAcp: true,
@@ -7701,7 +7703,7 @@ async function refreshAgentClientProtocolSnapshot(connection, { initial = false 
 async function openAgentClientProtocolTask(task, generationOverride = null) {
   if (!task) return;
   const agentId = String(task.acpAgentId || task.agentId || "");
-  if (!agentId || !["cline", "kilo", "hermes", "omp"].includes(agentId)) return;
+  if (!agentId || !ACP_AGENT_IDS.includes(agentId)) return;
   const nativeSessionId = String(task.nativeSessionId || task.id || task.taskId || "").replace(new RegExp(`^${agentId}:`), "");
   if (!nativeSessionId) return;
   const cwd = task.cwd || ""; const name = task.name || agentConnectorLabel(agentId);
@@ -7747,87 +7749,11 @@ async function openAgentClientProtocolTask(task, generationOverride = null) {
   }
 }
 
-function renderAntigravityStructuredEvents(connection, events, { replace = false } = {}) {
-  if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
-  const rows = Array.isArray(events) ? events : [];
-  if (replace) { el.messages.innerHTML = ""; connection.antigravityEventIndex = 0; connection.antigravityEventSeq = 0; connection.antigravityTurnStreamed = false; }
-  // Numbered events are read on from the last number drawn, as for Claude.
-  const numbered = rows.length > 0 && Number.isSafeInteger(rows[0]?.hostSeq);
-  for (let index = numbered ? 0 : connection.antigravityEventIndex || 0; index < rows.length; index += 1) {
-    const event = rows[index];
-    if (numbered) {
-      if (!Number.isSafeInteger(event?.hostSeq) || event.hostSeq < (connection.antigravityEventSeq || 0)) continue;
-      connection.antigravityEventSeq = event.hostSeq + 1;
-    }
-    // A turn streams its answer in text deltas, then repeats it whole in the
-    // result; the result's copy is drawn only when nothing was streamed.
-    const delta = event?.step_update?.text_delta || event?.step_update?.text || event?.text_delta || "";
-    if (event?.type === "result") {
-      const whole = event?.result?.response || event?.result?.text || event?.response || "";
-      if (whole && !connection.antigravityTurnStreamed) appendGenericOutput(String(whole), "stdout");
-      connection.antigravityTurnStreamed = false;
-    } else if (delta) {
-      appendGenericOutput(String(delta), "stdout");
-      connection.antigravityTurnStreamed = true;
-    } else if (event?.type !== "init" && typeof event?.text === "string" && event.text) appendGenericOutput(event.text, "stdout");
-    if (event?.type === "init") noteAntigravityPermissionMode(connection, event?.init?.permission_mode);
-    const denied = antigravityDeniedActions(event);
-    if (denied.length) appendAntigravityDenied(connection, denied);
-  }
-  connection.antigravityEventIndex = rows.length;
-  keepSessionUsageAtEnd(); scrollBottom();
-}
-
-// In its stream Antigravity cannot ask before an action that needs approval:
-// it refuses it, and the turn's result lists what it refused.
-function antigravityDeniedActions(event) {
-  if (event?.type !== "result") return [];
-  const rows = event?.result?.denied_actions ?? event?.denied_actions;
-  return Array.isArray(rows) ? rows.map(row => String(row?.display_name || row?.action || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 80))
-    .filter(Boolean).slice(0, 12) : [];
-}
-
-function antigravityCard(connection, className, titleText, bodyText) {
-  const shell = makeMsgShell("assistant", connection.agentLabel || "Google Antigravity");
-  const card = document.createElement("div");
-  card.className = "agent-approval-card " + className;
-  const title = document.createElement("strong");
-  title.textContent = titleText;
-  const body = document.createElement("p");
-  body.textContent = bodyText;
-  card.append(title, body);
-  shell.bubble.appendChild(card);
-  return card;
-}
-
-function appendAntigravityDenied(connection, names) {
-  connection.genericOutputNode = null;
-  const card = antigravityCard(connection, "antigravity-denied", agentTerminalText("antigravity.deniedTitle"),
-    agentTerminalText("antigravity.deniedBody", { actions: names.join(", ") }));
-  const actions = document.createElement("div");
-  actions.className = "agent-approval-actions";
-  const button = document.createElement("button");
-  button.type = "button"; button.className = "btn";
-  button.textContent = agentTerminalText("antigravity.continueInTerminal");
-  button.addEventListener("click", () => void continueAntigravityInTerminal(connection, button));
-  actions.appendChild(button);
-  card.appendChild(actions);
-}
-
-// A permission mode from the person's own agy settings that does not refuse
-// is shown, never silently followed and never changed by Stepsemble.
-function noteAntigravityPermissionMode(connection, mode) {
-  const value = typeof mode === "string" ? mode.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
-  if (!value || ["request-review", "strict"].includes(value) || connection.antigravityModeNoted === value) return;
-  connection.antigravityModeNoted = value;
-  connection.genericOutputNode = null;
-  antigravityCard(connection, "antigravity-mode", agentTerminalText("antigravity.modeTitle"), agentTerminalText("antigravity.modeBody", { mode: value }));
-}
-
-// The same Antigravity conversation in its own screen, in a terminal: there
-// agy asks before such an action and the person decides.
+// The same Antigravity conversation in agy's own screen, in a terminal, for
+// what only that screen offers (/rewind, /config and the like). The Host lets
+// go of the conversation there, since agy must not hold it open twice.
 async function continueAntigravityInTerminal(connection, button) {
-  const conversationId = connection?.antigravityConversationId;
+  const conversationId = connection?.nativeSessionId;
   if (!conversationId) { toast(agentTerminalText("antigravity.noConversation"), true); return; }
   if (button) button.disabled = true;
   const base = String(connection.name || agentConnectorLabel("antigravity")).trim().slice(0, 100);
@@ -7842,88 +7768,28 @@ async function continueAntigravityInTerminal(connection, button) {
   } finally { if (button) button.disabled = false; }
 }
 
-function renderAntigravityStructuredPermissions(connection, permissions) {
-  if (rpc !== connection || !connection?.nativeAntigravityStructured) return;
-  for (const permission of Array.isArray(permissions) ? permissions : []) {
-    const id = String(permission?.requestId || permission?.request_id || permission?.eventId || "");
-    if (!id || [...(el.messages?.querySelectorAll("[data-antigravity-permission]") || [])]
-      .some(node => node.dataset.antigravityPermission === id)) continue;
-    const shell = makeMsgShell("assistant", connection.agentLabel || "Google Antigravity");
-    const card = document.createElement("div");
-    card.className = "agent-approval-card";
-    card.dataset.antigravityPermission = id;
-    const title = document.createElement("strong");
-    title.textContent = "Antigravity permission observed";
-    const summary = document.createElement("p");
-    summary.textContent = String(permission.message || "Google Antigravity reported a tool that may need approval.").slice(0, 1000);
-    const state = document.createElement("small");
-    state.dataset.role = "approval-state";
-    state.textContent = "The public headless stream does not expose an approval response envelope.";
-    const note = document.createElement("p");
-    note.className = "muted";
-    note.textContent = "Approve this action in Antigravity's native UI; Stepsemble will not fabricate an ACK.";
-    card.append(title, summary, state, note);
-    shell.bubble.appendChild(card);
-  }
-}
-
-async function refreshAntigravityStructuredSnapshot(connection, { initial = false } = {}) {
-  if (!connection || rpc !== connection || !connection.nativeAntigravityStructured) return;
-  if (connection.nativeRefreshInFlight) return;
-  connection.nativeRefreshInFlight = true;
-  try {
-    const [snapshot, pending] = await Promise.all([
-      api(`/api/antigravity/structured/events?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
-      api(`/api/antigravity/structured/pending?sessionId=${encodeURIComponent(connection.nativeSessionId)}`),
-    ]);
-    if (rpc !== connection) return;
-    renderAntigravityStructuredEvents(connection, snapshot?.events, { replace: initial });
-    renderAntigravityStructuredPermissions(connection, pending?.permissions);
-    connection.nativeLoading = false; connection.connectionLost = false;
-    const status = snapshot?.status || {};
-    if (typeof status.nativeConversationId === "string" && status.nativeConversationId) connection.antigravityConversationId = status.nativeConversationId;
-    connection.taskStatus = status.closed ? "stopped" : status.failed ? "failed" : "waiting";
-    applyGenericTaskSnapshot({ id: connection.sid, taskId: connection.sid, agentId: "antigravity", status: connection.taskStatus,
-      nativeAntigravityStructured: true, nativeStatus: status });
-    syncGenericInputState();
-  } catch (error) {
-    if (rpc !== connection) return;
-    connection.nativeLoading = false; connection.connectionLost = true; syncGenericInputState();
-    if (initial) throw error;
-  } finally {
-    connection.nativeRefreshInFlight = false;
-  }
-}
-
-async function openAntigravityStructuredTask(task, generationOverride = null) {
-  if (!task) return;
-  const nativeSessionId = String(task.id || task.taskId || "").replace(/^antigravity:/, "");
-  if (!nativeSessionId) return;
-  const cwd = task.cwd || ""; const name = task.name || "Google Antigravity";
-  rememberLastAgentTask(task.id || `antigravity:${nativeSessionId}`); beginDraftScope({ cwd, name });
-  const generation = generationOverride === null ? ++viewGeneration : generationOverride;
-  if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
-  resetTaskProgress(); resetProjectChanges(); resetComposerSummary(); currentSessionFile = null;
-  currentAgentTaskId = `antigravity:${nativeSessionId}`; updateSessionSelection(); _lastMsgDate = null; lastUserText = ""; currentSessionCwd = cwd;
-  historyState = null; removeHistoryLoadButton(); autoScrollPinned = true; hideChatEmpty(); setChatTitle(name); setChatAgent("antigravity");
-  setChatPlace(cwd); resetLiveUsage(); el.messages.innerHTML = ""; resetSessionUsage(); ensureSessionUsageFooter();
-  if (!isDesktop()) { el.viewList.classList.add("hidden"); syncSessionListPolling(); }
-  el.viewChat.classList.remove("hidden"); void refreshProjectChanges({ background: true });
-  rpc = { sid: `antigravity:${nativeSessionId}`, generic: true, nativeAntigravityStructured: true, nativeSessionId, nativeLoading: true,
-    connectionLost: false, stopPending: false, streamReady: true, taskStatus: "waiting", genericOutputNode: null, genericTerminalNotice: null,
-    genericInputEchoes: [], antigravityEventIndex: 0, agentId: "antigravity", agentLabel: "Google Antigravity", name, cwd,
-    runStartedAt: normalizedTimestampMs(task.startedAt) || Date.now(), runEndedAt: null };
-  const connection = rpc; antigravityStructuredPollTimer = null;
-  // The message box stays read-only until the conversation has loaded; a
-  // message sent before then would be refused.
-  syncGenericInputState();
-  try {
-    await refreshAntigravityStructuredSnapshot(connection, { initial: true });
-    if (rpc !== connection || generation !== viewGeneration) return;
-    antigravityStructuredPollTimer = setInterval(() => void refreshAntigravityStructuredSnapshot(connection), 2000); syncGenericInputState();
-  } catch (error) {
-    if (rpc === connection && generation === viewGeneration) { closeChat(true); failChatOpen(error, "antigravity"); }
-  }
+// A command of agy's own screen ends its stream, so the Host refuses it; the
+// conversation can go on in that screen.
+function appendAntigravityScreenCommand(connection, command) {
+  if (rpc !== connection) return;
+  const shell = makeMsgShell("assistant", acpAgentLabel(connection));
+  const card = document.createElement("div");
+  card.className = "agent-approval-card antigravity-screen-command";
+  const title = document.createElement("strong");
+  title.textContent = agentTerminalText("antigravity.screenTitle", { command: "/" + command });
+  const body = document.createElement("p");
+  body.textContent = agentTerminalText("antigravity.screenBody", { command: "/" + command });
+  const actions = document.createElement("div");
+  actions.className = "agent-approval-actions";
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "btn";
+  button.textContent = agentTerminalText("antigravity.continueInTerminal");
+  button.addEventListener("click", () => void continueAntigravityInTerminal(connection, button));
+  actions.appendChild(button);
+  card.append(title, body, actions);
+  shell.bubble.appendChild(card);
+  connection.genericOutputNode = null;
+  scrollBottom();
 }
 
 async function openGenericTask(task) {
@@ -8048,10 +7914,6 @@ async function connectAgentTask(options = {}, generation = viewGeneration) {
     }
     if (result?.kind === "claude-structured" || result?.nativeClaudeStructured === true) {
       await openClaudeStructuredTask(result, generation);
-      return;
-    }
-    if (result?.kind === "antigravity-structured" || result?.nativeAntigravityStructured === true) {
-      await openAntigravityStructuredTask(result, generation);
       return;
     }
     if (result?.nativeCodex === true || result?.nativeThreadId && result?.agentId === "codex") {
@@ -8241,7 +8103,6 @@ function closeChat(silent) {
   if (grokAcpPollTimer) { clearInterval(grokAcpPollTimer); grokAcpPollTimer = null; }
   if (acpPollTimer) { clearInterval(acpPollTimer); acpPollTimer = null; }
   if (claudeStructuredPollTimer) { clearInterval(claudeStructuredPollTimer); claudeStructuredPollTimer = null; }
-  if (antigravityStructuredPollTimer) { clearInterval(antigravityStructuredPollTimer); antigravityStructuredPollTimer = null; }
   if (rpc) {
     rpc.nativeHistoryRequest?.abort();
     const generic = !!rpc.generic;
@@ -8718,9 +8579,9 @@ function renderContextDashboard() {
   }
 }
 
-// Why a conversation has no context gauge, or null when it has one. Google
-// Antigravity and an agent run in a terminal never report their context; a
-// read-only history shows one only when its transcript gave the Host one.
+// Why a conversation has no context gauge, or null when it has one. An agent
+// run in a terminal never reports its context; a read-only history shows one
+// only when its transcript gave the Host one.
 function contextReportUnsupported(connection) {
   if (!connection || !connection.generic) return null;
   if (connection.nativeCodex || connection.nativeCodexMutation || connection.nativeClaudeStructured || connection.nativeOpenCode
@@ -10085,7 +9946,7 @@ let turnRateCache = { key: "", rates: [] };
 const settlingRates = new Set();
 function outputMeterable(connection) {
   return !!connection && !connection.nativeHistoryReadonly && (!connection.generic || !!(connection.nativeAcp || connection.nativeGrokAcp
-    || connection.nativeClaudeStructured || connection.nativeCodexMutation || connection.nativeOpenCode || connection.nativeAntigravityStructured));
+    || connection.nativeClaudeStructured || connection.nativeCodexMutation || connection.nativeOpenCode));
 }
 function userTurnStart(user) { return Number(user?.dataset.wlStart) || Number(user?.dataset.ts) || 0; }
 // The message that started the run begun at this time.
@@ -11902,7 +11763,7 @@ let subagentTracker = null, subagentPanel = null;
 // Reading pi-subagents background runs (see readPiRuns).
 let piRunReading = false, piRunTimer = 0;
 let sessionReferences = null;
-const REFERENCE_SOURCES = new Set(["pi", "claude-code", "codex", "opencode"]);
+const REFERENCE_SOURCES = new Set(["pi", "claude-code", "codex", "opencode", "antigravity"]);
 // Tool names whose card is a subagent: Claude Code, Pi (pi-subagents), Codex and OpenCode.
 const SUBAGENT_TOOL_NAMES = new Set(["Task", "Agent", "subagent", "task"]);
 const composerIme = window.stepsembleComposerIme?.createGuard();
@@ -12196,6 +12057,7 @@ function composerQueueTarget(connection = rpc) {
   if (!connection || connection.nativeHistoryReadonly === true || connection.readOnly === true) return null;
   if (!connection.generic) return connection.sid ? { agent: "pi", id: connection.sid } : null;
   if (connection.nativeCodexMutation && connection.nativeThreadId) return { agent: "codex", id: connection.nativeThreadId };
+  if (connection.nativeAcp && connection.acpAgentId === "antigravity" && connection.nativeSessionId) return { agent: "antigravity", id: connection.nativeSessionId };
   const claude = connection.nativeClaudeStructured ? connection.claudeNativeSessionId || connection.nativeSessionId : null;
   return claude ? { agent: "claude-code", id: claude } : null;
 }
@@ -12363,6 +12225,15 @@ async function sendCurrent() {
   // Claude or Codex still opening the conversation: the same wait as above.
   if (inputBlock === "inputUnavailable" && rpc.nativeLoading && !rpc.connectionLost) { sendOnceConnected(); return; }
   if (inputBlock) { toast(agentHubText(inputBlock), true); return; }
+  // agy's /model and /effort would end its stream; here they open the
+  // conversation's model and reasoning sheet.
+  if (generic && rpc.nativeAcp && rpc.acpAgentId === "antigravity" && /^\/(?:model|effort)(?:\s|$)/i.test(text) && !pendingImages.length) {
+    el.input.value = ""; el.input.style.height = "auto"; syncSendReady();
+    el.slashMenu.classList.add("hidden"); slashState = null;
+    removeDraftForKey(activeDraftKey);
+    void openModelSheet();
+    return;
+  }
   // /compact asks the agent for its own compaction of this conversation; it is
   // never sent as a message. Pi outside a workspace tab keeps its RPC command.
   const compactCommand = window.StepsembleAgentCompaction?.parse(el.input.value);
@@ -12470,7 +12341,7 @@ async function sendCurrent() {
   const codexEcho = codexNativeSend ? trackCodexNativeEcho(codexNativeSend, userShell, text) : null;
   // The reply to this message goes below it in a new bubble, never into the
   // reply bubble above it.
-  if (generic && (rpc.nativeClaudeStructured || rpc.nativeGrokAcp || rpc.nativeAcp || rpc.nativeAntigravityStructured)) {
+  if (generic && (rpc.nativeClaudeStructured || rpc.nativeGrokAcp || rpc.nativeAcp)) {
     rpc.genericOutputNode = null;
     rpc.structuredThinking = null;
     rpc.claudeOutputStart = null;
@@ -12513,8 +12384,6 @@ async function sendCurrent() {
             ? await post(`/api/${rpc.acpAgentId}/acp/prompt`, { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text, images })
           : rpc?.nativeClaudeStructured
             ? await post("/api/claude/structured/prompt", { sessionId: rpc.claudeNativeSessionId || rpc.nativeSessionId, cwd: rpc.cwd, text, images, ...composerSpeed?.snapshot() })
-          : rpc?.nativeAntigravityStructured
-              ? await post("/api/antigravity/structured/prompt", { sessionId: rpc.nativeSessionId, cwd: rpc.cwd, text })
             : rpc?.nativeCodexMutation
               ? await post("/api/codex/mutation/turn", {
                 threadId: rpc.nativeThreadId,
@@ -12600,6 +12469,13 @@ async function sendCurrent() {
     // Acceptance is authoritative. A subsequent display/meter error must
     // never offer an accepted prompt for retry or say that sending failed.
     if (accepted) { console.warn("Accepted message display failed", e); return; }
+    // Antigravity took the message and the turn failed: the conversation
+    // says why, and the message stays where it was sent.
+    if (acpTurn && String(e?.code || "") === "antigravity_turn_failed") {
+      clearSentDraft(sendDraft);
+      if (referencesSent) sessionReferences?.clear();
+      return;
+    }
     const currentSend = rpc === sendConnection && viewGeneration === sendView && activeDraftKey === sendDraftKey;
     const restore = currentSend && ownsDraftSend(sendDraft) && !el.input.value && !pendingImages.length;
     if (codexEcho) dropCodexNativeEcho(codexNativeSend, codexEcho, { remove: restore });
@@ -12627,8 +12503,11 @@ async function sendCurrent() {
       // The agent's own reason, such as "You need to sign in to use this
       // model", follows when the Host passed one on with its code.
       const reason = e?.code && typeof e.message === "string" && e.message !== e.code && /\s/.test(e.message) ? e.message.slice(0, 300) : "";
+      const screenCommand = sendConnection?.nativeAcp && String(e?.code || "") === "antigravity_command_unavailable"
+        ? /^\/([a-z][a-z-]*)/i.exec(text.trim())?.[1] : null;
+      if (screenCommand) appendAntigravityScreenCommand(sendConnection, screenCommand.toLowerCase());
       // Every Claude slot is working; the message waits in the composer.
-      if (sendConnection?.nativeClaudeStructured && String(e?.code || e?.message) === "desktop_capacity") toast(agentHubText("claudeCapacity"));
+      else if (sendConnection?.nativeClaudeStructured && String(e?.code || e?.message) === "desktop_capacity") toast(agentHubText("claudeCapacity"));
       else toast(reason ? `${tKey("runtime.messageNotSent")} · ${reason}` : tKey("runtime.messageNotSent"), true);
       // A send the Host refused never started a turn: no turn failed, and the
       // message is back in the box.
@@ -12658,7 +12537,6 @@ el.btnAbort.addEventListener("click", async () => {
     else if (connection.nativeGrokAcp) await post("/api/grok/acp/cancel", { sessionId: connection.nativeSessionId });
     else if (connection.nativeAcp) await post(`/api/${connection.acpAgentId}/acp/cancel`, { sessionId: connection.nativeSessionId });
     else if (connection.nativeClaudeStructured) await post("/api/claude/structured/interrupt", { sessionId: connection.nativeSessionId });
-    else if (connection.nativeAntigravityStructured) await post("/api/agent/close", { taskId: connection.sid });
     else if (connection.nativeCodexMutation) await post("/api/codex/mutation/interrupt", { threadId: connection.nativeThreadId });
     else if (connection.generic) await post("/api/agent/abort", { taskId: connection.sid });
     else await post("/api/abort", { sid: connection.sid });
@@ -13060,8 +12938,10 @@ function approvalModeText(agentId, mode) {
     ? { "read-only": "codex.readOnly", workspace: "codex.workspace", "full-access": "codex.fullAccess", custom: "codex.custom" }
     : agentId === "claude-code"
       ? { default: "claude.manual", acceptEdits: "claude.acceptEdits", plan: "claude.plan", auto: "claude.auto", dontAsk: "claude.dontAsk", bypassPermissions: "claude.bypass" }
-      // Grok Build's two modes mean the same as Claude Code's.
-      : agentId === "grok-build" ? { default: "claude.manual", plan: "claude.plan" } : {};
+      // Grok Build's two modes mean the same as Claude Code's, and so do the
+      // four Stepsemble's gate applies to Antigravity.
+      : agentId === "grok-build" ? { default: "claude.manual", plan: "claude.plan" }
+        : agentId === "antigravity" ? { default: "claude.manual", acceptEdits: "claude.acceptEdits", plan: "claude.plan", bypassPermissions: "claude.bypass" } : {};
   const key = Object.hasOwn(keys, mode?.id) ? keys[mode.id] : null;
   // Claude Code's own short titles keep the chip readable on a phone.
   const short = key === "claude.acceptEdits" || key === "claude.bypass" ? tKey("approval." + key + ".short") : null;
@@ -13469,7 +13349,6 @@ function connectionAgentId(connection = rpc) {
   if (connection.nativeCodexMutation || connection.nativeCodex) return "codex";
   if (connection.nativeClaudeStructured) return "claude-code";
   if (connection.nativeOpenCode) return "opencode";
-  if (connection.nativeAntigravityStructured) return "antigravity";
   if (connection.nativeAcp || connection.nativeGrokAcp) return acpAgentOf(connection);
   return "pi";
 }
@@ -14379,7 +14258,6 @@ function conversationAgentId(connection = rpc) {
   if (connection.nativeGrokAcp) return "grok-build";
   if (connection.nativeAcp) return connection.acpAgentId || null;
   if (connection.nativeClaudeStructured) return "claude-code";
-  if (connection.nativeAntigravityStructured) return "antigravity";
   return connection.agentId || connection.nativeHistoryProvider || null;
 }
 
@@ -20362,8 +20240,7 @@ function refreshVisibleNativeConversation() {
     : connection.nativeOpenCode ? refreshOpenCodeNativeSnapshot
       : connection.nativeClaudeStructured ? refreshClaudeStructuredSnapshot
         : connection.nativeAcp ? refreshAgentClientProtocolSnapshot
-          : connection.nativeGrokAcp ? refreshGrokAcpSnapshot
-            : connection.nativeAntigravityStructured ? refreshAntigravityStructuredSnapshot : null;
+          : connection.nativeGrokAcp ? refreshGrokAcpSnapshot : null;
   if (refresh) void refresh(connection).catch(() => {});
 }
 window.addEventListener("online", refreshVisibleNativeConversation);

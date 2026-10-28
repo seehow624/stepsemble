@@ -8,7 +8,7 @@
   const ACTIVE = new Set(["queued", "starting", "running", "waiting", "stopping"]);
   const RESUMABLE = new Set(["paused", "blocked", "interrupted"]);
   const FINISHED = new Set(["limited", "completed", "failed", "stopped"]);
-  const AGENTS = new Set(["pi", "codex", "claude-code", "opencode", "omp", "cline", "kilo", "hermes", "grok-build"]);
+  const AGENTS = new Set(["pi", "codex", "claude-code", "opencode", "omp", "cline", "kilo", "hermes", "grok-build", "antigravity"]);
   function requestId() {
     if (root.crypto.randomUUID) return root.crypto.randomUUID();
     // Phones may access their Host over HTTP on a private network, where

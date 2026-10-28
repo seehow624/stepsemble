@@ -11,10 +11,11 @@ import { signInToWorkspace, addWorkspaceProject, newWorkspaceSession, paneFrame 
 import { stopAgentTasks, supervisorsExited } from "./session-terminal-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-// Antigravity opens in its stream by default. An action agy refuses there
-// (it cannot ask) is shown, as is a permission mode from agy's own settings
-// that does not refuse; the conversation then continues in agy's own screen,
-// where agy asks first.
+// Antigravity opens in its stream behind the Host's ACP bridge. An action
+// that needs approval waits on a card in the conversation, where it is
+// allowed or denied; the approval mode, model and reasoning are chosen in the
+// composer; /model opens the model sheet, and a command only agy's own
+// screen has offers to continue the conversation there.
 export async function runAntigravityStreamBrowserCases(browser, { screenshotDirectory } = {}) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-agy-stream-"));
@@ -28,11 +29,13 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       // agy's own first-run pages are done here (the setup step has its own case).
       await fs.mkdir(path.join(home, ".gemini/antigravity-cli/cache"), { recursive: true });
       await fs.writeFile(path.join(home, ".gemini/antigravity-cli/cache/onboarding.json"), JSON.stringify({ onboardingComplete: true }));
+      const commands = path.join(home, "agy-commands.log");
+      const ran = async () => (await fs.readFile(commands, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
       const port = await freePort(), base = "http://127.0.0.1:" + port;
       child = spawn(process.execPath, [path.join(root, "server.js")], { cwd: root,
         env: { ...cleanEnvironment(home), PATH: bin + path.delimiter + path.dirname(process.execPath) + path.delimiter + "/usr/bin:/bin",
           PI_HOME: home, PI_BIN: piBin, STEPSEMBLE_PORT: String(port), STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_ORPHAN_EXIT: "0",
-          FAKE_AGY_DENY: "1", FAKE_AGY_MODE: "always-proceed" },
+          FAKE_AGY_COMMANDS: commands, FAKE_AGY_UUID_IDS: "1" },
         stdio: ["ignore", "pipe", "pipe"] });
       await waitForServer(child); child.stdout.resume(); child.stderr.resume();
       context = await browser.newContext({ viewport, serviceWorkers: "block", locale: "zh-TW", reducedMotion: "reduce" });
@@ -52,24 +55,63 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       await addWorkspaceProject(page, project);
       const pane = await newWorkspaceSession(page, { agentId: "antigravity", name: "Stream session" });
       await pane.waitForFunction(() => !document.querySelector("#btn-send")?.disabled);
-      // agy's own settings report a mode that does not refuse: shown, not followed silently.
-      await pane.locator(".antigravity-mode").waitFor();
-      await pane.locator("#input").fill("please run the probe");
-      await pane.locator("#btn-send").click();
-      await pane.locator("#messages").getByText("fake answer 1").first().waitFor();
-      const denied = pane.locator(".antigravity-denied").first();
-      await denied.waitFor();
-      assert.match(await denied.textContent(), /WriteFile, RunCommand/);
-      assert.equal(await pane.locator(".antigravity-denied").count(), 1, "one card per refusing turn");
-      assert.equal(((await pane.locator("#messages").textContent()).match(/fake answer 1/g) || []).length, 1, "a streamed answer is not repeated by its result");
+      const send = async text => { await pane.locator("#input").fill(text); await pane.locator("#btn-send").click(); };
+      const answered = turn => pane.locator("#messages").getByText(new RegExp("fake answer " + turn + "\\b")).first().waitFor();
+
+      // The conversation answers, and reports the context it used.
+      await send("hello");
+      await answered(1);
+      await pane.waitForFunction(() => /\d/.test(document.querySelector("#context-used")?.textContent || ""));
+
+      // An action that needs approval waits for the person: allowed, it runs.
+      await send("please run [run:echo allowed]");
+      const card = pane.locator(".agent-approval-card[data-acp-permission]").last();
+      await card.waitFor();
+      assert.match(await card.textContent(), /Run echo allowed/);
+      await card.getByRole("button", { name: "Allow", exact: true }).click();
+      await answered(2);
+      // Denied, it does not.
+      await send("please run [run:echo denied]");
+      const second = pane.locator(".agent-approval-card[data-acp-permission]").nth(1);
+      await second.waitFor();
+      await second.getByRole("button", { name: "Deny", exact: true }).click();
+      await answered(3);
+      assert.deepEqual(await ran(), ["echo allowed"], "only the allowed command ran");
       if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, "antigravity-stream-" + viewport.width + ".png"), fullPage: true });
-      // The same conversation continues in agy's own screen.
-      await denied.locator("button").click();
+
+      // The approval mode: Stepsemble's four, in its own words.
+      await pane.locator("#btn-approval").click();
+      const modes = await pane.locator("#approval-options .approval-option").evaluateAll(nodes => nodes.map(node => node.dataset.mode));
+      assert.deepEqual(modes, ["default", "acceptEdits", "plan", "bypassPermissions"]);
+      await pane.locator('#approval-options .approval-option[data-mode="bypassPermissions"]').click();
+      await pane.waitForFunction(() => document.querySelector("#approval-control")?.dataset.tone === "warn");
+      await send("please run [run:echo bypassed]");
+      await answered(4);
+      assert.deepEqual(await ran(), ["echo allowed", "echo bypassed"], "bypass runs without a card");
+      assert.equal(await pane.locator(".agent-approval-card[data-acp-permission]").count(), 2);
+
+      // Reasoning applies from the next turn, on the same conversation.
+      await pane.locator("#thinking-select").evaluate(node => { node.value = "low"; node.dispatchEvent(new Event("change")); });
+      await send("think less");
+      await pane.locator("#messages").getByText(/fake answer 1 \(magpie\/fake\/model, low\)/).first().waitFor();
+
+      // /model opens the model sheet; it is never sent to agy.
+      await send("/model");
+      await pane.locator("#model-sheet:not(.hidden)").waitFor();
+      await pane.locator("#model-close").click();
+
+      // A command only agy's own screen has offers to continue there.
+      await send("/rewind");
+      const screen = pane.locator(".antigravity-screen-command").last();
+      await screen.waitFor();
+      assert.match(await screen.textContent(), /\/rewind/);
+      await screen.locator("button").click();
       const terminalPane = await paneFrame(page, "Stream session（終端機）");
-      await terminalPane.waitForFunction(() => /AGY_ARGS:\["--conversation","fake-conversation-\d+"\]/.test(document.querySelector(".session-terminal-screen")?.textContent || ""));
+      await terminalPane.waitForFunction(() => /AGY_ARGS:\["--conversation","[0-9a-f-]{36}"\]/.test(document.querySelector(".session-terminal-screen")?.textContent || ""));
       await terminalPane.locator('.session-terminal-keys [data-terminal-key="enter"]').waitFor();
       assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
-      console.log(JSON.stringify({ case: "Antigravity stream (" + viewport.width + ")", result: "passed", syntheticOnly: true, modeNote: true, deniedCard: true, terminalContinue: true, pageErrors: 0 }));
+      console.log(JSON.stringify({ case: "Antigravity stream (" + viewport.width + ")", result: "passed", syntheticOnly: true, approvalCard: true,
+        approvalModes: modes.length, reasoning: true, modelSheet: true, terminalContinue: true, pageErrors: 0 }));
     } catch (error) {
       throw new Error("Antigravity stream (" + viewport.width + "): " + error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]"));
     } finally {
