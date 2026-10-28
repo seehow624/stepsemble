@@ -63,6 +63,36 @@ test("an expensive model asks first and is pinned only after the user confirms",
   assert.equal(fake.state.profiles[0].model, "expensive-model");
 });
 
+test("each Bot's reasoning is read and set beside its model, and reaches its open conversations at once", async t => {
+  const { fake, client } = await setup(t);
+  let open = [];
+  const bots = createHermesBots({ client, liveSessions: profile => (profile === "qa-reviewer" ? open : []) });
+  const models = await bots.models("qa-reviewer");
+  assert.equal(models.reasoning, "medium");
+  assert.deepEqual(models.reasoningLevels, ["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
+  // With nothing open, the Bot's own setting, which Telegram and routines read.
+  assert.deepEqual(await bots.configure("qa-reviewer", { reasoning: "low" }), { ok: true, confirm: null });
+  assert.equal(fake.state.reasoning.get("qa-reviewer"), "low");
+  assert.deepEqual(fake.state.consoleCalls.at(-1), { method: "config.set", key: "reasoning", value: "low", scope: "global", profile: "qa-reviewer" });
+  assert.equal(fake.state.botCalls.filter(call => call.method === "configure").length, 0, "a level alone leaves the model be");
+  assert.equal((await bots.models("qa-reviewer")).reasoning, "low");
+  // With a conversation open, through it: one call sets both.
+  const live = (await client.request("session.create", { profile: "qa-reviewer", title: "Open" })).session_id;
+  open = ["gone-session", live];
+  await bots.configure("qa-reviewer", { reasoning: "high" });
+  assert.equal(fake.state.sessionReasoning.get(live), "high");
+  assert.equal(fake.state.reasoning.get("qa-reviewer"), "high");
+  assert.equal(fake.state.consoleCalls.filter(call => call.profile).length, 1, "no separate profile write was needed");
+  // The words that change how reasoning is shown, not how hard the Bot thinks, never go.
+  for (const value of ["show", "hide", "full", "clamp", "ultra-max"]) await assert.rejects(bots.configure("qa-reviewer", { reasoning: value }), error => error.code === "invalid_reasoning");
+  // A model to confirm first takes its level only once confirmed.
+  open = [];
+  assert.equal((await bots.configure("qa-reviewer", { model: { provider: "ollama", model: "expensive-model" }, reasoning: "max" })).ok, false);
+  assert.equal(fake.state.reasoning.get("qa-reviewer"), "high");
+  await bots.configure("qa-reviewer", { model: { provider: "ollama", model: "expensive-model" }, reasoning: "max", confirmExpensive: true });
+  assert.equal(fake.state.reasoning.get("qa-reviewer"), "max");
+});
+
 test("a Bot is created with its look, given an avatar, and deleted only by its exact name", async t => {
   const { fake, bots } = await setup(t);
   const created = await bots.create({ name: "research", title: "Research Buddy", description: "Finds papers", soul: "Cite sources.", color: "#22aa66", cloneFrom: "default" });

@@ -8,7 +8,7 @@
   // answers the approvals a member raises. While a room is open and visible
   // it reads new events every 1.5 s and the room state every 3 s.
 
-  function create({ api, t, el, button, iconButton, toast, avatar, markdown, bots, onBack, drafts = new Map() }) {
+  function create({ api, t, el, button, iconButton, toast, avatar, markdown, stampTime = () => {}, bots, onBack, drafts = new Map() }) {
     let open = null;
     const colorOf = profile => bots().find(bot => bot.name === profile)?.color;
     const failed = error => toast(t("failed", { message: error.message }));
@@ -91,14 +91,18 @@
       const member = room.members.find(row => row.memberId === event.memberId);
       const who = member?.displayName || event.memberId || "";
       if (event.kind === "message.user") {
-        const node = el("div", "assistant-msg user");
-        node.append(el("div", "assistant-bubble", event.text));
+        const node = el("div", "assistant-msg user"), bubble = el("div", "assistant-bubble", event.text);
+        stampTime(bubble, event.createdAt);
+        node.append(bubble);
         return node;
       }
+      // A member's message is a bubble with its name on top, as in a group chat.
       if (event.kind === "message.member") {
         const node = el("div", "assistant-msg assistant assistant-group-message");
-        const body = el("div", "assistant-reply");
-        body.append(el("strong", "assistant-group-author", who), markdown(event.text));
+        const body = el("div", "assistant-reply"), bubble = el("div", "assistant-bubble bot");
+        bubble.append(el("strong", "assistant-group-author", who), markdown(event.text));
+        stampTime(bubble, event.createdAt);
+        body.append(bubble);
         node.append(avatar({ name: member?.profile || who, displayName: who, color: colorOf(member?.profile) }), body);
         return node;
       }

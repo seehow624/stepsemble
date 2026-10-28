@@ -77,7 +77,7 @@ test("a long conversation still opens: its transcript comes over HTTP, never who
   assert.equal(fake.state.resumes.at(-1).omitMessages, true, "the resume carries no transcript");
   assert.equal(opened.messages.length, 1000, "the newest thousand rows");
   assert.equal(opened.messages[0].text, "question 100");
-  assert.deepEqual(opened.messages.at(-1), { role: "assistant", text: "answer 599 " + "x".repeat(2000) });
+  assert.deepEqual(opened.messages.at(-1), { role: "assistant", text: "answer 599 " + "x".repeat(2000), at: 1_760_000_000 });
   assert.deepEqual(fake.state.messageReads, [chat.id, chat.id], "two pages of 500, newest first");
 });
 
@@ -87,8 +87,9 @@ test("a reopened transcript keeps tool steps with their labels and leaves out wh
   chat.messages.push({ role: "user", text: "check the site" }, { role: "tool", name: "browser", context: "Opening example.test" },
     { role: "user", text: "[System: the stream was cut; continue]", hidden: true }, { role: "assistant", text: "It is up." });
   const opened = await service.openBotChat("default");
-  assert.deepEqual(opened.messages, [{ role: "user", text: "check the site" }, { role: "tool", name: "browser", context: "Opening example.test" },
-    { role: "assistant", text: "It is up." }]);
+  // Each message keeps the time Hermes wrote it, for its bubble.
+  assert.deepEqual(opened.messages, [{ role: "user", text: "check the site", at: 1_760_000_000 }, { role: "tool", name: "browser", context: "Opening example.test" },
+    { role: "assistant", text: "It is up.", at: 1_760_000_000 }]);
 });
 
 test("a reply streams to subscribers; a finished reply reaches the phone only when nobody watches", async t => {
@@ -109,6 +110,97 @@ test("a reply streams to subscribers; a finished reply reaches the phone only wh
   await service.prompt({ sessionId: chat.sessionId, text: "again" });
   await until(() => events.filter(event => event.type === "message.complete").length === 2);
   assert.equal(notices.length, 1, "someone was watching");
+});
+
+test("a message sent while the Bot works joins that work or waits its turn; it never interrupts", async t => {
+  const { fake, service } = await setup(t);
+  await service.bots();
+  const chat = await service.openBotChat("default");
+  const { events } = collect(service, chat.cursor);
+  let release;
+  fake.setTurn({ reply: "First answer.", tool: "search", wait: new Promise(resolve => { release = resolve; }) });
+  assert.deepEqual(await service.prompt({ sessionId: chat.sessionId, text: "research this" }), { ok: true, delivered: "started" });
+  await until(() => events.some(event => event.type === "tool.complete"));
+  // Added to the work under way (Hermes's steer), not sent as a new turn.
+  assert.deepEqual(await service.prompt({ sessionId: chat.sessionId, text: "also check prices" }), { ok: true, delivered: "steered" });
+  assert.deepEqual(fake.state.steers.map(row => row.text), ["also check prices"]);
+  assert.equal(fake.state.prompts.length, 1);
+  // A message with a file cannot be added to it, so it waits for the next turn.
+  const file = { kind: "file", name: "notes.txt", mime: "text/plain", data: Buffer.from("hello").toString("base64") };
+  assert.deepEqual(await service.prompt({ sessionId: chat.sessionId, text: "and this", attachments: [file] }), { ok: true, delivered: "queued" });
+  assert.equal(fake.state.prompts.at(-1).queued, true);
+  release();
+  await until(() => events.filter(event => event.type === "message.complete").length === 2);
+  assert.equal(events.filter(event => event.type === "message.start").length, 2, "the waiting message became the next turn");
+  assert.deepEqual(fake.storedSessions().find(row => row.id === chat.sessionId).messages.filter(row => row.role === "user").map(row => row.text),
+    ["research this", "and this\n@file:uploads/notes.txt"]);
+});
+
+test("while Hermes compacts the conversation, a message waits for the next turn", async t => {
+  const { fake, service } = await setup(t);
+  await service.bots();
+  const chat = await service.openBotChat("default");
+  const { events } = collect(service, chat.cursor);
+  let compacted;
+  fake.setTurn({ reply: "Done.", compacting: new Promise(resolve => { compacted = resolve; }) });
+  await service.prompt({ sessionId: chat.sessionId, text: "summarize" });
+  await until(() => events.some(event => event.type === "status.update" && event.payload.kind === "compacting"));
+  assert.equal((await service.prompt({ sessionId: chat.sessionId, text: "one more" })).delivered, "queued");
+  assert.deepEqual(fake.state.steers, [], "a steer then would only be put off");
+  compacted();
+  await until(() => events.filter(event => event.type === "message.complete").length === 2);
+});
+
+test("a turn stopped with Stop is not announced as finished; a failed one is announced once", async t => {
+  const { fake, service, notices } = await setup(t);
+  await service.bots();
+  const chat = await service.openBotChat("default");
+  const { events } = collect(service, chat.cursor);
+  const done = count => until(() => events.filter(event => event.type === "message.complete").length === count);
+  fake.setTurn({ reply: "Half of it", status: "interrupted" });
+  await service.prompt({ sessionId: chat.sessionId, text: "long job" });
+  await done(1);
+  assert.deepEqual(notices, []);
+  fake.setTurn({ reply: "", status: "error", error: "Model unavailable" });
+  await service.prompt({ sessionId: chat.sessionId, text: "try again" });
+  await done(2);
+  assert.equal(events.at(-1).payload.status, "error");
+  assert.deepEqual(notices.map(notice => [notice.kind, notice.body]), [["failed", "Model unavailable"]]);
+});
+
+test("the Bot's own reasoning comes with its answer, live and reopened, for the newest answers", async t => {
+  const { fake, service } = await setup(t);
+  await service.bots();
+  const chat = await service.openBotChat("default");
+  const { events } = collect(service, chat.cursor);
+  fake.setTurn({ reply: "42", reasoning: "Six times seven is forty-two.", showReasoning: true, thinking: "(◕‿◕) pondering..." });
+  await service.prompt({ sessionId: chat.sessionId, text: "the answer?" });
+  await until(() => events.some(event => event.type === "message.complete"));
+  assert.equal(events.filter(event => event.type === "reasoning.delta").map(event => event.payload.text).join(""), "Six times seven is forty-two.");
+  assert.equal(events.find(event => event.type === "message.complete").payload.reasoning, "Six times seven is forty-two.");
+  // Reopened: the reasoning stays with the newest 20 answers only.
+  const old = fake.addSession("default", "Long talk");
+  for (let index = 0; index < 22; index += 1) old.messages.push({ role: "user", text: `q${index}` }, { role: "assistant", text: `a${index}`, reasoning: `why ${index}` });
+  const opened = await service.openSession({ sessionId: old.id, profile: "default" });
+  const answers = opened.messages.filter(message => message.role === "assistant");
+  assert.deepEqual(answers.slice(0, 3).map(message => [message.text, message.thinking]), [["a0", undefined], ["a1", undefined], ["a2", "why 2"]]);
+  assert.equal(answers.at(-1).thinking, "why 21");
+});
+
+test("work handed to background helpers comes back as a notice, not as something the person said", async t => {
+  const { fake, service } = await setup(t);
+  const chat = fake.addSession("default", "Bot Chat", { hidden: true });
+  chat.messages.push({ role: "user", text: "research three vendors" }, { role: "assistant", text: "Started three helpers." },
+    { role: "user", text: "[ASYNC DELEGATION COMPLETE] full results for the model…", display_kind: "async_delegation_complete",
+      display_metadata: { display_text: "Subagent Tasks Completed: vendors (3 tasks)", task_count: 3 } },
+    { role: "assistant", text: "All three are in." });
+  const opened = await service.openBotChat("default");
+  assert.deepEqual(opened.messages.map(message => [message.role, message.kind || "", message.text]), [["user", "", "research three vendors"],
+    ["assistant", "", "Started three helpers."], ["system", "delegation", "Subagent Tasks Completed: vendors (3 tasks)"], ["assistant", "", "All three are in."]]);
+  // The open conversation is one a Bot's new setting reaches at once.
+  const [live] = service.liveSessions("default");
+  assert.equal(fake.state.live.get(live), chat.id);
+  assert.deepEqual(service.liveSessions("qa-reviewer"), []);
 });
 
 test("a phone notice drops attachment paths and names the files when there is no text", async t => {

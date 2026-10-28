@@ -116,6 +116,7 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     rooms: new Map(), roomEvents: new Map(), groupDriver: true, groupApproval: null, groupCalls: [],
     bots: new Map(), avatars: new Map(), hubCatalog: defaultHub(), actions: new Map(), botCalls: [],
     files: new Map(), downloads: [], sources: [], messageReads: [], resumes: [], resumeLimit: Infinity,
+    steers: [], reasoning: new Map(), sessionReasoning: new Map(),
     consoleCalls: [], gatewayRunning: true, config: defaultConfig(), env: { OPENAI_API_KEY: "sk-live-abcdef123456", TELEGRAM_BOT_TOKEN: "123:abc" },
   };
   const nextId = prefix => `${prefix}-${++state.next}`;
@@ -177,6 +178,11 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         canonical_session: chat ? { id: chat.id, title: BOT_CHAT, root_title: BOT_CHAT, preview: preview(chat), last_active: chat.lastActive } : null };
     });
   }
+  // Each Bot's reasoning effort; Nova's (the default profile) is the console's.
+  const reasoningOf = profile => (profile === "default" ? state.config.agent.reasoning_effort : state.reasoning.get(profile) || "medium");
+  function setReasoningOf(profile, value) {
+    if (profile === "default") state.config.agent.reasoning_effort = value; else state.reasoning.set(profile, value);
+  }
   // Per-profile editor state (SOUL, skills, toolsets, MCP), created on first use.
   function botOf(name) {
     if (!state.bots.has(name)) {
@@ -187,6 +193,9 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     }
     return state.bots.get(name);
   }
+  // script: reply, thinking (Hermes's waiting line), reasoning (streamed when
+  // showReasoning, and whole with message.complete), compacting (a promise the
+  // compaction lasts for), tool, request, wait, status and error (how it ends).
   async function runTurn(liveId, storedId, text) {
     const row = state.stored.get(storedId);
     const script = state.turn || {};
@@ -196,7 +205,13 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
     row.running = true;
     row.inflight = { user: text, assistant: "" };
     emit(liveId, "message.start", {});
+    if (script.compacting) {
+      emit(liveId, "status.update", { kind: "compacting", text: "Compacting context…" });
+      await script.compacting;
+      emit(liveId, "status.update", { kind: "compacted", text: "Compaction complete" });
+    }
     if (script.thinking) emit(liveId, "thinking.delta", { text: script.thinking });
+    if (script.reasoning && script.showReasoning) for (const piece of script.reasoning.match(/.{1,12}/gs) || []) emit(liveId, "reasoning.delta", { text: piece });
     if (script.tool) {
       emit(liveId, "tool.start", { tool_id: "tool-1", name: script.tool, args_text: "{}" });
       emit(liveId, "tool.complete", { tool_id: "tool-1", name: script.tool, summary: "done" });
@@ -208,11 +223,14 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
       emit(liveId, "message.delta", { text: piece });
       await new Promise(resolve => setImmediate(resolve));
     }
-    row.messages.push({ role: "assistant", text: reply });
+    row.messages.push({ role: "assistant", text: reply, ...(script.reasoning ? { reasoning: script.reasoning } : {}) });
     row.running = false;
     row.inflight = null;
     row.lastActive += 1;
-    emit(liveId, "message.complete", { text: reply });
+    emit(liveId, "message.complete", { text: reply, status: script.status || "complete", ...(script.reasoning ? { reasoning: script.reasoning } : {}),
+      ...(script.error ? { error: script.error } : {}) });
+    // Text that waited for this turn is the next one, merged as Hermes merges it.
+    if (row.queue?.length) void runTurn(liveId, storedId, row.queue.splice(0).join("\n\n"));
   }
 
   // Hosted group rooms: every member mentioned (or everyone, without a
@@ -303,12 +321,26 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
       case "prompt.submit": {
         const storedId = storedOf(p.session_id);
         if (!storedId) return fail(4001, "session not found");
-        state.prompts.push({ liveId: p.session_id, text: p.text });
-        reply({ ok: true });
+        state.prompts.push({ liveId: p.session_id, text: p.text, ...(p.queued === true ? { queued: true } : {}) });
+        const row = state.stored.get(storedId);
+        if (p.queued === true && row.running) { (row.queue ||= []).push(String(p.text || "")); return reply({ status: "queued" }); }
+        reply({ status: "streaming" });
         void runTurn(p.session_id, storedId, String(p.text || ""));
         return undefined;
       }
-      case "session.interrupt": return reply({ ok: true });
+      case "session.steer": {
+        const storedId = storedOf(p.session_id);
+        if (!storedId) return fail(4001, "session not found");
+        if (!state.stored.get(storedId).running) return reply({ status: "rejected", text: String(p.text || "") });
+        state.steers.push({ liveId: p.session_id, text: String(p.text || "") });
+        return reply({ status: "queued", text: String(p.text || "") });
+      }
+      case "session.interrupt": {
+        // Stop also drops every message waiting for the next turn.
+        const storedId = storedOf(p.session_id), row = storedId && state.stored.get(storedId);
+        if (row) row.queue = [];
+        return reply({ status: "interrupted" });
+      }
       case "profiles.describe": {
         const profile = state.profiles.find(row => row.name === p.name);
         if (!profile) return fail(4064, `profile '${p.name}' not found`);
@@ -373,11 +405,23 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         return reply({ model: "gpt-6-luna", provider: "openai-codex", providers: [
           { slug: "openai-codex", name: "OpenAI Codex", is_current: true, models: ["gpt-6-luna", "gpt-6-mini"], total_models: 2 },
           { slug: "ollama", name: "Ollama", is_current: false, models: ["deepseek-v4-pro:cloud", "expensive-model"], total_models: 2 }] });
-      case "config.set": {
-        state.consoleCalls.push({ method: "config.set", key: p.key, value: p.value, scope: p.scope });
+      case "config.get": {
         if (p.key !== "reasoning") return fail(4002, `unknown config key: ${p.key}`);
-        if (!["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(p.value)) return fail(4002, `unknown reasoning value: ${p.value}`);
-        state.config.agent.reasoning_effort = p.value;
+        const storedId = p.session_id ? storedOf(p.session_id) : null;
+        if (p.session_id && !storedId) return fail(4001, "session not found");
+        const profile = storedId ? state.stored.get(storedId).profile : p.profile || "default";
+        return reply({ value: state.live.has(p.session_id) && state.sessionReasoning.has(p.session_id) ? state.sessionReasoning.get(p.session_id) : reasoningOf(profile), display: "hide" });
+      }
+      case "config.set": {
+        state.consoleCalls.push({ method: "config.set", key: p.key, value: p.value, scope: p.scope, ...(p.profile ? { profile: p.profile } : {}), ...(p.session_id ? { session_id: p.session_id } : {}) });
+        if (p.key !== "reasoning") return fail(4002, `unknown config key: ${p.key}`);
+        if (!["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(p.value)) return fail(4002, `unknown reasoning value: ${p.value}`);
+        const storedId = p.session_id ? storedOf(p.session_id) : null;
+        if (p.session_id && !storedId) return fail(4001, "session not found");
+        // With a conversation: that conversation now, and its Bot's setting
+        // when the scope is global. Without: the Bot's (Nova's) setting.
+        if (p.session_id) state.sessionReasoning.set(p.session_id, p.value);
+        if (!p.session_id || p.scope === "global") setReasoningOf(storedId ? state.stored.get(storedId).profile : p.profile || "default", p.value);
         return reply({ key: "reasoning", value: p.value });
       }
       case "groups.capabilities":
@@ -553,7 +597,8 @@ function createFakeHermesGateway({ authRequired = true, providers = ["basic"], u
         // (labelled) and the tool's own row; display-only rows are marked hidden.
         const rows = row.messages.flatMap((item, index) => {
           const at = item.at ?? row.startedAt, call = `call-${index + 1}`;
-          if (item.role !== "tool") return [{ role: item.role, content: item.text, timestamp: at, ...(item.hidden ? { display_kind: "hidden" } : {}) }];
+          if (item.role !== "tool") return [{ role: item.role, content: item.text, timestamp: at, ...(item.hidden ? { display_kind: "hidden" } : {}),
+            ...(item.display_kind ? { display_kind: item.display_kind, display_metadata: item.display_metadata || {} } : {}), ...(item.reasoning ? { reasoning: item.reasoning } : {}) }];
           return [{ role: "assistant", content: "", timestamp: at, tool_calls: [{ id: call, function: { name: item.name, arguments: "{}" } }],
             ...(item.context ? { tool_call_labels: { [call]: [{ kind: "tool", text: item.context, name: item.name }] } } : {}) },
           { role: "tool", tool_name: item.name, tool_call_id: call, content: "", timestamp: at }];

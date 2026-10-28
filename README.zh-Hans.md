@@ -153,8 +153,8 @@ Stepsemble 不会替 Agent 回答它自己的首次设置页。新建 Antigravit
 
 已配对的任一台电脑运行 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 时，Workspace 顶部会出现“工作区｜助理”切换。
 助理页是那台电脑 Hermes Bot Mode 的手机优先客户端（多台都有时可选择）：用 Hermes 控制台账号登录一次后，
-就能和每个 Bot 的永久对话（Bot Chat）聊天、回复审批／提问／sudo／secret（有推送）、查看 Telegram 与定时任务的对话、
-管理定时任务、和 2～6 个 Bot 开群组、创建与编辑 Bot（外观、图片、个性、模型、技能、经 Hermes 安全检查后从技能中心安装、
+就能和每个 Bot 的永久对话（Bot Chat）聊天（Bot 工作中发的消息会补充到当前的工作，不会中断它）、回复审批／提问／sudo／secret（有推送）、查看 Telegram 与定时任务的对话、
+管理定时任务、和 2～6 个 Bot 开群组、创建与编辑 Bot（外观、图片、个性、模型与推理强度、技能、经 Hermes 安全检查后从技能中心安装、
 工具组、MCP），也能删除 Bot。**设置 → Agent 与模型 → Hermes** 是控制台：网关、默认与辅助模型、推理强度、备用模型、
 提供方 API 密钥、自定义端点，以及 7／30／90 天用量。Hermes 不再出现在“新建对话”，以前用 ACP 打开的 Hermes 对话仍可打开。
 

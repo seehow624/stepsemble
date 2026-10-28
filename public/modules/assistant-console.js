@@ -133,7 +133,7 @@
           reload();
         } catch (error) { failed(error); } finally { use.disabled = anyway.disabled = false; }
       }
-      const reasoning = select(REASONING.map(level => [level, level || t("reasoningDefault")]), view.reasoning || "", t("reasoningLabel"));
+      const reasoning = select(REASONING.map(level => [level, level ? t(`reasoning${level[0].toUpperCase()}${level.slice(1)}`) : t("reasoningDefault")]), view.reasoning || "", t("reasoningLabel"));
       reasoning.addEventListener("change", async () => {
         if (!reasoning.value) return;
         try { await api.setReasoning(reasoning.value); toast(t("saved")); } catch (error) { failed(error); }
@@ -150,7 +150,7 @@
         const row = el("div", "assistant-console-slot");
         row.dataset.task = slot.task;
         const picker = modelPicker(view.providers, { provider: slot.provider, model: slot.model }, { auto: true });
-        const reasoning = select(REASONING.map(level => [level, level || t("reasoningDefault")]), slot.reasoning || "", t("reasoningLabel"));
+        const reasoning = select(REASONING.map(level => [level, level ? t(`reasoning${level[0].toUpperCase()}${level.slice(1)}`) : t("reasoningDefault")]), slot.reasoning || "", t("reasoningLabel"));
         const note = el("p", "assistant-hint");
         note.hidden = true;
         const apply = async confirmExpensive => {

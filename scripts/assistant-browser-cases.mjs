@@ -176,6 +176,31 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       assert.deepEqual(preview.fake.state.answers.at(-1).response.result, { value: "hunter2-browser" });
       assert.equal((await page.content()).includes("hunter2-browser"), false, "the sudo password never stays in the page");
 
+      stage = "talk while it works";
+      // A message sent while the Bot works joins that work and never stops
+      // it; what the Bot does next shows below the message it took in.
+      let release;
+      preview.fake.setTurn({ reply: "Prices are in.", tool: "search", wait: new Promise(resolve => { release = resolve; }) });
+      await input.fill("research vendors");
+      await send();
+      await page.locator(".assistant-msg.assistant .assistant-tool-group").last().waitFor();
+      await input.fill("also check prices");
+      await page.getByText("Sending now adds to the current work, or waits for this turn to end; it won’t interrupt.", { exact: true }).waitFor();
+      await send();
+      const steered = page.locator(".assistant-msg.user", { hasText: "also check prices" });
+      await steered.locator(".assistant-delivery", { hasText: "Added to the current work" }).waitFor();
+      await shot("steered");
+      release();
+      await page.locator(".assistant-msg.assistant", { hasText: "Prices are in." }).waitFor();
+      assert.deepEqual(await page.locator(".assistant-msg").evaluateAll(nodes => {
+        const at = test => nodes.findIndex(test);
+        return [at(node => node.textContent.includes("also check prices")) < at(node => node.textContent.includes("Prices are in."))];
+      }), [true]);
+      await steered.locator(".assistant-delivery").waitFor({ state: "detached" });
+      await page.locator(".assistant-stop").waitFor({ state: "hidden" });
+      assert.deepEqual(preview.fake.state.steers.map(row => row.text), ["also check prices"]);
+      assert.equal(preview.fake.state.prompts.at(-1).text, "research vendors", "the second message was not sent as a turn of its own");
+
       stage = "other conversations";
       const telegram = preview.fake.addSession("default", "Groceries", { source: "telegram" });
       telegram.messages.push({ role: "user", text: "buy milk" });
@@ -272,14 +297,22 @@ export async function runAssistantBrowserCases(browser, { screenshots } = {}) {
       await page.locator("summary", { hasText: "Model" }).click();
       await page.getByLabel("Provider").selectOption("ollama");
       await page.getByRole("combobox", { name: "Model", exact: true }).selectOption("expensive-model");
-      await page.getByRole("button", { name: "Use this model", exact: true }).click();
+      // How hard the Bot thinks is chosen beside its model and applied with it.
+      const reasoning = page.locator(".assistant-manage-section[open]").getByRole("combobox", { name: "Reasoning", exact: true });
+      assert.equal(await reasoning.inputValue(), "medium");
+      assert.deepEqual(await reasoning.locator("option").allTextContents(), ["Off", "Minimal", "Low", "Medium", "High", "Extra high", "Max"]);
+      await reasoning.selectOption("high");
+      await page.getByRole("button", { name: "Apply", exact: true }).click();
       await page.getByText("Hermes says: expensive-model costs more than usual").waitFor();
+      assert.equal(preview.fake.state.reasoning.get("research-buddy"), undefined, "nor its reasoning before confirming");
       assert.notEqual(preview.fake.state.profiles.find(row => row.name === "research-buddy").model, "expensive-model", "nothing changes before confirming");
       await page.getByRole("button", { name: "Use anyway", exact: true }).click();
       for (let tries = 0; tries < 50 && preview.fake.state.profiles.find(row => row.name === "research-buddy").model !== "expensive-model"; tries += 1) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       assert.equal(preview.fake.state.profiles.find(row => row.name === "research-buddy").model, "expensive-model");
+      for (let tries = 0; tries < 50 && preview.fake.state.reasoning.get("research-buddy") !== "high"; tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(preview.fake.state.reasoning.get("research-buddy"), "high");
 
       stage = "skills";
       await page.locator("summary", { hasText: "Skills" }).click();

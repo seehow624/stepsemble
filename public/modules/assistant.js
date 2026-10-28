@@ -198,7 +198,7 @@
     consoleView = window.StepsembleAssistantConsole.create({ api, t, el, button, iconButton, toast, locale: prefs.locale,
       onBack: () => { if (history.length > 1) history.back(); else location.assign("/index.html?settings=1&section=connection"); } });
     if (!groupDrafts.has(next.id)) groupDrafts.set(next.id, new Map());
-    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, bots: () => bots, drafts: groupDrafts.get(next.id),
+    groupsView = window.StepsembleAssistantGroups.create({ api, t, el, button, iconButton, toast, avatar, markdown, stampTime, bots: () => bots, drafts: groupDrafts.get(next.id),
       onBack: () => { if (epoch === startRevision) void loadGroups().finally(() => { if (epoch === startRevision) { tell({ type: "assistant-changed" }); showRoster(); } }); } });
     historyView = window.StepsembleAssistantHistory.create({ api, t, el, button, icon, M, locale: prefs.locale, showPanel, plain: content.plain,
       onSelect: (profile, row) => { if (epoch === startRevision) openBot(profile, row.id, { title: row.title }); } });
@@ -554,6 +554,18 @@
     const badge = el("span", "assistant-chip-badge", (ext || "file").slice(0, 4).toUpperCase()); badge.setAttribute("aria-hidden", "true");
     chip.append(badge, el("span", "assistant-chip-name", name)); return chip;
   }
+  // The time a message was written, in its bubble's corner as a messaging app
+  // shows it; the full date and time on hover.
+  function stampTime(bubble, at) {
+    const value = Number(at), when = new Date(value > 0 && value < 1e12 ? value * 1000 : value);
+    if (!(value > 0) || Number.isNaN(when.getTime())) return;
+    let short, full;
+    try { short = when.toLocaleTimeString(prefs.locale, { hour: "numeric", minute: "2-digit" }); full = when.toLocaleString(prefs.locale); }
+    catch { short = when.toISOString().slice(11, 16); full = when.toISOString(); }
+    const time = el("time", "assistant-time", short);
+    time.dateTime = when.toISOString(); time.title = full;
+    bubble.append(time);
+  }
   function itemNode(item) {
     const cached = chat.nodes.get(item.id);
     if (cached && cached.rev === item.rev) return cached.node;
@@ -572,9 +584,12 @@
       if (item.text || files.length) {
         const bubble = el("div", "assistant-bubble", item.text);
         for (const entry of files) bubble.append(fileChip(entry?.name ?? entry));
+        stampTime(bubble, item.at);
         node.append(bubble);
       }
-    } else if (item.role === "system") node.textContent = item.text;
+      // Sent while the Bot worked: added to that work, or waiting for its turn.
+      if (item.delivery) node.append(el("p", `assistant-delivery ${item.delivery}`, t(item.delivery)));
+    } else if (item.role === "system") node.textContent = item.text || (item.kind === "delegation" ? t("delegationDone") : "");
     else {
       const body = el("div", "assistant-reply");
       const steps = el("div", "assistant-steps");
@@ -595,9 +610,16 @@
         }
         steps.append(group);
       }
+      // What the Bot did on the way (thinking, tools) stays above, unboxed; its
+      // answer is a bubble, as in a messaging app.
       if (steps.childElementCount) body.append(steps);
-      if (item.text) body.append(markdown(item.text, { complete: !item.streaming }));
-      if (item.streaming && !item.text) body.append(el("p", "assistant-working", t("working")));
+      if (item.text) {
+        const bubble = el("div", "assistant-bubble bot");
+        bubble.append(markdown(item.text, { complete: !item.streaming }));
+        if (!item.streaming) stampTime(bubble, item.at);
+        body.append(bubble);
+      }
+      if (item.streaming && !item.text) body.append(el("p", "assistant-working", t(item.status === "compacting" ? "compacting" : "working")));
       node.append(avatar(chat.bot), body);
     }
     chat.nodes.set(item.id, { rev: item.rev, node });
@@ -725,9 +747,12 @@
     input.placeholder = t("messagePlaceholder", { name: entry.bot.displayName }); input.setAttribute("aria-label", input.placeholder);
     const file = el("input"); file.type = "file"; file.multiple = true; file.hidden = true;
     const attach = iconButton("attach", t("attach"), "assistant-attach", () => file.click());
-    const hint = el("p", "assistant-hint", t("interruptHint"));
+    const hint = el("p", "assistant-hint quiet", t("busyHint"));
     const send = iconButton("send", t("send"), "assistant-send", null, "submit");
-    const stop = iconButton("stop", t("stop"), "assistant-stop", () => void owner.interrupt(entry.sessionId).catch(error => toast(t("failed", { message: error.message }))));
+    const stop = iconButton("stop", t("stop"), "assistant-stop", () => void owner.interrupt(entry.sessionId).then(() => {
+      M.dropQueued(entry.items);
+      if (chat === entry) renderTranscript();
+    }).catch(error => toast(t("failed", { message: error.message }))));
     function renderChips() {
       chips.replaceChildren(...entry.attachments.map((item, index) => {
         const remove = iconButton("close", `${t("remove")} ${item.name}`, "assistant-chip-remove", () => {
@@ -781,10 +806,18 @@
       event.preventDefault(); if (chat !== entry || entry.sending) return;
       const text = input.value; if (!text.trim() && !entry.attachments.length) return;
       const attachments = entry.attachments; entry.sending = true; entry.running = true;
-      entry.items.push(M.userItem(text, attachments.map(item => item.preview ? { name: item.name, src: item.preview } : item.name)));
+      const sent = M.userItem(text, attachments.map(item => item.preview ? { name: item.name, src: item.preview } : item.name));
+      entry.items.push(sent);
       entry.attachments = []; entry.draft = ""; input.value = ""; remember(entry);
       renderChips(); renderTranscript(); scrollToEnd(); sync();
-      try { await owner.prompt(entry.sessionId, text, attachments.map(({ preview, ...item }) => item)); }
+      try {
+        const delivered = (await owner.prompt(entry.sessionId, text, attachments.map(({ preview, ...item }) => item)))?.delivered;
+        if (delivered === "steered" || delivered === "queued") {
+          sent.delivery = delivered; sent.rev += 1;
+          if (delivered === "steered") M.continueBelow(entry.items);
+          if (chat === entry) renderTranscript();
+        }
+      }
       catch (error) {
         entry.running = false;
         entry.items.push(M.systemItem(t("sendFailed", { message: error.message })));

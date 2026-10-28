@@ -23,7 +23,7 @@ test("history becomes a transcript, and live events extend it in order", () => {
   assert.deepEqual(items.map(item => [item.role, item.text, item.tools.length]), [["user", "hi", 0], ["assistant", "", 1], ["assistant", "Hello", 0]]);
   for (const event of [
     { type: "message.start", payload: {} },
-    { type: "thinking.delta", payload: { text: "checking" } },
+    { type: "reasoning.delta", payload: { text: "checking" } },
     { type: "tool.start", payload: { tool_id: "t1", name: "search", args_text: "{}" } },
     { type: "tool.complete", payload: { tool_id: "t1", name: "search", summary: "3 results" } },
     { type: "message.delta", payload: { text: "Done " } },
@@ -39,6 +39,95 @@ test("history becomes a transcript, and live events extend it in order", () => {
   assert.equal(M.applyEvent(items, { type: "status.update", payload: {} }), false);
   M.applyEvent(items, { type: "error", payload: { message: "Model unavailable" } });
   assert.deepEqual([items.at(-1).role, items.at(-1).text], ["system", "Model unavailable"]);
+});
+
+test("the thinking shown is the Bot's own reasoning, never Hermes's waiting line", () => {
+  const items = [];
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  assert.equal(M.applyEvent(items, { type: "thinking.delta", payload: { text: "(◕‿◕) pondering..." } }), false);
+  M.applyEvent(items, { type: "message.delta", payload: { text: "42" } });
+  // A Bot that does not show its reasoning while it thinks still gives it at the end.
+  M.applyEvent(items, { type: "message.complete", payload: { text: "42", reasoning: "Six times seven." } });
+  assert.deepEqual([items[0].text, items[0].thinking], ["42", "Six times seven."]);
+  const reopened = M.fromHistory([{ role: "assistant", text: "42", thinking: "Six times seven." },
+    { role: "system", kind: "delegation", text: "Subagent Task Completed: vendors" }]);
+  assert.deepEqual(reopened.map(item => [item.role, item.thinking, item.kind]), [["assistant", "Six times seven.", ""], ["system", "", "delegation"]]);
+});
+
+test("while Hermes compacts a long conversation the answer says so, and only then", () => {
+  const items = [];
+  assert.equal(M.applyEvent(items, { type: "status.update", payload: { kind: "compacting", text: "Compacting context…" } }), false, "no turn, nothing to mark");
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  assert.equal(M.applyEvent(items, { type: "status.update", payload: { kind: "compacting", text: "Compacting context…" } }), true);
+  assert.equal(items[0].status, "compacting");
+  assert.equal(M.applyEvent(items, { type: "status.update", payload: { kind: "heartbeat", text: "still here" } }), false);
+  assert.equal(items[0].status, "compacting");
+  M.applyEvent(items, { type: "status.update", payload: { kind: "compacted", text: "Compaction complete" } });
+  assert.equal(items[0].status, "");
+  M.applyEvent(items, { type: "status.update", payload: { kind: "compacting", text: "Compacting context…" } });
+  M.applyEvent(items, { type: "tool.start", payload: { tool_id: "t1", name: "search" } });
+  assert.equal(items[0].status, "", "work going on means the compaction is over");
+  // Background work finishing is a notice of its own.
+  M.applyEvent(items, { type: "status.update", payload: { kind: "process", text: "Subagent Task Completed: vendors" } });
+  assert.deepEqual([items.at(-1).role, items.at(-1).kind, items.at(-1).text], ["system", "process", "Subagent Task Completed: vendors"]);
+});
+
+test("a message the Bot took into its work moves what it does next below that message", () => {
+  const items = M.fromHistory([{ role: "user", text: "research this" }]);
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  M.applyEvent(items, { type: "tool.start", payload: { tool_id: "t1", name: "search" } });
+  const before = items.at(-1), sent = M.userItem("also check prices");
+  items.push(sent);
+  sent.delivery = "steered";
+  M.continueBelow(items);
+  assert.deepEqual(items.map(item => [item.role, item.streaming]), [["user", false], ["assistant", false], ["user", false], ["assistant", true]]);
+  // The step that was running ends where it began; the answer comes below.
+  M.applyEvent(items, { type: "tool.complete", payload: { tool_id: "t1", name: "search", summary: "3 results" } });
+  assert.deepEqual(before.tools.map(tool => [tool.done, tool.result]), [[true, "3 results"]]);
+  M.applyEvent(items, { type: "message.delta", payload: { text: "Both done." } });
+  M.applyEvent(items, { type: "message.complete", payload: { text: "Both done." } });
+  assert.deepEqual([items.at(-1).text, before.text, sent.delivery], ["Both done.", "", ""]);
+  // An answer already being written stays in one piece; one with nothing yet just moves.
+  const writing = M.fromHistory([]);
+  M.applyEvent(writing, { type: "message.start", payload: {} });
+  M.applyEvent(writing, { type: "message.delta", payload: { text: "Half" } });
+  writing.push(M.userItem("more"));
+  M.continueBelow(writing);
+  assert.deepEqual(writing.map(item => [item.role, item.text]), [["assistant", "Half"], ["user", "more"]]);
+  const empty = M.fromHistory([]);
+  M.applyEvent(empty, { type: "message.start", payload: {} });
+  empty.push(M.userItem("hello?"));
+  M.continueBelow(empty);
+  assert.deepEqual(empty.map(item => [item.role, item.streaming]), [["user", false], ["assistant", true]]);
+});
+
+test("a waiting message is marked until its turn starts, and Stop drops it", () => {
+  const items = [];
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  const first = M.userItem("one"), second = M.userItem("two");
+  first.delivery = second.delivery = "queued";
+  items.push(first);
+  M.applyEvent(items, { type: "message.complete", payload: { text: "done" } });
+  assert.equal(first.delivery, "queued", "still waiting after the turn it came during");
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  assert.equal(first.delivery, "");
+  items.push(second);
+  M.dropQueued(items);
+  assert.equal(second.delivery, "dropped");
+  // A turn's end is news even when this page did not see it begin.
+  assert.equal(M.applyEvent([], { type: "message.complete", payload: { text: "x" } }), true);
+});
+
+test("each message keeps the time it was written, for its bubble", () => {
+  // Hermes's history gives seconds; the Host's events milliseconds.
+  const items = M.fromHistory([{ role: "user", text: "hi", at: 1_760_000_000 }, { role: "assistant", text: "Hello", at: 1_760_000_005 }, { role: "assistant", text: "no time" }]);
+  assert.deepEqual(items.map(item => item.at), [1_760_000_000_000, 1_760_000_005_000, 0]);
+  M.applyEvent(items, { type: "message.start", payload: {} });
+  M.applyEvent(items, { type: "message.delta", payload: { text: "Do" } });
+  assert.equal(items.at(-1).at, 0, "an answer still being written has no time yet");
+  M.applyEvent(items, { type: "message.complete", payload: { text: "Done" }, at: 1_760_000_100_000 });
+  assert.equal(items.at(-1).at, 1_760_000_100_000, "the time the Host recorded its end");
+  assert.ok(M.userItem("now").at >= Date.now() - 1000, "the person's message, when it was sent");
 });
 
 test("a reply already in progress continues where it was", () => {

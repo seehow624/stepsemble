@@ -21,12 +21,19 @@
     return { choices, selected };
   }
 
+  // at: when the message was written, in milliseconds (0 while it is being written).
+  // status: what the Bot is doing before it has words ("compacting"). delivery:
+  // what became of a message sent while the Bot worked ("steered" into that
+  // work, "queued" for the next turn, "dropped" by Stop). kind: a notice's kind.
   function item(role, text = "") {
-    return { id: `${role}-${++counter}`, role, text, thinking: "", tools: [], attachments: [], streaming: false, rev: 0 };
+    return { id: `${role}-${++counter}`, role, text, thinking: "", tools: [], attachments: [], streaming: false, rev: 0, at: 0, status: "", delivery: "", kind: "" };
   }
-  function userItem(text, attachments = []) {
+  // Hermes gives seconds, the Host's events milliseconds.
+  const millis = value => { const number = Number(value); return Number.isFinite(number) && number > 0 ? (number < 1e12 ? number * 1000 : number) : 0; };
+  function userItem(text, attachments = [], at = Date.now()) {
     const value = item("user", text);
     value.attachments = [...attachments];
+    value.at = millis(at);
     return value;
   }
   const systemItem = text => item("system", text);
@@ -43,7 +50,11 @@
         continue;
       }
       const role = message?.role === "user" ? "user" : message?.role === "system" ? "system" : "assistant";
-      items.push(item(role, typeof message?.text === "string" ? message.text : ""));
+      const value = item(role, typeof message?.text === "string" ? message.text : "");
+      value.at = millis(message?.at);
+      if (role === "assistant" && typeof message?.thinking === "string") value.thinking = message.thinking;
+      if (role === "system" && typeof message?.kind === "string") value.kind = message.kind;
+      items.push(value);
     }
     return items;
   }
@@ -68,45 +79,89 @@
   function settle(items) {
     for (const value of items) if (value.streaming) { value.streaming = false; value.rev += 1; }
   }
+  const live = items => [...items].reverse().find(entry => entry.streaming);
+
+  // The Bot took the person's newest message into the work it is doing: what
+  // it does from now on shows below that message, as a messaging app would.
+  // An answer already being written stays where it is, in one piece.
+  function continueBelow(items) {
+    const current = live(items);
+    if (!current || current.text || current === items.at(-1)) return;
+    if (!current.tools.length && !current.thinking) { items.splice(items.indexOf(current), 1); items.push(current); return; }
+    current.streaming = false; current.rev += 1;
+    const next = item("assistant");
+    next.streaming = true;
+    items.push(next);
+  }
+  // Stop drops every message still waiting for its turn.
+  function dropQueued(items) {
+    for (const value of items) if (value.delivery === "queued") { value.delivery = "dropped"; value.rev += 1; }
+  }
 
   function applyEvent(items, event) {
     const payload = event?.payload || {};
     switch (event?.type) {
       case "message.start": {
         settle(items);
+        // What waited for this turn is being handled now.
+        for (const value of items) if (value.delivery === "queued") { value.delivery = ""; value.rev += 1; }
         const value = item("assistant");
         value.streaming = true;
         items.push(value);
         return true;
       }
+      // reasoning.delta is the Bot's own reasoning, sent while it thinks when
+      // it shows it; thinking.delta is only Hermes's waiting line.
       case "message.delta":
-      case "thinking.delta": {
+      case "reasoning.delta": {
         if (!payload.text) return false;
         const value = streaming(items);
         if (event.type === "message.delta") value.text += payload.text; else value.thinking += payload.text;
+        value.status = "";
         value.rev += 1;
         return true;
       }
       case "tool.start": {
         const value = streaming(items);
         value.tools.push({ id: payload.tool_id || null, name: payload.name || "tool", detail: payload.args_text || payload.context || "", result: "", done: false });
+        value.status = "";
         value.rev += 1;
         return true;
       }
       case "tool.complete": {
+        // A step started before the work moved below a new message ends where it began.
         const value = streaming(items);
-        const tool = [...value.tools].reverse().find(entry => (payload.tool_id ? entry.id === payload.tool_id : !entry.done && entry.name === payload.name));
+        let owner = value, tool = [...value.tools].reverse().find(entry => (payload.tool_id ? entry.id === payload.tool_id : !entry.done && entry.name === payload.name));
+        for (let index = items.length - 1; !tool && payload.tool_id && index >= 0; index -= 1) {
+          owner = items[index];
+          tool = owner.tools.find(entry => entry.id === payload.tool_id && !entry.done);
+        }
         if (!tool) return false;
         tool.done = true;
         tool.result = payload.summary || payload.result_text || "";
+        owner.rev += 1;
+        return true;
+      }
+      case "status.update": {
+        // Hermes compacting a long conversation, which can take a minute.
+        const value = live(items);
+        if (payload.kind === "process" && payload.text) { const notice = item("system", payload.text); notice.kind = "process"; items.push(notice); return true; }
+        if (!value || !["compacting", "compacted"].includes(payload.kind)) return false;
+        value.status = payload.kind === "compacting" ? "compacting" : "";
         value.rev += 1;
         return true;
       }
       case "message.complete": {
-        const value = [...items].reverse().find(entry => entry.streaming);
-        if (!value) return false;
+        // The turn has ended, whether or not this page saw it begin.
+        const value = live(items);
+        for (const entry of items) if (entry.delivery === "steered") { entry.delivery = ""; entry.rev += 1; }
+        if (!value) return true;
         value.streaming = false;
+        value.status = "";
         if (!value.text && typeof payload.text === "string") value.text = payload.text;
+        // The whole reasoning comes with the end even when it was not shown while it was written.
+        if (!value.thinking && typeof payload.reasoning === "string") value.thinking = payload.reasoning;
+        value.at = millis(event.at) || Date.now();
         value.rev += 1;
         return true;
       }
@@ -189,6 +244,6 @@
   // A suggested Hermes profile id for a new Bot name (the user can edit it).
   const profileIdFor = label => String(label || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "").slice(0, 64);
 
-  return { chooseHermesMachine, fromHistory, withInflight, applyEvent, userItem, systemItem, formatWhen, sourceLabel, initials, colorFor,
+  return { chooseHermesMachine, fromHistory, withInflight, applyEvent, continueBelow, dropQueued, userItem, systemItem, formatWhen, sourceLabel, initials, colorFor,
     scheduleFromPicker, pickerFromSchedule, deliverTokens, withDeliver, routineName, profileIdFor };
 });
