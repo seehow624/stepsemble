@@ -54,9 +54,11 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       await signInToWorkspace(page, base, token);
       await addWorkspaceProject(page, project);
       const pane = await newWorkspaceSession(page, { agentId: "antigravity", name: "Stream session" });
-      await pane.waitForFunction(() => !document.querySelector("#btn-send")?.disabled);
+      // The conversation has loaded once it can take a message and shows its approval mode.
+      await pane.waitForFunction(() => !document.querySelector("#btn-send")?.disabled && !document.querySelector("#approval-control")?.classList.contains("hidden"), null, { timeout: 30000 });
       const send = async text => { await pane.locator("#input").fill(text); await pane.locator("#btn-send").click(); };
-      const answered = turn => pane.locator("#messages").getByText(new RegExp("fake answer " + turn + "\\b")).first().waitFor();
+      // A turn may start agy again (a new level), which takes a moment on a busy machine.
+      const answered = turn => pane.locator("#messages").getByText(new RegExp("fake answer " + turn + "\\b")).first().waitFor({ timeout: 30000 });
 
       // The conversation answers, and reports the context it used.
       await send("hello");
@@ -93,7 +95,7 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       // Reasoning applies from the next turn, on the same conversation.
       await pane.locator("#thinking-select").evaluate(node => { node.value = "low"; node.dispatchEvent(new Event("change")); });
       await send("think less");
-      await pane.locator("#messages").getByText(/fake answer 1 \(magpie\/fake\/model, low\)/).first().waitFor();
+      await pane.locator("#messages").getByText(/fake answer 1 \(magpie\/fake\/model, low\)/).first().waitFor({ timeout: 30000 });
 
       // /model opens the model sheet; it is never sent to agy.
       await send("/model");
@@ -113,7 +115,10 @@ export async function runAntigravityStreamBrowserCases(browser, { screenshotDire
       console.log(JSON.stringify({ case: "Antigravity stream (" + viewport.width + ")", result: "passed", syntheticOnly: true, approvalCard: true,
         approvalModes: modes.length, reasoning: true, modelSheet: true, terminalContinue: true, pageErrors: 0 }));
     } catch (error) {
-      throw new Error("Antigravity stream (" + viewport.width + "): " + error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]"));
+      // What the conversation showed, to tell a slow machine from a fault.
+      const shown = await page?.frames().find(frame => frame !== page.mainFrame())?.locator("#messages").textContent({ timeout: 2000 }).catch(() => "") || "";
+      throw new Error("Antigravity stream (" + viewport.width + "): " + error.message.replace(/\b[a-f0-9]{64}\b/gi, "[redacted-test-key]")
+        + (shown ? "\nConversation: " + shown.replace(/\s+/g, " ").slice(-600) : ""));
     } finally {
       await stopAgentTasks(page);
       await context?.close(); if (child) await stopServer(child);
