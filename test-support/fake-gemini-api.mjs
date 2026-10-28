@@ -6,9 +6,11 @@
 // GOOGLE_GEMINI_BASE_URL. Used by scripts/check-native-antigravity-release.mjs.
 //   node fake-gemini-api.mjs <log.jsonl>   -> prints "listening <port>" once ready
 // A user message containing [[run:<command>]] gets a run_command call back;
-// [[write:<path>]] a write_file call. After a tool result, or otherwise, it
-// answers in text. Each model request is logged: the model named in the URL,
-// its thinking settings, whether it carried a tool result, the user text.
+// [[write:<path>]] a write_file call; a picture the message names (as
+// Stepsemble attaches one) a read_file call. After a tool result, or
+// otherwise, it answers in text. Each model request is logged: the model
+// named in the URL, its thinking settings, whether it carried a tool result
+// or a picture, the user text.
 import http from "node:http";
 import fs from "node:fs";
 
@@ -32,11 +34,24 @@ const server = http.createServer((req, res) => {
     const contents = Array.isArray(body?.contents) ? body.contents : [];
     const last = contents[contents.length - 1] || {};
     const answeredTool = (last.parts || []).some(part => part.functionResponse);
-    const userText = (last.parts || []).filter(part => typeof part.text === "string").map(part => part.text).join("\n");
+    // The person's latest message (agy wraps it in <USER_REQUEST>); agy may
+    // add a system message of its own after it, as when a mode changes.
+    const textOf = item => (item?.parts || []).filter(part => typeof part.text === "string").map(part => part.text).join("\n");
+    let userText = textOf(last);
+    for (let index = contents.length - 1; index >= 0 && !answeredTool; index -= 1) {
+      if ((contents[index]?.parts || []).some(part => part.functionCall || part.functionResponse)) break;
+      if (contents[index]?.role === "user" && textOf(contents[index]).includes("<USER_REQUEST>")) { userText = textOf(contents[index]); break; }
+    }
     const tools = (body?.tools || []).flatMap(tool => (tool.functionDeclarations || []).map(fn => fn.name));
     log({ model: (/models\/(.+?):/.exec(req.url || "") || [])[1] || null, thinking: body?.generationConfig?.thinkingConfig || null,
-      answeredTool, tools: tools.length, userText: userText.slice(0, 4000), history: JSON.stringify(contents).length });
+      answeredTool, tools: tools.length, toolNames: tools.slice(0, 40), userText: userText.slice(0, 4000), history: JSON.stringify(contents).length,
+      recentText: contents.slice(-4).flatMap(item => item?.parts || []).filter(part => typeof part.text === "string").map(part => part.text).join("\n").slice(-8000),
+      picture: (last.parts || []).some(part => part.inlineData || part.inline_data) || JSON.stringify(last).includes("inlineData") });
     const run = /\[\[run:([^\]]+)\]\]/.exec(userText), write = /\[\[write:([^\]]+)\]\]/.exec(userText);
+    const picture = /attached a picture: (\/\S+?\.(?:png|jpe?g|gif|webp))\b/.exec(userText);
+    if (!answeredTool && tools.includes("read_file") && picture) {
+      reply(res, [{ functionCall: { name: "read_file", args: { Path: picture[1] } } }]); return;
+    }
     if (!answeredTool && tools.includes("run_command") && run) {
       reply(res, [{ functionCall: { name: "run_command", args: { CommandLine: run[1], WaitMsBeforeAsync: 3000, toolSummary: "probe" } } }]); return;
     }
