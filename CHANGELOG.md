@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.10.5
+
+- Keep one Manage sources entry in Limits instead of repeating a link for every computer. Open it to choose the computer whose sources you want to manage, independently of the limits filter or available readings. Keep keyboard focus and an open chooser through refresh; reveal the choices even below a long list of quotas.
+- Keep the Limits sheet's content width steady while it opens: a scrollbar no longer briefly takes space and squeezes the cards. Long content still scrolls with the wheel and remains keyboard-accessible. The Usage tab and forced-colour system scrollbar controls are unchanged.
+
 ## 3.10.4
 
 - Open long Codex conversations whose history page exceeds the 8 MiB limit: discard the oversized page and retry with fewer items on the same cursor, instead of showing `Could not load history: native_frame_invalid` and closing the shared app-server. Keep the native order and complete contents of each successful page; never skip or truncate items.
