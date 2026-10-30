@@ -1320,10 +1320,28 @@ export async function runRenameImeBrowserCases(browser) {
   } finally { await context.close(); await preview.close(); }
 }
 
-// Run against a real rendered table: the hint belongs to its card, not the
-// page behind it, and disappears at the last column. Reused by focused probes.
-export async function verifyTableScrollEdges(ui) {
-  const scroller = ui.locator("#messages .md-table-scroll").last();
+// User Markdown is rendered before Claude's polled reply arrives. Require the
+// newly submitted turn's complete reply, idle adapter and flushed Markdown rAF.
+export async function waitForTableReply(ui, previousUserCount) {
+  const target = await ui.waitForFunction(({ previousUserCount, reply }) => {
+    if (typeof rpc === "undefined" || !rpc || rpc.taskStatus !== "waiting" || rpc.streaming
+      || rpc.pendingTurn || rpc.nativeLoading || rpc.nativeRefreshInFlight || rpc.connectionLost
+      || !document.getElementById("btn-abort")?.classList.contains("hidden")) return false;
+    const users = document.querySelectorAll("#messages .msg.user");
+    if (users.length !== previousUserCount + 1) return false;
+    const user = users[previousUserCount];
+    const output = rpc.genericOutputNode;
+    if (!output?.isConnected || !output.closest(".msg.assistant") || output.__rawText !== reply
+      || output.__renderFrame || !(user.compareDocumentPosition(output) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+    const scroller = output.querySelector(".md-table-scroll");
+    return scroller?.isConnected && scroller.querySelectorAll("table tbody tr").length === 2 ? scroller : false;
+  }, { previousUserCount, reply: `fixture:${TABLE}` }, { timeout: 20000 });
+  return target.asElement();
+}
+
+// Run against one concrete rendered table throughout, including restoration.
+// A later reply must never redirect mutations or predicates to another card.
+export async function verifyTableScrollEdges(ui, scroller) {
   const original = await scroller.evaluate(node => ({ theme: document.documentElement.dataset.theme, design: document.documentElement.dataset.designTheme,
     look: document.documentElement.dataset.look, width: node.parentElement.style.maxWidth, inlineWidth: node.parentElement.style.width, left: node.scrollLeft, message: node.closest(".msg").className }));
   try {
@@ -1333,8 +1351,8 @@ export async function verifyTableScrollEdges(ui) {
         const message = node.closest(".msg"); message.classList.toggle("user", role === "user"); message.classList.toggle("assistant", role === "assistant");
         node.parentElement.style.maxWidth = "260px"; node.scrollLeft = 0;
       }, { design, theme, look, role });
-      await ui.waitForFunction(() => { const node = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1);
-        return node.scrollWidth > node.clientWidth + 1 && node.parentElement.classList.contains("more-right") && !node.parentElement.classList.contains("more-left"); });
+      await ui.waitForFunction(node => node.isConnected && node.scrollWidth > node.clientWidth + 1
+        && node.parentElement.classList.contains("more-right") && !node.parentElement.classList.contains("more-left"), scroller);
       const colors = await scroller.evaluate(node => {
         const frame = node.parentElement, style = getComputedStyle, canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
         const ctx = canvas.getContext("2d"), rgb = color => { ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); return [...ctx.getImageData(0, 0, 1, 1).data]; };
@@ -1353,16 +1371,16 @@ export async function verifyTableScrollEdges(ui) {
       assert.equal(colors.fadeRadius, colors.radius - 1, label + ": rounded hint stays inside the card");
       assert.equal(colors.pointer, "none", label + ": hint never intercepts scrolling");
       await scroller.evaluate(node => { node.scrollLeft = node.scrollWidth; });
-      await ui.waitForFunction(() => { const node = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1), frame = node.parentElement;
-        return frame.classList.contains("more-left") && !frame.classList.contains("more-right") && Number(getComputedStyle(frame, "::after").opacity) === 0; });
+      await ui.waitForFunction(node => { const frame = node.parentElement;
+        return node.isConnected && frame.classList.contains("more-left") && !frame.classList.contains("more-right") && Number(getComputedStyle(frame, "::after").opacity) === 0; }, scroller);
       const end = await scroller.evaluate(node => ({ remaining: node.scrollWidth - node.clientWidth - node.scrollLeft,
         lastCell: node.querySelector("tr").lastElementChild.getBoundingClientRect().right, edge: node.getBoundingClientRect().right }));
       assert.ok(Math.abs(end.remaining) <= 1 && end.lastCell <= end.edge + 1, label + ": last column fully reachable");
     }
     // Resizing to fit removes both hints; the observer, not a manual update.
     await scroller.evaluate(node => { node.parentElement.style.maxWidth = "none"; node.parentElement.style.width = (node.scrollWidth + 30) + "px"; });
-    await ui.waitForFunction(() => { const node = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1);
-      return node.scrollWidth <= node.clientWidth + 1 && !node.parentElement.classList.contains("more-left") && !node.parentElement.classList.contains("more-right"); });
+    await ui.waitForFunction(node => node.isConnected && node.scrollWidth <= node.clientWidth + 1
+      && !node.parentElement.classList.contains("more-left") && !node.parentElement.classList.contains("more-right"), scroller);
   } finally {
     await scroller.evaluate((node, original) => {
       const root = document.documentElement;
@@ -1596,11 +1614,11 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       await pendingTurn(page, ui, context, "**/api/claude/structured/prompt", "held back for Claude", "fixture:held back for Claude", out, "claude");
 
       stage = "Claude Code: a table scrolls sideways";
+      const previousTableUserCount = await ui.locator("#messages .msg.user").count();
       await ui.locator("#input").fill(TABLE);
       await ui.locator("#btn-send").click();
-      await ui.waitForFunction(() => document.querySelectorAll("#messages .md-table-scroll table tbody tr").length === 2, null, { timeout: 20000 });
-      const table = await ui.evaluate(() => {
-        const scroller = [...document.querySelectorAll("#messages .md-table-scroll")].at(-1);
+      const tableScroller = await waitForTableReply(ui, previousTableUserCount);
+      const table = await tableScroller.evaluate(scroller => {
         const heads = [...scroller.querySelectorAll("thead th")].map(cell => Math.round(cell.getBoundingClientRect().height));
         const line = parseFloat(getComputedStyle(scroller.querySelector("thead th")).lineHeight) || 20;
         return { wider: scroller.scrollWidth > scroller.clientWidth, heads, line, pageFits: document.documentElement.scrollWidth <= innerWidth };
@@ -1610,10 +1628,8 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       assert.equal(table.pageFits, true, "the page itself never scrolls sideways");
       out.table = table.wider ? "scrolls" : "fits";
       stage = "table hints match their surface and clear at the end";
-      // The final Markdown chunk can precede turn completion. Wait before
-      // changing a fixture frame that the streaming renderer could replace.
-      await ui.waitForFunction(() => document.getElementById("btn-abort")?.classList.contains("hidden"));
-      await verifyTableScrollEdges(ui);
+      try { await verifyTableScrollEdges(ui, tableScroller); }
+      finally { await tableScroller.dispose(); }
       out.tableEdges = "theme, bubble, corners, scroll end and resize";
 
       stage = "Claude sign-in failure offers an explanation and retry in its pane";
