@@ -8,8 +8,10 @@ import { pathToFileURL } from "node:url";
 import { createUsagePreview } from "./usage-preview.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { runUsageContrastBrowserCases } from "./usage-contrast-browser-cases.mjs";
+import { runUsageSourcePickerBrowserCases } from "./usage-source-picker-browser-cases.mjs";
 
 export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}) {
+  await runUsageSourcePickerBrowserCases(browser, { screenshotDirectory });
   await runUsageContrastBrowserCases(browser);
   for (const mobile of [false, true]) {
     const fixture = await createUsagePreview(0, { unpriced: mobile, nativeHistory: true });
@@ -253,11 +255,39 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await host.inputValue(), "mbp", "opens on the computer chosen last");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab")));
       await sheetGone(); assert.equal(await page.locator("#workspace-host").inputValue(), "mbp");
-      stage = "quota sources follow the Host";
-      await openLimits(); await sheet.locator(".usage-quota-sources").click();
+      stage = "one source-management entry chooses its computer";
+      await openLimits(); await host.selectOption(""); await readyLimits();
+      const sources = sheet.locator(".usage-quota-sources");
+      assert.equal(await sources.count(), 1, "All Hosts still has just one management entry");
+      assert.equal(await sources.innerText(), mobile ? "管理額度來源" : "Manage sources");
+      assert.equal(await sheet.locator(".usage-source-host").count(), 0, "computer choices start hidden");
+      await sources.click(); await settled();
+      assert.equal(await sources.getAttribute("aria-expanded"), "true");
+      assert.deepEqual(await sheet.locator(".usage-source-host").evaluateAll(nodes => nodes.map(node => node.dataset.quotaSource)), ["mini", "mbp"]);
+      assert.equal(await page.locator("iframe.workspace-settings-frame").count(), 0, "opening the choices does not navigate");
+      const choiceBounds = await sheet.locator(".usage-source-hosts").boundingBox(), choiceBody = await sheet.locator(".usage-body").boundingBox();
+      assert.ok(choiceBounds.y >= choiceBody.y - 1 && choiceBounds.y + choiceBounds.height <= choiceBody.y + choiceBody.height + 1,
+        "choices are revealed even when quota cards already fill the sheet " + JSON.stringify({ choiceBounds, choiceBody }));
+      if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, mobile ? "sources-mobile-open.png" : "sources-desktop-open.png") });
+      await page.keyboard.press("Escape");
+      assert.equal(await sheet.count(), 1, "Escape first closes just the computer choices");
+      assert.equal(await sources.getAttribute("aria-expanded"), "false");
+      assert.equal(await sources.evaluate(el => el === document.activeElement), true);
+      await host.selectOption("mbp"); await readyLimits();
+      assert.equal(await sources.count(), 1);
+      await sources.focus(); await page.keyboard.press("Enter");
+      assert.equal(await sheet.locator(".usage-source-host").count(), 2, "a limits filter does not hide other computers from management");
+      await sheet.locator('[data-quota-source="mbp"]').click();
       await sheetGone(); const settings = page.locator("iframe.workspace-settings-frame"); await settings.waitFor();
       assert.equal(new URL(await settings.getAttribute("src")).searchParams.get("host"), "mbp");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settings.waitFor({ state: "detached" });
+      await openLimits(); await sources.click(); await sheet.locator('[data-quota-source="mini"]').click();
+      await sheetGone(); await settings.waitFor();
+      assert.equal(new URL(await settings.getAttribute("src")).searchParams.get("host"), "mini", "the chosen computer, not the previous limits filter, owns the settings");
+      await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settings.waitFor({ state: "detached" });
+      await openLimits(); await host.selectOption("mbp"); await readyLimits();
+      if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, mobile ? "sources-mobile-closed.png" : "sources-desktop-closed.png") });
+      await page.keyboard.press("Escape"); await sheetGone();
       stage = "usage remains accessible without quota";
       await context.route("**/api/workspace/usage*", route => route.fulfill({ json: { updatedAt: Date.now(), providers: [] } }));
       const emptyQuota = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/api/workspace/usage"));
@@ -271,7 +301,12 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.ok(quiet.text && quiet.size <= 12.5 && quiet.dot, JSON.stringify(quiet));
       await openLimits();
       assert.equal(await sheet.locator(".usage-quota-card").count(), 0);
+      await sources.click();
+      assert.equal(await sheet.locator(".usage-source-host").count(), 2, "source management stays available without quota readings");
       await usageTab.click(); await ready(); assert.ok(await tokens() > 0, "unavailable subscription limits do not block recorded usage");
+      await limitsTab.click(); await readyLimits();
+      assert.equal(await sources.getAttribute("aria-expanded"), "false", "switching tabs closes the computer choices");
+      await usageTab.click(); await ready();
       await page.keyboard.press("Escape"); await sheetGone(); await context.unroute("**/api/workspace/usage*");
       stage = "return to original conversation";
       await openLimits(); await usageTab.click(); await ready();

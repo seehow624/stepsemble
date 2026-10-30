@@ -207,6 +207,7 @@
     function schedule() { clearInterval(timer); timer = setInterval(() => { if (panel && !document.hidden) void load(); }, tab === "limits" ? 120000 : 60000); }
     function selectTab(value) {
       if (value === tab) return;
+      view.sources?.close();
       clearTimeout(indexingTimer); scrolls[tab] = view.body.scrollTop; tab = value;
       for (const control of view.tabs.children) { const active = control.dataset.overviewTab === tab; control.setAttribute("aria-selected", String(active)); control.tabIndex = active ? 0 : -1; }
       view.body.setAttribute("aria-labelledby", "usage-tab-" + tab); panel.dataset.tab = tab;
@@ -217,6 +218,7 @@
     }
     function selectHost(value, notify = true) {
       if (selectedHost === value) return;
+      view.sources?.close();
       selectedHost = value; if (view.host) view.host.value = value; previous = null; quotas = []; filters = { agent: "", project: "", model: "", entry: "" }; scrolls = { limits: 0, usage: 0 }; view.body.scrollTop = 0;
       if (notify && value) onHostSelected(value);
       void load();
@@ -406,6 +408,35 @@
       }
       section.append(tabs, list); rows(); return section;
     }
+    function quotaSourcesPicker() {
+      const owner = panel, picker = node("div", "", "usage-source-picker"), choices = node("div", "", "usage-source-hosts");
+      choices.id = "usage-source-hosts"; choices.setAttribute("role", "group"); choices.setAttribute("aria-labelledby", "usage-manage-sources");
+      const isOpen = () => control.getAttribute("aria-expanded") === "true";
+      const setOpen = value => {
+        control.setAttribute("aria-expanded", String(value));
+        if (!value) { choices.remove(); return; }
+        picker.append(choices);
+        // The sheet may already be at its height limit. Reveal the choices
+        // after its content-sized layout settles, not below the visible fold.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (panel === owner && isOpen() && choices.isConnected) choices.scrollIntoView({ block: "nearest", behavior: "instant" });
+        }));
+      };
+      const control = button(label("sources"), () => setOpen(!isOpen()), "usage-quota-sources");
+      control.id = "usage-manage-sources"; control.dataset.quotaSources = "true"; control.tabIndex = 0;
+      control.setAttribute("aria-expanded", "false"); control.setAttribute("aria-controls", choices.id);
+      control.append(icon(["path", { d: "m8 10 4 4 4-4" }]));
+      // Source management is independent of the limits filter: all configured
+      // computers stay reachable, even without a quota reading or while offline.
+      for (const host of hostChoices) {
+        const choice = button("", () => { if (panel !== owner) return; close({ restore: false }); openQuotaSources(host.id); }, "usage-source-host");
+        choice.dataset.quotaSource = host.id; choice.tabIndex = 0;
+        choice.append(icon(["rect", { x: "3", y: "4", width: "18", height: "12", rx: "2" }], ["path", { d: "M8 20h8m-4-4v4" }]), node("span", host.name), icon(["path", { d: "m10 8 4 4-4 4" }]));
+        choices.append(choice);
+      }
+      picker.append(control);
+      return { element: picker, control, isOpen, close: () => setOpen(false) };
+    }
     function renderLimits() {
       const body = view.body, scroll = body.scrollTop, focused = body.contains(document.activeElement) ? document.activeElement?.dataset : null;
       body.replaceChildren();
@@ -471,13 +502,11 @@
         card.append(readings);
         grid.append(card);
       }
-      for (const host of quotas) {
-        const sources = button(label("sources") + (!selectedHost ? " · " + host.name : ""), () => { close(); openQuotaSources(host.host); }, "usage-quota-sources");
-        sources.dataset.quotaSource = host.host; section.append(sources);
-      }
+      if (view.sources) section.append(view.sources.element);
       if (grid.children.length) section.prepend(grid);
       body.append(section);
       if (focused?.quotaSource) [...body.querySelectorAll("[data-quota-source]")].find(el => el.dataset.quotaSource === focused.quotaSource)?.focus({ preventScroll: true });
+      else if (focused?.quotaSources) view.sources?.control.focus({ preventScroll: true });
       else if (focused?.quotaMode) [...body.querySelectorAll("[data-quota-mode]")].find(el => el.dataset.quotaMode === focused.quotaMode)?.focus({ preventScroll: true });
       body.scrollTop = scroll;
     }
@@ -526,9 +555,12 @@
       const statusNote = node("p", label(tab === "limits" ? "loadingLimits" : "loading"), "usage-status"); statusNote.setAttribute("role", "status");
       const host = hostChoices.length > 1 ? makeSelect("host", [["", label("allHosts")], ...hostChoices.map(item => [item.id, item.name])], selectedHost, value => selectHost(value)) : null;
       const body = node("div", "", "usage-body"); body.id = "usage-view"; body.setAttribute("role", "tabpanel"); body.setAttribute("aria-labelledby", "usage-tab-" + tab);
-      view = { body, status: statusNote, refresh, host, tabs, periods: periodControls() };
+      view = { body, status: statusNote, refresh, host, tabs, periods: periodControls(), sources: hostChoices.length ? quotaSourcesPicker() : null };
       panel.append(grip, header, statusNote, body);
-      sheet = glassSheet(panel, { container, area, top, body, dismiss: () => close({ restore: false }), escape: () => close() });
+      sheet = glassSheet(panel, { container, area, top, body, dismiss: () => close({ restore: false }), escape() {
+        if (tab === "limits" && view.sources?.isOpen()) { view.sources.close(); view.sources.control.focus({ preventScroll: true }); }
+        else close();
+      } });
       onVisibility(); schedule(); await load();
     }
     document.addEventListener("visibilitychange", () => { if (panel && !document.hidden) void load(); });
