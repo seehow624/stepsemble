@@ -218,6 +218,25 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
     const unrelated = success(Date.now() + 7, "Unrelated normal answer");
     await send([{ type: "message_start", message: unrelated }, { type: "message_end", message: unrelated }, { type: "agent_end", messages: [unrelated] }, { type: "agent_settled" }]);
     assert.equal(await pane.locator("#messages .run-error").count(), terminalCount, "unrelated user success never erases old terminal failures");
+    stage = "length-limited retry must not resurrect the earlier transport failure";
+    await newTurn("Synthetic retry output limit");
+    const beforeLimited = failure(Date.now() + 8, "Interrupted before limited reply");
+    const limitedReply = { ...success(Date.now() + 9, "Partial reply at the length limit"), stopReason: "length" };
+    // Native Pi forwards message_end before its matching auto_retry_end, even
+    // when the new non-error terminal reply stopped at the output limit.
+    await send([{ type: "message_start", message: beforeLimited }, { type: "message_end", message: beforeLimited },
+      { type: "agent_end", messages: [beforeLimited], willRetry: true }, { type: "auto_retry_start", attempt: 1 },
+      { type: "agent_start" }, { type: "message_start", message: limitedReply }, { type: "message_end", message: limitedReply },
+      { type: "auto_retry_end", attempt: 1, success: true }, { type: "agent_end", messages: [limitedReply], willRetry: false }, { type: "agent_settled" }]);
+    const limited = await snapshot("length-limited retry settled without stale WebSocket failure");
+    assert.equal(limited.red, terminalCount, "native non-error length outcome cannot revive the old WebSocket failure");
+    assert.notEqual(limited.outcome, "failed");
+    assert.equal(await pane.evaluate(() => activeActivityRun?.recovery?.lastFailure), null);
+    await pane.getByText("Partial reply at the length limit", { exact: true }).waitFor();
+    const limitedAudit = pane.locator(".attempt-interruption").filter({ hasText: "Interrupted before limited reply" });
+    assert.equal(await limitedAudit.getAttribute("data-status"), "historical", "incomplete reply keeps earlier audit outcome unknown, not recovered");
+    assert.equal(await limitedAudit.getAttribute("open"), null);
+    await page.screenshot({ path: path.join(output, "length-limited-no-stale-error.png"), fullPage: true });
     const beforeExit = terminalCount;
     await newTurn("Synthetic unexpected process exit");
     await send([{ type: "rpc_exit", code: 1, wasStreaming: true, stderrTail: "Synthetic unexpected exit" }]);

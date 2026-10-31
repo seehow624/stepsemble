@@ -41,12 +41,25 @@ test("pi-recovery: both Pi success/message_end orderings work, but never success
   send({ type: "message_start", message: answer() }); send({ type: "message_end", message: answer() });
   assert.equal(state.failures[0].status, "recovered");
 });
-test("pi-recovery: truncated reply is not authoritative recovery; reconnect can show retry with missing history", () => {
-  const { state, send } = episode(); interrupted(send); retry(send);
-  const truncated = { ...answer(), stopReason: "length" };
-  send({ type: "message_start", message: truncated }); send({ type: "message_end", message: truncated });
-  send({ type: "auto_retry_end", attempt: 1, success: true });
-  assert.equal(state.failures[0].status, "interrupted");
+test("pi-recovery: length-limited retry cannot resurrect an old transport failure or claim full recovery", () => {
+  for (const successFirst of [false, true]) {
+    const { state, send } = episode(), original = error(); interrupted(send, original); retry(send);
+    const truncated = { ...answer(), stopReason: "length" };
+    if (successFirst) send({ type: "auto_retry_end", attempt: 1, success: true });
+    send({ type: "message_start", message: truncated }); send({ type: "message_end", message: truncated });
+    if (!successFirst) send({ type: "auto_retry_end", attempt: 1, success: true });
+    assert.equal(state.lastFailure, null, "the earlier WebSocket error is not the latest terminal outcome");
+    assert.equal(state.continuing, false);
+    assert.equal(state.failures[0].status, "historical", "a truncated reply does not prove complete recovery");
+    send({ type: "agent_end", messages: [truncated], willRetry: false });
+    send({ type: "agent_settled" });
+    assert.equal(state.lastFailure, null); assert.equal(state.closed, true);
+    assert.equal(state.failures[0].status, "historical");
+    assert.equal(original.stopReason, "error"); assert.equal(original.errorMessage, "WebSocket closed 1000");
+    assert.equal(truncated.stopReason, "length");
+  }
+});
+test("pi-recovery: reconnect can show retry with missing history", () => {
   const reconnect = episode();
   assert.equal(reconnect.send({ type: "auto_retry_start", attempt: 2 }), true);
   assert.equal(reconnect.state.continuing, true);

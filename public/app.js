@@ -11158,28 +11158,35 @@ function setActivityLabel(label = "thinking") {
 
 function handleRpcEvent(ev, eventSid = rpc?.sid) {
   if (eventSid && rpc?.sid !== eventSid) return;
-  if (ev.type === "agent_start") {
-    const previous = activeActivityRun?.recovery;
-    startActivityRun();
-    // Only an explicit retry continuation can carry an episode across starts.
-    activeActivityRun.recovery = previous?.continuing && !previous.closed
-      ? previous : piRecovery.create(activeActivityRun);
+  let recovery = null;
+  // Extension/dialog/queue events do not depend on the retry lifecycle.
+  if ([
+    "agent_start", "message_start", "message_update", "message_end", "turn_end",
+    "agent_end", "auto_retry_start", "auto_retry_end", "agent_settled", "rpc_exit",
+  ].includes(ev.type)) {
+    if (ev.type === "agent_start") {
+      const previous = activeActivityRun?.recovery;
+      startActivityRun();
+      // Only an explicit retry continuation can carry an episode across starts.
+      activeActivityRun.recovery = previous?.continuing && !previous.closed
+        ? previous : piRecovery.create(activeActivityRun);
+    }
+    recovery = activeActivityRun?.recovery;
+    if (activeActivityRun?.settled && (ev.type === "message_update" || ev.type === "message_start" && ev.message?.role === "assistant")) return;
+    const lifecycle = ["message_end", "turn_end", "agent_end", "auto_retry_start", "auto_retry_end", "agent_settled"];
+    const assistantLifecycle = !["message_end", "turn_end"].includes(ev.type) || ev.message?.role === "assistant";
+    if (recovery && assistantLifecycle && lifecycle.includes(ev.type) && !piRecovery.update(recovery, ev, activeActivityRun)) return;
+    if (ev.type === "rpc_exit") piRecovery.update(recovery, ev, activeActivityRun);
+    if (ev.type === "agent_start" || ev.type === "message_start") {
+      if (recovery && !piRecovery.update(recovery, ev, activeActivityRun) && ev.message?.role === "assistant") return;
+    }
+    if (ev.type === "message_start" && ev.message?.role === "user" && recovery?.failures.length) {
+      for (const record of recovery.failures) if (record.status === "interrupted") record.status = "historical";
+      recovery.closed = true;
+      activeActivityRun.recovery = piRecovery.create(activeActivityRun);
+    }
+    syncAttemptInterruptions(recovery);
   }
-  const recovery = activeActivityRun?.recovery;
-  if (activeActivityRun?.settled && (ev.type === "message_update" || ev.type === "message_start" && ev.message?.role === "assistant")) return;
-  const lifecycle = ["message_end", "turn_end", "agent_end", "auto_retry_start", "auto_retry_end", "agent_settled"];
-  const assistantLifecycle = !["message_end", "turn_end"].includes(ev.type) || ev.message?.role === "assistant";
-  if (recovery && assistantLifecycle && lifecycle.includes(ev.type) && !piRecovery.update(recovery, ev, activeActivityRun)) return;
-  if (ev.type === "rpc_exit") piRecovery.update(recovery, ev, activeActivityRun);
-  if (ev.type === "agent_start" || ev.type === "message_start") {
-    if (recovery && !piRecovery.update(recovery, ev, activeActivityRun) && ev.message?.role === "assistant") return;
-  }
-  if (ev.type === "message_start" && ev.message?.role === "user" && recovery?.failures.length) {
-    for (const record of recovery.failures) if (record.status === "interrupted") record.status = "historical";
-    recovery.closed = true;
-    activeActivityRun.recovery = piRecovery.create(activeActivityRun);
-  }
-  syncAttemptInterruptions(recovery);
   // The Host's queue for this conversation as it is now: state, not activity.
   if (ev.type === "composer_queue") { applyComposerQueue(rpc, ev.queue); return; }
   markRpcActivity();

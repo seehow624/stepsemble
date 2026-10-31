@@ -5,7 +5,7 @@
     (m.stopReason === "error" || m.stopReason === "aborted" || !!String(m.errorMessage || "").trim());
   function create(owner) {
     return { owner, closed: false, attempt: 0, retry: 0, continuing: false,
-      successSignal: false, successfulReply: false, failures: [], lastFailure: null, messageKey: null, messages: new Map() };
+      successSignal: false, successfulReply: false, limitedReply: false, failures: [], lastFailure: null, messageKey: null, messages: new Map() };
   }
   const key = m => m?.id || m?.timestamp || m?.ts || null;
   function update(state, event, owner) {
@@ -22,6 +22,7 @@
         state.attempt++;
         state.messageKey = null;
         state.successfulReply = false;
+        state.limitedReply = false;
         break;
       case "message_start":
         if (m?.role === "assistant") state.messageKey = key(m);
@@ -32,10 +33,12 @@
         if (failed(m)) {
           state.lastFailure = m;
           state.successfulReply = false;
+          state.limitedReply = false;
           state.successSignal = false;
           state.failures.push({ message: m, attempt: state.attempt, status: m.stopReason === "aborted" ? "stopped" : "interrupted" });
         } else {
-          state.successfulReply = m.stopReason !== "length";
+          state.limitedReply = m.stopReason === "length";
+          state.successfulReply = !state.limitedReply;
         }
         break;
       case "agent_end":
@@ -52,6 +55,7 @@
         state.continuing = true;
         state.successSignal = false;
         state.successfulReply = false;
+        state.limitedReply = false;
         break;
       case "auto_retry_end":
         if (!state.continuing || (event.attempt && Number(event.attempt) !== state.retry)) return false;
@@ -70,10 +74,12 @@
         state.continuing = false;
         break;
     }
-    // Pi can emit auto_retry_end just BEFORE forwarding message_end. Require
-    // both its explicit success and a non-aborted reply from this episode.
-    if (state.continuing && state.successSignal && state.successfulReply) {
-      for (const record of state.failures) if (record.status === "interrupted") record.status = "recovered";
+    // Require Pi's explicit success plus this episode's non-error reply.
+    // A length-limited reply clears the stale transport failure, but cannot
+    // prove full recovery: keep the earlier interruption historical/unknown.
+    if (state.continuing && state.successSignal && (state.successfulReply || state.limitedReply)) {
+      const status = state.successfulReply ? "recovered" : "historical";
+      for (const record of state.failures) if (record.status === "interrupted") record.status = status;
       state.lastFailure = null;
       state.continuing = false;
       state.successSignal = false;
