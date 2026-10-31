@@ -166,6 +166,39 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
     assert.equal(await pane.evaluate(() => !!rpc.streaming), false);
     await page.screenshot({ path: path.join(output, "same-clock-replies.png"), fullPage: true });
 
+    stage = "cursorless queue and widget state after positive SSE cursor";
+    await send([{ type: "extension_ui_request", id: "cursorless-widget", method: "setWidget", widgetKey: "cursorless-proof", widgetLines: ["Canonical cursorless widget"], widgetPlacement: "belowEditor" }]);
+    await pane.evaluate(() => {
+      window.__cursorlessProbe = { done: false, observed: [], handled: [], error: null };
+      const original = handleRpcEvent;
+      handleRpcEvent = function (event, sid, sequence) {
+        if (event.type === "composer_queue" || event.type === "extension_ui_request" && event.method === "setWidget") window.__cursorlessProbe.handled.push(event.type);
+        return original(event, sid, sequence);
+      };
+      const liveHandler = rpc.es.onmessage, url = new URL(rpc.es.url);
+      url.searchParams.set("after", "-1");
+      const probe = new EventSource(url); let previous = "";
+      probe.onmessage = event => {
+        const data = JSON.parse(event.data), inherited = Number(event.lastEventId) > 0 && event.lastEventId === previous;
+        previous = event.lastEventId;
+        if (inherited && (data.type === "composer_queue" || data.type === "extension_ui_request" && data.method === "setWidget")) {
+          window.__cursorlessProbe.observed.push({ type: data.type, lastEventId: event.lastEventId });
+          // Feed the actual MessageEvent from the owned authenticated stream
+          // through the existing current-stream handler, not a made-up id=0.
+          liveHandler(event);
+          if (data.type === "composer_queue") { probe.close(); window.__cursorlessProbe.done = true; }
+        }
+      };
+      probe.onerror = () => { probe.close(); window.__cursorlessProbe.error = "owned SSE probe failed"; window.__cursorlessProbe.done = true; };
+    });
+    await pane.waitForFunction(() => window.__cursorlessProbe.done);
+    const cursorless = await pane.evaluate(() => window.__cursorlessProbe);
+    assert.equal(cursorless.error, null);
+    assert.deepEqual(cursorless.observed.map(e => e.type), ["extension_ui_request", "composer_queue"]);
+    assert.deepEqual(cursorless.handled, ["extension_ui_request", "composer_queue"], "inherited positive cursor does not discard new widget or queue state");
+    assert.equal(new Set(cursorless.observed.map(e => e.lastEventId)).size, 1);
+    await snapshot("cursorless states retain inherited positive cursor");
+
     stage = "multiple attempts, stale ownership and real tool errors";
     await newTurn("Multiple retry attempts");
     const tools = { role: "assistant", timestamp: Date.now(), stopReason: "toolUse", content: [

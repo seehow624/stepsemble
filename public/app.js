@@ -5061,12 +5061,15 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
       es.onmessage = (event) => {
         if (!isCurrentStream()) { try { es.close(); } catch {} return; }
         esFail = 0;
-        const eventId = Number(event.lastEventId);
-        if (Number.isSafeInteger(eventId) && eventId > 0 && eventId <= rpc.lastEventId) return;
+        const eventId = Number(event.lastEventId), previousEventId = rpc.lastEventId;
         if (Number.isFinite(eventId)) rpc.lastEventId = Math.max(rpc.lastEventId, eventId);
         let data;
         try { data = JSON.parse(event.data); } catch { return; }
-        handleRpcEvent(data, sid, eventId);
+        // Cursorless queue/widget state inherits EventSource.lastEventId.
+        // Only the recorded Pi lifecycle frames have an ordered cursor here.
+        const orderedLifecycle = ["agent_start", "message_start", "message_end", "turn_end", "agent_end", "auto_retry_start", "auto_retry_end", "agent_settled", "rpc_exit"].includes(data.type);
+        if (orderedLifecycle && Number.isSafeInteger(eventId) && eventId > 0 && eventId <= previousEventId) return;
+        handleRpcEvent(data, sid, orderedLifecycle ? eventId : null);
       };
       es.onerror = () => {
         if (!isCurrentStream()) { try { es.close(); } catch {} return; }
