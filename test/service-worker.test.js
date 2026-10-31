@@ -76,6 +76,11 @@ test("the approved full-colour brand image is precached for offline CSS", async 
   assert.ok(f.cached.some((url) => url.startsWith("/icon-32.png?v=")));
   assert.ok(f.cached.some((url) => url.startsWith("/icon-maskable-512.png?v=")));
 });
+test("Pi recovery presentation is included in the offline shell", async () => {
+  const f = worker(); let done;
+  f.handlers.install({ waitUntil(promise) { done = promise; } }); await done;
+  assert.ok(f.cached.includes(`/modules/pi-recovery.js?v=${require("../package.json").version}`));
+});
 test("API and remote-host traffic never enter the service-worker cache", () => {
   const f = worker();
   for (const route of ["/api/sessions", "/api/agent-tasks", "/r/host/api/session", "/api/history/page", "/history.html", "/history.html?machine=mini"]) {

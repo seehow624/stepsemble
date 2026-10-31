@@ -16,6 +16,7 @@ import { runAntigravityStreamBrowserCases } from "./antigravity-stream-browser-c
 import { runAgentSetupBrowserCases } from "./agent-setup-browser-cases.mjs";
 import { runMagpieGatewayBrowserCases } from "./magpie-gateway-browser-cases.mjs";
 import { runPiSessionBrowserCases } from "./pi-session-browser-cases.mjs";
+import { runPiRecoveryBrowserCases } from "./pi-recovery-browser-cases.mjs";
 import { runProjectPickerBrowserCases } from "./project-picker-browser-cases.mjs";
 import { runConversationBrowserCases } from "./conversation-browser-cases.mjs";
 import { runWebStabilityBrowserCases } from "./web-stability-browser-cases.mjs";
@@ -204,6 +205,7 @@ try {
     await runComposerEffortBrowserCases(browser);
   }
   else if (suite === "conversation-ux") {
+    await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "pi-recovery") });
     await runConversationUxBrowserCases(browser);
   }
   else if (suite === "agent-speed") {

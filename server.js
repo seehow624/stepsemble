@@ -67,6 +67,7 @@ const { createOpenCodexPiSync } = require("./server/opencodex-pi-sync");
 const { createMagpieGatewayService } = require("./server/magpie-gateway-service");
 const { claudeSessionEnvOverrides } = require("./server/claude-session-routing");
 const { createLineDecoder, activePathIds } = require("./server/stream-safety");
+const { omittedIds: piHistoryOmittedIds } = require("./public/modules/pi-recovery");
 const { createSessionDiscovery, mapLimit, readBoundedText, withDeadline: sessionReadDeadline } = require("./server/session-discovery");
 const { parsePiEvent, validPiCommand, resolvePiResponse, parsePiUiReply } = require("./server/pi-rpc-contract");
 const { createPiUiState, METHODS: PI_UI_METHODS } = require("./server/pi-ui-state");
@@ -2952,7 +2953,7 @@ async function readSessionActivePath(rel, options = {}) {
   if (!abs) return null;
   const byId = new Map();
   let header = null;
-  let lastMsgEntry = null;
+  let lastMsgEntry = null, lastEntry = null;
   let name = null, firstMessage = "";
   const order = []; // append 順序的 message entries
   try {
@@ -2964,6 +2965,7 @@ async function readSessionActivePath(rel, options = {}) {
     if (e.type === "message" && e.message?.role === "user" && !firstMessage) firstMessage = textOfContent(e.message.content).trim().slice(0, 160);
     if (!e.id) continue;
     byId.set(e.id, e);
+    lastEntry = e;
     if (e.type === "message") { order.push(e); lastMsgEntry = e; }
   }
   } catch (error) {
@@ -2977,7 +2979,22 @@ async function readSessionActivePath(rel, options = {}) {
   for (const e of order) {
     if (e.type === "message" && activeIds.has(e.id)) messages.push(e);
   }
-  const allMessages = messages.map(entryToWire);
+  // Read-only presentation metadata. Context omission is not proof that a
+  // retry succeeded; retain the raw error and never infer recovery from prose.
+  const historyIds = new Set(activeIds), tailIds = new Set();
+  let tail = lastEntry;
+  while (tail && tail !== lastMsgEntry && !tailIds.has(tail.id)) {
+    tailIds.add(tail.id);
+    tail = tail.parentId ? byId.get(tail.parentId) : null;
+  }
+  // Only metadata extending the selected final message belongs to its tail.
+  if (tail === lastMsgEntry) for (const id of tailIds) historyIds.add(id);
+  const omitted = piHistoryOmittedIds([...byId.values()].filter(entry => historyIds.has(entry.id)));
+  const allMessages = messages.map(entry => {
+    const wire = entryToWire(entry);
+    if (omitted.has(entry.id)) wire.historyContextOmitted = true;
+    return wire;
+  });
   const requestedLimit = Number(options.limit);
   const pageLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? Math.min(500, Math.floor(requestedLimit)) : 0;
   const hasBefore = options.before !== null && options.before !== undefined && options.before !== "";

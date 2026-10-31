@@ -160,6 +160,8 @@ test("runtime, provider, and device keys are translated in every locale", () => 
   const keys = [
     "runtime.streamRestored", "runtime.retryFailed", "runtime.compactFailed",
     "runtime.messageQueued", "runtime.openChatFailed", "runtime.runStopped",
+    "runtime.replyInterrupted", "runtime.replyRecovered", "runtime.replyStopped",
+    "runtime.historicalInterruption", "runtime.historicalFailure",
     "provider.chooseMethod", "provider.apiKeyRequired", "provider.authTimeout",
     "device.testOk", "device.nameRequired", "device.restartConfirm",
     "settings.resetConfirm", "catalogSource.official", "catalogSource.pi", "catalogSource.manual", "catalogSource.cached", "catalogSource.unknown",

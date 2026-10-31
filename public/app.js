@@ -44,12 +44,13 @@ if (WORKSPACE_PANE) {
 const foundation = window.stepsembleFoundation;
 const sessionUtils = window.stepsembleSessionUtils;
 const piSession = window.StepsemblePiSession;
+const piRecovery = window.StepsemblePiRecovery;
 const contextUtils = window.stepsembleContextUtils;
 const openCodeContext = window.stepsembleOpenCodeContext;
 const modelPresentation = window.stepsembleModelPresentation;
 const claudeStructuredRendering = window.stepsembleClaudeStructuredRendering;
 const agentTranscriptPresentation = window.stepsembleAgentTranscriptPresentation;
-if (!foundation || !sessionUtils || !contextUtils || !piSession || !agentTranscriptPresentation) throw new Error("Stepsemble foundation modules are missing");
+if (!foundation || !sessionUtils || !contextUtils || !piSession || !piRecovery || !agentTranscriptPresentation) throw new Error("Stepsemble foundation modules are missing");
 const {
   SELECTED_KEY, SETTINGS_KEY, LEGACY_SETTINGS_KEYS, SETTINGS_VERSION,
   DESIGN_THEMES, DESIGN_THEME_IDS, BUBBLE_COLORS, DEFAULT_SETTINGS,
@@ -9627,13 +9628,14 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     // Pi stores thinking, then prose, then tool calls: keep that order so the
     // work log reads as it happened.
     let activity = null;
-    if (m.thinking) {
+    const omittedFailure = isFailureMessage(m) && m.historyContextOmitted === true && m.stopReason !== "aborted";
+    if (m.thinking && !omittedFailure) {
       activity = makeActivityGroup({ running: false });
       bubble.appendChild(activity.details);
       activity.body.appendChild(makeThinking(m.thinking));
       updateActivityGroup(activity, { running: false });
     }
-    if (m.text) bubble.appendChild(renderMarkdown(m.text));
+    if (m.text && !omittedFailure) bubble.appendChild(renderMarkdown(m.text));
     if (calls.length) {
       if (!activity || m.text) {
         activity = makeActivityGroup({ running: false, count: calls.length });
@@ -9648,8 +9650,12 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
       updateActivityGroup(activity, { running: false, count: calls.length, latest: activity.latest });
     }
     if (isFailureMessage(m)) {
-      if (activity) updateActivityGroup(activity, { running: false, hasError: true });
-      appendRunError(bubble, m);
+      if (m.historyContextOmitted === true && m.stopReason !== "aborted") {
+        appendAttemptInterruption(bubble, m, "historical");
+      } else {
+        if (activity) updateActivityGroup(activity, { running: false, hasError: true });
+        appendRunError(bubble, m, { historical: true });
+      }
     }
     wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || "", { fork: piReplyFork({ entryId: m.id }) }));
     if (m.usage) attachMessageUsage(wrap, m.usage, activity);
@@ -9820,7 +9826,7 @@ function attachToolResult(toolName, isError, text, container = el.messages, tool
 // files, ran commands") and a card of edited files. A finished turn folds
 // down to its final answer until its header is opened.
 
-const WORK_BLOCK_SELECTOR = ".activity-group, .tool-card, .thinking-wrap, .native-image-views";
+const WORK_BLOCK_SELECTOR = ".activity-group, .tool-card, .thinking-wrap, .native-image-views, .attempt-interruption";
 const WORK_NOTICE_SELECTOR = ".run-error, .agent-approval-card, .agent-terminal-status";
 const WORK_SUMMARY_ORDER = Object.freeze(["edit", "read", "search", "web", "run", "image", "agent", "tool", "plan", "context", "wait"]);
 const WORK_ICONS = Object.freeze({
@@ -9951,7 +9957,7 @@ function workTurnDuration(turn) {
 // estimated and marked "≈". The Host keeps each run's numbers, so every
 // device shows them.
 const OutputRate = window.StepsembleOutputRate;
-const OUTPUT_EXCLUDE = ".tool-card, .message-usage, .run-error, .agent-approval-card, .agent-terminal-status, .wl-own, .msg-actions, .image-gallery, button, img, svg";
+const OUTPUT_EXCLUDE = ".tool-card, .message-usage, .attempt-interruption, .run-error, .agent-approval-card, .agent-terminal-status, .wl-own, .msg-actions, .image-gallery, button, img, svg";
 // A run belongs to the message whose start is closest to its own.
 const RATE_MATCH_MS = 15000;
 let turnRateCache = { key: "", rates: [] };
@@ -10317,6 +10323,7 @@ function workSegmentKey(segment) {
 function workSegmentItems(segment) {
   const cards = [];
   let thinking = 0, images = 0;
+  const interruptions = [];
   for (const { node } of segment.blocks) {
     if (node.matches(".tool-card")) cards.push(node);
     else cards.push(...node.querySelectorAll(".tool-card"));
@@ -10324,11 +10331,16 @@ function workSegmentItems(segment) {
     images += node.matches(".native-image-views") ? node.querySelectorAll(".native-image-card").length
       : node.querySelectorAll(".native-image-views .native-image-card").length;
   }
-  return { cards, thinking, images };
+  for (const { node } of segment.blocks) if (node.matches(".attempt-interruption")) interruptions.push(node.querySelector("summary")?.textContent || "");
+  return { cards, thinking, images, interruptions };
 }
 // The row says what the run did ("Check deploy status +2 more"); its accessible
 // description keeps the overview and steps without a verbose native hover.
 function workSegmentSummary(items) {
+  if (!items.cards.length && items.interruptions?.length) {
+    const text = items.interruptions.at(-1);
+    return { text, icon: WORK_ICONS.context, title: items.interruptions.join("\n") };
+  }
   const counts = new Map();
   for (const card of items.cards) {
     const category = window.stepsembleSessionUtils.workCategory(card.__tool?.name, card.__tool?.args);
@@ -10372,11 +10384,13 @@ function makeWorkHead() {
   head.dataset.i18nIgnore = "";
   const label = document.createElement("span");
   label.className = "wl-head-label";
+  const interruption = document.createElement("span");
+  interruption.className = "wl-interruption";
   const wait = document.createElement("span");
   wait.className = "wl-wait";
   const rate = document.createElement("span");
   rate.className = "wl-rate";
-  head.append(label, wait, workChevron(), rate);
+  head.append(label, interruption, wait, workChevron(), rate);
   head.addEventListener("click", () => {
     const state = workLogState.turns.get(head.dataset.key);
     // While Claude waits on its background work, the line lists that work.
@@ -10650,6 +10664,11 @@ function layoutWorkTurn(turn, key, { running = false, startedAt = null, backgrou
     const label = head.querySelector(".wl-head-label");
     const text = workHeadText(running, duration);
     if (label.textContent !== text) label.textContent = text;
+    const interruptions = blocks.filter(block => block.node.matches?.(".attempt-interruption")).map(block => block.node);
+    const interruption = interruptions.find(node => node.dataset.status === "historical") || interruptions.at(-1);
+    const note = head.querySelector(".wl-interruption");
+    const noteText = !running && interruption ? interruption.querySelector("summary").textContent : "";
+    if (note.textContent !== noteText) note.textContent = noteText;
     const waitList = waiting ? take("wl-wait-list", makeWorkWaitList) : null;
     if (waitList && head.nextSibling !== waitList) head.after(waitList);
     updateWorkWait(head, waitList, waiting, state.waitOpen === true);
@@ -10852,6 +10871,7 @@ function relabelWorkLog() {
     title.setAttribute("aria-label", toolTitle(meta.name, meta.args, false, { compact: false }));
   }
   for (const toggle of el.messages?.querySelectorAll?.(".thinking-toggle") || []) toggle.textContent = tKey("work.item.thinking");
+  for (const interruption of el.messages?.querySelectorAll?.(".attempt-interruption") || []) labelAttemptInterruption(interruption, interruption.dataset.status);
   for (const card of el.messages?.querySelectorAll?.(".wl-files") || []) delete card.__filesSignature;
   layoutWorkLog({ keepScroll: true });
 }
@@ -11138,13 +11158,34 @@ function setActivityLabel(label = "thinking") {
 
 function handleRpcEvent(ev, eventSid = rpc?.sid) {
   if (eventSid && rpc?.sid !== eventSid) return;
+  if (ev.type === "agent_start") {
+    const previous = activeActivityRun?.recovery;
+    startActivityRun();
+    // Only an explicit retry continuation can carry an episode across starts.
+    activeActivityRun.recovery = previous?.continuing && !previous.closed
+      ? previous : piRecovery.create(activeActivityRun);
+  }
+  const recovery = activeActivityRun?.recovery;
+  if (activeActivityRun?.settled && (ev.type === "message_update" || ev.type === "message_start" && ev.message?.role === "assistant")) return;
+  const lifecycle = ["message_end", "turn_end", "agent_end", "auto_retry_start", "auto_retry_end", "agent_settled"];
+  const assistantLifecycle = !["message_end", "turn_end"].includes(ev.type) || ev.message?.role === "assistant";
+  if (recovery && assistantLifecycle && lifecycle.includes(ev.type) && !piRecovery.update(recovery, ev, activeActivityRun)) return;
+  if (ev.type === "rpc_exit") piRecovery.update(recovery, ev, activeActivityRun);
+  if (ev.type === "agent_start" || ev.type === "message_start") {
+    if (recovery && !piRecovery.update(recovery, ev, activeActivityRun) && ev.message?.role === "assistant") return;
+  }
+  if (ev.type === "message_start" && ev.message?.role === "user" && recovery?.failures.length) {
+    for (const record of recovery.failures) if (record.status === "interrupted") record.status = "historical";
+    recovery.closed = true;
+    activeActivityRun.recovery = piRecovery.create(activeActivityRun);
+  }
+  syncAttemptInterruptions(recovery);
   // The Host's queue for this conversation as it is now: state, not activity.
   if (ev.type === "composer_queue") { applyComposerQueue(rpc, ev.queue); return; }
   markRpcActivity();
   subagentTracker?.pi(ev);
   switch (ev.type) {
     case "agent_start":
-      startActivityRun();
       runFailureRendered = false;
       lastRunFailure = null;
       // A fresh turn restarts the clock. A reconnect replays this same event
@@ -11195,16 +11236,18 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       break;
     case "auto_retry_end":
       if (ev.success === false) {
+        lastRunFailure = recovery?.lastFailure || lastRunFailure;
         if (!runFailureRendered) {
           renderRunFailure(lastRunFailure || {
             stopReason: "error",
             errorMessage: ev.finalError || tKey("runtime.retryFailed"),
           });
         }
-        el.queueNote.textContent = tKey("runtime.retryFailedHint");
+        el.queueNote.textContent = tKey(lastRunFailure?.stopReason === "aborted" ? "runtime.runStopped" : "runtime.retryFailedHint");
         el.queueNote.classList.remove("hidden");
-      } else {
+      } else if (ev.success === true) {
         el.queueNote.classList.add("hidden");
+        if (!recovery?.lastFailure) lastRunFailure = null;
       }
       break;
     case "compaction_start":
@@ -11289,9 +11332,20 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         noteRunFinalResponse(full);
         if (isFailureMessage(full)) {
           lastRunFailure = full;
-          renderRunFailure(full, { shell: current || null });
+          // message_end precedes Pi's retry decision. Preserve this attempt in
+          // the work record without declaring the logical run failed yet.
+          const shell = current || makeMsgShell("assistant", "pi");
+          flushPendingText(current);
+          current?.shimmer?.remove();
+          current?.textEl?.remove();
+          current?.thinkEl?.remove();
+          const record = recovery?.failures.at(-1);
+          const node = appendAttemptInterruption(shell.bubble, full, record?.status || "interrupted");
+          if (record) record.node = node;
+          pendingAssistant = null;
           break;
         }
+        if (recovery && !recovery.lastFailure) lastRunFailure = null;
         flushPendingText(current);
         const { wrap, bubble } = current || makeMsgShell("assistant", "pi");
         if (current) current.activity = null;
@@ -11342,9 +11396,10 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       const endedMessages = (Array.isArray(ev.messages) ? ev.messages : [])
         .map(wireFromAgentMessage);
       for (const message of endedMessages) updateTaskProgressFromAssistant(message.text, { running: !!ev.willRetry });
-      const failed = endedMessages.find(isFailureMessage);
+      const lastAssistant = endedMessages.findLast(message => message.role === "assistant");
+      const failed = isFailureMessage(lastAssistant) ? lastAssistant : null;
       if (!failed) break;
-      lastRunFailure = failed;
+      lastRunFailure = recovery?.cancelled ? wireFromAgentMessage(recovery.lastFailure) : failed;
       if (ev.willRetry) {
         // agent_end is an intermediate lifecycle boundary when Pi will retry
         // or compact. Do not settle the receipt here.
@@ -11353,8 +11408,8 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
         el.queueNote.textContent = tKey("runtime.modelRetrying", { detail: detail.slice(0, 260) });
         el.queueNote.classList.remove("hidden");
       } else {
-        setRunOutcome(failed.stopReason === "aborted" ? "interrupted" : "failed", failed);
-        if (!runFailureRendered) renderRunFailure(failed);
+        setRunOutcome(lastRunFailure.stopReason === "aborted" ? "interrupted" : "failed", lastRunFailure);
+        if (!runFailureRendered) renderRunFailure(lastRunFailure);
       }
       break;
     }
@@ -11409,6 +11464,7 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
       // assistant message_end and makes the settled dashboard authoritative.
       void syncSessionStats(eventSid);
       scheduleSessionListRefresh();
+      if (recovery?.lastFailure) lastRunFailure = wireFromAgentMessage(recovery.lastFailure);
       if (lastRunFailure && !runFailureRendered) renderRunFailure(lastRunFailure);
       if (activeActivityRun) {
         if (lastRunFailure) setRunOutcome(lastRunFailure.stopReason === "aborted" ? "interrupted" : "failed", lastRunFailure);
@@ -11508,9 +11564,7 @@ function wireFromAgentMessage(m) {
 }
 
 function isFailureMessage(m) {
-  return !!m && (!m.role || m.role === "assistant") && (
-    m.stopReason === "error" || m.stopReason === "aborted" || !!String(m.errorMessage || "").trim()
-  );
+  return piRecovery.failed(m);
 }
 
 function errorTitleFor(stopReason, fallback = "工作失敗") {
@@ -11529,6 +11583,12 @@ function appendRunError(bubble, data = {}, options = {}) {
   title.className = "run-error-title";
   title.textContent = errorTitleFor(data.stopReason, options.title || "");
   box.appendChild(title);
+  if (options.historical) {
+    const note = document.createElement("div");
+    note.className = "run-error-history";
+    note.textContent = tKey("runtime.historicalFailure");
+    box.appendChild(note);
+  }
   const message = String(options.message || data.errorMessage || "").trim() || (
     data.stopReason === "aborted"
       ? tKey("runtime.runStopped")
@@ -11542,9 +11602,40 @@ function appendRunError(bubble, data = {}, options = {}) {
   return box;
 }
 
+function appendAttemptInterruption(bubble, data, status = "interrupted") {
+  const details = document.createElement("details");
+  details.className = "attempt-interruption";
+  const summary = document.createElement("summary");
+  details.appendChild(summary);
+  if (data.thinking) details.appendChild(makeThinking(data.thinking));
+  if (data.text) details.appendChild(renderMarkdown(data.text));
+  const detail = document.createElement("div");
+  detail.className = "run-error-message";
+  detail.textContent = String(data.errorMessage || tKey("runtime.noErrorReason")).slice(0, 8000);
+  details.appendChild(detail);
+  bubble.appendChild(details);
+  labelAttemptInterruption(details, status);
+  return details;
+}
+function labelAttemptInterruption(node, status) {
+  if (node.dataset.status !== status) node.dataset.status = status;
+  const summary = node.querySelector("summary");
+  const text = tKey(status === "recovered" ? "runtime.replyRecovered"
+    : status === "historical" ? "runtime.historicalInterruption"
+    : status === "stopped" ? "runtime.replyStopped" : "runtime.replyInterrupted");
+  if (summary.textContent !== text) summary.textContent = text;
+}
+function syncAttemptInterruptions(recovery) {
+  for (const record of recovery?.failures || []) {
+    if (record.node) labelAttemptInterruption(record.node, record.status);
+  }
+}
+
 function assistantShellForError() {
   if (pendingAssistant) return { wrap: pendingAssistant.wrap, bubble: pendingAssistant.bubble };
-  const bubble = liveActivity?.details?.closest(".bubble");
+  const attemptBubble = activeActivityRun?.recovery?.failures.at(-1)?.node?.closest(".bubble");
+  if (attemptBubble?.isConnected) return { wrap: attemptBubble.closest(".msg"), bubble: attemptBubble };
+  const bubble = activeActivityRun?.activities.has(liveActivity) ? liveActivity?.details?.closest(".bubble") : null;
   const wrap = bubble?.closest(".msg");
   if (wrap && bubble) return { wrap, bubble };
   const groups = runActivityGroups(activeActivityRun);
@@ -11558,7 +11649,7 @@ function assistantShellForError() {
 function renderRunFailure(data = {}, options = {}) {
   const shell = options.shell || assistantShellForError() || makeMsgShell("assistant", "pi");
   const groups = runActivityGroups(activeActivityRun);
-  const activity = pendingAssistant?.activity || liveActivity || groups[groups.length - 1] || null;
+  const activity = pendingAssistant?.activity || (activeActivityRun?.activities.has(liveActivity) ? liveActivity : null) || groups[groups.length - 1] || null;
   if (pendingAssistant?.shimmer) {
     pendingAssistant.shimmer.remove();
     pendingAssistant.shimmer = null;

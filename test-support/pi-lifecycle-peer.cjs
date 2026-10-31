@@ -30,6 +30,15 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", li
     case "fixture_release_state":
       holdState = false; for (const row of snapshots) reply(row.cmd, row.data); snapshots = []; break;
     case "fixture_counts": reply(cmd, { pending: !!pending, snapshots: snapshots.length, pid: process.pid }); return;
+    case "fixture_events":
+      // Owned retry UI cases drive exact native event ordering, no model work.
+      for (const event of cmd.events || []) {
+        if (event.type === "agent_start") running = true;
+        if (event.type === "agent_settled") running = false;
+        // rpc_exit closes the browser stream before our response can arrive.
+        emit(event.type === "rpc_exit" ? { ...event, fixtureCommandId: cmd.id } : event);
+      }
+      break;
     case "fixture_exit": reply(cmd); setTimeout(() => process.exit(cmd.code), 30); return;
     case "fixture_malformed": process.stdout.write("null\n"); return;
     case "fixture_start":

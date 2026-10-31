@@ -63,6 +63,7 @@ const SHELL = [
   "/modules/project-file-view.js?v=3.10.5",
   "/modules/project-browser.js?v=3.10.5",
   "/modules/pi-session.js?v=3.10.5",
+  "/modules/pi-recovery.js?v=3.10.5",
   "/modules/context-usage.js?v=3.10.5",
   "/modules/output-rate.js?v=3.10.5",
   "/modules/opencode-context.js?v=3.10.5",

@@ -3349,6 +3349,13 @@ html.reduced-motion .session-running-dot { animation: none; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.attempt-interruption { color: var(--pine-soft); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.attempt-interruption > summary { min-height: 36px; padding: 8px 0; cursor: pointer; }
+.attempt-interruption > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.run-error-history { font-size: var(--text-xs); color: var(--pine-soft); }
+#view-chat .wl-head:has(.wl-interruption:not(:empty)) { flex-wrap: wrap; }
+#view-chat .wl-interruption { min-width: 0; color: var(--pine-soft); font-size: var(--text-xs); overflow-wrap: anywhere; }
+#view-chat .wl-interruption:empty { display: none; }
 .run-error-hint { margin: 8px 0 0; color: var(--pine-soft); font-size: var(--text-sm); line-height: 1.5; }
 .run-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .run-error-actions .btn { min-height: 40px; padding: 6px 12px; font-size: var(--text-sm); }
