@@ -5,31 +5,58 @@
     (m.stopReason === "error" || m.stopReason === "aborted" || !!String(m.errorMessage || "").trim());
   function create(owner) {
     return { owner, closed: false, attempt: 0, retry: 0, continuing: false,
-      successSignal: false, successfulReply: false, limitedReply: false, failures: [], lastFailure: null, messageKey: null, messages: new Map() };
+      successSignal: false, successfulReply: false, limitedReply: false, failures: [], lastFailure: null,
+      messageKey: null, messageTimestamp: null, messageOpen: false, messageGeneration: 0,
+      endedGeneration: -1, lastMessage: null, eventSequence: 0 };
   }
-  const key = m => m?.id || m?.timestamp || m?.ts || null;
-  function update(state, event, owner) {
+  const key = m => m?.id || m?.responseId || null;
+  const timestamp = m => Number.isFinite(m?.timestamp) ? m.timestamp : Number.isFinite(m?.ts) ? m.ts : null;
+  const sameSnapshot = (a, b) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+  function update(state, event, owner, sequence = null) {
     if (!state || state.owner !== owner || state.closed) return false;
+    const sequenced = Number.isSafeInteger(sequence) && sequence > 0;
+    if (sequenced && sequence <= state.eventSequence) return false;
     const m = event.type === "agent_end" ? event.messages?.findLast(m => m?.role === "assistant") : event.message;
-    // Message snapshots can arrive after a replacement attempt has started.
-    if (m?.role === "assistant" && key(m)) {
-      if (state.messages.has(key(m)) && state.messages.get(key(m)) < state.attempt) return false;
-      if (["message_end", "turn_end", "agent_end"].includes(event.type) && state.messageKey && key(m) !== state.messageKey) return false;
-      if (event.type === "message_end" && state.messages.has(key(m))) return false;
+    if (m?.role === "assistant") {
+      // A timestamp pairs a snapshot with its open stream; it is not a unique
+      // message ID. Distinct ordered message_start events may share a clock.
+      const matchesCurrent = event.type !== "message_end" || state.messageOpen;
+      if (matchesCurrent && ["message_end", "turn_end", "agent_end"].includes(event.type)) {
+        if (key(m) && state.messageKey && key(m) !== state.messageKey) return false;
+        if (timestamp(m) !== null && state.messageTimestamp !== null && timestamp(m) !== state.messageTimestamp) return false;
+      }
+      if (event.type === "message_end" && state.endedGeneration === state.messageGeneration && sameSnapshot(state.lastMessage, m)) return false;
     }
     switch (event.type) {
       case "agent_start":
         state.attempt++;
+        state.messageGeneration++;
         state.messageKey = null;
+        state.messageTimestamp = null;
+        state.messageOpen = false;
         state.successfulReply = false;
         state.limitedReply = false;
         break;
       case "message_start":
-        if (m?.role === "assistant") state.messageKey = key(m);
+        if (m?.role === "assistant") {
+          state.messageGeneration++;
+          state.messageKey = key(m);
+          state.messageTimestamp = timestamp(m);
+          state.messageOpen = true;
+          state.successfulReply = false;
+          state.limitedReply = false;
+        }
         break;
       case "message_end":
         if (m?.role !== "assistant") break;
-        if (key(m)) state.messages.set(key(m), state.attempt);
+        // An older Host/reconnect can provide an authoritative end without
+        // its start. A different snapshot is not a duplicate of the last end.
+        if (!state.messageOpen && state.endedGeneration === state.messageGeneration) state.messageGeneration++;
+        state.messageOpen = false;
+        state.endedGeneration = state.messageGeneration;
+        state.messageKey = key(m);
+        state.messageTimestamp = timestamp(m);
+        state.lastMessage = m;
         if (failed(m)) {
           state.lastFailure = m;
           state.successfulReply = false;
@@ -85,6 +112,7 @@
       state.successSignal = false;
       state.retry = 0;
     }
+    if (sequenced) state.eventSequence = sequence;
     return true;
   }
   // Null context edits are not proof of retry or success. Latest active-path

@@ -5062,10 +5062,11 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
         if (!isCurrentStream()) { try { es.close(); } catch {} return; }
         esFail = 0;
         const eventId = Number(event.lastEventId);
+        if (Number.isSafeInteger(eventId) && eventId > 0 && eventId <= rpc.lastEventId) return;
         if (Number.isFinite(eventId)) rpc.lastEventId = Math.max(rpc.lastEventId, eventId);
         let data;
         try { data = JSON.parse(event.data); } catch { return; }
-        handleRpcEvent(data, sid);
+        handleRpcEvent(data, sid, eventId);
       };
       es.onerror = () => {
         if (!isCurrentStream()) { try { es.close(); } catch {} return; }
@@ -11156,7 +11157,7 @@ function setActivityLabel(label = "thinking") {
   renderTaskProgress();
 }
 
-function handleRpcEvent(ev, eventSid = rpc?.sid) {
+function handleRpcEvent(ev, eventSid = rpc?.sid, eventSequence = null) {
   if (eventSid && rpc?.sid !== eventSid) return;
   let recovery = null;
   // Extension/dialog/queue events do not depend on the retry lifecycle.
@@ -11175,10 +11176,10 @@ function handleRpcEvent(ev, eventSid = rpc?.sid) {
     if (activeActivityRun?.settled && (ev.type === "message_update" || ev.type === "message_start" && ev.message?.role === "assistant")) return;
     const lifecycle = ["message_end", "turn_end", "agent_end", "auto_retry_start", "auto_retry_end", "agent_settled"];
     const assistantLifecycle = !["message_end", "turn_end"].includes(ev.type) || ev.message?.role === "assistant";
-    if (recovery && assistantLifecycle && lifecycle.includes(ev.type) && !piRecovery.update(recovery, ev, activeActivityRun)) return;
-    if (ev.type === "rpc_exit") piRecovery.update(recovery, ev, activeActivityRun);
+    if (recovery && assistantLifecycle && lifecycle.includes(ev.type) && !piRecovery.update(recovery, ev, activeActivityRun, eventSequence)) return;
+    if (ev.type === "rpc_exit") piRecovery.update(recovery, ev, activeActivityRun, eventSequence);
     if (ev.type === "agent_start" || ev.type === "message_start") {
-      if (recovery && !piRecovery.update(recovery, ev, activeActivityRun) && ev.message?.role === "assistant") return;
+      if (recovery && !piRecovery.update(recovery, ev, activeActivityRun, eventSequence) && ev.message?.role === "assistant") return;
     }
     if (ev.type === "message_start" && ev.message?.role === "user" && recovery?.failures.length) {
       for (const record of recovery.failures) if (record.status === "interrupted") record.status = "historical";

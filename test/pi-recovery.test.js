@@ -2,11 +2,13 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const recovery = require("../public/modules/pi-recovery");
 const { activePathIds } = require("../server/stream-safety");
+const vm = require("node:vm");
 const error = (timestamp = 1) => ({ role: "assistant", timestamp, stopReason: "error", errorMessage: "WebSocket closed 1000", content: [{ type: "text", text: "Incomplete draft" }] });
 const answer = (timestamp = 2) => ({ role: "assistant", timestamp, stopReason: "stop", content: [{ type: "text", text: "Normal answer" }] });
-function episode() {
+function episode(sequenced = false) {
   const owner = {}, state = recovery.create(owner);
-  const send = event => recovery.update(state, event, owner);
+  let nextSequence = 0;
+  const send = (event, sequence = sequenced ? ++nextSequence : null) => recovery.update(state, event, owner, sequence);
   send({ type: "agent_start" });
   return { state, owner, send };
 }
@@ -65,6 +67,57 @@ test("pi-recovery: reconnect can show retry with missing history", () => {
   assert.equal(reconnect.state.continuing, true);
   assert.deepEqual(reconnect.state.failures, []);
 });
+function nativeClockReply(stopReason, content = [], clock = 100) {
+  return { role: "assistant", api: "openai-codex-responses", provider: "openai-codex", model: "owned-clock-fixture",
+    timestamp: clock, stopReason, content, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+}
+test("pi-recovery: ordered no-ID replies sharing a timestamp retain every authoritative end", () => {
+  const { state, send } = episode();
+  const start = nativeClockReply("pending");
+  const first = nativeClockReply("toolUse", [{ type: "toolCall", id: "clock-tool", name: "noop", arguments: {} }]);
+  const final = nativeClockReply("stop", [{ type: "text", text: "Same-clock final answer" }]);
+  send({ type: "message_start", message: start });
+  assert.equal(send({ type: "message_end", message: first }), true);
+  send({ type: "message_end", message: { role: "toolResult", timestamp: 100, toolCallId: "clock-tool", toolName: "noop", content: [], isError: false } });
+  send({ type: "message_start", message: { ...start } });
+  assert.equal(send({ type: "message_end", message: final }), true, "request-start wall clock is not a unique identity");
+  assert.equal(send({ type: "message_end", message: { ...final } }), false, "duplicate end within the same generation stays idempotent");
+  send({ type: "message_start", message: { ...start } });
+  assert.equal(send({ type: "message_end", message: { ...final } }), true, "even an identical cached reply is new after its own start");
+  assert.deepEqual(state.lastMessage, final, "the accepted snapshot is retained without mutation");
+});
+test("pi-recovery: same-clock retry generations recover without inventing a timestamp identity", () => {
+  const { state, send } = episode();
+  const start = nativeClockReply("pending"), failed = { ...nativeClockReply("error"), errorMessage: "WebSocket closed 1000" };
+  send({ type: "message_start", message: start }); send({ type: "message_end", message: failed });
+  send({ type: "agent_end", messages: [failed], willRetry: true });
+  send({ type: "auto_retry_start", attempt: 1 }); send({ type: "agent_start" });
+  send({ type: "message_start", message: { ...start } });
+  const final = nativeClockReply("stop", [{ type: "text", text: "Same-clock retry answer" }]);
+  assert.equal(send({ type: "message_end", message: final }), true);
+  send({ type: "auto_retry_end", attempt: 1, success: true });
+  assert.equal(state.failures[0].status, "recovered"); assert.equal(state.lastFailure, null);
+  send({ type: "agent_end", messages: [final], willRetry: false }); send({ type: "agent_settled" });
+  assert.equal(state.closed, true); assert.equal(failed.stopReason, "error");
+});
+test("pi-recovery: positive response identity and current stream pairing still reject stale snapshots", () => {
+  const { send } = episode();
+  const start = { ...nativeClockReply("pending"), responseId: "current-response" };
+  send({ type: "message_start", message: start });
+  assert.equal(send({ type: "message_end", message: { ...nativeClockReply("error"), responseId: "old-response", errorMessage: "old failure" } }), false);
+  assert.equal(send({ type: "message_end", message: { ...nativeClockReply("stop", [], 99), responseId: "current-response" } }), false);
+  assert.equal(send({ type: "message_end", message: { ...nativeClockReply("stop", [{ type: "text", text: "Current" }]), responseId: "current-response" } }), true);
+});
+test("pi-recovery: browser readiness waits for declaration without hiding a missing composer", async () => {
+  const { piRecoveryPaneReady } = await import("../scripts/pi-recovery-browser-cases.mjs");
+  const expression = "(" + piRecoveryPaneReady.toString() + ")()";
+  const context = vm.createContext({ document: { querySelector: () => ({ disabled: false }) } });
+  assert.equal(vm.runInContext(expression, context), false);
+  context.rpc = { sid: "owned" }; assert.equal(vm.runInContext(expression, context), true);
+  context.document.querySelector = () => ({ disabled: true }); assert.equal(vm.runInContext(expression, context), false);
+  context.document.querySelector = () => null; assert.throws(() => vm.runInContext(expression, context), /disabled/, "genuine missing controls are not silently accepted");
+});
 test("pi-recovery: terminal error without retry and exhaustion stay failed", () => {
   for (const exhausted of [false, true]) {
     const { state, send } = episode(); interrupted(send);
@@ -108,13 +161,13 @@ test("pi-recovery: multiple attempts survive; stale retry success cannot recover
   assert.equal(state.failures.length, 2); assert(state.failures.every(record => record.status === "recovered"));
 });
 test("pi-recovery: other run/session owners, stale attempt snapshots and settled events are rejected", () => {
-  const { state, owner, send } = episode(); interrupted(send); retry(send);
+  const { state, owner, send } = episode(true); interrupted(send); retry(send);
   assert.equal(recovery.update(state, { type: "auto_retry_end", attempt: 1, success: true }, {}), false);
-  assert.equal(send({ type: "message_end", message: error(1) }), false, "old attempt cannot reappear before the new message_start");
-  assert.equal(send({ type: "message_start", message: error(1) }), false);
+  assert.equal(send({ type: "message_end", message: error(1) }, 3), false, "old source end cannot reappear before the new message_start");
+  assert.equal(send({ type: "message_start", message: error(1) }, 2), false, "a replayed source start is not a new message generation");
   send({ type: "message_start", message: answer(2) });
-  assert.equal(send({ type: "message_end", message: error(1) }), false);
-  assert.equal(send({ type: "agent_end", messages: [error(1)], willRetry: false }), false);
+  assert.equal(send({ type: "message_end", message: error(1) }, 3), false);
+  assert.equal(send({ type: "agent_end", messages: [error(1)], willRetry: false }, 5), false);
   send({ type: "agent_settled" });
   assert.equal(send({ type: "message_end", message: answer(2) }), false);
   const next = recovery.create({}); recovery.update(next, { type: "message_end", message: answer(3) }, next.owner);

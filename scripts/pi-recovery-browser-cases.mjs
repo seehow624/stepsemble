@@ -9,6 +9,9 @@ import { freePort, waitForServer, stopServer } from "./host-performance-baseline
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { workspaceReady, adoptPiHistory, openFromSidebar } from "./workspace-browser-helpers.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
+export function piRecoveryPaneReady() {
+  return typeof rpc !== "undefined" && !!rpc?.sid && !document.querySelector("#btn-send").disabled;
+}
 const failure = (timestamp, text = "") => ({ role: "assistant", timestamp, stopReason: "error", errorMessage: "WebSocket closed 1000",
   content: [{ type: "thinking", thinking: "Unfinished reasoning" }, ...(text ? [{ type: "text", text }] : [])] });
 const success = (timestamp, text = "Recovered normal answer") => ({ role: "assistant", timestamp, stopReason: "stop", content: [{ type: "text", text }] });
@@ -63,12 +66,12 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
     await page.goto(base); await workspaceReady(page);
     await adoptPiHistory(page, "live.jsonl"); pane = await openFromSidebar(page, "Retry status fixture");
     await pane.getByText("Ready for synthetic events", { exact: true }).waitFor();
-    await pane.waitForFunction(() => !!rpc?.sid && !document.querySelector("#btn-send").disabled);
+    await pane.waitForFunction(piRecoveryPaneReady);
     await pane.evaluate(() => {
       window.__retryFixtureResponses = new Set();
       const original = handleRpcEvent;
-      handleRpcEvent = function (event, sid) {
-        original(event, sid);
+      handleRpcEvent = function (event, sid, sequence) {
+        original(event, sid, sequence);
         if (event.type === "response" && event.command === "fixture_events") window.__retryFixtureResponses.add(event.id);
         // An exit intentionally invalidates the stream before the response.
         if (event.type === "rpc_exit" && event.fixtureCommandId) window.__retryFixtureResponses.add(event.fixtureCommandId);
@@ -139,6 +142,29 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
     await page.screenshot({ path: path.join(output, "fixed-details-320-light.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await pane.evaluate(() => { settings = saveSettings({ theme: "dark" }); applyAppearance(); });
+
+    stage = "ordered same-clock native replies and stale SSE replay";
+    await newTurn("Same-clock native responses");
+    const clock = Date.now() + 2;
+    const clockStart = { role: "assistant", api: "openai-codex-responses", provider: "openai-codex", model: "owned-clock-fixture",
+      timestamp: clock, stopReason: "pending", content: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    const clockTool = { ...clockStart, stopReason: "toolUse", content: [{ type: "toolCall", id: "clock-tool", name: "bash", arguments: { command: "synthetic clock tool" } }] };
+    const clockFinal = { ...clockStart, stopReason: "stop", content: [{ type: "text", text: "Same-clock authoritative final answer" }] };
+    await send([{ type: "message_start", message: clockStart }, { type: "message_end", message: clockTool },
+      { type: "tool_execution_start", toolCallId: "clock-tool", toolName: "bash", args: { command: "synthetic clock tool" } },
+      { type: "tool_execution_end", toolCallId: "clock-tool", toolName: "bash", result: { content: [{ type: "text", text: "Clock tool done" }] } },
+      { type: "message_end", message: { role: "toolResult", timestamp: clock, toolCallId: "clock-tool", toolName: "bash", content: [{ type: "text", text: "Clock tool done" }], isError: false } },
+      { type: "message_start", message: { ...clockStart } }, { type: "message_end", message: clockFinal },
+      { type: "agent_end", messages: [clockTool, clockFinal], willRetry: false }, { type: "agent_settled" }]);
+    await pane.getByText("Same-clock authoritative final answer", { exact: true }).waitFor();
+    const clockSnapshot = await snapshot("same-clock final snapshot accepted");
+    assert.equal(clockSnapshot.red, 0); assert.equal(clockSnapshot.streaming, false);
+    const replayBefore = await pane.evaluate(() => ({ run: activeActivityRun.id, generation: activeActivityRun.recovery.messageGeneration, sequence: rpc.lastEventId }));
+    await pane.evaluate(sequence => rpc.es.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "agent_start" }), lastEventId: String(sequence - 1) })), replayBefore.sequence);
+    assert.deepEqual(await pane.evaluate(() => ({ run: activeActivityRun.id, generation: activeActivityRun.recovery.messageGeneration, sequence: rpc.lastEventId })), replayBefore, "older SSE source cannot start a new run");
+    assert.equal(await pane.evaluate(() => !!rpc.streaming), false);
+    await page.screenshot({ path: path.join(output, "same-clock-replies.png"), fullPage: true });
 
     stage = "multiple attempts, stale ownership and real tool errors";
     await newTurn("Multiple retry attempts");
@@ -251,7 +277,7 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
       assert.equal(oldError.stopReason, filename === "stopped.jsonl" ? "aborted" : "error");
       assert.equal(oldError.errorMessage, "WebSocket closed 1000");
       await adoptPiHistory(page, filename); pane = await openFromSidebar(page, data.firstMessage);
-      await pane.waitForFunction(() => !!rpc?.sid && !document.querySelector("#btn-send").disabled);
+      await pane.waitForFunction(piRecoveryPaneReady);
       if (expectedOmitted && filename !== "stopped.jsonl") {
         await pane.locator('.attempt-interruption[data-status="historical"]').waitFor({ state: "attached" });
         assert.equal(await pane.locator("#messages .run-error").count(), 0);
@@ -266,7 +292,7 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
           await pane.locator("#messages .wl-head .wl-interruption").filter({ hasText: "Earlier interruption · outcome unknown" }).waitFor();
           assert.equal(await pane.locator("#messages .run-error").count(), 0, "reload cannot recreate a misleading final red card");
           await pane.getByText("Saved normal answer", { exact: true }).waitFor();
-          await pane.waitForFunction(() => !!rpc?.sid && !document.querySelector("#btn-send").disabled);
+          await pane.waitForFunction(piRecoveryPaneReady);
           await page.screenshot({ path: path.join(output, "history-unknown.png"), fullPage: true });
         }
       } else {

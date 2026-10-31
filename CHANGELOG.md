@@ -4,7 +4,7 @@
 
 - Keep temporary Pi interruptions in the existing, expandable work log while Pi's existing automatic retry runs, instead of presenting them as a final "Work failed" result.
 - When Pi confirms a successful retry with a valid answer, show that answer without a stale final "Work failed" notice or the failed draft mixed into it. Interruption details remain available in the work log.
-- Keep genuine failures, stopped turns, tool and subagent errors, and background-work results independent of retry recovery, so they are not hidden by a recovered answer.
+- Keep genuine failures, stopped turns, tool and subagent errors, and background-work results independent of retry recovery, so they are not hidden by a recovered answer. Preserve distinct replies that share a request-start timestamp while rejecting duplicate ends and older stream events.
 - Keep recovery unknown when older history only says context was omitted, or when a retry's reply is length-limited; neither proves full recovery. This changes presentation only, not Pi's SDK, upstream connections or retry policy, and does not resend the whole task.
 
 ## 3.10.5
