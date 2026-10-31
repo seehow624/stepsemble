@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.10.6
+
+- Keep temporary Pi interruptions in the existing, expandable work log while Pi's existing automatic retry runs, instead of presenting them as a final "Work failed" result.
+- When Pi confirms a successful retry with a valid answer, show that answer without a stale final "Work failed" notice or the failed draft mixed into it. Interruption details remain available in the work log.
+- Keep genuine failures, stopped turns, tool and subagent errors, and background-work results independent of retry recovery, so they are not hidden by a recovered answer.
+- Keep recovery unknown when older history only says context was omitted, or when a retry's reply is length-limited; neither proves full recovery. This changes presentation only, not Pi's SDK, upstream connections or retry policy, and does not resend the whole task.
+
 ## 3.10.5
 
 - Keep one Manage sources entry in Limits instead of repeating a link for every computer. Open it to choose the computer whose sources you want to manage, independently of the limits filter or available readings. Keep keyboard focus and an open chooser through refresh; reveal the choices even below a long list of quotas.
