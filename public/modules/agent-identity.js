@@ -11,7 +11,6 @@ var StepsembleAgentIdentity;
         antigravity: Object.freeze({ id: "antigravity", label: "Google Antigravity" }),
         cline: Object.freeze({ id: "cline", label: "Cline" }),
         kilo: Object.freeze({ id: "kilo", label: "Kilo Code" }),
-        hermes: Object.freeze({ id: "hermes", label: "Hermes Agent" }),
         omp: Object.freeze({ id: "omp", label: "Oh My Pi" }),
         // Presentation only: this does not install or enable a ChatGPT connector.
         gpt: Object.freeze({ id: "gpt", label: "GPT" }),
@@ -45,10 +44,9 @@ var StepsembleAgentIdentity;
         return badge;
     }
     StepsembleAgentIdentity.create = create;
-    // Personal assistants (Hermes) live on the assistant page; a new
-    // conversation offers only installed coding agents.
+    // A new conversation offers only installed agents.
     function startsConversations(connector) {
-        return !!connector && connector.installed === true && connector.category !== "personal";
+        return !!connector && connector.installed === true;
     }
     StepsembleAgentIdentity.startsConversations = startsConversations;
 })(StepsembleAgentIdentity || (StepsembleAgentIdentity = {}));

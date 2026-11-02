@@ -10,7 +10,6 @@ namespace StepsembleAgentIdentity {
     antigravity: Object.freeze({ id: "antigravity", label: "Google Antigravity" }),
     cline: Object.freeze({ id: "cline", label: "Cline" }),
     kilo: Object.freeze({ id: "kilo", label: "Kilo Code" }),
-    hermes: Object.freeze({ id: "hermes", label: "Hermes Agent" }),
     omp: Object.freeze({ id: "omp", label: "Oh My Pi" }),
     // Presentation only: this does not install or enable a ChatGPT connector.
     gpt: Object.freeze({ id: "gpt", label: "GPT" }),
@@ -42,10 +41,9 @@ namespace StepsembleAgentIdentity {
     badge.appendChild(mark);
     return badge;
   }
-  // Personal assistants (Hermes) live on the assistant page; a new
-  // conversation offers only installed coding agents.
-  export function startsConversations(connector: { installed?: unknown; category?: unknown } | null | undefined): boolean {
-    return !!connector && connector.installed === true && connector.category !== "personal";
+  // A new conversation offers only installed agents.
+  export function startsConversations(connector: { installed?: unknown } | null | undefined): boolean {
+    return !!connector && connector.installed === true;
   }
 }
 if (typeof module !== "undefined") module.exports = StepsembleAgentIdentity;

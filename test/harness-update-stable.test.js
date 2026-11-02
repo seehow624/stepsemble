@@ -7,7 +7,10 @@ const path = require("node:path");
 const os = require("node:os");
 const http = require("node:http");
 const { createHarnessUpdateService, isStableVersion, fetchReleaseText } = require("../server/harness-update-service");
-const registry = require("../protocol/harness-updates.json");
+// An agent whose releases are published on GitHub.
+const GITHUB = Object.freeze({ id: "vendor", label: "Vendor", commands: ["vendor"],
+  check: { kind: "github-release", url: "https://api.github.com/repos/vendor/vendor/releases/latest" },
+  update: { kind: "command", args: ["update", "--yes", "--channel", "stable"], verify: true } });
 
 function fixture(t, { mode = "registry-version", candidate = "1.2.0", release = null, cached = null, definition = null,
   channel = "stable", installedAfter = candidate, updateCode = 0, failCheck = false, busy = () => false } = {}) {
@@ -27,7 +30,7 @@ function fixture(t, { mode = "registry-version", candidate = "1.2.0", release = 
   definition ||= { id: "vendor", label: "Vendor", commands: ["vendor"], package: "vendor", check: checks[mode],
     update: { kind: "command", args: ["install", "{version}"], verify: true } };
   const calls = [];
-  let installed = definition.id === "hermes" ? "0.21.6" : "1.0.0";
+  let installed = definition.check.kind === "github-release" ? "0.21.6" : "1.0.0";
   const executable = path.join(root, "bin", definition.commands[0]);
   const service = createHarnessUpdateService({
     registry: { registryVersion: 1, harnesses: [definition] }, stateFile,
@@ -94,28 +97,27 @@ for (const release of [
   { tag_name: "v0.22.0+305.g0670ba4.dirty", draft: false, prerelease: false },
   { tag_name: "v0.22.0" }, null,
 ]) {
-  test(`Hermes refuses unpublished or unstable release metadata ${JSON.stringify(release)}`, async t => {
-    const { service, calls } = fixture(t, { definition: registry.harnesses.find(row => row.id === "hermes"), release });
-    const row = (await service.check({ id: "hermes" })).harnesses[0];
+  test(`a GitHub release check refuses unpublished or unstable release metadata ${JSON.stringify(release)}`, async t => {
+    const { service, calls } = fixture(t, { definition: GITHUB, release });
+    const row = (await service.check({ id: "vendor" })).harnesses[0];
     assert.deepEqual([row.status, row.latestVersion, row.updateAvailable], ["unknown", null, "unknown"]);
-    await assert.rejects(service.update({ id: "hermes", confirm: true }), { code: "release_unknown" });
+    await assert.rejects(service.update({ id: "vendor", confirm: true }), { code: "release_unknown" });
     assert.equal(calls.some(([, args]) => args[0] === "update"), false);
   });
 }
 
-test("Hermes upgrades through its transient stable channel and verifies the installed release", async t => {
-  const { service, calls } = fixture(t, { definition: registry.harnesses.find(row => row.id === "hermes"),
+test("a GitHub release is installed by the agent's own updater and the installed release verified", async t => {
+  const { service, calls } = fixture(t, { definition: GITHUB,
     release: { tag_name: "v0.22.0", draft: false, prerelease: false }, installedAfter: "0.22.0" });
-  const result = await service.update({ id: "hermes", confirm: true });
-  assert.deepEqual(calls.find(([, args]) => args[0] === "update")[1], ["update", "--yes", "--backup", "--channel", "stable"]);
+  const result = await service.update({ id: "vendor", confirm: true });
+  assert.deepEqual(calls.find(([, args]) => args[0] === "update")[1], ["update", "--yes", "--channel", "stable"]);
   assert.deepEqual([result.updated.success, result.updated.versionAfter, result.updated.verification], [true, "0.22.0", "verified"]);
-  assert.equal(calls.some(([, args]) => args.includes("--set-channel") || args.includes("main")), false);
 });
 
-test("older Hermes without --channel cannot fall back to the development branch", async t => {
-  const { service, calls } = fixture(t, { definition: registry.harnesses.find(row => row.id === "hermes"),
+test("an updater that fails is not tried again another way", async t => {
+  const { service, calls } = fixture(t, { definition: GITHUB,
     release: { tag_name: "v0.22.0", draft: false, prerelease: false }, updateCode: 2 });
-  await assert.rejects(service.update({ id: "hermes", confirm: true }), { code: "exit-2" });
+  await assert.rejects(service.update({ id: "vendor", confirm: true }), { code: "exit-2" });
   assert.equal(calls.filter(([, args]) => args[0] === "update").length, 1);
   assert.equal(service.status().harnesses[0].currentVersion, "0.21.6");
 });
@@ -129,9 +131,9 @@ test("a cached preview candidate is hidden immediately and cannot bypass a fresh
   assert.equal(calls.some(([, args]) => args[0] === "install"), false);
 });
 
-test("legacy Hermes branch movement is not advertised as a release after restarting", async t => {
-  const { service } = fixture(t, { definition: registry.harnesses.find(row => row.id === "hermes"),
-    cached: { id: "hermes", installed: true, currentVersion: "0.21.6+305.g0670ba4.dirty",
+test("a development build's update is not advertised as a release after restarting", async t => {
+  const { service } = fixture(t, { definition: GITHUB,
+    cached: { id: "vendor", installed: true, currentVersion: "0.21.6+305.g0670ba4.dirty",
       latestVersion: null, status: "available", updateAvailable: true } });
   const row = service.status().harnesses[0];
   assert.deepEqual([row.status, row.latestVersion, row.updateAvailable], ["unknown", null, "unknown"]);
@@ -139,9 +141,9 @@ test("legacy Hermes branch movement is not advertised as a release after restart
 });
 
 test("release lookup failures clear a cached candidate and cannot invoke an updater", async t => {
-  const { service, calls } = fixture(t, { definition: registry.harnesses.find(row => row.id === "hermes"), failCheck: true,
-    cached: { id: "hermes", installed: true, latestVersion: "0.22.0", status: "unknown", updateAvailable: "unknown" } });
-  await assert.rejects(service.update({ id: "hermes", confirm: true }), { code: "release_unknown" });
+  const { service, calls } = fixture(t, { definition: GITHUB, failCheck: true,
+    cached: { id: "vendor", installed: true, latestVersion: "0.22.0", status: "unknown", updateAvailable: "unknown" } });
+  await assert.rejects(service.update({ id: "vendor", confirm: true }), { code: "release_unknown" });
   assert.equal(service.status().harnesses[0].latestVersion, null);
   assert.equal(calls.some(([, args]) => args[0] === "update"), false);
 });
@@ -186,16 +188,16 @@ async function releaseServer(t, payload, declaredLength = false) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-test("Hermes reads complete release JSON even when its notes exceed 64 KiB", async t => {
+test("a GitHub release is read completely even when its notes exceed 64 KiB", async t => {
   const payload = JSON.stringify({ tag_name: "v0.22.0", draft: false, prerelease: false, body: "x".repeat(120_000) });
   const url = await releaseServer(t, payload);
   const service = createHarnessUpdateService({
-    registry: { registryVersion: 1, harnesses: [registry.harnesses.find(row => row.id === "hermes")] },
-    resolve: () => "/fixture/hermes",
-    runner: async () => ({ code: 0, stdout: "Hermes Agent 0.21.6", stderr: "" }),
+    registry: { registryVersion: 1, harnesses: [GITHUB] },
+    resolve: () => "/fixture/vendor",
+    runner: async () => ({ code: 0, stdout: "Vendor 0.21.6", stderr: "" }),
     fetchText: (source, options) => fetchReleaseText(url, options),
   });
-  const row = (await service.check({ id: "hermes" })).harnesses[0];
+  const row = (await service.check({ id: "vendor" })).harnesses[0];
   assert.deepEqual([row.latestVersion, row.status], ["0.22.0", "available"]);
 });
 

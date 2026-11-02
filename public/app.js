@@ -253,7 +253,7 @@ let grokAcpPollTimer = null;
 let acpPollTimer = null;
 let claudeStructuredPollTimer = null;
 // Agents the Host runs through its ACP adapters (server.js ACP_AGENT_IDS).
-const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "hermes", "omp", "antigravity"]);
+const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "omp", "antigravity"]);
 let codexNativeHistoryButton = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
@@ -2563,27 +2563,14 @@ function renderNewAgentOptions() {
   if (!el.newAgent) return;
   const previous = el.newAgent.value || "pi";
   el.newAgent.replaceChildren();
-  // Hermes is reached from the assistant page, not as a coding conversation.
-  const connectors = agentCatalog.filter(connector => connector.category !== "personal");
-  const groups = new Map();
-  for (const connector of connectors) {
-    const key = connector.category === "personal" ? "personal" : "coding";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(connector);
-  }
-  for (const [key, rows] of groups) {
-    const target = groups.size > 1 ? document.createElement("optgroup") : el.newAgent;
-    if (target !== el.newAgent) target.label = key === "personal" ? "Personal agents" : "Coding agents";
-    for (const connector of rows) {
-      const option = document.createElement("option");
-      option.value = connector.id;
-      const maturity = connector.maturity && connector.maturity !== "full" ? ` · ${connector.maturity}` : "";
-      option.textContent = connector.installed ? `${connector.label}${maturity}` : `${connector.label} · ${agentHubText("notInstalled")}`;
-      option.disabled = connector.installed !== true;
-      option.dataset.i18nIgnore = "";
-      target.appendChild(option);
-    }
-    if (target !== el.newAgent) el.newAgent.appendChild(target);
+  for (const connector of agentCatalog) {
+    const option = document.createElement("option");
+    option.value = connector.id;
+    const maturity = connector.maturity && connector.maturity !== "full" ? ` · ${connector.maturity}` : "";
+    option.textContent = connector.installed ? `${connector.label}${maturity}` : `${connector.label} · ${agentHubText("notInstalled")}`;
+    option.disabled = connector.installed !== true;
+    option.dataset.i18nIgnore = "";
+    el.newAgent.appendChild(option);
   }
   const selected = [...el.newAgent.options].find((option) => option.value === previous && !option.disabled)
     || [...el.newAgent.options].find((option) => option.value === "pi" && !option.disabled)
@@ -13438,7 +13425,7 @@ function acpThoughtOption(configOptions) {
   const options = Array.isArray(configOptions) ? configOptions : [];
   return options.find((option) => option?.category === "thought_level" && option.options?.length) || null;
 }
-// Kilo, Cline, Hermes and Oh My Pi share one ACP route and Grok has its own; both read
+// Kilo, Cline and Oh My Pi share one ACP route and Grok has its own; both read
 // and change the same session config options.
 function acpConfigPath(connection) {
   if (connection?.nativeGrokAcp) return "/api/grok/acp/config";
@@ -14346,7 +14333,6 @@ function pickSlash(c) {
 const agentTerminalApi = window.stepsembleAgentTerminal || null;
 const AGENT_TERMINAL_ACTIONS = Object.freeze(["login", "logout", "status"]);
 const AGENT_TERMINAL_DONE = new Set(["completed", "failed", "cancelled", "timed_out"]);
-const HERMES_PROVIDER_SUGGESTIONS = Object.freeze(["openai-codex", "anthropic", "nous", "openrouter", "xai-oauth", "minimax", "opencode-go", "gemini", "deepseek", "zai"]);
 let agentTerminal = null;
 let agentTerminalSequence = 0;
 let agentAuthCatalogState = { base: null, at: 0, data: null, request: null };
@@ -14393,7 +14379,7 @@ function agentTerminalHostName(base = apiBase) {
 function agentTerminalLabel(agentId) {
   // Settings opened on its own page has no connector catalog loaded yet.
   const names = { pi: "Pi Agent", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", kilo: "Kilo Code",
-    hermes: "Hermes", omp: "Oh My Pi", "grok-build": "Grok Build", cline: "Cline", antigravity: "Antigravity" };
+    omp: "Oh My Pi", "grok-build": "Grok Build", cline: "Cline", antigravity: "Antigravity" };
   const label = agentConnectorLabel(agentId);
   return label && label !== agentId ? label : names[agentId] || label;
 }
@@ -14606,7 +14592,7 @@ async function prepareAgentTerminal(term) {
   const needsProvider = choices.some(choice => choice.provider);
   const start = (choice, provider = "") => void startAgentTerminalRun(term, { choice: choice.id, provider });
   if (needsProvider) {
-    term.controls = [{ type: "provider", choices, value: term.argument, suggestions: HERMES_PROVIDER_SUGGESTIONS, onSubmit: start }];
+    term.controls = [{ type: "provider", choices, value: term.argument, onSubmit: start }];
   } else if (term.action === "logout") {
     term.controls = [{ type: "button", primary: true, danger: true, label: agentTerminalText("logoutButton", { agent: label, host }), onClick: () => start(choices[0]) }];
   } else if (choices.length > 1) {
@@ -18387,7 +18373,7 @@ let openCodeDialogEdit = null;
 // says how to sign in and shows the models it offers and its own settings:
 // Pi's visible models and custom providers, OpenCode's providers and local
 // server, and the OpenCodex routing for Codex and Claude Code.
-function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "hermes", "omp", "grok-build", "cline", "antigravity"]; }
+function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "omp", "grok-build", "cline", "antigravity"]; }
 function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code" || agent === "omp"; }
 function currentModelSettingsAgent() { return modelSettingsAgent; }
 function modelAgentText(key, vars = {}) { return tKey("modelAgents." + key, vars); }

@@ -1,13 +1,13 @@
 "use strict";
 // The Updates page's "Upgrade automatically" switch for agents other than
-// Codex, through a real Host: each agent Stepsemble can upgrade has one,
-// except Hermes. Gemini CLI is no longer one of them; Antigravity replaces it.
+// Codex, through a real Host: each agent Stepsemble can upgrade has one.
+// Gemini CLI is no longer one of them; Antigravity replaces it.
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os");
 const { spawn } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 
-test("every upgradable agent but Hermes has an automatic-upgrade switch on the Host", { skip: process.platform === "win32" }, async t => {
+test("every upgradable agent has an automatic-upgrade switch on the Host", { skip: process.platform === "win32" }, async t => {
   const { freePort, waitForServer, stopServer } = await import("../scripts/host-performance-baseline.mjs");
   const home = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "stepsemble-harness-auto-")));
   let child = null, base = "", cookie = "";
@@ -42,7 +42,7 @@ test("every upgradable agent but Hermes has an automatic-upgrade switch on the H
   assert.equal(saved.enabled, true);
   response = await request("/api/harness-updates/auto", { id: "claude-code", enabled: false });
   assert.equal((await response.json()).autoUpgrade["claude-code"].enabled, false);
-  // Hermes, Gemini CLI (no longer listed) and anything else are refused.
+  // Hermes and Gemini CLI (no longer listed) and anything else are refused.
   for (const id of ["hermes", "gemini-cli", "nope"]) {
     assert.equal((await request("/api/harness-updates/auto", { id, enabled: true })).status, 400, id);
   }

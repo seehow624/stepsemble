@@ -4,12 +4,12 @@ const fs = require("node:fs"), path = require("node:path"), vm = require("node:v
 const identity = require("../public/modules/agent-identity.js");
 const root = path.resolve(__dirname, "../public");
 const read = name => fs.readFileSync(path.join(root, name), "utf8");
-const ids = ["pi", "claude-code", "codex", "opencode", "grok-build", "antigravity", "cline", "kilo", "hermes", "omp", "gpt", "chatgpt"];
+const ids = ["pi", "claude-code", "codex", "opencode", "grok-build", "antigravity", "cline", "kilo", "omp", "gpt", "chatgpt"];
 test("every installed harness definition has an explicit mark", () => {
   const source = fs.readFileSync(path.join(__dirname, "../server/agent-connectors.js"), "utf8");
   const definitions = source.slice(source.indexOf("const CONNECTOR_DEFINITIONS"), source.indexOf("function safeConnectorId"));
   const nativeIds = [...definitions.matchAll(/id: "([a-z-]+)"/g)].map(match => match[1]);
-  assert.equal(nativeIds.length, 10);
+  assert.equal(nativeIds.length, 9);
   for (const id of nativeIds) assert.equal(identity.lookup(id).id, id);
 });
 test("canonical source IDs map independently of selected models", () => {
@@ -45,7 +45,7 @@ test("every badge uses only inert, local, offline-cached SVG assets", () => {
   const css = read("modules/agent-identity.css"), worker = read("sw.js");
   for (const id of [...ids, "agent"]) assert.ok(css.includes(`[data-agent-id="${id}"]`));
   const assets = [...new Set([...css.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]))];
-  assert.equal(assets.length, 12);
+  assert.equal(assets.length, 11);
   for (const asset of assets) {
     assert.match(asset, /^\/agent-logos\/v2\/[a-z-]+\.svg$/);
     const svg = read(asset.slice(1));
@@ -81,7 +81,7 @@ test("a mark keeps its own colours in light and dark: the theme never tints it",
   assert.match(read("modules/workspace.js"), /logo\.dataset\.logo = value\.includes\("codex"\) \? "codex" : value\.includes\("openai"\) \? "openai"/, "Codex limits show the Codex mark");
 });
 test("clients from before v2 still find their v1 marks", () => {
-  for (const file of ["pi", "claude", "codex", "opencode", "grok", "antigravity", "cline", "kilo", "hermes", "omp", "openai", "agent"]) assert.match(read(`agent-logos/v1/${file}.svg`), /<svg\b/);
+  for (const file of ["pi", "claude", "codex", "opencode", "grok", "antigravity", "cline", "kilo", "omp", "openai", "agent"]) assert.match(read(`agent-logos/v1/${file}.svg`), /<svg\b/);
   assert.ok(fs.existsSync(path.join(root, "agent-logos/v1/minimax.png")));
 });
 test("chat identity changes and clearing do not alter the conversation title", () => {
@@ -102,9 +102,8 @@ test("chat identity changes and clearing do not alter the conversation title", (
   assert.match(source, /if \(snapshot.agentId\) setChatAgent\(snapshot.agentId\)/);
 });
 
-test("a personal assistant is not offered as a new coding conversation", () => {
+test("a new conversation is offered only with an installed agent", () => {
   assert.equal(identity.startsConversations({ id: "codex", installed: true, category: "coding" }), true);
-  assert.equal(identity.startsConversations({ id: "hermes", installed: true, category: "personal" }), false);
   assert.equal(identity.startsConversations({ id: "kilo", installed: false, category: "coding" }), false);
   assert.equal(identity.startsConversations(null), false);
 });

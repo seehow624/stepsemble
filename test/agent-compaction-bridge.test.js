@@ -25,9 +25,9 @@ test("Claude, Codex and OpenCode use their native operations, not a generated su
 test("an owned Codex thread may be resumed, but is never replaced by another conversation",async()=>{
  const f=fixture();f.codexState.threadId=null;await f.bridge.run(records.codex,{});assert.deepEqual(f.calls,[["resume","thread-a"],["codex","thread-a"]]);
 });
-test("unsupported ACP and Antigravity remain disabled; Hermes is excluded",async()=>{
+test("unsupported ACP agents and Antigravity remain disabled",async()=>{
  const f=fixture();f.acp.compactionSupport=()=>({supported:false,instructions:false,reason:"compaction_unavailable"});assert.equal((await f.bridge.describe(records.cline)).supported,false);
- for(const record of [{agentId:"antigravity",nativeAcp:true},{agentId:"hermes",nativeAcp:true}]){assert.equal((await f.bridge.describe(record)).supported,false);await assert.rejects(f.bridge.run(record,{}));}
+ for(const record of [{agentId:"antigravity",nativeAcp:true},{agentId:"unknown",nativeAcp:true}]){assert.equal((await f.bridge.describe(record)).supported,false);await assert.rejects(f.bridge.run(record,{}));}
  assert.equal(f.calls.length,0);
 });
 test("terminal-only conversations never claim a structured compaction capability",async()=>{

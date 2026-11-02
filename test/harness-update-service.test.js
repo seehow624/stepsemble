@@ -391,28 +391,29 @@ test("an agent CLI in an npm folder of its own is checked against npm and update
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("Hermes reads its installed version and checks only the official published release", async () => {
-  assert.equal(parseVersion("Hermes Agent v0.21.5 (2026.9.24) · upstream 7728574a\nInstall directory: /x"), "0.21.5");
+test("an agent released on GitHub reads its installed version and checks only the published release", async () => {
+  assert.equal(parseVersion("Vendor Agent v0.21.5 (2026.9.24) · upstream 7728574a\nInstall directory: /x"), "0.21.5");
   assert.equal(parseVersion("something went wrong: 1.2.3"), null);
   const { root, file } = tempState();
   const calls = [];
-  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
+  const definition = { id: "vendor", label: "Vendor Agent", commands: ["vendor"],
+    check: { kind: "github-release", url: "https://api.github.com/repos/vendor/vendor-agent/releases/latest" }, update: { kind: "command", args: ["update"], verify: true } };
   const service = createHarnessUpdateService({
-    registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "hermes") },
+    registry: { registryVersion: 1, harnesses: [definition] },
     stateFile: file, env: { PATH: "/fake", HOME: root },
-    resolve: name => name === "hermes" ? "/fake/hermes" : null,
+    resolve: name => name === "vendor" ? "/fake/vendor" : null,
     fetchText: async url => {
-      assert.equal(url, "https://api.github.com/repos/NousResearch/hermes-agent/releases/latest");
+      assert.equal(url, "https://api.github.com/repos/vendor/vendor-agent/releases/latest");
       return JSON.stringify({ tag_name: "v0.22.0", draft: false, prerelease: false });
     },
     runner: async (command, args, options) => {
       calls.push([args, options.timeout]);
-      if (args[0] === "--version") return { code: 0, stdout: "Hermes Agent v0.21.5 (2026.9.24) · upstream 7728574a", stderr: "" };
-      throw new Error("A release check must not run the branch updater");
+      if (args[0] === "--version") return { code: 0, stdout: "Vendor Agent v0.21.5 (2026.9.24) · upstream 7728574a", stderr: "" };
+      throw new Error("A release check must not run the updater");
     },
     busy: () => false,
   });
-  const row = (await service.check({ id: "hermes" })).harnesses[0];
+  const row = (await service.check({ id: "vendor" })).harnesses[0];
   assert.deepEqual([row.currentVersion, row.latestVersion, row.status], ["0.21.5", "0.22.0", "available"]);
   assert.deepEqual(calls, [[["--version"], 20_000]]);
   fs.rmSync(root, { recursive: true, force: true });

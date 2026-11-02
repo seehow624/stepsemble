@@ -19,7 +19,6 @@ Pi using a Claude/GPT model remains Pi; Codex using GPT remains Codex.
 | `cline` | Cline / Stepsemble original neutral CLI mark |
 | `kilo` | Kilo Code / Stepsemble original neutral CLI mark |
 | `omp` | Oh My Pi / Stepsemble original neutral CLI mark (π with a spark) |
-| `hermes` | Hermes Agent / Stepsemble original neutral personal-agent mark |
 | `gpt`, `chatgpt` | GPT, ChatGPT / OpenAI blossom; presentation only, no new connector |
 | anything else | neutral conversation mark |
 

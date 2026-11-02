@@ -14,13 +14,13 @@ test("only the complete compact command is intercepted, preserving multiline ins
  assert.deepEqual(parse(" /COMPACT  Keep decisions\nand current work "),{instructions:"Keep decisions\nand current work"});assert.deepEqual(parse("/compact"),{instructions:""});
  for(const text of ["/compactor","/compact-other","Explain /compact","`/compact`",null])assert.equal(parse(text),null);
  for(const agent of ["pi","claude-code","codex","opencode","cline","kilo","omp","grok-build","antigravity"])assert.equal(eligible(agent),true);
- for(const agent of ["hermes","unknown",null])assert.equal(eligible(agent),false);
+ for(const agent of ["unknown",null])assert.equal(eligible(agent),false);
 });
 
-test("the slash item is disabled until native capability is known and Hermes has no item",async()=>{
+test("the slash item is disabled until native capability is known and an unknown agent has no item",async()=>{
  const f=fixture();assert.equal(f.controller.item().disabled,true);await f.controller.refresh();assert.equal(f.controller.item().disabled,false);assert.equal(f.controller.item().name,"compact");
  f.setState({supported:false,instructions:false,busy:false,reason:"compaction_native_unavailable",operation:null});await f.controller.refresh();assert.equal(f.controller.item().disabled,true);assert.equal(f.controller.item().reason,"compaction_native_unavailable");
- f.setContext({agentId:"hermes"});assert.equal(f.controller.item(),null);const count=f.calls.length;await f.controller.refresh();assert.equal(f.calls.length,count);f.close();
+ f.setContext({agentId:"unknown"});assert.equal(f.controller.item(),null);const count=f.calls.length;await f.controller.refresh();assert.equal(f.calls.length,count);f.close();
 });
 
 test("accepted compaction clears only its captured draft and keeps polling after the acknowledgement",async()=>{

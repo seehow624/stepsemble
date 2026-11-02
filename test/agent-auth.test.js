@@ -4,7 +4,7 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { EventEmitter } = require("node:events"), { PassThrough } = require("node:stream");
-const { createAgentAuthService, createTerminalRunRegistry, createQueryResponder, AGENT_AUTH_COMMANDS, commandArgs, findChoice, parseHermesProviders, redact } = require("../server/agent-auth");
+const { createAgentAuthService, createTerminalRunRegistry, createQueryResponder, AGENT_AUTH_COMMANDS, commandArgs, findChoice, redact } = require("../server/agent-auth");
 const { resolvePtyRuntime } = require("../server/agent-connectors");
 const fixture = path.resolve(__dirname, "../test-support/fake-agent-auth.cjs");
 const pty = resolvePtyRuntime({ env: process.env });
@@ -81,9 +81,11 @@ test("every agent's commands are fixed argument lists with no shell or browser-s
     }
   }
   assert.deepEqual(commandArgs(findChoice("codex", "login", "device")), ["login", "--device-auth"]);
-  assert.deepEqual(commandArgs(findChoice("hermes", "logout"), "openai-codex"), ["auth", "logout", "openai-codex"]);
-  assert.equal(commandArgs(findChoice("hermes", "logout"), "--help"), null, "a provider can never become an option");
-  assert.equal(commandArgs(findChoice("hermes", "logout"), "a b"), null);
+  // A command that names a provider takes only a provider id there.
+  const providerChoice = { id: "default", args: ["auth", "logout", "{provider}"], provider: true };
+  assert.deepEqual(commandArgs(providerChoice, "openai-codex"), ["auth", "logout", "openai-codex"]);
+  assert.equal(commandArgs(providerChoice, "--help"), null, "a provider can never become an option");
+  assert.equal(commandArgs(providerChoice, "a b"), null);
   assert.equal(findChoice("codex", "login", "shell"), null);
   assert.equal(findChoice("cline", "logout"), null, "an agent without a sign-out command offers none");
   assert.deepEqual(commandArgs(findChoice("omp", "login")), ["login"], "Oh My Pi asks for its provider in its own sign-in");
@@ -182,7 +184,6 @@ test("requests are validated and a busy agent is left alone", unix, async () => 
   await assert.rejects(svc.start({ agentId: "shell", action: "login" }), error => error.code === "invalid_request");
   await assert.rejects(svc.start({ agentId: "codex", action: "exec" }), error => error.code === "invalid_request");
   await assert.rejects(svc.start({ agentId: "cline", action: "status" }), error => error.code === "action_unsupported");
-  await assert.rejects(svc.start({ agentId: "hermes", action: "login", choice: "oauth", provider: "--insecure" }), error => error.code === "provider_required");
   busy = true;
   await assert.rejects(svc.start({ agentId: "codex", action: "login", choice: "device" }), error => error.code === "agent_busy");
   const status = await svc.start({ agentId: "codex", action: "status" });
@@ -369,7 +370,6 @@ test("cancelling a helper before secret input schedules history cleanup without 
 });
 
 test("small helpers stay strict", () => {
-  assert.deepEqual(parseHermesProviders("  ⚠ serve pending\nminimax (1 credentials):\n  #1 key\nopenai-codex (2 credentials):\n"), ["minimax", "openai-codex"]);
   assert.equal(redact("key sk-123456 echoed", ["sk-123456"]), "key ••••••••• echoed");
   assert.equal(redact("short abc", ["abc"]), "short abc", "very short values are not treated as secrets");
 });

@@ -376,7 +376,7 @@ installs it. A release whose install fails three times is left alone until the
 switch is turned on again. Codex's own updater may install a release first;
 the runtime check then decides, as for any installed Codex.
 
-The other agents Stepsemble can upgrade, except Hermes, have the same switch;
+The other agents Stepsemble can upgrade have the same switch;
 each is installed only in a stable release its own release check passes
 (`docs/agent-release-checks.md`, `docs/harness-updates.md`).
 
@@ -400,7 +400,7 @@ their CI pins.
 ## Upgrade monitor
 
 The first watcher is now shipped as `npm run watch:harness`. It observes the
-installed versions of Codex, Claude Code, OpenCode, Pi, Hermes and Oh My Pi,
+installed versions of Codex, Claude Code, OpenCode, Pi and Oh My Pi,
 and keeps extension/hosted harnesses such as Cline, Kilo, Grok Build and
 Antigravity visible as explicit `manual` entries. The report is written to
 `~/.config/stepsemble/harness-compatibility.json` with owner-only permissions.

@@ -74,12 +74,11 @@ test("unsupported instructions are refused instead of silently discarded",async 
   const f=fixture(t);f.describe({supported:true,instructions:false,busy:false});await assert.rejects(f.service.start({...f.input(),instructions:"Keep decisions"}),/compaction_instructions_unavailable/);assert.equal(f.calls.length,0);
 });
 
-for(const reason of ["goal","readonly","history","hermes"])test(`${reason} sessions cannot be compacted`,async t=>{
+for(const reason of ["goal","readonly","history"])test(`${reason} sessions cannot be compacted`,async t=>{
   const f=fixture(t), entry=f.entries.get(f.key);
   if(reason==="goal")f.goal(true);
   if(reason==="readonly")entry.record.readOnly=true;
   if(reason==="history")entry.record.nativeHistoryReadonly=true;
-  if(reason==="hermes")entry.record.agentId="hermes";
   const state=await f.service.inspect(f.key);assert.equal(state.supported,false);
   await assert.rejects(f.service.start(f.input()));assert.equal(f.calls.length,0);
 });

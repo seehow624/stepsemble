@@ -26,8 +26,8 @@
 Stepsemble is an open-source, self-hosted workspace for local coding agents.
 It gives [Pi Agent](https://github.com/badlogic/pi-mono) a native session
 experience and can also launch installed Claude Code, Codex CLI, Grok Build,
-OpenCode, Google Antigravity, Cline, Kilo Code, Oh My Pi, and Hermes connectors from one
-desktop or phone interface. Cline, Kilo, Oh My Pi, and Hermes use bounded ACP bridges
+OpenCode, Google Antigravity, Cline, Kilo Code, and Oh My Pi connectors from one
+desktop or phone interface. Cline, Kilo, and Oh My Pi use bounded ACP bridges
 when their official local ACP server is installed, with a conservative CLI
 fallback for unavailable or incompatible installations; Stepsemble never reads
 their private credential or session stores.
@@ -36,7 +36,7 @@ Stepsemble is an independent community project. It is not an official product
 of, or affiliated with, Pi, Anthropic, OpenAI, xAI, Google, or OpenCode.
 
 The Settings page includes a guarded Harness update center for locally installed
-Codex CLI, Claude Code, OpenCode, Pi Agent, Oh My Pi, and Hermes Agent. Checks are
+Codex CLI, Claude Code, OpenCode, Pi Agent, and Oh My Pi. Checks are
 allow-listed and upgrades require explicit confirmation; active sessions are
 never interrupted. See [docs/harness-updates.md](docs/harness-updates.md).
 
@@ -226,7 +226,7 @@ left, then the context ring, the model and a round Send button on the right.
 **Approval** offers the permission modes of the conversation's own agent: Read
 only, Default and Full access for Codex; Manual, Accept edits, Plan, Auto,
 Don't ask and Bypass permissions for Claude Code; Build and Plan for OpenCode;
-the modes that Hermes, Kilo and Cline report; Default and Plan for Grok
+the modes that Kilo and Cline report; Default and Plan for Grok
 Build, the two it confirms; and Manual, Accept edits, Plan and Bypass
 permissions for Google Antigravity, which Stepsemble's own approval gate
 applies (below). Pi has no such modes, so the control is hidden for it. Each
@@ -272,7 +272,7 @@ Stepsemble version; agent versions are under **Settings → Updates**.
 
 **New session** in the Workspace lists the local Pi Agent and any installed
 allow-listed CLI connectors: Claude Code, Codex CLI, Grok Build, OpenCode,
-Google Antigravity (`agy`), Cline, Kilo Code, Oh My Pi (`omp`), and Hermes. Choose an agent,
+Google Antigravity (`agy`), Cline, Kilo Code, and Oh My Pi (`omp`). Choose an agent,
 optionally start in an isolated Git worktree, and create the session. An agent
 that is not signed in yet offers its own sign-in in the same dialog, and the
 session starts once it succeeds. CLI stdout/stderr is streamed into the conversation. On
@@ -345,19 +345,19 @@ Stepsemble never ticks, clears or stores that choice (agy's documentation says
 the CLI saves it with the account). Trusting the folder is a separate, unticked
 choice that adds the folder to agy's documented `trustedWorkspaces` setting.
 
-Cline, Kilo Code, Oh My Pi, and Hermes use their official ACP stdio modes when the local
-executable is installed (`cline --acp`, `kilo acp`, `omp acp`, and `hermes acp`). Their
+Cline, Kilo Code, and Oh My Pi use their official ACP stdio modes when the local
+executable is installed (`cline --acp`, `kilo acp`, and `omp acp`). Their
 session IDs, streamed updates, cancellation, and permission options stay
 bounded to the upstream ACP contract; Stepsemble never reads private
 credential/session stores or treats a single CLI output as complete history.
-Set `STEPSEMBLE_CLINE_ACP=0`, `STEPSEMBLE_KILO_ACP=0`, `STEPSEMBLE_OMP_ACP=0`, or
-`STEPSEMBLE_HERMES_ACP=0` to use the conservative bounded CLI fallback.
+Set `STEPSEMBLE_CLINE_ACP=0`, `STEPSEMBLE_KILO_ACP=0`, or `STEPSEMBLE_OMP_ACP=0` to
+use the conservative bounded CLI fallback.
 Oh My Pi is installed with Bun (`bun install -g @oh-my-pi/pi-coding-agent`,
 Bun 1.3.14 or later), which puts `omp` in `~/.bun/bin`, where Stepsemble looks
 for it. Until `omp` is signed in to a model provider, a new Oh My Pi session
 offers `omp login` first.
-Hermes is a personal assistant rather than a coding agent, so it is no longer
-offered for new Workspace sessions; earlier Hermes ACP conversations still open.
+Hermes Agent is left to its own desktop and mobile apps: Stepsemble no longer
+connects to it, offers it in **New session**, or upgrades it.
 
 Stepsemble launches each installed CLI inside the same local user environment.
 It does not copy, export, rewrite, or upload that CLI's OAuth tokens or

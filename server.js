@@ -2137,7 +2137,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|hermes|omp|antigravity)\/acp\/(?:session|prompt|permission|config)|claude\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|omp|antigravity)\/acp\/(?:session|prompt|permission|config)|claude\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -2228,7 +2228,7 @@ const grokDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "grok-buil
 const grokCommand = String(process.env.STEPSEMBLE_GROK_BIN || "").trim()
   ? resolveCommand({ ...grokDefinition, commands: [String(process.env.STEPSEMBLE_GROK_BIN).trim()] }, { env: process.env, includeKnownPaths: false })
   : resolveCommand(grokDefinition, { env: process.env });
-// Cline, Kilo Code, Hermes and Oh My Pi all publish an ACP stdio server. Enable the bridge
+// Cline, Kilo Code and Oh My Pi all publish an ACP stdio server. Enable the bridge
 // automatically when the executable is installed; an explicit 0/false still
 // gives operators a safe rollback to the bounded CLI connector. No ACP
 // process is spawned during boot.
@@ -2242,23 +2242,18 @@ const grokAcpEnabled = acpFlag("STEPSEMBLE_GROK_ACP", !!grokCommand);
 const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env,
   onRateEvent: event => { hostRates.acp("grok-build", event); workflowEvents.emit("grok-build", event.sessionId, event); } }) : null;
 const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
-const hermesDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "hermes");
 const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
 const ompDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "omp");
 const kiloCommand = resolveCommand(kiloDefinition, { env: process.env });
-const hermesCommand = resolveCommand(hermesDefinition, { env: process.env });
 const clineCommand = resolveCommand(clineDefinition, { env: process.env });
 const ompCommand = resolveCommand(ompDefinition, { env: process.env });
 const kiloAcpEnabled = acpFlag("STEPSEMBLE_KILO_ACP", !!kiloCommand);
-const hermesAcpEnabled = acpFlag("STEPSEMBLE_HERMES_ACP", !!hermesCommand);
 const clineAcpEnabled = acpFlag("STEPSEMBLE_CLINE_ACP", !!clineCommand);
 const ompAcpEnabled = acpFlag("STEPSEMBLE_OMP_ACP", !!ompCommand);
 const clineAcp = clineAcpEnabled && clineCommand ? createAgentClientProtocolAdapter({ command: clineCommand, args: ["--acp"], cwd: APP_HOME, env: process.env, label: "Cline", clientVersion: APP_VERSION,
   registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json"), onRateEvent: event => { hostRates.acp("cline", event); workflowEvents.emit("cline", event.sessionId, event); } }) : null;
 const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter({ command: kiloCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Kilo Code", clientVersion: APP_VERSION,
   registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json"), onRateEvent: event => { hostRates.acp("kilo", event); workflowEvents.emit("kilo", event.sessionId, event); } }) : null;
-const hermesAcp = hermesAcpEnabled && hermesCommand ? createAgentClientProtocolAdapter({ command: hermesCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Hermes Agent", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-hermes-sessions.json"), onRateEvent: event => { hostRates.acp("hermes", event); workflowEvents.emit("hermes", event.sessionId, event); } }) : null;
 // Oh My Pi opens a conversation even before it is signed in, with no model to
 // answer it; the bridge counts that as its sign-in being needed.
 const ompAcp = ompAcpEnabled && ompCommand ? createAgentClientProtocolAdapter({ command: ompCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Oh My Pi", clientVersion: APP_VERSION,
@@ -2282,15 +2277,15 @@ function choiceForSession(agentId, sessionId) {
   const choice = { ...last, ...own };
   return Object.keys(choice).length ? choice : null;
 }
-// The agents behind the ACP adapter's interface: Cline, Kilo Code, Hermes and
-// Oh My Pi over their own ACP servers, Antigravity through the bridge over
+// The agents behind the ACP adapter's interface: Cline, Kilo Code and Oh My
+// Pi over their own ACP servers, Antigravity through the bridge over
 // agy's stream (server/antigravity-acp-bridge.js).
-const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "hermes", "omp", "antigravity"]);
-const ACP_TASK_ID = /^(cline|kilo|hermes|omp|antigravity):/;
-const ACP_LABELS = Object.freeze({ cline: "Cline", kilo: "Kilo Code", hermes: "Hermes Agent", omp: "Oh My Pi", antigravity: "Google Antigravity" });
-const ACP_DIRECTORY_LABELS = Object.freeze({ cline: "Cline ACP", kilo: "Kilo Code ACP", hermes: "Hermes ACP", omp: "Oh My Pi ACP", antigravity: "Google Antigravity" });
+const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "omp", "antigravity"]);
+const ACP_TASK_ID = /^(cline|kilo|omp|antigravity):/;
+const ACP_LABELS = Object.freeze({ cline: "Cline", kilo: "Kilo Code", omp: "Oh My Pi", antigravity: "Google Antigravity" });
+const ACP_DIRECTORY_LABELS = Object.freeze({ cline: "Cline ACP", kilo: "Kilo Code ACP", omp: "Oh My Pi ACP", antigravity: "Google Antigravity" });
 function acpAdapterForAgent(agentId) {
-  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "hermes" ? hermesAcp : agentId === "omp" ? ompAcp
+  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "omp" ? ompAcp
     : agentId === "antigravity" ? antigravityAcp : null;
 }
 
@@ -2657,8 +2652,8 @@ const codexAutoUpgrade = harnessUpdateService ? createCodexAutoUpgrade({
 }) : null;
 // The other agents Stepsemble can upgrade get the same switch: an hourly check
 // installs their newest stable release once this Stepsemble supports it and no
-// agent is working. Hermes is left to be upgraded by hand.
-const AUTO_UPGRADE_EXCLUDED = new Set(["codex", "hermes"]);
+// agent is working.
+const AUTO_UPGRADE_EXCLUDED = new Set(["codex"]);
 const harnessAutoUpgrades = new Map(codexAutoUpgrade ? [["codex", codexAutoUpgrade]] : []);
 if (harnessUpdateService) {
   for (const entry of harnessUpdateRegistry?.harnesses || []) {
@@ -5087,7 +5082,7 @@ async function readJSON(req, maxBytes) {
   const body = await readJSONRaw(req, maxBytes);
   const route = String(req.url || "").split("?")[0];
   const mutatingPiCommand = ["/api/rpc-cmd", "/api/cmd"].includes(route) && !/^get_/.test(String(body?.command?.type || body?.type || "")) && !["abort"].includes(body?.command?.type || body?.type);
-  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|cline|kilo|hermes|omp|antigravity)\/acp\/prompt)$/.test(route)) {
+  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|cline|kilo|omp|antigravity)\/acp\/prompt)$/.test(route)) {
     const ids = [body?.sid, body?.taskId, body?.threadId, body?.sessionId].filter(Boolean);
     const entry = workspaceRegistry.list().entries.find(row => [row.record.sid, row.record.id, row.record.taskId, row.record.nativeThreadId, row.record.nativeSessionId].some(id => id && ids.includes(id)));
     if (entry && workflows.locked(entry.key)) throw Object.assign(new Error("Pause the Goal before sending another message"), { statusCode: 409 });
@@ -6796,10 +6791,10 @@ const server = http.createServer(async (req, res) => {
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_config_failed" }); }
         return;
       }
-      // Standard ACP endpoints for Kilo Code and Hermes. They intentionally
+      // Standard ACP endpoints for Cline, Kilo Code, Oh My Pi and Antigravity. They intentionally
       // mirror the Grok adapter's browser contract while sharing the protocol
       // implementation and preserving the agent-owned session identity.
-      const acpMatch = p.match(/^\/api\/(cline|kilo|hermes|omp|antigravity)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
+      const acpMatch = p.match(/^\/api\/(cline|kilo|omp|antigravity)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
       if (acpMatch) {
         const agentId = acpMatch[1];
         const action = acpMatch[2] || "root";
@@ -7241,7 +7236,7 @@ const server = http.createServer(async (req, res) => {
         // started is loaded from Grok before the pane shows it.
         if (record.agentId === "grok-build" && record.nativeGrokAcp && record.nativeSessionId && grokAcp
           && !grokAcp.sessions().some(row => row.id === record.nativeSessionId)) record.needsLoad = true;
-        // So do Kilo, Cline, Hermes and Oh My Pi: after a restart, for example an
+        // So do Kilo, Cline and Oh My Pi: after a restart, for example an
         // update, their conversation is loaded again before it takes a message.
         const acpAdapter = record.nativeAcp && record.nativeSessionId ? acpAdapterForAgent(record.agentId) : null;
         if (acpAdapter && !acpAdapter.sessions().some(row => row.id === record.nativeSessionId && row.loaded !== false)) record.needsLoad = true;
@@ -8852,12 +8847,11 @@ function shutdown(signal) {
     grokAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     clineAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     kiloAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
-    hermesAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     ompAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
     antigravityCleanup,
     openCodeManaged.close(),
-  ]).then(([usageResult, historyResult, nativeHistoryResult, persistedResult, codexResult, grokResult, clineResult, kiloResult, hermesResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
+  ]).then(([usageResult, historyResult, nativeHistoryResult, persistedResult, codexResult, grokResult, clineResult, kiloResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
     ...(historyResult || {}),
     cleanupConfirmed: usageResult?.cleanupConfirmed === true && historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
       && persistedResult?.cleanupConfirmed !== false
@@ -8865,7 +8859,6 @@ function shutdown(signal) {
       && grokResult?.cleanupConfirmed !== false
       && clineResult?.cleanupConfirmed !== false
       && kiloResult?.cleanupConfirmed !== false
-      && hermesResult?.cleanupConfirmed !== false
       && ompResult?.cleanupConfirmed !== false
       && openCodeResult?.cleanupConfirmed !== false
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))

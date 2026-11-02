@@ -3,7 +3,7 @@
 // The models an agent offered the last time one of its conversations asked.
 //
 // Codex, OpenCode and Pi list their models without a conversation, so Settings
-// reads those live. Claude Code and the ACP agents (Kilo, Hermes, Cline, Oh My Pi) only
+// reads those live. Claude Code and the ACP agents (Kilo, Cline, Oh My Pi) only
 // report models inside a running session; this cache keeps the most recent list
 // so Settings can show it, and a conversation can offer its model and level
 // before its agent runs. It stores model ids, names, reasoning levels and
@@ -13,7 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 // true: reports models inside a conversation; false: never reports them.
-const AGENTS = Object.freeze({ "claude-code": true, kilo: true, hermes: true, cline: true, omp: true, "grok-build": false, antigravity: true });
+const AGENTS = Object.freeze({ "claude-code": true, kilo: true, cline: true, omp: true, "grok-build": false, antigravity: true });
 const MAX_MODELS = 200;
 const REFRESH_MS = 60 * 60 * 1000;
 

@@ -20,7 +20,7 @@ function setup({ now = 0 } = {}) {
   return { home, gate, spawned, settled, write, tick: ms => { clock += ms; } };
 }
 
-test("every agent Stepsemble upgrades for you but Codex and Hermes has a release check", () => {
+test("every agent Stepsemble upgrades for you but Codex has a release check", () => {
   assert.deepEqual(Object.keys(AGENT_CHECKS).sort(), ["antigravity", "claude-code", "cline", "grok-build", "kilo", "omp", "opencode", "pi"]);
   for (const { script } of Object.values(AGENT_CHECKS)) assert.ok(fs.existsSync(path.join(__dirname, "..", "scripts", script)), script);
 });

@@ -259,7 +259,7 @@ explicit input/output boundary before adding more state to the controllers.
   advertises `protocolVersion: null` and `events: []` for native Pi; the older
   shipped catalog incorrectly populated the generic manifest fields for it.
   Claude Code, Codex CLI, Grok Build, OpenCode, Google Antigravity, Cline,
-  Kilo Code, and Hermes are discovered from an explicit allow-list and run only from their
+  and Kilo Code are discovered from an explicit allow-list and run only from their
   resolved executable path. The browser can submit an Agent id and text, never
   an arbitrary command or shell fragment.
 - Generic CLI tasks have a bounded, private journal at
@@ -282,7 +282,7 @@ explicit input/output boundary before adding more state to the controllers.
 - Structured native bridges are separately opt-in and contract-scoped. Claude
   Code uses its public stream-json bridge, Grok uses ACP, Codex uses the
   app-server adapter, OpenCode uses its local server, Antigravity uses the
-  `agy` stream-json contract, and Cline/Kilo/Hermes use standard ACP over
+  `agy` stream-json contract, and Cline/Kilo/Oh My Pi use standard ACP over
   stdio. Each bridge validates the upstream session identity and bounds event
   size; failed initialization falls back to the generic connector and approval
   responses remain option/request-bound rather than being auto-approved.

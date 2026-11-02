@@ -35,14 +35,6 @@
       "probe": "version-only"
     },
     {
-      "id": "hermes",
-      "label": "Hermes Agent",
-      "kind": "structured-cli",
-      "executableEnv": "STEPSEMBLE_HERMES_BIN",
-      "commands": ["hermes"],
-      "probe": "version-only"
-    },
-    {
       "id": "omp",
       "label": "Oh My Pi",
       "kind": "structured-cli",

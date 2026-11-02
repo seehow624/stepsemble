@@ -37,8 +37,7 @@ computer or another one. A session on another computer (for example, a
 MacBook Pro session referenced from a conversation on a Mac mini) is read and
 summarized by the computer that has it, with that computer's summarizer
 setting; only the summary travels. Its chip and the appended block name that
-computer ("on MacBook Pro"). The session itself stays where it is. A conversation's agent must be a coding agent; Hermes
-Assistant tabs do not take references. The source must have a readable history
+computer ("on MacBook Pro"). The session itself stays where it is. The source must have a readable history
 (Pi, Claude Code, Codex or OpenCode). On a phone the sidebar and the
 conversation are not on screen together; use **+** instead of dragging.
 

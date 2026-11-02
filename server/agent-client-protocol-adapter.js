@@ -1,7 +1,7 @@
 "use strict";
 
 // Shared Agent Client Protocol (ACP) v1 bridge for agents that expose an ACP
-// server over stdio (Cline, Kilo Code, Hermes and Oh My Pi). The bridge deliberately
+// server over stdio (Cline, Kilo Code and Oh My Pi). The bridge deliberately
 // keeps its authority at the wire boundary: it does not read an agent's
 // private database, credential store, or TUI history files. Session IDs,
 // updates, and permission request IDs are accepted only after the ACP peer
@@ -94,11 +94,11 @@ function validRequestId(value) {
 }
 
 // A session's mode is either a config option in the "mode" category or, in
-// the older form some agents still use (Hermes 0.21, for one), a "modes"
+// the older form some agents still use, a "modes"
 // object that session/set_mode changes. Both become one select option here,
 // so the browser offers either the same way.
 const LEGACY_MODE_OPTION = "acp.mode";
-// Agents such as Hermes list their models in the session's "models" field and
+// Some agents list their models in the session's "models" field and
 // switch them with session/set_model, outside the config options.
 const LEGACY_MODEL_OPTION = "acp.model";
 

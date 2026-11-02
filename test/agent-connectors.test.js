@@ -31,7 +31,7 @@ async function waitForOwnedProcesses(service) {
 
 test("Agent Hub exposes only the allow-listed connector ids", () => {
   const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false });
-  assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode", "antigravity", "cline", "kilo", "omp", "hermes"]);
+  assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode", "antigravity", "cline", "kilo", "omp"]);
   assert.equal(catalog[0].installed, true);
   assert.equal(catalog[0].protocolVersion, null);
   assert.deepEqual(catalog[0].events, [], "native Pi must not claim the generic task event stream");
@@ -41,7 +41,7 @@ test("Agent Hub exposes only the allow-listed connector ids", () => {
   assert.equal(catalog.find((item) => item.id === "kilo").category, "coding");
   assert.equal(catalog.find((item) => item.id === "omp").category, "coding");
   assert.equal(catalog.find((item) => item.id === "omp").maturity, "structured");
-  assert.equal(catalog.find((item) => item.id === "hermes").category, "personal");
+  assert.equal(catalog.every((item) => item.category === "coding"), true, "every agent starts coding conversations");
   assert.equal(catalog[1].transport, null);
   assert.equal(resolvePtyRuntime({ env: { PATH: "" } }) !== null, process.platform !== "win32");
   assert.equal(catalog.some((item) => item.command?.includes(";")), false);

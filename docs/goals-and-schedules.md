@@ -49,7 +49,7 @@ needed. The Goal's chip shows its state and elapsed time; opened, it also shows
 current activity, turns, output tokens and the most recent result.
 
 Supported native agents: Pi, Claude Code, Codex, OpenCode, Oh My Pi (OMP), Cline,
-Kilo, Hermes and Grok Build. The installed agent must be signed in and its native
+Kilo and Grok Build. The installed agent must be signed in and its native
 adapter enabled. Generic terminal-only conversations are not supported.
 
 A schedule can pin a model, reasoning level and permission mode for the new

@@ -118,7 +118,7 @@ test("cancellation stops the process, failures keep the agent's reason, and noth
   assert.equal(failed.status, "failed"); assert.match(failed.error, /not signed in/); assert.equal(failing.spawn.runs.length, 1);
 });
 
-test("requests are validated: a missing source, a Hermes target or referencing itself never run", async t => {
+test("requests are validated: a missing source or referencing itself never run", async t => {
   const f = fixture(t);
   await assert.rejects(f.service.start({ source: "bad", target: TARGET }), error => error.statusCode === 400);
   await assert.rejects(f.service.start({ source: SOURCE, target: SOURCE }), error => error.code === "reference_self");

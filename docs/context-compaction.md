@@ -18,7 +18,6 @@ option refuse the note instead of dropping it; send `/compact` alone.
 | OpenCode | `POST /session/:id/summarize` with the conversation's own model | No |
 | Oh My Pi, Kilo, Cline, Grok Build | The compaction command the agent advertises for that session (`compact`, `compress` or `summarize`) | Only if the agent advertises an input |
 | Google Antigravity | Disabled: its headless stream has no compaction operation | — |
-| Hermes | Not offered | — |
 
 Terminal-only conversations compact in their own terminal. Read-only history,
 a conversation a Goal owns, a working agent and an unanswered approval also

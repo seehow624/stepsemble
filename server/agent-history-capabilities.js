@@ -18,7 +18,6 @@ const CAPABILITIES = Object.freeze({
   "grok-build": Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   cline: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   kilo: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
-  hermes: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   omp: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
 });
 
@@ -82,7 +81,7 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       journalScope: journalAvailable ? "host-local" : "unavailable",
     };
   }
-  if (["cline", "kilo", "hermes", "omp"].includes(id) && adapter?.ready === true && adapter?.adapter === "acp-v1") {
+  if (["cline", "kilo", "omp"].includes(id) && adapter?.ready === true && adapter?.adapter === "acp-v1") {
     return {
       ...base,
       mode: "native_api",

@@ -8,7 +8,7 @@
 
 - 指令固定為 `--safe-mode auth status --text`、`--safe-mode auth login --claudeai`（訂閱）
   或 `--console`（Console 帳號）、`--safe-mode auth logout`，不接受其他參數。
-  其他 Agent（Codex、OpenCode、Kilo、Hermes、Grok Build、Cline、Antigravity）用同一個
+  其他 Agent（Codex、OpenCode、Kilo、Grok Build、Cline、Antigravity）用同一個
   終端機執行各自的指令，清單在 `server/agent-auth.js`；Pi 經自己的 runtime 列出服務商。
 - macOS 以 SSH 啟動的主機仍經桌面助手在 Aqua 執行（`terminal/*` IPC，見
   [`claude-desktop-runner.md`](claude-desktop-runner.md)）。舊助手沒有 `terminalVersion`，

@@ -208,7 +208,6 @@ function createHandoffSummarizer({ transcripts, resolve, configFile, commands, i
     if (remoteTarget !== true) {
       const destination = resolve(target);
       if (!destination?.record) throw failure("workspace_entry_not_found", 404);
-      if (destination.record.agentId === "hermes") throw failure("reference_target_unsupported");
     }
     const value = await transcripts.read(source);
     const chosen = summarizer();

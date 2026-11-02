@@ -6,7 +6,7 @@ test("authenticated Host Goals complete across Pi, Claude and ACP without a brow
   const {cleanEnvironment}=await import("../scripts/check-rolling-clients.mjs");const {freePort,waitForServer,stopServer}=await import("../scripts/host-performance-baseline.mjs");
   const home=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),"stepsemble-goals-http-"))),bin=path.join(home,"bin");await fs.mkdir(bin);
   const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
-  for(const [name,mode] of [["pi","pi"],["claude","claude"],["omp","acp"],["hermes","acp"],["kilo","acp"],["cline","acp"],["grok","acp"]])await fs.writeFile(path.join(bin,name),`#!/bin/sh\nSTEPSEMBLE_WORKFLOW_PEER=${mode} exec ${quote(process.execPath)} ${quote(path.resolve("test-support/workflow-peer.cjs"))} "$@"\n`,{mode:0o700});
+  for(const [name,mode] of [["pi","pi"],["claude","claude"],["omp","acp"],["kilo","acp"],["cline","acp"],["grok","acp"]])await fs.writeFile(path.join(bin,name),`#!/bin/sh\nSTEPSEMBLE_WORKFLOW_PEER=${mode} exec ${quote(process.execPath)} ${quote(path.resolve("test-support/workflow-peer.cjs"))} "$@"\n`,{mode:0o700});
   const sessions=new Map();
   const upstream=require("node:http").createServer((req,res)=>{
     let raw="";req.on("data",b=>raw+=b);req.on("end",()=>{
@@ -44,7 +44,7 @@ test("authenticated Host Goals complete across Pi, Claude and ACP without a brow
   assert.equal((await request("/api/workflows",{...config,agentId:"pi"},"https://foreign.invalid")).status,403);
   const until=async(id,status)=>{for(let i=0;i<100;i++){const row=(await json("/api/workflows")).runs.find(r=>r.id===id);if(status.includes(row.status))return row;await sleep(100);}throw new Error("Workflow timeout: "+JSON.stringify(await json("/api/workflows"))+output);};
   let piEntry;
-  for(const agentId of ["pi","claude-code","omp","hermes","kilo","cline","grok-build","opencode"]){
+  for(const agentId of ["pi","claude-code","omp","kilo","cline","grok-build","opencode"]){
     const created=await json("/api/workflows",{...config,agentId});const done=await until(created.id,["completed","failed","limited"]);assert.equal(done.status,"completed",agentId+JSON.stringify(done));assert.equal(done.turns,2,agentId);assert(done.entry);if(agentId==="pi")piEntry=done.entry;assert(!done.result.includes("STEPSEMBLE_GOAL"));
     const original=(await json("/api/workspace/entry?key="+done.entry)).record;
     const bound=await json("/api/workflows",{...config,kind:"schedule",agentId,mode:"task",objective:"Continue the original conversation",targetEntry:done.entry,choice:{model:"missing"},permission:"no-such-mode",schedule:{kind:"interval",minutes:10080}});

@@ -97,14 +97,6 @@ const AGENT_AUTH_COMMANDS = Object.freeze({
     login: Object.freeze([Object.freeze({ id: "default", args: ["auth", "login"], interactive: true })]),
     logout: Object.freeze([Object.freeze({ id: "default", args: ["auth", "logout"], interactive: true })]),
   }),
-  hermes: Object.freeze({
-    status: Object.freeze({ args: ["auth", "list"] }),
-    login: Object.freeze([
-      Object.freeze({ id: "oauth", args: ["auth", "add", "{provider}", "--type", "oauth", "--no-browser"], provider: true }),
-      Object.freeze({ id: "api-key", args: ["auth", "add", "{provider}", "--type", "api-key"], provider: true }),
-    ]),
-    logout: Object.freeze([Object.freeze({ id: "default", args: ["auth", "logout", "{provider}"], provider: true })]),
-  }),
   "grok-build": Object.freeze({
     status: null,
     login: Object.freeze([
@@ -742,16 +734,6 @@ function createTerminalRunRegistry({ spawnImpl = spawn, ptyRuntime = null, env =
   return Object.freeze({ start, read, input, cancel, busy, close });
 }
 
-// Hermes lists its signed-in providers as "provider (N credentials):" lines.
-function parseHermesProviders(text) {
-  const providers = [];
-  for (const line of String(text || "").split(/\r?\n/)) {
-    const match = /^([A-Za-z0-9][A-Za-z0-9._-]{0,63}) \(\d+ credentials?\):\s*$/.exec(line.trim());
-    if (match && !providers.includes(match[1])) providers.push(match[1]);
-  }
-  return providers;
-}
-
 module.exports = {
   AUTH_TERMINAL_VERSION,
   AGENT_AUTH_COMMANDS,
@@ -762,7 +744,6 @@ module.exports = {
   createQueryResponder,
   commandArgs,
   findChoice,
-  parseHermesProviders,
   queryAnswer,
   redact,
 };

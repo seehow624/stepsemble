@@ -46,7 +46,6 @@ const SHELL = [
   "/agent-logos/v2/antigravity.svg",
   "/agent-logos/v2/cline.svg",
   "/agent-logos/v2/kilo.svg",
-  "/agent-logos/v2/hermes.svg",
   "/agent-logos/v2/omp.svg",
   "/agent-logos/v2/openai.svg",
   "/agent-logos/v2/minimax.png",

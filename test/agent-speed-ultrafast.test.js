@@ -48,7 +48,7 @@ test("agent-speed ultrafast: consent, CAS, persistence, revocation and unsupport
   assert.equal(restored.session("codex", "thread").speed, "ultrafast"); assert.equal(restored.last("codex"), null);
   cap = capability(["priority"]); current = (await request()).body; assert.equal(current.requested, "standard");
   cap = capability(); assert.equal((await request()).body.requested, "standard", "returning offer never revives paid choice");
-  for (const agent of ["claude-code", "pi", "hermes", "opencode"]) {
+  for (const agent of ["claude-code", "pi", "opencode"]) {
     const first = (await request(null, agent)).body;
     const result = await request({ speed: "ultrafast", confirmCost: true, fingerprint: cap.fingerprints.ultrafast, revision: first.revision }, agent);
     assert.equal(result.status, 409);

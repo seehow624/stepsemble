@@ -79,7 +79,6 @@ function createAgentCompaction({ resolve, describe, run, goalLocked = () => fals
   }
   function restriction(entry) {
     const record = entry.record;
-    if (record.agentId === "hermes") return "compaction_excluded";
     if (record.nativeHistoryReadonly || record.readOnly && !(record.nativeCodex && record.mutation === "native_api")) return "compaction_readonly";
     if (goalLocked(entry.key)) return "compaction_goal_owned";
     return null;

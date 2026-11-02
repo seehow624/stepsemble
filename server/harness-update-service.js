@@ -295,7 +295,7 @@ function parseVersion(output) {
   // error string (or the first number in a stack trace) as a version.  Keep
   // the accepted token strict enough for semver comparisons while allowing
   // the usual `codex-cli 0.154.0`, `Version: 0.154.0`, and bare forms, a
-  // name of up to three words (`Hermes Agent v0.21.5 (2026.9.24)`), and a
+  // name of up to three words (`Vendor Agent v0.21.5 (2026.9.24)`), and a
   // name joined by a slash (`omp/18.6.1`).
   const semver = "(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?";
   const pattern = new RegExp(`^(?:version\\s*[:=]\\s*|[A-Za-z][A-Za-z0-9._-]{0,63}/|(?:[A-Za-z0-9@._+/-]+\\s+){1,3})?v?(${semver})(?=\\s|$)`, "i");
@@ -963,7 +963,7 @@ function createHarnessUpdateService({
       ? resolve(env[definition.executableEnv], env) : (definition.commands || []).map(name => resolve(name, env)).find(Boolean);
     if (!executable) throw errorStatus("not_installed", `${definition.label} is not installed`, 422);
     // Manual, bulk and automatic upgrades share a stable-release gate, even
-    // when this harness has no separate adapter compatibility check (Hermes).
+    // when this harness has no separate adapter compatibility check.
     let known = stateById(definition.id) || {};
     if (!isStableVersion(known.latestVersion) || known.updateAvailable !== true || known.status !== "available") {
       known = await observe(definition);

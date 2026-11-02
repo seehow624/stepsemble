@@ -20,10 +20,9 @@ tile.
   `@lobehub/icons-static-svg@1.97.0` (`claudecode-color`, `claude-color`,
   `codex-color`, `antigravity-color`). Distributed under the
   [included MIT license](../vendor/licenses/lobe-icons-LICENSE.md).
-- `v2/grok.svg`, `v2/hermes.svg`, `v2/openai.svg`: the Lobe Icons 1.97.0 marks
-  (`grok`, `hermesagent`, `openai`) placed on the tile of their products' own
-  icons: Grok's #FCFCFC on #050505 (grok.com), Hermes Agent's black on white
-  (hermes-agent.nousresearch.com), and the OpenAI blossom black on white.
+- `v2/grok.svg`, `v2/openai.svg`: the Lobe Icons 1.97.0 marks (`grok`,
+  `openai`) placed on the tile of their products' own icons: Grok's #FCFCFC on
+  #050505 (grok.com), and the OpenAI blossom black on white.
   MIT, as above.
 - `v2/opencode.svg`: the official app icon, `packages/ui/src/assets/favicon/favicon-v3.svg`
   from [sst/opencode](https://github.com/sst/opencode), without its wrapper.
@@ -48,8 +47,8 @@ tile.
 - `v1/claude.svg`, `v1/codex.svg`, `v1/grok.svg`, `v1/opencode.svg`,
   `v1/openai.svg`: unchanged SVG representations from Lobe Icons, pinned commit
   `a94750e3f5f8fc33757b839d85030e742284e43a`, MIT.
-- `v1/antigravity.svg`, `v1/cline.svg`, `v1/kilo.svg`, `v1/hermes.svg`,
-  `v1/omp.svg`: Stepsemble's original source-neutral marks, not official logos.
+- `v1/antigravity.svg`, `v1/cline.svg`, `v1/kilo.svg`, `v1/omp.svg`:
+  Stepsemble's original source-neutral marks, not official logos.
 - `v1/agent.svg`: Stepsemble's own neutral fallback, Apache-2.0.
 
 All assets are served locally and precached. Replacing artwork requires a new
@@ -57,7 +56,7 @@ asset directory version and corresponding CSS/service-worker updates; an
 earlier directory stays for clients that still name it.
 
 Current IDs: `pi`, `claude-code`, `codex`, `opencode`, `grok-build`, `antigravity`,
-`cline`, `kilo`, `hermes`, `omp`.
+`cline`, `kilo`, `omp`.
 Explicit `gpt` and `chatgpt` source IDs have a presentation mapping to the OpenAI
 blossom for future use; this change adds no GPT/ChatGPT connector. Model labels,
 conversation titles, unknown IDs and arbitrary URLs never choose a brand mark.

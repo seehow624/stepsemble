@@ -17,7 +17,6 @@ function accepted(result) {
 function createCompactionBridge({ pi, claude, codex, openCode, acp, working = async () => false, choice = () => null }) {
   async function describe(record) {
     const agent = record.agentId, id = nativeId(record);
-    if (agent === "hermes") return unavailable("compaction_excluded");
     if (agent === "antigravity") return unavailable("compaction_native_unavailable");
     if (agent === "pi") {
       const session = id && pi.session(id);

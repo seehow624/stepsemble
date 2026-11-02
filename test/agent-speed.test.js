@@ -66,7 +66,7 @@ test("agent-speed routes: cost confirmation, stale-device CAS, model revocation 
   assert.equal((await request()).data.requested, "fast", "Host readback is shared across clients");
   capability = cap({ models: [{ ...model, id: "model-b", model: "model-b" }], model: "model-b" });
   assert.equal((await request(null, "codex", "model-b")).data.requested, "standard");
-  for (const agent of ["pi", "hermes", "opencode", "grok-build", "antigravity", "kilo"]) {
+  for (const agent of ["pi", "opencode", "grok-build", "antigravity", "kilo"]) {
     const result = await request(null, agent); assert.equal(result.data.support, "unknown");
     assert.equal((await request({ speed: "fast", confirmCost: true, revision: result.data.revision }, agent)).status, 409);
   }

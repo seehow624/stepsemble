@@ -185,7 +185,7 @@
     return denominator > 0 ? (cacheRead / denominator) * 100 : null;
   }
 
-  // Usage from an agent speaking ACP (Grok Build, Kilo, Cline, Hermes), in
+  // Usage from an agent speaking ACP (Grok Build, Kilo, Cline), in
   // the dashboard's terms: Input is what the cache did not supply and Output
   // includes thinking, as Claude reports them.
   // - reply: the answer to a prompt. Grok names the turn's last model call in
