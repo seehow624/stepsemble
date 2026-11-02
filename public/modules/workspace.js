@@ -2,11 +2,8 @@
 "use strict";
 (() => {
   const L = window.StepsembleLayout, I = window.StepsembleWorkspaceI18n, O = window.StepsembleWorkspaceOrder, $ = id => document.getElementById(id);
-  const WAM = window.StepsembleWorkspaceAssistantModel;
   // Enter in a text field, unless an input method used it to confirm text (composer-ime.js).
   const isEnter = event => !!window.stepsembleComposerIme?.isEnter(event);
-  // Created once the helpers below exist; the first preferences pass runs before.
-  let assistantUI = null;
   const prefersDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
   const readPreferences = () => {
     try { return I.preferences(localStorage, { prefersDark: prefersDark() }); }
@@ -36,7 +33,6 @@
     for (const element of document.querySelectorAll("[data-workspace-i18n]")) element.textContent = t(element.dataset.workspaceI18n);
     for (const attr of ["aria-label", "title", "placeholder"]) for (const element of document.querySelectorAll(`[data-workspace-${attr}]`)) element.setAttribute(attr, t(element.getAttribute(`data-workspace-${attr}`)));
     renderHostState();
-    if (assistantUI) { assistantUI.render(); renderSidebar(); }
     // The Mac app matches its window, buttons and dialogs to the chosen
     // theme; "auto" follows macOS.
     window.webkit?.messageHandlers?.stepsemble?.postMessage({ type: "appearance", theme: prefs.theme });
@@ -99,29 +95,6 @@
   const mobile = () => matchMedia("(max-width:760px)").matches;
   const node = (tag, text, className) => { const e = document.createElement(tag); if (text) e.textContent = text; if (className) e.className = className; return e; };
   function button(text, action, label = text, className = "btn") { const b = node("button", text, className); b.type = "button"; b.title = label; b.setAttribute("aria-label", label); b.onclick = action; return b; }
-  // The Bots and groups share the sidebar with the sessions, below Recent; a
-  // Bot opens in a pane as a session does, on a phone as well. The list is
-  // redrawn around their block, which keeps its own state.
-  const botsBlock = $("workspace-assistant");
-  const assistantTab = (host, route) => WAM.findTab(allRefs(), host, route) || assistantUI.ref(host, route);
-  assistantUI = window.StepsembleWorkspaceAssistant.create({
-    locale: () => prefs.locale, wt: t,
-    machines: () => machines.map(m => ({ id: m.id, name: m.name || m.id, self: m.id === self, base: m.id === self ? "" : `/r/${encodeURIComponent(m.id)}` })),
-    selected: () => mobile() ? [active(L.leaves(tree).find(p => p.id === focused) || L.leaves(tree)[0])].filter(Boolean) : L.leaves(tree).map(active).filter(Boolean),
-    open: (target, route) => openAssistant(target, route),
-    dragStart: (event, target, route) => dragStart(event, assistantTab(target, route), false), dragEnd,
-    menu: (anchor, actions) => openPaneMenu(anchor, actions),
-    newWindow: (target, route) => newWindow(assistantTab(target, route)),
-    sectionActions: () => [null, ...sectionActions("bots")],
-    decorate: toggle => reorderSection(toggle, botsBlock, "bots"),
-    onLoaded: () => void refreshAutomations(),
-    onInstalled(installed) {
-      botsBlock.hidden = !installed;
-      if (installed && !assistantUI.active) { assistantUI.setQuery($("workspace-search").value.trim()); assistantUI.activate(botsBlock, { inline: true }); }
-      if (!installed && assistantUI.active) assistantUI.deactivate();
-      renderSidebar(); void refreshAutomations();
-    },
-  });
   function icon(path, className = "") {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
@@ -239,16 +212,15 @@
     try { save(); } catch (error) { toast(error.message); }
     updateTabMetadata(ref);
   }
-  // A Bot's page and Schedules are tabs of their own, not sessions of a Host's list.
-  const pageTab = ref => !!(ref.assistant || ref.schedules);
+  // Schedules are a tab of their own, not a session of a Host's list.
+  const pageTab = ref => !!ref.schedules;
   const SCHEDULE_ICON = "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z";
   function schedulesIcon() {
     const mark = node("span", "", "workspace-tab-avatar workspace-tab-page");
     mark.setAttribute("aria-hidden", "true"); mark.append(icon(SCHEDULE_ICON)); return mark;
   }
-  // A session's tab starts with its agent's logo; a Bot tab with the Bot,
-  // and Schedules with their clock.
-  const tabIcon = ref => ref.assistant ? assistantUI.tabIcon(ref) : ref.schedules ? schedulesIcon() : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
+  // A session's tab starts with its agent's logo, and Schedules with their clock.
+  const tabIcon = ref => ref.schedules ? schedulesIcon() : window.StepsembleAgentIdentity.create(document, ref.agentId || "", true);
   // A title bar names the session and, below it as on a phone, its computer
   // and project.
   function tabSubtitle(ref) {
@@ -411,19 +383,7 @@
       return true;
     } catch (error) { toast(error.message); return false; }
   }
-  // A Bot, a group or an Assistant page has one tab per computer: opening it
-  // again shows that tab, moved to the page that was asked for.
-  function openAssistant(target, route) {
-    const existing = WAM.findTab(allRefs(), target, route);
-    if (!existing) return open(assistantUI.ref(target, route));
-    const fresh = assistantUI.ref(target, route);
-    if (JSON.stringify(existing.assistant) !== JSON.stringify(fresh.assistant)) {
-      updateAssistantTab(existing, { route: fresh.assistant, title: fresh.title, avatar: fresh.avatar });
-      toFrame(frames.get(L.identity(existing))?.frame, { type: "assistant-navigate", route: fresh.assistant });
-    }
-    return open(existing);
-  }
-  // Schedules have one tab per computer too. Opening them again shows that
+  // Schedules have one tab per computer. Opening them again shows that
   // tab, at the schedule or the new-schedule form asked for: a new pane's page
   // starts there, and a page still loading takes it once it says it is ready.
   // Like a session's pane, it takes the focus only to type a new schedule.
@@ -462,24 +422,6 @@
       if (request.focus) url.searchParams.set("focus", "1");
     }
     return url.href;
-  }
-  // A Bot tab says which page it shows; its label and the saved layout follow.
-  function updateAssistantTab(ref, { route, title, avatar }) {
-    let checked;
-    try { checked = L.reference({ host: ref.host, key: ref.key, title: String(title || "").replace(/\s+/g, " ").trim() || ref.title, assistant: route, avatar: avatar || undefined }); }
-    catch { return; }
-    const key = L.identity(ref);
-    let changed = false;
-    for (const tab of allRefs()) if (L.identity(tab) === key) {
-      if (JSON.stringify(tab.assistant) !== JSON.stringify(checked.assistant) || tab.title !== checked.title || tab.avatar !== checked.avatar) changed = true;
-      tab.assistant = checked.assistant; tab.title = checked.title;
-      if (checked.avatar) tab.avatar = checked.avatar; else delete tab.avatar;
-    }
-    const item = frames.get(key);
-    if (item) { item.ref = allRefs().find(tab => L.identity(tab) === key) || item.ref; item.frame.title = `${checked.title} · ${hostName(ref.host)}`; }
-    if (!changed) return;
-    try { save(); } catch (error) { toast(error.message); }
-    updateTabMetadata(ref); assistantUI.mark();
   }
   function dragStart(event, ref, fromTab) {
     const payload = { version: 1, ref: L.reference(ref), source: fromTab ? windowId : null, transfer: crypto.randomUUID() };
@@ -556,8 +498,7 @@
     for (const [key, item] of frames) {
       const slot = slots.get(key);
       const visible = !!(slot && slot.getClientRects().length && slot.getBoundingClientRect().width > 0);
-      // A Bot tab that is not shown stops counting as watching its chat, so
-      // the phone still hears about a reply there; hidden Schedules stop asking.
+      // Hidden Schedules stop asking.
       if (pageTab(item.ref) && item.frame.hidden === visible) toFrame(item.frame, { type: "workspace-visibility", visible });
       item.frame.hidden = !visible;
       if (!visible) continue;
@@ -653,7 +594,7 @@
       // A video in a pane can still go full screen.
       frame.allow = "fullscreen"; frame.allowFullscreen = true;
       const url = new URL("/index.html", location.origin); url.searchParams.set("pane", "1"); url.searchParams.set("host", ref.host); url.searchParams.set("entry", ref.key);
-      frame.src = ref.assistant ? new URL(WAM.frameUrl(ref), location.origin).href : ref.schedules ? schedulesUrl(ref) : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
+      frame.src = ref.schedules ? schedulesUrl(ref) : url.href; frames.set(key, { frame, ref }); $("workspace-frames").append(frame);
       // A pane that loads again starts with its summary closed.
       frame.addEventListener("load", () => { const item = frames.get(key); if (item?.summaryOpen) summaryState(item, false); });
     }
@@ -712,12 +653,6 @@
         summary.onkeydown = event => { if (event.key === "Escape" && summary.getAttribute("aria-expanded") === "true") { event.preventDefault(); frameCommand("summary-close"); } };
         summary.append(icon("M6.5 3.5h11A2.5 2.5 0 0 1 20 6v12a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18V6a2.5 2.5 0 0 1 2.5-2.5zM8 8.5h8M8 12h8M8 15.5h5")); tabs.append(summary);
       }
-      // A Bot's conversation keeps its history at the same place.
-      const botChat = shownRef?.assistant?.page === "bot";
-      if (botChat) {
-        const history = button("", () => frameCommand("history"), assistantUI.text("historyAction"), "btn workspace-strip-button workspace-history-button");
-        history.append(icon("M12 7v5l3 2M3.5 12a8.5 8.5 0 1 0 2.5-6M3 4v4h4")); tabs.append(history);
-      }
       // Occasional actions collapse into one overflow control. A permanent row
       // of buttons costs every pane a strip of height that belongs to the
       // conversation.
@@ -743,14 +678,8 @@
         actions.push([t("moveWindow"), () => newWindow(shownRef)]);
         actions.push([maximized === n.id ? t("restore") : t("maximize"), () => { maximized = maximized ? null : n.id; render(); requestAnimationFrame(() => revealActiveTabs()); }]);
       }
-      if (botChat) {
-        const profile = shownRef.assistant.profile;
-        actions.unshift([assistantUI.text("settings"), () => openAssistant(shownRef.host, { page: "settings", profile })],
-          [assistantUI.text("routines"), () => openAssistant(shownRef.host, { page: "routines", profile })], null);
-      }
-      // The conversation's own sheet (model, export, archive where they apply)
-      // and a Bot's menu.
-      if (shownRef && (!pageTab(shownRef) || botChat)) actions.push(null, [t("moreActions"), () => frameCommand("menu")]);
+      // The conversation's own sheet (model, export, archive where they apply).
+      if (shownRef && !pageTab(shownRef)) actions.push(null, [t("moreActions"), () => frameCommand("menu")]);
       if (mobile() && L.leaves(tree).length > 1) actions.push([t("nextPane"), () => { const panes = L.leaves(tree); focused = panes[(panes.findIndex(p => p.id === focused)+1)%panes.length].id; commit(tree); }]);
       if (shownRef || L.leaves(tree).length > 1) actions.push(null, [t("closePane"), () => { maximized = null; commit(L.closePane(tree, n.id)); }]);
       if (actions.some(Boolean)) {
@@ -808,16 +737,16 @@
     }
     return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_SHOWN);
   }
-  // The list's sections, Recent, the Bots (with their groups) and each computer,
-  // keep the order and the folds a person gives them, on this device. A
-  // section that appears later takes its usual place among the others.
+  // The list's sections, Recent and each computer, keep the order and the
+  // folds a person gives them, on this device. A section that appears later
+  // takes its usual place among the others.
   const SECTION_ORDER_KEY = "stepsemble.workspace.sections.v1", SECTION_FOLDED_KEY = "stepsemble.workspace.sections.folded.v1";
   const savedIds = key => { try { const value = JSON.parse(localStorage.getItem(key)); return Array.isArray(value) ? value.filter(id => typeof id === "string") : []; } catch { return []; } };
   let sectionOrder = savedIds(SECTION_ORDER_KEY);
   const foldedSections = new Set(savedIds(SECTION_FOLDED_KEY));
   const machineSectionId = target => "machine:" + target;
   function sectionsInOrder() {
-    const present = [...(machines.length > 1 ? ["recent"] : []), ...(assistantUI.installed ? ["bots"] : []), ...orderedMachines().map(m => machineSectionId(m.id))];
+    const present = [...(machines.length > 1 ? ["recent"] : []), ...orderedMachines().map(m => machineSectionId(m.id))];
     const order = sectionOrder.filter(id => present.includes(id));
     present.forEach((id, index) => {
       if (order.includes(id)) return;
@@ -880,22 +809,18 @@
     for (const row of recent) contents.append(sessionRow(row.target, row.entry, { openKeys, recent: true }));
     return section;
   }
-  // Automations: every computer's Schedules and the Bots' routines, those
-  // needing attention first, then by their next run, behind the button beside
-  // the search; a search finds them in the list too. A row opens its own
-  // schedule or its Bot's routines; + makes a new one.
-  const automationData = { schedules: new Map(), routines: null, read: false };
+  // Automations: every computer's Schedules, those needing attention first,
+  // then by their next run, behind the button beside the search; a search
+  // finds them in the list too. A row opens its own schedule; + makes a new one.
+  const automationData = { schedules: new Map(), read: false };
   let automationsReading = null, automationsAgain = false, automationsPanel = null;
   function automationList() {
-    const A = window.StepsembleWorkspaceAutomations, M = window.StepsembleAssistantModel;
-    return A.collect({
+    return window.StepsembleWorkspaceAutomations.collect({
       schedules: orderedMachines().filter(m => automationData.schedules.has(m.id)).map(m => ({ target: m.id, owner: machines.length > 1 ? m.name || m.id : "", items: automationData.schedules.get(m.id) })),
-      routines: automationData.routines, scheduleLabel: spec => window.StepsembleWorkflows.scheduleLabel(spec),
-      routineLabel: schedule => A.routineCadence(schedule, { M, t: assistantUI.text, locale: prefs.locale }),
-      routineTitle: item => M.routineName(item.name) || String(item.prompt || "").slice(0, 60),
+      scheduleLabel: spec => window.StepsembleWorkflows.scheduleLabel(spec),
     });
   }
-  // A read asked for during another (the Bots just loaded) follows it.
+  // A read asked for during another follows it.
   function refreshAutomations() {
     if (!booted) return null;
     if (automationsReading) { automationsAgain = true; return automationsReading; }
@@ -906,30 +831,21 @@
         try { automationData.schedules.set(machine.id, (await api("/api/workflows", undefined, machine.id, controller.signal)).schedules || []); }
         catch {} finally { clearTimeout(timer); }
       }));
-      try { automationData.routines = assistantUI.installed ? await assistantUI.routines() : null; } catch {}
       const before = JSON.stringify(automationData.drawn || null), now = JSON.stringify(automationList());
       automationData.read = true; automationData.drawn = JSON.parse(now);
       if (before !== now) { syncAutomations(); if (sidebarHeld()) sidebarOrderPending = true; else renderSidebar(); }
     })().finally(() => { automationsReading = null; if (automationsAgain) { automationsAgain = false; void refreshAutomations(); } });
     return automationsReading;
   }
-  function openAutomation(row) {
-    if (row.kind === "schedule") openSchedules(row.target, { select: row.id });
-    else openAssistant(row.target, { page: "routines", profile: row.profile });
-  }
   function newAutomationActions() {
     const label = window.StepsembleWorkflows.label("newSchedule");
-    const schedules = machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => openSchedules(m.id, { create: true })])
+    return machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => openSchedules(m.id, { create: true })])
       : [[label, () => openSchedules(host, { create: true })]];
-    const bots = assistantUI.ready ? (automationData.routines?.bots || []).filter(bot => !bot.hidden)
-      .map(bot => [t("onComputer", { item: assistantUI.text("newRoutine"), computer: bot.displayName || bot.name }), () => openAssistant(assistantUI.machine.id, { page: "routines", profile: bot.name })]) : [];
-    return [...schedules, ...bots];
   }
   function allAutomationActions() {
     const label = window.StepsembleWorkflows.label("schedules");
-    return [...(machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => openSchedules(m.id)])
-      : [[label, () => openSchedules(host)]]),
-      ...(assistantUI.installed ? [[assistantUI.text("allRoutines"), () => openAssistant(assistantUI.machine.id, { page: "routines" })]] : [])];
+    return machines.length > 1 ? orderedMachines().map(m => [t("onComputer", { item: label, computer: m.name || m.id }), () => openSchedules(m.id)])
+      : [[label, () => openSchedules(host)]];
   }
   function automationRow(row, opened = () => {}) {
     const A = window.StepsembleWorkspaceAutomations;
@@ -937,9 +853,8 @@
     const state = { attention: t("automationAttention"), paused: t("automationPaused"), finished: t("automationFinished") }[row.state] || "";
     const next = row.nextAt ? t("automationNext", { time: A.nextLabel(row.nextAt, Date.now(), prefs.locale) }) : "";
     const meta = [row.cadence, next, row.owner].filter(Boolean).join(" · ");
-    const entry = button("", () => { opened(); openAutomation(row); }, [row.title, state, meta].filter(Boolean).join(" · "), "btn workspace-automation");
-    const lead = row.kind === "routine" && row.bot ? assistantUI.avatar(row.bot) : node("span", "", "workspace-automation-icon");
-    if (!(row.kind === "routine" && row.bot)) lead.append(icon(row.kind === "routine" ? "M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" : SCHEDULE_ICON));
+    const entry = button("", () => { opened(); openSchedules(row.target, { select: row.id }); }, [row.title, state, meta].filter(Boolean).join(" · "), "btn workspace-automation");
+    const lead = node("span", "", "workspace-automation-icon"); lead.append(icon(SCHEDULE_ICON));
     const copy = node("span", "", "workspace-automation-copy"); copy.append(node("strong", row.title), node("small", meta));
     entry.append(lead, copy);
     if (state) entry.append(node("span", state, "workspace-automation-state"));
@@ -964,7 +879,7 @@
     if (automationsPanel) drawAutomationsPanel();
   }
   // Every automation in a panel under the button: + makes a new one, ⋯ opens
-  // each computer's Schedules and all routines. A row opens and closes it.
+  // each computer's Schedules. A row opens and closes it.
   function closeAutomationsPanel(restore = false) {
     const open = automationsPanel;
     if (!open) return;
@@ -1028,7 +943,6 @@
     const merged = machines.length > 1;
     for (const id of sectionsInOrder()) {
       if (id === "recent") { const section = recentSection(search, openKeys); if (section) box.append(section); }
-      else if (id === "bots") { Object.assign(botsBlock.dataset, { section: "bots" }); box.append(botsBlock); }
       else if (merged) box.append(machineSection(machines.find(m => machineSectionId(m.id) === id), search, openKeys));
       else {
         // One computer: its projects are the list itself, without a heading.
@@ -1045,7 +959,6 @@
       const control = row?.querySelector(`.${focusTarget.part}`);
       if (control && control.offsetParent !== null) control.focus({ preventScroll: true });
     }
-    assistantUI.mark();
   }
   // The sessions shown in panes, marked open in the list.
   function openSessionKeys() {
@@ -1374,7 +1287,7 @@
       // A closed window can retain an old tab in its saved layout. Reconcile
       // against membership when it opens again, without touching other hosts.
       const available = new Set(data.entries.map(entry => entry.key));
-      // A Bot tab or Schedules is not a session of the Host's list.
+      // Schedules are not a session of the Host's list.
       const stale = allRefs().filter(ref => ref.host === target && !pageTab(ref) && !available.has(ref.key));
       if (stale.length) { let next = tree; for (const ref of stale) next = L.drop(next, ref); commit(next); }
       setConnection(true, `${hostName(host)} · ${t("connected")}`);
@@ -1967,18 +1880,6 @@
       item.composerRect = r && [r.x, r.y, r.width, r.height].every(Number.isFinite) && r.width > 0 && r.height > 0 ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
       return;
     }
-    if (item.ref.assistant) {
-      const data = event.data || {};
-      if (data.type === "assistant-route" && data.route && typeof data.route === "object") updateAssistantTab(item.ref, { route: WAM.tabRoute(data.route), title: data.title, avatar: data.avatar });
-      if (data.type === "assistant-close") commit(L.drop(tree, item.ref));
-      if (data.type === "assistant-changed") {
-        const profile = typeof data.profile === "string" ? data.profile : null;
-        assistantUI.changed(profile);
-        if (profile) for (const tab of allRefs()) if (tab.assistant?.profile === profile) updateTabMetadata(tab);
-      }
-      // The tab that only signed in to Hermes has done its job.
-      if (data.type === "assistant-signed-in") { assistantUI.changed(); if (item.ref.assistant.page === "home") commit(L.drop(tree, item.ref)); }
-    }
     if (item.ref.schedules && event.data?.type === "schedules-ready") { item.ready = true; showSchedules(item); }
     if (event.data?.type === "workspace-select-tab" && !item.frame.hidden) {
       const pane = L.leaves(tree).find(p => p.active === L.identity(item.ref));
@@ -2093,7 +1994,7 @@
       }, Math.max(0, 450 - (performance.now() - started)));
     }
   };
-  $("workspace-search").oninput = () => { assistantUI.setQuery($("workspace-search").value.trim()); renderSidebar(); syncSearching(); };
+  $("workspace-search").oninput = () => { renderSidebar(); syncSearching(); };
   // While the search is in use it takes the whole row and its three buttons
   // step aside; an empty search left behind gives them back. Escape clears it.
   function syncSearching() {
@@ -2147,9 +2048,6 @@
   // connects by itself once the host answers instead of needing a reload.
   let booted = false, booting = false, bootTimer = 0, bootAttempt = 0, pendingUsage = null;
   function retryBoot() { clearTimeout(bootTimer); bootTimer = 0; void boot(); }
-  // The assistant switch appears once any computer here runs Hermes. Older
-  // Hosts without the route simply answer 404 and are skipped.
-  async function checkAssistant() { await assistantUI.discover(); }
   async function boot() {
     if (booted || booting) return;
     booting = true;
@@ -2175,7 +2073,7 @@
       for (const m of machines) { const option = node("option", m.name || m.id); option.value = m.id; $("workspace-host").append(option); }
       $("workspace-host").value = host;
       booted = true;
-      await refresh(); render(); void refreshUsage(); void checkAssistant(); void refreshAutomations();
+      await refresh(); render(); void refreshUsage(); void refreshAutomations();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);
       if (pendingUsage) { openUsageIntent(pendingUsage); pendingUsage = null; }

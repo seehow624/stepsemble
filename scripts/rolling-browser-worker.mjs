@@ -37,19 +37,14 @@ import { runUsageBrowserCases } from "./usage-browser-cases.mjs";
 import { runInterfaceStyleBrowserCases } from "./interface-style-browser-cases.mjs";
 import { runProjectFilesBrowserCases } from "./project-files-browser-cases.mjs";
 import { runDesignPolishBrowserCases } from "./design-polish-browser-cases.mjs";
-import { runAssistantBrowserCases } from "./assistant-browser-cases.mjs";
-import { runAssistantMobileBrowserCases } from "./assistant-mobile-browser-cases.mjs";
-import { runAssistantAvatarBrowserCases } from "./assistant-avatar-browser-cases.mjs";
-import { runAssistantMediaBrowserCases } from "./assistant-media-browser-cases.mjs";
-import { runAssistantWorkspaceBrowserCases } from "./assistant-workspace-browser-cases.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url), exec = promisify(execFile);
 const pins = require("../protocol/rolling-releases.json").releases;
 const runtime = process.argv[2];
 const suite = process.argv[3], historyHelper = process.argv[4];
 if (!runtime || !path.isAbsolute(runtime)) throw new Error("Missing isolated browser runtime");
-if (!["core", "conversation-ux", "agent-speed", "workspace", "assistant", "sources", "codex"].includes(suite) || process.argv.length > 5
-  || (["core", "conversation-ux", "agent-speed", "workspace", "assistant"].includes(suite) ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
+if (!["core", "conversation-ux", "agent-speed", "workspace", "sources", "codex"].includes(suite) || process.argv.length > 5
+  || (["core", "conversation-ux", "agent-speed", "workspace"].includes(suite) ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
   throw new Error("Invalid browser suite or owned helper path");
 if (process.platform === "win32") throw new Error("Historical Hosts cannot launch this Unix synthetic peer; Windows rolling runtime is not claimed");
 const { chromium } = await import(pathToFileURL(path.join(runtime, "node_modules/playwright/index.mjs")));
@@ -223,13 +218,6 @@ try {
     await runUsageBrowserCases(browser);
     await runInterfaceStyleBrowserCases(browser);
     await runDesignPolishBrowserCases(browser, { engine: "chromium" });
-  }
-  else if (suite === "assistant") {
-    await runAssistantBrowserCases(browser);
-    await runAssistantMobileBrowserCases(browser);
-    await runAssistantAvatarBrowserCases(browser);
-    await runAssistantMediaBrowserCases(browser);
-    await runAssistantWorkspaceBrowserCases(browser);
   }
   else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
   else await runCodexHistoryBrowserCases(browser, historyHelper);

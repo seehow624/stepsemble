@@ -988,8 +988,8 @@ html.reduced-motion .app-dialog { animation: none; }
 /* ---- Toast ---- */
 /* Every notice is the same small glass pill, the one that confirms an added
    image: a confirmation leads with a tick, an error is red with a mark, and
-   other notices are their text alone. The Workspace's and the Bots' notices
-   share it (workspace.css, assistant.css). */
+   other notices are their text alone. The Workspace's notices share it
+   (workspace.css). */
 /* Across the whole width, so a long notice can use it before it wraps. */
 #toast-wrap {
   position: fixed;
@@ -3139,7 +3139,7 @@ html.reduced-motion .agent-task-center-row.running.reconnecting .agent-task-dot 
   font-size: var(--text-2xl); line-height: 1.35;
 }
 #view-chat .composer-wrap textarea:focus { outline: none; box-shadow: none; }
-/* The field shows it is being typed in, as the Bot's message box does. */
+/* The field shows it is being typed in. */
 #view-chat .composer { transition: border-color .15s ease; }
 #view-chat .composer:focus-within { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
 #view-chat .composer-toolbar { min-height: 44px; gap: 4px; padding: 3px 2px 0; }
@@ -6864,7 +6864,7 @@ html.reduced-motion #view-chat .composer-send { transition: none; }
 /* A picture on its way: a quiet tile with a picture glyph in its middle. */
 .host-file-preview.pending { position: relative; width: min(100%, 240px); aspect-ratio: 4 / 3; border-radius: var(--radius-lg); background: var(--bubble-ai); }
 .host-file-preview.pending > .host-file-image { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; }
-.host-file-preview.pending::before, .assistant-file-image:not(.loaded)::before {
+.host-file-preview.pending::before {
   content: ""; position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin: -14px 0 0 -14px;
   background: var(--pine-soft); opacity: .55;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='3'/%3E%3Ccircle cx='9' cy='10' r='1.8'/%3E%3Cpath d='m4 18 5.5-5.5 3.5 3.5 2.5-2.5L20 18'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='3'/%3E%3Ccircle cx='9' cy='10' r='1.8'/%3E%3Cpath d='m4 18 5.5-5.5 3.5 3.5 2.5-2.5L20 18'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -7496,4 +7496,3 @@ html.reduced-motion #view-chat .effort-line-label { transform: translate(-50%, 0
 #view-chat .composer-fast { width: 13px; height: 13px; flex: 0 0 auto; align-self: center; }
 #view-chat .composer-fast[hidden], #view-chat .composer-fast-plus { display: none; }
 #view-chat .composer-fast[data-speed="ultrafast"] .composer-fast-plus { display: block; }
-.assistant-speed-note { margin: 6px 4px 0; color: var(--pine-soft); font-size: var(--text-xs); line-height: 1.4; }

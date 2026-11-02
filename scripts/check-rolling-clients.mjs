@@ -36,7 +36,7 @@ export function browserWorkerJobs(runtimeDirectory, historyHelper) {
   // each gets its own budget instead of spending another group's time.
   // Composer queue and speed controls get a separate worker: conversation
   // UX plus queue teardown otherwise exhausts five minutes on macOS CI.
-  return ["core", "conversation-ux", "agent-speed", "workspace", "assistant", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
+  return ["core", "conversation-ux", "agent-speed", "workspace", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
     suite, args: [path.join(root, "scripts/rolling-browser-worker.mjs"), runtimeDirectory, suite,
       ...(["sources", "codex"].includes(suite) ? [historyHelper] : [])],
   }));

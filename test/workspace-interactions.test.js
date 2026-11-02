@@ -213,7 +213,7 @@ test("scrolling back near the top loads earlier messages only for the person's o
   assert.match(app, /if \(state\.error\) codexNativeHistoryButton\.dataset\.autoLoadPaused = "1";/, "so does a failed Codex page");
 });
 
-test("Schedules and routines are rows of the list's Automations, not buttons above it; other apps' history is a chat bubble, not a clock", () => {
+test("Schedules are rows of the list's Automations, not buttons above it; other apps' history is a chat bubble, not a clock", () => {
   const html = fs.readFileSync(require.resolve("../public/workspace.html"), "utf8");
   const icon = id => (html.match(new RegExp(`id="${id}"[^>]*>(<svg[\\s\\S]*?</svg>)`)) || [])[1];
   assert.doesNotMatch(html, /id="workspace-(workflows|routines|mode)"/, "no Schedules, Routines or page switch above the search");
@@ -221,15 +221,14 @@ test("Schedules and routines are rows of the list's Automations, not buttons abo
   assert.doesNotMatch(icon("workspace-history"), /<circle|A8\.5 8\.5/, "no clock face or circular arrow, which the Refresh button already uses");
 });
 test("a schedule row opens Schedules on its own computer and schedule, and Goal state changes do not rebuild the list", () => {
-  assert.match(source, /if \(row\.kind === "schedule"\) openSchedules\(row\.target, \{ select: row\.id \}\);/);
-  assert.match(source, /else openAssistant\(row\.target, \{ page: "routines", profile: row\.profile \}\)/, "a routine opens its Bot's routines");
+  assert.match(source, /button\("", \(\) => \{ opened\(\); openSchedules\(row\.target, \{ select: row\.id \}\); \}/);
   assert.match(source, /entries: value\.entries\.map\(\(\{ working, completion, goal, activityAt, \.\.\.row \}\)/, "a Goal mark and a new activity time update in place like the activity mark");
   assert.match(source, /if \(statusOnly && \(!reordered \|\| sidebarHeld\(\)\)\)/, "a new order waits while the pointer is on the list or a menu is open");
   assert.doesNotMatch(source, /reorderRow\(b, row, "session"/, "sessions follow their activity and are not reordered by hand");
   assert.doesNotMatch(source, /workspace-goals?"/, "no message opens a Goals panel any more");
 });
 test("Schedules are one tab per computer: a new pane's page starts at the request, a ready page is told, a loading one once it is ready", () => {
-  const start = source.indexOf("  const scheduleRequests = new Map();"), end = source.indexOf("  // A Bot tab says which page it shows", start);
+  const start = source.indexOf("  const scheduleRequests = new Map();"), end = source.indexOf("  function dragStart(", start);
   assert.ok(start > 0 && end > start);
   const frames = new Map(), sent = [], toasts = []; let tree = L.pane(), uuid = 0;
   const context = vm.createContext({ L, URL, location: { origin: "https://host.test" }, machines: [{ id: "mini" }, { id: "mbp" }], frames,
@@ -260,7 +259,7 @@ test("Schedules are one tab per computer: a new pane's page starts at the reques
 });
 test("Schedules are a page in a pane: nothing in the Workspace waits on a dialog, and their tab is never a session", () => {
   assert.doesNotMatch(source, /wf-panel|workflowUI|stepsemble-workflow-panel/);
-  assert.match(source, /const pageTab = ref => !!\(ref\.assistant \|\| ref\.schedules\);/);
+  assert.match(source, /const pageTab = ref => !!ref\.schedules;/);
   assert.match(source, /allRefs\(\)\.filter\(ref => ref\.host === target && !pageTab\(ref\) && !available\.has\(ref\.key\)\)/, "a list without its key never closes it");
   assert.match(source, /filter\(item => !pageTab\(item\.ref\) && !item\.frame\.hidden/, "it never counts as watching a session");
   assert.match(source, /if \(!ref\?\.key \|\| pageTab\(ref\)\) \{ toast\(t\("referenceUnsupported"\)\); return; \}/);
@@ -275,15 +274,14 @@ test("the Workspace posts into its panes with its own postMessage, which WebKit 
 });
 test("the list's sections keep a person's order on this device; a section that appears later takes its usual place", () => {
   const start = source.indexOf("  function sectionsInOrder()"), end = source.indexOf("  // place: -1 or 1", start);
-  const make = new Function("machines", "assistantUI", "orderedMachines", "sectionOrder", 'const machineSectionId = target => "machine:" + target;' + source.slice(start, end) + "; return sectionsInOrder();");
+  const make = new Function("machines", "orderedMachines", "sectionOrder", 'const machineSectionId = target => "machine:" + target;' + source.slice(start, end) + "; return sectionsInOrder();");
   const two = [{ id: "mini" }, { id: "mbp" }], ordered = () => two;
-  assert.deepEqual(make(two, { installed: true }, ordered, []), ["recent", "bots", "machine:mini", "machine:mbp"], "Recent, the Bots with their groups, then each computer");
-  assert.deepEqual(make(two, { installed: true }, ordered, ["bots", "machine:mbp", "recent"]), ["bots", "machine:mini", "machine:mbp", "recent"], "a new section follows the one it usually follows");
-  assert.deepEqual(make(two, { installed: false }, ordered, ["machine:mbp", "machine:mini"]), ["recent", "machine:mbp", "machine:mini"], "Recent comes back at its place before what followed it");
-  assert.deepEqual(make(two, { installed: true }, ordered, ["automations", "machine:mini", "machine:mbp", "bots"]), ["recent", "machine:mini", "machine:mbp", "bots"], "an order saved with Automations among the sections still reads");
-  assert.deepEqual(make([{ id: "mini" }], { installed: true }, () => [{ id: "mini" }], []), ["bots", "machine:mini"], "one computer has no Recent");
+  assert.deepEqual(make(two, ordered, []), ["recent", "machine:mini", "machine:mbp"], "Recent, then each computer");
+  assert.deepEqual(make(two, ordered, ["machine:mbp", "recent"]), ["machine:mbp", "recent", "machine:mini"], "a new section follows the one it usually follows");
+  assert.deepEqual(make(two, ordered, ["machine:mbp", "machine:mini"]), ["recent", "machine:mbp", "machine:mini"], "Recent comes back at its place before what followed it");
+  assert.deepEqual(make(two, ordered, ["automations", "machine:mini", "machine:mbp", "bots"]), ["recent", "machine:mini", "machine:mbp"], "an order saved with Automations or the Bots among the sections still reads");
+  assert.deepEqual(make([{ id: "mini" }], () => [{ id: "mini" }], []), ["machine:mini"], "one computer has no Recent");
   assert.match(source, /reorderSection\(toggle, section, id\);/, "a section's heading drags it");
-  assert.match(source, /decorate: toggle => reorderSection\(toggle, botsBlock, "bots"\)/, "so does the Bots heading");
   const reorder = fs.readFileSync(require.resolve("../public/modules/workspace-reorder.js"), "utf8");
   assert.match(reorder, /const within = kind === "section" \? scroller : source\.closest\("\.workspace-machine"\) \|\| scroller;/, "sections move among themselves in the whole list");
 });
@@ -296,13 +294,11 @@ test("another computer's own state (its first list, offline, back) shows at once
   assert.match(body, /paneMenu && old\.contains\(paneMenu\.anchor\)\) return;/, "a section holding the open menu waits");
   assert.match(body, /old\.replaceWith\(machineSection\(machine,/, "only that computer's section is redrawn");
 });
-test("another computer's list that does not come in time counts as unreachable, and the Bots do not wait for an asleep computer", () => {
+test("another computer's list that does not come in time counts as unreachable", () => {
   assert.match(source, /const REMOTE_READ_MS = 15_000;/);
   assert.match(source, /const controller = target === self \? null : new AbortController\(\);\s+const timer = controller && setTimeout\(\(\) => controller\.abort\(\), REMOTE_READ_MS\);/);
-  const assistant = fs.readFileSync(require.resolve("../public/modules/workspace-assistant.js"), "utf8");
-  assert.match(assistant, /status: await answered\(apiFor\(row\)\.status\(\)\)/);
 });
-test("the Workspace's toast clears the iPhone home indicator, as the Bot's toast does", () => {
+test("the Workspace's toast clears the iPhone home indicator", () => {
   const css = fs.readFileSync(require.resolve("../public/modules/workspace.css"), "utf8");
   const rule = css.match(/#workspace-toast \{([^}]*)\}/)[1];
   assert.match(rule, /bottom: calc\(22px \+ env\(safe-area-inset-bottom, 0px\)\)/);

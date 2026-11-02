@@ -4,30 +4,17 @@
   const MAX_PANES = 8;
   const id = () => globalThis.crypto.randomUUID();
   const identity = ref => JSON.stringify([ref.host, ref.key]);
-  // An assistant tab shows one Assistant page. Its route follows the
-  // Assistant's own rules; the tab's host is the computer, and open panels
-  // are not kept. The console is not a tab.
-  const ASSISTANT_PAGES = ["home", "bot", "settings", "routines", "group", "bots", "newbot", "newgroup", "pending"];
-  function assistantRoute(raw) {
-    const N = typeof module !== "undefined" ? require("./assistant-navigation") : root.StepsembleAssistantNavigation;
-    if (!N || !raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid assistant tab");
-    const route = N.normalize({ page: raw.page, profile: raw.profile, session: raw.session, room: raw.room });
-    if (route.page !== raw.page || !ASSISTANT_PAGES.includes(route.page)
-      || ["profile", "session", "room"].some(key => ![undefined, null, ""].includes(raw[key]) && raw[key] !== route[key])) throw new Error("Invalid assistant tab");
-    return route;
-  }
+  // A Bot's tab, from before Stepsemble left Hermes Bots to Hermes's own
+  // apps, has nothing to show any more.
+  const botTab = raw => raw?.assistant !== undefined;
   function reference(raw) {
-    if (!raw || !/^[A-Za-z0-9_.:-]{1,128}$/.test(raw.host) || !/^[a-f0-9-]{36}$/.test(raw.key)) throw new Error("Invalid session reference");
+    if (!raw || botTab(raw) || !/^[A-Za-z0-9_.:-]{1,128}$/.test(raw.host) || !/^[a-f0-9-]{36}$/.test(raw.key)) throw new Error("Invalid session reference");
     const ref = { host: raw.host, key: raw.key, title: String(raw.title || "Session").slice(0, 160) };
     // The agent, for the tab's logo. Tabs saved before it was kept have none
     // until the Host's session list names it.
     if (typeof raw.agentId === "string" && /^[a-z0-9][a-z0-9-]{0,31}$/.test(raw.agentId)) ref.agentId = raw.agentId;
-    if (raw.assistant !== undefined) {
-      ref.assistant = assistantRoute(raw.assistant);
-      if (typeof raw.avatar === "string" && /^[a-z][a-z0-9-]{0,31}$/.test(raw.avatar)) ref.avatar = raw.avatar;
-    }
     // A Schedules tab shows its computer's schedules page, not a session.
-    else if (raw.schedules === true) ref.schedules = true;
+    if (raw.schedules === true) ref.schedules = true;
     return ref;
   }
   const pane = () => ({ type: "pane", id: id(), tabs: [], active: null });
@@ -40,8 +27,9 @@
       ids.add(n.id);
       if (n.type === "pane") {
         if (++count > MAX_PANES || !Array.isArray(n.tabs) || n.tabs.length > 32) throw new Error("Too many panes");
-        // A layout saved while a pane held tabs keeps the one it showed.
-        const refs = n.tabs.map(reference), shown = refs.find(r => identity(r) === n.active) || refs[0];
+        // A layout saved while a pane held tabs keeps the one it showed. A
+        // Bot's tab leaves its pane empty; the rest of the layout stays.
+        const refs = n.tabs.filter(tab => !botTab(tab)).map(reference), shown = refs.find(r => identity(r) === n.active) || refs[0];
         if (!shown || seen.has(identity(shown))) return { type: "pane", id: n.id, tabs: [], active: null };
         seen.add(identity(shown));
         return { type: "pane", id: n.id, tabs: [shown], active: identity(shown) };

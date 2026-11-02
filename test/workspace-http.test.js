@@ -153,23 +153,11 @@ test("workspace HTTP isolates membership, history, project registration and pane
   const pane = await request("/index.html?pane=1");
   assert.equal(pane.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(pane.headers.get("content-security-policy"), /frame-ancestors 'self'/);
-  // Built-in Bot avatars are WebP images served with their own type.
-  const avatar = await request("/assistant-avatars/v1/letter-a.webp");
-  assert.equal(avatar.status, 200);
-  assert.equal(avatar.headers.get("content-type"), "image/webp");
-  assert.equal(Buffer.from(await avatar.arrayBuffer()).toString("ascii", 8, 12), "WEBP");
   // Settings open in a frame over the Workspace as well.
   const settings = await request("/index.html?settings=1");
   assert.equal(settings.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.match(settings.headers.get("content-security-policy"), /frame-ancestors 'self'/);
-  // A Bot tab is the assistant page embedded in the Workspace; the page on
-  // its own stays unframeable.
-  assert.equal((await request("/assistant.html")).headers.get("x-frame-options"), "DENY");
-  assert.match((await request("/assistant.html?bot=default")).headers.get("content-security-policy"), /frame-ancestors 'none'/);
-  const embedded = await request("/assistant.html?embed=1&machine=local&bot=default");
-  assert.equal(embedded.headers.get("x-frame-options"), "SAMEORIGIN");
-  assert.match(embedded.headers.get("content-security-policy"), /frame-ancestors 'self'/);
-  // So are Schedules in their pane.
+  // So are Schedules in their pane; the page on its own stays unframeable.
   assert.equal((await request("/schedules.html")).headers.get("x-frame-options"), "DENY");
   const schedules = await request("/schedules.html?embed=1&machine=local");
   assert.equal(schedules.status, 200);

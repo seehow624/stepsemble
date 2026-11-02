@@ -1253,19 +1253,6 @@ let enterAppRequest = null;
 // first sign-in on a device shows the setup guide first; the Workspace follows.
 let workspaceAfterGuide = false;
 function workspaceDestination() {
-  // The assistant page sends people here to sign in and expects them back.
-  if (PAGE_QUERY.get("assistant") === "1") {
-    const assistant = new URL("/assistant.html", location.origin);
-    for (const key of ["bot", "session", "room", "machine"]) {
-      const value = PAGE_QUERY.get(key);
-      if (value && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) assistant.searchParams.set(key, value);
-    }
-    // 只轉送 Assistant 自己的畫面，不讓登入返回成為任意網址導向。
-    const view = PAGE_QUERY.get("view"), panel = PAGE_QUERY.get("panel");
-    if (["console", "settings", "routines", "bots", "newbot", "newgroup", "pending"].includes(view)) assistant.searchParams.set("view", view);
-    if (["history", "menu"].includes(panel)) assistant.searchParams.set("panel", panel);
-    return assistant.href;
-  }
   const destination = new URL("/workspace.html", location.origin);
   for (const key of ["window", "ack", "source", "host", "entry"]) {
     const value = PAGE_QUERY.get(key);
@@ -17823,24 +17810,7 @@ async function checkForClientUpdate() {
   } catch {}
 }
 
-// Settings → Agents & models shows the Hermes console row once any device
-// reports Hermes installed; the console itself opens on that device.
-let hermesConsoleCheck = null;
-function checkHermesConsole() {
-  if (hermesConsoleCheck || !machines.length) return;
-  hermesConsoleCheck = (async () => {
-    for (const machine of machines) {
-      const base = machine.id === selfId || machine.self ? "" : "/r/" + encodeURIComponent(machine.id);
-      try {
-        const response = await fetch(base + "/api/assistant/status", { credentials: "same-origin", cache: "no-store" });
-        if (response.ok && (await response.json())?.installed === true) { $("hermes-console-open")?.classList.remove("hidden"); return; }
-      } catch {}
-    }
-  })();
-}
-
 function renderSettings() {
-  checkHermesConsole();
   if (el.setAppVersion) el.setAppVersion.textContent = `v${window._appVersion || CLIENT_APP_VERSION}`;
   if (el.setLocale) el.setLocale.value = settings.locale || "en";
   el.setTheme.value = settings.theme;

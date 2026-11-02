@@ -40,7 +40,7 @@ test("the Workspace, Schedules and assistant pages read the same interface style
   assert.equal(I.preferences(memoryStorage([])).look, "bold");
   assert.equal(I.preferences(memoryStorage([["stepsemble.settings.v2", JSON.stringify({ look: "classic" })]])).look, "classic");
   assert.equal(I.preferences(memoryStorage([["stepsemble.settings.v2", JSON.stringify({ look: 1 })]])).look, "bold");
-  for (const file of ["public/modules/workspace.js", "public/modules/schedules-page.js", "public/modules/assistant.js"])
+  for (const file of ["public/modules/workspace.js", "public/modules/schedules-page.js"])
     assert.match(read(file), /root\.dataset\.look = prefs\.look/, `${file} puts the style on <html>`);
   const app = read("public/app.js");
   assert.match(app, /html\.dataset\.look = settings\.look === "classic" \? "classic" : "bold"/, "conversation panes and Settings apply it");
@@ -63,7 +63,7 @@ test("Settings offers Bold and Classic under Appearance, in every language", () 
 });
 
 test("every page that loads style.css loads the Bold layer after it, and the offline shell keeps it", () => {
-  for (const page of ["index.html", "workspace.html", "assistant.html", "schedules.html"]) {
+  for (const page of ["index.html", "workspace.html", "schedules.html"]) {
     const html = read(`public/${page}`), base = html.indexOf(`/style.css?v=${version}`), layer = html.indexOf(`/modules/look-bold.css?v=${version}`);
     assert.ok(base > -1 && layer > base, `${page} loads look-bold.css after style.css`);
     const sheets = [...html.matchAll(/rel="stylesheet" href="([^"]+)"/g)].map(match => match[1]);

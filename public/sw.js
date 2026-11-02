@@ -9,14 +9,6 @@ const SHELL = [
   "/modules/notifications.js?v=3.10.6",
   "/modules/workspace-order.js?v=3.10.6",
   "/modules/workspace-reorder.js?v=3.10.6",
-  "/modules/assistant-i18n.js?v=3.10.6",
-  "/modules/assistant-avatars.js?v=3.10.6",
-  "/modules/assistant-api.js?v=3.10.6",
-  "/modules/assistant-model.js?v=3.10.6",
-  "/modules/assistant-navigation.js?v=3.10.6",
-  "/modules/assistant-media.js?v=3.10.6",
-  "/modules/workspace-assistant-model.js?v=3.10.6",
-  "/modules/workspace-assistant.js?v=3.10.6",
   "/modules/workspace-automations.js?v=3.10.6",
   "/modules/usage-data.js?v=3.10.6",
   "/modules/usage-ui.js?v=3.10.6",
@@ -198,21 +190,14 @@ self.addEventListener("push", event => {
 });
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  const { notice, file, taskId, url } = event.notification.data || {};
-  // An assistant notice opens that Bot's conversation on the assistant page.
-  const assistant = typeof url === "string" && url.startsWith("/assistant.html?") ? url : null;
+  const { notice, file, taskId } = event.notification.data || {};
   const valid = notice && /^[a-zA-Z0-9_-]{1,128}$/.test(notice.host) && /^[a-f0-9-]{36}$/i.test(notice.key);
-  const href = assistant || (valid ? "/workspace.html?host=" + encodeURIComponent(notice.host) + "&entry=" + encodeURIComponent(notice.key) : "/workspace.html");
+  const href = valid ? "/workspace.html?host=" + encodeURIComponent(notice.host) + "&entry=" + encodeURIComponent(notice.key) : "/workspace.html";
   event.waitUntil((async () => {
     const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of clients.filter(row => row.frameType !== "nested")) {
       const current = new URL(client.url);
       if (current.origin !== self.location.origin) continue;
-      if (assistant) {
-        if (current.pathname !== "/assistant.html") continue;
-        client.postMessage({ type: "STEPSEMBLE_OPEN_ASSISTANT", url: assistant });
-        return client.focus();
-      }
       if (!["/", "/workspace.html"].includes(current.pathname)) continue;
       if (valid) client.postMessage({ type: "STEPSEMBLE_OPEN_NOTIFICATION", notice });
       else if (taskId) client.postMessage({ type: "PI_HARBOR_OPEN_AGENT_TASK", product: "stepsemble", taskId });

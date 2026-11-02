@@ -35,7 +35,7 @@ test("no page code reads the Enter key except through isEnter, so an input metho
 });
 
 test("every page whose code reads Enter loads the shared check first", () => {
-  for (const [page, users] of [["index.html", ["app.js"]], ["workspace.html", ["modules/workspace.js"]], ["assistant.html", ["modules/assistant.js", "modules/assistant-groups.js"]]]) {
+  for (const [page, users] of [["index.html", ["app.js"]], ["workspace.html", ["modules/workspace.js"]]]) {
     const html = read(page), shared = html.indexOf("/modules/composer-ime.js?v=");
     assert.ok(shared > -1, `${page} loads composer-ime.js`);
     for (const user of users) {
@@ -77,10 +77,4 @@ test("Enter acts; the Enter an input method confirms text with does not, in Chro
   // Leaving the field mid-composition does not hold the next field's Enter.
   fire("compositionstart"); fire("focusout");
   assert.equal(ime.isEnter(key()), true);
-});
-
-test("the Bot's message box draws no ring inside its capsule", () => {
-  const css = read("modules/assistant.css");
-  assert.match(css, /\.assistant-input:is\(:focus, :focus-visible\) \{ outline: 0; box-shadow: none; \}/);
-  assert.match(css, /\.assistant-composer-field:focus-within \{ border-color:/, "the capsule shows the focus");
 });

@@ -46,16 +46,6 @@ const { takeMacosApp, macosAppOpenArguments } = require("./server/macos-app");
 // Set when Stepsemble.app started this Host; null otherwise.
 const MACOS_APP = takeMacosApp();
 const { createAgentModeRoutes, codexTurnPermissions, modeOption, CODEX_PERMISSION_PRESETS } = require("./server/agent-mode-routes");
-const { createHermesDiscovery } = require("./server/hermes-discovery");
-const { createHermesSessionStore } = require("./server/hermes-session-store");
-const { createHermesGatewayClient } = require("./server/hermes-gateway-client");
-const { createHermesAssistantService, ROUTINE_CHECK_MS } = require("./server/hermes-assistant-service");
-const { createHermesAssistantRoutes } = require("./server/hermes-assistant-routes");
-const { createHermesRoutines } = require("./server/hermes-routines");
-const { createHermesGroups } = require("./server/hermes-groups");
-const { createHermesBots } = require("./server/hermes-bots");
-const { createHermesSkills } = require("./server/hermes-skills");
-const { createHermesConsole } = require("./server/hermes-console");
 const { applyNativeLaunchConfig, isInstalledRuntime } = require("./server/native-launch-config");
 const { createCodexNativePool } = require("./server/codex-native-pool");
 const { createCodexImagePreviewRegistry } = require("./server/codex-image-preview");
@@ -1999,7 +1989,6 @@ function pushPayload(subscription, session, title, body, notice) {
     body: notice ? pushBody(notice, MACHINE_NAME) : body,
     file: session?.meta?.file || session?.file || null,
     taskId: session?.taskId || session?.id || null,
-    url: typeof session?.url === "string" && session.url.startsWith("/assistant.html?") ? session.url : null,
     ts: Date.now(), ...(notice ? { notice } : {}),
   });
 }
@@ -5918,27 +5907,6 @@ const handleAgentModeRoute = createAgentModeRoutes({
   readJSON, sendJSON,
 });
 
-// Hermes Bot Mode for the assistant page (docs/hermes-assistant.md). The
-// client connects only when the page or a running turn needs it; nothing is
-// spawned and no Hermes file is read.
-const hermesClient = createHermesGatewayClient({
-  discovery: createHermesDiscovery(),
-  store: createHermesSessionStore({ file: path.join(CONFIG_DIR, "hermes-session.json") }),
-  log: (...args) => console.warn(...args),
-});
-const hermesAssistant = createHermesAssistantService({
-  client: hermesClient,
-  installed: () => !!hermesCommand,
-  notify: notice => { void deliverPushNotification({ url: notice.url }, notice.title, notice.body); },
-  noticesWanted: () => readPushSubscriptions().length > 0,
-});
-// A Bot answers a routine with no browser connected, so no live event says so.
-setInterval(() => { hermesAssistant.checkRoutineReplies().catch(() => {}); }, ROUTINE_CHECK_MS).unref();
-const handleHermesAssistantRoute = createHermesAssistantRoutes({ service: hermesAssistant, routines: createHermesRoutines({ client: hermesClient }),
-  groups: createHermesGroups({ client: hermesClient }), bots: createHermesBots({ client: hermesClient, liveSessions: profile => hermesAssistant.liveSessions(profile) }), skills: createHermesSkills({ client: hermesClient }),
-  console: createHermesConsole({ client: hermesClient }),
-  readJSON, sendJSON, sseFrame, trySseWrite });
-
 // A mode chosen earlier is put back when an ACP conversation is loaded again;
 // the agent would otherwise start it in its own default mode.
 async function restoreAcpMode(agentId, adapter, sessionId) {
@@ -6910,7 +6878,6 @@ const server = http.createServer(async (req, res) => {
       if (await handleNativeComposerRoute(req, res, url)) return;
       if (await handleComposerQueueRoute(req, res, url)) return;
       if (await handleAgentModeRoute(req, res, url)) return;
-      if (await handleHermesAssistantRoute(req, res, url)) return;
       // The model and level last chosen for an agent. Codex applies a choice
       // with its next message, so its page records the choice here.
       if (p === "/api/agent-choice" && (req.method === "GET" || req.method === "POST")) {
@@ -8803,10 +8770,10 @@ const server = http.createServer(async (req, res) => {
       // it can stay cached for a year; unversioned preview pages keep the short
       // cache because nothing invalidates them by name.
       const versioned = extension !== ".html" && rel !== "sw.js" && url.searchParams.has("v");
-      // A pane, Settings, a Bot tab and Schedules are shown in a frame of the
-      // Workspace, on this origin only; any other page stays unframeable.
+      // A pane, Settings and Schedules are shown in a frame of the Workspace,
+      // on this origin only; any other page stays unframeable.
       const framed = rel === "index.html" && (url.searchParams.get("pane") === "1" || url.searchParams.get("settings") === "1")
-        || ["assistant.html", "schedules.html"].includes(rel) && url.searchParams.get("embed") === "1";
+        || rel === "schedules.html" && url.searchParams.get("embed") === "1";
       const paneHeaders = framed ? {
         "X-Frame-Options": "SAMEORIGIN",
         "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'"

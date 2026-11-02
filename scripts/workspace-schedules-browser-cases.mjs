@@ -1,5 +1,5 @@
 // Synthetic two-computer Workspace; no agent launch or external service.
-// Schedules open in a pane, as a Bot's routines do: one tab per computer,
+// Schedules open in a pane: one tab per computer,
 // opened from the list's Automations (Schedules, New schedule, a schedule's
 // row), reading the other computer through this Host. A run's conversation
 // opens beside them; a reload keeps them; a phone shows them full screen with

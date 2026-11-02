@@ -1,16 +1,12 @@
-/* The sidebar's Automations: every computer's Schedules and the Bots'
-   routines in one list, the ones that need attention first, then by their
-   next run. Pure: the Workspace gathers the data and draws the rows. */
+/* The sidebar's Automations: every computer's Schedules in one list, the
+   ones that need attention first, then by their next run. Pure: the
+   Workspace gathers the data and draws the rows. */
 (function (root, factory) { const api = factory(); if (typeof module === "object" && module.exports) module.exports = api; else root.StepsembleWorkspaceAutomations = api; })(typeof window !== "undefined" ? window : globalThis, function () {
   "use strict";
   const RANK = { attention: 0, scheduled: 1, paused: 2, finished: 3 };
-  const OK = new Set(["ok", "success", "completed"]);
   const time = value => { const at = typeof value === "number" ? value : Date.parse(value || ""); return Number.isFinite(at) ? at : null; };
-  // schedules: [{ target, owner, items }] from each computer's /api/workflows;
-  // routines: { target, items, bots } from the computer that runs Hermes.
-  // routineTitle names a routine as its Bot's Routines page does (without
-  // Hermes's "[bot:…]" tag, or by its instructions when it has no name).
-  function collect({ schedules = [], routines = null, scheduleLabel = () => "", routineLabel = () => "", routineTitle = item => item.name } = {}) {
+  // schedules: [{ target, owner, items }] from each computer's /api/workflows.
+  function collect({ schedules = [], scheduleLabel = () => "" } = {}) {
     const rows = [];
     for (const group of schedules) for (const item of group.items || []) {
       if (!item?.id) continue;
@@ -18,16 +14,6 @@
       const state = item.enabled ? (item.capacityBlocked ? "attention" : "scheduled") : finished ? "finished" : "paused";
       rows.push({ kind: "schedule", key: `schedule:${group.target}:${item.id}`, target: group.target, id: item.id, title: String(item.title || ""),
         cadence: item.schedule ? scheduleLabel(item.schedule) : "", nextAt: item.enabled ? time(item.nextAt) : null, state, owner: group.owner ?? group.target, agentId: item.agentId || "" });
-    }
-    const bots = new Map((routines?.bots || []).map(bot => [bot.name, bot]));
-    for (const item of routines?.items || []) {
-      if (!item?.id) continue;
-      const failed = !!item.lastDeliveryError || !!item.lastStatus && !OK.has(item.lastStatus);
-      const state = item.enabled === false ? "paused" : failed ? "attention" : "scheduled";
-      const bot = bots.get(item.profile) || { name: item.profile };
-      rows.push({ kind: "routine", key: `routine:${item.profile}:${item.id}`, target: routines.target, id: String(item.id), profile: item.profile || "",
-        title: String(routineTitle(item) || ""), cadence: item.schedule ? routineLabel(item.schedule) : "", nextAt: item.enabled === false ? null : time(item.nextRunAt),
-        state, owner: bot.displayName || bot.name || item.profile || "", bot });
     }
     return sorted(rows);
   }
@@ -46,15 +32,5 @@
     if (days > 1 && days < 7) return `${new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date)} ${clock}`;
     return `${new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(date)} ${clock}`;
   }
-  // A Bot's routine schedule as its own Routines page words it.
-  function routineCadence(schedule, { M, t, locale = "en" }) {
-    const picker = M.pickerFromSchedule(schedule);
-    if (picker.kind === "daily") return `${t("daily")} ${picker.time}`;
-    if (picker.kind === "weekdays") return `${t("weekdays")} ${picker.time}`;
-    if (picker.kind === "weekly") return `${new Date(Date.UTC(2026, 0, 4 + picker.weekday)).toLocaleDateString(locale, { weekday: "long", timeZone: "UTC" })} ${picker.time}`;
-    if (picker.kind === "interval") return `${t("interval")} ${picker.every} ${t(picker.unit === "h" ? "hours" : "minutes")}`;
-    if (picker.kind === "once") return t("oneTime");
-    return typeof schedule === "string" ? schedule : schedule?.display || schedule?.expr || "";
-  }
-  return { collect, sorted, nextLabel, routineCadence };
+  return { collect, sorted, nextLabel };
 });

@@ -68,24 +68,20 @@ test("a tab keeps its agent for the logo, and a tab saved without one still load
   assert.equal(L.normalize(JSON.parse(JSON.stringify(tree))).tabs[0].agentId, "codex");
 });
 
-test("an assistant tab keeps its route and avatar through moves, splits and saves", () => {
-  const bot = { host: "mini", key: crypto.randomUUID(), title: "Luna", avatar: "character-nova",
-    assistant: { page: "bot", profile: "default", session: "20261016_1", machine: "mini", panel: "history" } };
-  let tree = L.pane();
-  tree = L.insert(tree, tree.id, bot);
-  tree = L.insert(tree, tree.id, ref("local"), "right");
-  tree = L.insert(tree, L.leaves(tree)[1].id, bot, "bottom");
-  const saved = L.normalize(JSON.parse(JSON.stringify(tree)));
-  const tab = L.leaves(saved).flatMap(p => p.tabs).find(r => r.key === bot.key);
-  assert.deepEqual(tab.assistant, { page: "bot", profile: "default", session: "20261016_1" }, "the computer is the tab's host and panels are not kept");
-  assert.equal(tab.avatar, "character-nova");
-  assert.equal(L.identity(tab), JSON.stringify(["mini", bot.key]));
-  for (const assistant of [{ page: "group", room: "room-1" }, { page: "routines" }, { page: "bots" }, { page: "newbot" }, { page: "newgroup" }, { page: "pending" }, { page: "home" }, { page: "settings", profile: "qa" }])
-    assert.deepEqual(L.reference({ host: "mini", key: crypto.randomUUID(), title: "x", assistant }).assistant, assistant);
-  assert.equal(L.reference({ ...bot, avatar: "<img>" }).avatar, undefined, "only a preset name is kept");
+test("a Bot's tab saved by an older Stepsemble is left out; the rest of the layout stays", () => {
+  const bot = { host: "mini", key: crypto.randomUUID(), title: "Nova", avatar: "character-nova", assistant: { page: "bot", profile: "default" } };
+  const session = ref(), other = ref();
+  const saved = { type: "split", id: "s", axis: "row", ratio: .5,
+    first: { type: "pane", id: "a", tabs: [bot], active: L.identity(bot) },
+    second: { type: "split", id: "t", axis: "column", ratio: .5,
+      first: { type: "pane", id: "b", tabs: [bot, session], active: L.identity(bot) },
+      second: { type: "pane", id: "c", tabs: [other], active: L.identity(other) } } };
+  const tree = L.normalize(saved);
+  assert.deepEqual(L.leaves(tree).map(p => p.tabs.map(r => r.key)), [[], [session.key], [other.key]], "its pane is empty or shows the pane's session");
+  assert.throws(() => L.reference(bot), /Invalid session reference/, "nor can one be dropped in");
 });
 
-test("a Schedules tab stays one through moves, splits and saves; only true marks it, and a Bot's page wins", () => {
+test("a Schedules tab stays one through moves, splits and saves; only true marks it", () => {
   const schedules = { host: "mbp", key: crypto.randomUUID(), title: "Schedules", schedules: true };
   let tree = L.pane();
   tree = L.insert(tree, tree.id, schedules);
@@ -94,11 +90,5 @@ test("a Schedules tab stays one through moves, splits and saves; only true marks
   const tab = L.leaves(L.normalize(JSON.parse(JSON.stringify(tree)))).flatMap(p => p.tabs).find(r => r.key === schedules.key);
   assert.deepEqual(tab, schedules);
   for (const value of ["true", 1, {}, false]) assert.equal(L.reference({ ...schedules, schedules: value }).schedules, undefined, JSON.stringify(value));
-  const both = L.reference({ ...schedules, assistant: { page: "routines" } });
-  assert.deepEqual([both.assistant, both.schedules], [{ page: "routines" }, undefined]);
 });
 
-test("an assistant tab that names a page it cannot show is rejected", () => {
-  for (const assistant of [{ page: "console" }, { page: "bot" }, { page: "bot", profile: "../x" }, { page: "group" }, { page: "nope" }, "bot", []])
-    assert.throws(() => L.reference({ host: "mini", key: crypto.randomUUID(), title: "x", assistant }), /assistant/i, JSON.stringify(assistant));
-});

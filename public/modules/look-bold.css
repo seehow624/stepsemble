@@ -143,7 +143,7 @@ html[data-look="bold"] .workspace-session[data-open=true] { border-color: var(--
 html[data-look="bold"] .workspace-session strong { font-size: .86rem; font-weight: 620; letter-spacing: -.006em; }
 html[data-look="bold"] .workspace-session[data-open=true] strong { font-weight: 700; }
 html[data-look="bold"] body.compact :is(.workspace-session, .workspace-automation) { min-height: 44px; }
-html[data-look="bold"] :is(#workspace-projects, #workspace-assistant-list) :is(.workspace-session-menu, .workspace-project-add, .workspace-section-add, .workspace-project-menu, .workspace-machine-menu) { border-radius: 50%; }
+html[data-look="bold"] #workspace-projects :is(.workspace-session-menu, .workspace-project-add, .workspace-section-add, .workspace-project-menu, .workspace-machine-menu) { border-radius: 50%; }
 html[data-look="bold"] .workspace-session-row:hover .workspace-session-menu, html[data-look="bold"] .workspace-session-menu:hover { background: var(--bold-hover); }
 html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle) { border-radius: 12px; }
 /* A header answers the pointer by brightening, without a box behind it. */
@@ -154,12 +154,6 @@ html[data-look="bold"] :is(.workspace-project-toggle, .workspace-machine-toggle)
 html[data-look="bold"] .workspace-session-more { border-radius: var(--radius-pill); }
 html[data-look="bold"] .workspace-session-more:hover { background: var(--bold-hover); }
 html[data-look="bold"] .workspace-automation-icon { border-radius: 9px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
-/* The Bots' card is the glass of the computer card above it: a lit top edge,
-   a hairline rim and a soft shadow, so the block reads as one object. */
-html[data-look="bold"] #workspace-projects #workspace-assistant { padding: 2px 6px 6px; border-radius: var(--bold-radius-card);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--glass-edge) 22%, transparent), transparent 64px), var(--bold-glass-card);
-  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim, transparent), var(--bold-outline), 0 14px 30px -22px rgba(0, 0, 0, .5); }
-html[data-look="bold"] #workspace-projects .workspace-assistant-part::before { background: var(--bold-hairline); }
 html[data-look="bold"] .workspace-row-badge { box-shadow: 0 0 0 2px var(--bold-ambient); }
 /* A list rather than a few words: a thicker glass, so rows behind it do not show through. */
 html[data-look="bold"] .workspace-menu.workspace-automations-panel { padding: 6px; background: color-mix(in srgb, var(--milk) 97%, transparent); }
@@ -442,19 +436,14 @@ html[data-look="bold"] #view-chat .agent-approval-details { border-radius: 12px;
 html[data-look="bold"] #view-chat .session-summary { border-color: transparent; border-radius: 22px; background: var(--bold-glass-menu); -webkit-backdrop-filter: var(--bold-blur); backdrop-filter: var(--bold-blur);
   box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--glass-rim), var(--bold-outline), var(--bold-float-shadow); }
 
-/* ---------- Sign-in, the assistant and Schedules ---------- */
+/* ---------- Sign-in and Schedules ---------- */
 html[data-look="bold"] .overlay { background: var(--bold-ambient); }
 html[data-look="bold"] .login-card .login-mark { box-shadow: 0 18px 36px -16px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .18); }
 html[data-look="bold"] .login-card h1 { font-size: 1.7rem; font-weight: 780; letter-spacing: -.03em; }
 html[data-look="bold"] :is(.login-help, .login-onboarding) { border: 0; border-radius: var(--bold-radius-card); background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 14px 34px -24px rgba(0, 0, 0, .4); }
-html[data-look="bold"] :is(.login-help-tabs, .model-agent-switch, .assistant-switch) { border: 0; border-radius: var(--radius-pill); background: var(--bold-field); }
-html[data-look="bold"] :is(.login-help-tab, .model-agent-tab, .assistant-switch > *) { border-radius: var(--radius-pill); }
-html[data-look="bold"] :is(.login-help-tab[aria-selected="true"], .model-agent-tab.is-active, .assistant-switch [aria-current="page"]) { box-shadow: 0 1px 3px rgba(0, 0, 0, .14), inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
-html[data-look="bold"] .assistant-page { background: var(--bold-ambient); }
-html[data-look="bold"] .assistant-top { border-bottom: 0; background: transparent; }
-html[data-look="bold"] .assistant-page :is(.btn, .assistant-icon-btn) { border-radius: var(--radius-pill); }
-html[data-look="bold"] .assistant-page .assistant-icon-btn { border-radius: 50%; }
-html[data-look="bold"] .assistant-card { border-color: transparent; border-radius: var(--bold-radius-card); background: var(--bold-glass-card); box-shadow: inset 0 1px 0 var(--glass-edge), var(--bold-outline), 0 16px 36px -24px rgba(0, 0, 0, .45); }
+html[data-look="bold"] :is(.login-help-tabs, .model-agent-switch) { border: 0; border-radius: var(--radius-pill); background: var(--bold-field); }
+html[data-look="bold"] :is(.login-help-tab, .model-agent-tab) { border-radius: var(--radius-pill); }
+html[data-look="bold"] :is(.login-help-tab[aria-selected="true"], .model-agent-tab.is-active) { box-shadow: 0 1px 3px rgba(0, 0, 0, .14), inset 0 1px 0 var(--glass-edge), var(--bold-outline); }
 html[data-look="bold"] .wf-panel .btn:not(.primary, .ghost, .danger) { transition: transform .14s var(--bold-spring), background-color .15s ease; }
 
 /* ---------- Fallbacks ---------- */

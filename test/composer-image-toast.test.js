@@ -18,10 +18,10 @@ test("adding images shows a small confirmation with a correct plural, and pastin
   assert.match(icon, /setAttribute\("aria-hidden", "true"\)/, "the icon is decoration only");
 });
 
-test("every notice is the image confirmation's small glass pill: the app's, the Workspace's and the Bots'", () => {
+test("every notice is the image confirmation's small glass pill: the app's and the Workspace's", () => {
   const read = file => fs.readFileSync(path.join(root, "public", file), "utf8");
   const rule = (source, selector) => source.match(new RegExp(selector.replace(/[.#]/g, "\\$&") + " \\{([^}]*)\\}"))?.[1] || "";
-  const pill = [rule(css, ".toast"), rule(read("modules/workspace.css"), "#workspace-toast"), rule(read("modules/assistant.css"), ".assistant-toast")];
+  const pill = [rule(css, ".toast"), rule(read("modules/workspace.css"), "#workspace-toast")];
   for (const body of pill) {
     assert.match(body, /padding: 5px 11px/); assert.match(body, /border-radius: 14px/); assert.match(body, /font-size: var\(--text-xs\)/);
     assert.match(body, /background: color-mix\(in srgb, var\(--pine\) 84%, transparent\)/); assert.match(body, /backdrop-filter: blur\(10px\)/);
