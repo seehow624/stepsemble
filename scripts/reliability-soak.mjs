@@ -16,6 +16,32 @@ const terminal = new Set(["completed", "failed", "stopped", "orphaned", "detache
 const requireCondition = (condition, code) => { if (!condition) throw new Error(code); };
 const digest = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 
+const taskOpenErrorCodes = new Set([
+  "claude_login_active", "project_folder_unavailable",
+  "EACCES", "EAGAIN", "EBUSY", "EINVAL", "ENOENT", "EPERM", "ENOSPC", "EMFILE", "ENFILE",
+  "ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "EPIPE",
+]);
+const taskOpenMessages = new Map([
+  ["Claude Code is not installed on this device", "command_unavailable"],
+  ["desktop_upgrade_in_progress", "desktop_upgrade_in_progress"],
+  ["Agent task supervisor readiness timed out", "supervisor_readiness_timeout"],
+  ["Agent task supervisor connection closed", "supervisor_connection_closed"],
+  ["Agent task supervisor did not start", "supervisor_not_started"],
+]);
+
+export function taskOpenFailureSummary({ stage, status, body, openedTasks, requestedTasks, cleanupConfirmed }) {
+  if (stage !== "task_open" || !Number.isInteger(status) || status < 400 || status > 599) return null;
+  const response = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  return {
+    httpStatus: status,
+    code: taskOpenErrorCodes.has(response.code) ? response.code : "unknown",
+    messageCategory: taskOpenMessages.get(response.error) || "unknown",
+    openedTasks: Number.isInteger(openedTasks) && openedTasks >= 0 && openedTasks <= 8 ? openedTasks : null,
+    requestedTasks: Number.isInteger(requestedTasks) && requestedTasks >= 1 && requestedTasks <= 8 ? requestedTasks : null,
+    cleanupConfirmed: cleanupConfirmed === true,
+  };
+}
+
 export function optionsFromArgs(args) {
   const options = { durationMs: 72 * 3600_000, intervalMs: 30_000, restartEvery: 20, tasks: 8 };
   const keys = new Map([["--duration-seconds", "durationMs"], ["--interval-ms", "intervalMs"], ["--restart-every", "restartEvery"], ["--tasks", "tasks"]]);
@@ -138,6 +164,10 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
     const text = await response.text();
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch {}
+    if (!response.ok && report.stage === "task_open") {
+      report.taskOpenFailure = taskOpenFailureSummary({ stage: report.stage, status: response.status, body: parsed,
+        openedTasks: tasks.length, requestedTasks: options.tasks, cleanupConfirmed: false });
+    }
     requireCondition(response.ok, `http_${response.status}${parsed?.error ? `:${String(parsed.error).slice(0, 160)}` : ""}`);
     return parsed;
   };
@@ -317,6 +347,7 @@ export async function runSoak(options, { onReady = () => {} } = {}) {
       // Only runtime fixture data is removed. Reports and frozen source remain.
       await fs.rm(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
+    if (report.taskOpenFailure) report.taskOpenFailure.cleanupConfirmed = report.cleanupConfirmed;
     await update();
   }
   return { report, directory: temp, filename };
