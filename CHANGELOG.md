@@ -2,6 +2,7 @@
 
 ## 3.10.7
 
+- Keep the Limits and Usage sheet's drag gesture from starting a sidebar drag in WebKit, and return cancelled gestures to rest without leaving pointer capture behind.
 - Leave Hermes's assistant, Bots, ACP sessions, sign-in and upgrades to its own apps. Stepsemble no longer offers Hermes as an agent or a Bot client; saved Bot tabs are skipped without discarding the rest of the workspace layout.
 - Keep read-only Hermes token usage in Usage and the menu bar, alongside the other supported histories. Hermes's Node tool-search path remains available for other agents; native Hermes apps, services, credentials and histories are not changed.
 

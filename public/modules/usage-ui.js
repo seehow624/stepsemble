@@ -114,21 +114,32 @@
     // finger once it is at its top, as a sheet does.
     // The tabs fill most of the header, so a drag may start on one; once it
     // moves it is a drag, and the press does not also choose the tab.
-    let draggedAt = -Infinity;
+    let draggedAt = -Infinity, clearPointer = null;
+    const cancelDrag = () => { drag = null; delete el.dataset.dragging; follow(0); };
+    // Moving the glass can expose a draggable sidebar row at the press's
+    // original position. Native DnD must not steal a sheet-origin gesture;
+    // drags that start outside the sheet still belong to the sidebar.
+    on(document, "dragstart", event => { if (clearPointer) { event.preventDefault(); event.stopPropagation(); } }, true);
     on(el, "pointerdown", event => {
-      if (event.button !== 0 || event.target.closest("select, button:not([role=tab])") || !event.target.closest(".usage-sheet-head, .usage-sheet-grip, .usage-sheet > .usage-status")) return;
-      const startY = event.clientY; let captured = false;
+      if (clearPointer || event.button !== 0 || event.target.closest("select, button:not([role=tab])") || !event.target.closest(".usage-sheet-head, .usage-sheet-grip, .usage-sheet > .usage-status")) return;
+      const startY = event.clientY, pointerId = event.pointerId; let captured = false;
       const moved = e => {
-        if (!captured && Math.abs(e.clientY - startY) < 6) return;
-        if (!captured) { captured = true; el.setPointerCapture?.(e.pointerId); begin(startY); }
+        if (e.pointerId !== pointerId || (!captured && Math.abs(e.clientY - startY) < 6)) return;
+        if (!captured) { captured = true; el.setPointerCapture?.(pointerId); begin(startY); }
         move(e.clientY);
       };
-      const up = () => {
-        el.removeEventListener("pointermove", moved); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up);
+      const finish = (e, released = false) => {
+        if (e && e.pointerId !== pointerId) return;
+        document.removeEventListener("pointermove", moved, true); document.removeEventListener("pointerup", up, true); document.removeEventListener("pointercancel", cancel, true);
+        el.removeEventListener("lostpointercapture", cancel); clearPointer = null;
+        if (el.hasPointerCapture?.(pointerId)) el.releasePointerCapture(pointerId);
         if (captured) draggedAt = performance.now();
-        release();
+        if (released) release(); else cancelDrag();
       };
-      el.addEventListener("pointermove", moved); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+      const up = e => finish(e, true), cancel = e => finish(e);
+      clearPointer = () => finish();
+      document.addEventListener("pointermove", moved, true); document.addEventListener("pointerup", up, true); document.addEventListener("pointercancel", cancel, true);
+      el.addEventListener("lostpointercapture", cancel);
     });
     on(el, "click", event => { if (performance.now() - draggedAt < 80) { event.preventDefault(); event.stopPropagation(); } }, true);
     let touchY = null;
@@ -142,7 +153,7 @@
       move(y);
     }, { passive: false });
     on(body, "touchend", () => { touchY = null; release(); });
-    on(body, "touchcancel", () => { touchY = null; release(); });
+    on(body, "touchcancel", () => { touchY = null; cancelDrag(); });
     // A trackpad pulling down at the top of the sheet draws it down after the
     // fingers; far enough, it goes. Scrolling anywhere else sends it away.
     on(el, "wheel", event => {
@@ -162,7 +173,7 @@
     on(body, "scroll", () => el.toggleAttribute("data-scrolled", body.scrollTop > 0), { passive: true });
     return {
       dismiss() {
-        if (gone) return; gone = true; clearTimeout(pullTimer); changes.disconnect();
+        if (gone) return; gone = true; clearPointer?.(); touchY = null; cancelDrag(); clearTimeout(pullTimer); changes.disconnect();
         for (const [target, type, fn, options] of listeners) target.removeEventListener(type, fn, options);
         delete el.dataset.dragging; el.style.transform = ""; el.dataset.state = "closing"; el.style.height = CAPSULE + "px";
         const done = () => { el.remove(); if (!container.querySelector(".usage-sheet")) container.classList.remove("has-usage-sheet"); };

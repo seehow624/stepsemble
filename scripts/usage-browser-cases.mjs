@@ -9,8 +9,10 @@ import { createUsagePreview } from "./usage-preview.mjs";
 import { cleanEnvironment } from "./check-rolling-clients.mjs";
 import { runUsageContrastBrowserCases } from "./usage-contrast-browser-cases.mjs";
 import { runUsageSourcePickerBrowserCases } from "./usage-source-picker-browser-cases.mjs";
+import { runUsageUIGestureBrowserCases } from "./usage-ui-gesture-browser-cases.mjs";
 
 export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}) {
+  await runUsageUIGestureBrowserCases(browser);
   await runUsageSourcePickerBrowserCases(browser, { screenshotDirectory });
   await runUsageContrastBrowserCases(browser);
   for (const mobile of [false, true]) {
@@ -94,7 +96,32 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await openLimits();
       const head = await sheet.locator(".usage-sheet-head").boundingBox();
       await page.mouse.move(head.x + 40, head.y + 10); await page.mouse.down(); await page.mouse.move(head.x + 40, head.y + 320, { steps: 8 }); await page.mouse.up(); await sheetGone();
-      await openLimits(); await page.mouse.move(sidebarBox.x + 60, (listBox.y + sheetBox.y) / 2); await page.mouse.wheel(0, 200); await sheetGone();
+      await openLimits();
+      const outside = { x: sidebarBox.x + 60, y: (listBox.y + sheetBox.y) / 2 };
+      if (mobile) {
+        // Mobile WebKit has no mouse-wheel driver. This DOM event covers the
+        // outside-wheel lifecycle, not physical touch scrolling.
+        await page.evaluate(({ x, y }) => {
+          const target = document.elementFromPoint(x, y);
+          if (!target || target.closest(".usage-sheet")) throw new Error("outside_wheel_target_required");
+          target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 200, clientX: x, clientY: y }));
+        }, outside);
+      } else { await page.mouse.move(outside.x, outside.y); await page.mouse.wheel(0, 200); }
+      await sheetGone();
+      if (mobile) {
+        await openLimits();
+        const neutral = { x: sidebarBox.x + 4, y: sidebarBox.y + 4 };
+        assert.equal(await page.evaluate(({ x, y }) => {
+          const target = document.elementFromPoint(x, y);
+          return !!target && !target.closest(".usage-sheet, button, a, input, select");
+        }, neutral), true, "the touch dismissal target is neutral and outside the sheet");
+        await page.evaluate(() => document.addEventListener("pointerdown", event => {
+          window.usageOutsidePress = { trusted: event.isTrusted, pointerType: event.pointerType };
+        }, { capture: true, once: true }));
+        await page.touchscreen.tap(neutral.x, neutral.y); await sheetGone();
+        assert.deepEqual(await page.evaluate(() => window.usageOutsidePress), { trusted: true, pointerType: "touch" });
+        console.log(JSON.stringify({ case: "mobile sheet dismissal inputs", outsideWheel: "synthetic DOM WheelEvent", outsidePress: "trusted touchscreen.tap" }));
+      }
       assert.equal(analyticsRequests.length, 0);
       stage = "usage in the same sheet";
       await openLimits(); const limitsHeight = (await sheet.boundingBox()).height;
@@ -348,7 +375,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       console.log(JSON.stringify({ case: "Usage overview " + (mobile ? "phone zh-Hant" : "desktop"), result: "passed", authenticated: true,
         realParsing: true, machineHistory: true, nativeSessionFilter: true, limitsSheet: true, usageInSheet: true, sharedLimits: true, lazyUsage: true, hostSync: true, quotaSources: true, multiHost: true, filters: true, offline: true, staleResponses: true, refreshPosition: true, keyboard: true, openSession: true, modelCalls: 0, pageErrors: 0 }));
     } catch (error) { throw new Error(`Usage overview ${mobile ? "phone" : "desktop"} at ${stage}: ${error.message}`, { cause: error }); }
-    finally { await context.close(); await fixture.close(); }
+    finally { try { await context.close(); } finally { await fixture.close(); } }
   }
   await runMenubarBrowserCase(browser);
 }
@@ -362,16 +389,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
 export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {}) {
   const fixture = await createUsagePreview(0, { unpriced: true });
   fixture.setActivity({ live: { active: 1, tokensPerSecond: 12, estimated: true }, history: null });
-  const context = await browser.newContext({ viewport: { width: 380, height: 550 }, locale: "en-US", serviceWorkers: "block" });
+  const context = await browser.newContext({ viewport: { width: 380, height: 550 }, locale: "en-US", serviceWorkers: "block" }), errors = [];
+  context.on("page", page => page.on("pageerror", error => errors.push(error.message)));
   try {
-    await context.addInitScript(() => {
+    await context.addInitScript(origin => {
+      if (location.origin !== origin) return;
       localStorage.setItem("stepsemble.onboarding.v1", "complete");
       localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
       localStorage.setItem("stepsemble.selected.v1", "mini");
-    });
+    }, fixture.origin);
     await context.request.post(fixture.origin + "/api/login", { data: { token: fixture.token } });
-    const page = await context.newPage(), errors = [];
-    page.on("pageerror", e => errors.push(e.message));
+    const page = await context.newPage();
+    assert.equal(await page.evaluate(() => location.origin), "null", "the initial opaque document needs no storage seed");
     let releaseAnalytics;
     await page.route("**/api/workspace/analytics?*", route => new Promise(resolve => { releaseAnalytics = async () => { await route.continue(); resolve(); }; }));
     await page.goto(fixture.origin + "/menubar.html");
@@ -463,5 +492,5 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     assert.equal(await page.locator("#rate").textContent(), "1,998");
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ case: "Menu bar panel", result: "passed", hostSwitch: true, usedRemaining: true, offline: true, allHosts: true, opensUsage: true, footerVisible: true }));
-  } finally { await context.close(); await fixture.close(); }
+  } finally { try { await context.close(); } finally { await fixture.close(); } }
 }
