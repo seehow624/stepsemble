@@ -76,15 +76,19 @@ test("rolling job leaves enough time for seven bounded suites and cold macOS set
 });
 
 test("rolling browser schedules complete Usage helper once after existing agent-speed cases", () => {
-  const worker = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8");
-  const agentSpeed = worker.match(/else if \(suite === "agent-speed"\) \{([\s\S]*?)\n  \}\n  else if \(suite === "workspace"\)/)?.[1];
-  const workspace = worker.match(/else if \(suite === "workspace"\) \{([\s\S]*?)\n  \}\n  else if \(suite === "sources"\)/)?.[1];
-  assert.equal((worker.match(/await runUsageBrowserCases\(browser\);/g) || []).length, 1, "the complete Usage helper runs exactly once");
-  assert.ok(agentSpeed && workspace, "both existing worker branches remain present");
-  assert.deepEqual(agentSpeed.trim().split("\n").map(line => line.trim()), [
-    "await runComposerQueueBrowserCases(browser);",
-    'for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });',
-    "await runUsageBrowserCases(browser);",
-  ], "Usage runs sequentially after the unchanged agent-speed cases");
-  assert.doesNotMatch(workspace, /runUsageBrowserCases/, "workspace no longer carries the Usage workload");
+  const source = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8");
+  // The same scheduling contract applies to LF and CRLF checkouts.
+  for (const workerSource of [source.replace(/\r\n/g, "\n"), source.replace(/\r?\n/g, "\r\n")]) {
+    const worker = workerSource.replace(/\r\n/g, "\n");
+    const agentSpeed = worker.match(/else if \(suite === "agent-speed"\) \{([\s\S]*?)\n  \}\n  else if \(suite === "workspace"\)/)?.[1];
+    const workspace = worker.match(/else if \(suite === "workspace"\) \{([\s\S]*?)\n  \}\n  else if \(suite === "sources"\)/)?.[1];
+    assert.equal((worker.match(/await runUsageBrowserCases\(browser\);/g) || []).length, 1, "the complete Usage helper runs exactly once");
+    assert.ok(agentSpeed && workspace, "both existing worker branches remain present");
+    assert.deepEqual(agentSpeed.trim().split("\n").map(line => line.trim()), [
+      "await runComposerQueueBrowserCases(browser);",
+      'for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });',
+      "await runUsageBrowserCases(browser);",
+    ], "Usage runs sequentially after the unchanged agent-speed cases");
+    assert.doesNotMatch(workspace, /runUsageBrowserCases/, "workspace no longer carries the Usage workload");
+  }
 });

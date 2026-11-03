@@ -41,6 +41,15 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
           assert.equal(await onList(), true, "the other computer's list came while the pointer rested on the list");
           // Recent, which mixes the computers, follows once the pointer leaves.
           await page.mouse.move(viewport.width - 5, viewport.height - 5);
+        } else {
+          // Establish the phone's lifted finger before Recent settles: a
+          // touch-enabled page can still have a mouse resting on the list.
+          const padding = await page.locator("#workspace-sidebar").evaluate(sidebar => {
+            const bounds = sidebar.getBoundingClientRect(), x = bounds.left + parseFloat(getComputedStyle(sidebar).paddingLeft) / 2, y = bounds.top + bounds.height / 2;
+            return { x, y, inert: document.elementFromPoint(x, y) === sidebar && !sidebar.closest('button, a, input, select, textarea, summary, label, header, [role="button"], [tabindex], [data-section]') };
+          });
+          assert.equal(padding.inert, true, "the sidebar padding is an inert touch target");
+          await page.touchscreen.tap(padding.x, padding.y);
         }
         await page.locator(".workspace-recent .workspace-session-host", { hasText: "MacBook Pro" }).first().waitFor();
         assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
