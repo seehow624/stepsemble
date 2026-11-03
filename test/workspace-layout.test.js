@@ -91,4 +91,3 @@ test("a Schedules tab stays one through moves, splits and saves; only true marks
   assert.deepEqual(tab, schedules);
   for (const value of ["true", 1, {}, false]) assert.equal(L.reference({ ...schedules, schedules: value }).schedules, undefined, JSON.stringify(value));
 });
-
