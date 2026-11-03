@@ -206,6 +206,7 @@ try {
   else if (suite === "agent-speed") {
     await runComposerQueueBrowserCases(browser);
     for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });
+    await runUsageBrowserCases(browser);
   }
   else if (suite === "workspace") {
     await runScrollbarBrowserCases(browser);
@@ -215,7 +216,6 @@ try {
     await runWorkspaceMachinesBrowserCases(browser);
     await runWorkspaceSchedulesBrowserCases(browser);
     await runWorkspaceStatusBrowserCases(browser);
-    await runUsageBrowserCases(browser);
     await runInterfaceStyleBrowserCases(browser);
     await runDesignPolishBrowserCases(browser, { engine: "chromium" });
   }
