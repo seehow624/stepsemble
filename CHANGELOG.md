@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.10.7
+
+- Leave Hermes's assistant, Bots, ACP sessions, sign-in and upgrades to its own apps. Stepsemble no longer offers Hermes as an agent or a Bot client; saved Bot tabs are skipped without discarding the rest of the workspace layout.
+- Keep read-only Hermes token usage in Usage and the menu bar, alongside the other supported histories. Hermes's Node tool-search path remains available for other agents; native Hermes apps, services, credentials and histories are not changed.
+
 ## 3.10.6
 
 - Keep temporary Pi interruptions in the existing, expandable work log while Pi's existing automatic retry runs, instead of presenting them as a final "Work failed" result.
