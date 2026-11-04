@@ -145,3 +145,50 @@ jobs:
           cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --release --bins --example owned_sqlite_writer
       - name: Test both directions against two shipped releases
         run: npm run test:rolling -- --history-helper="${{ runner.temp }}/stepsemble-browser-reader/release/stepsemble-history-source-reader"
+      - name: Test retained Usage and sheet gestures in WebKit
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          umask 022
+          runtime="$(mktemp -d "$RUNNER_TEMP/stepsemble-webkit.XXXXXX")"
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if ! rm -rf -- "$runtime"; then
+              if [ "$status" -eq 0 ]; then status=1; fi
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          chmod 700 "$runtime"
+          cp scripts/browser-test-runtime/package.json scripts/browser-test-runtime/package-lock.json "$runtime/"
+          touch "$runtime/user.npmrc" "$runtime/global.npmrc"
+          export HOME="$runtime" USERPROFILE="$runtime"
+          export XDG_CONFIG_HOME="$runtime/.config" XDG_CACHE_HOME="$runtime/.cache"
+          export PLAYWRIGHT_BROWSERS_PATH="$runtime/browsers" STEPSEMBLE_USAGE_PRICING_NETWORK=0
+          node --input-type=module - "$runtime" <<'NODE'
+          import fs from "node:fs/promises";
+          import path from "node:path";
+          import { validateBrowserLock } from "./scripts/check-rolling-clients.mjs";
+          const runtime = process.argv[2];
+          validateBrowserLock(JSON.parse(await fs.readFile(path.join(runtime, "package.json"), "utf8")),
+            JSON.parse(await fs.readFile(path.join(runtime, "package-lock.json"), "utf8")));
+          NODE
+          npm ci --prefix="$runtime" --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/ \
+            --userconfig="$runtime/user.npmrc" --globalconfig="$runtime/global.npmrc" --cache="$runtime/npm-cache"
+          node "$runtime/node_modules/playwright/cli.js" install webkit
+          node --input-type=module - "$runtime" <<'NODE'
+          import path from "node:path";
+          import { pathToFileURL } from "node:url";
+          import { cleanEnvironment } from "./scripts/check-rolling-clients.mjs";
+          import { runUsageBrowserCases } from "./scripts/usage-browser-cases.mjs";
+          const runtime = process.argv[2];
+          const { webkit } = await import(pathToFileURL(path.join(runtime, "node_modules/playwright/index.mjs")));
+          const browser = await webkit.launch({ headless: true, env: cleanEnvironment(runtime) });
+          try {
+            console.log(JSON.stringify({ browserEngine: browser.browserType().name(), browserVersion: browser.version() }));
+            await runUsageBrowserCases(browser);
+          }
+          finally { await browser.close(); }
+          NODE
