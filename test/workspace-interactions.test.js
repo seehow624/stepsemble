@@ -303,3 +303,92 @@ test("the Workspace's toast clears the iPhone home indicator", () => {
   const rule = css.match(/#workspace-toast \{([^}]*)\}/)[1];
   assert.match(rule, /bottom: calc\(22px \+ env\(safe-area-inset-bottom, 0px\)\)/);
 });
+
+function shortHistoryFixture({ integrated = false } = {}) {
+  const app = fs.readFileSync(require.resolve("../public/app.js"), "utf8"), handlers = new Map(), frames = [];
+  let clicks = 0, selected = "", now = 1000;
+  const button = { disabled: false, dataset: {}, click() { clicks++; } };
+  const messages = { scrollTop: 0, scrollHeight: 200, clientHeight: 500,
+    querySelector: () => button, addEventListener(type, fn) { if (!handlers.has(type)) handlers.set(type, []); handlers.get(type).push(fn); } };
+  const context = vm.createContext({ el: { messages }, rpc: { nativeCodex: true }, viewGeneration: 1, apiBase: "/r/owned",
+    window: { getSelection: () => ({ toString: () => selected }) }, Date: { now: () => now },
+    requestAnimationFrame: fn => { frames.push(fn); return frames.length; }, userScrollIntentUntil: 1800 });
+  const start = app.indexOf(integrated ? "let jumpToLatestUntil = 0;" : "const EARLIER_MESSAGES_EDGE"), end = app.indexOf('el.scrollBottomBtn?.addEventListener', start);
+  assert.ok(start > 0 && end > start);
+  vm.runInContext(app.slice(start, end), context);
+  const event = extra => ({ target: { closest: () => null }, preventDefault() { assert.fail("native input prevented"); }, ...extra });
+  return { context, messages, button, frames, clicks: () => clicks, selection: value => { selected = value; },
+    dispatch(type, extra = {}) { for (const fn of handlers.get(type) || []) fn(event(extra)); },
+    flush() { while (frames.length) frames.shift()(); }, time() { now += 1000; } };
+}
+test("short Codex upward wheel, touch and keyboard intent load once without needing a scroll event", () => {
+  for (const input of ["wheel", "touch", "key"]) {
+    const f = shortHistoryFixture();
+    if (input === "wheel") { f.dispatch("wheel", { deltaY: -30, deltaX: 0 }); f.dispatch("wheel", { deltaY: -25, deltaX: 0 }); }
+    if (input === "touch") { f.dispatch("touchstart", { touches: [{ clientX: 10, clientY: 10 }] }); f.dispatch("touchmove", { touches: [{ clientX: 10, clientY: 40 }] }); f.dispatch("touchmove", { touches: [{ clientX: 10, clientY: 60 }] }); }
+    if (input === "key") { f.dispatch("keydown", { key: "PageUp" }); f.dispatch("keydown", { key: "PageUp", repeat: true }); }
+    f.flush(); assert.equal(f.clicks(), 1, input); assert.equal(f.messages.scrollTop, 0);
+  }
+});
+test("short Codex intent ignores selection, editable controls, horizontal/downward gestures, redraws, busy and failed pages", () => {
+  const f = shortHistoryFixture();
+  f.dispatch("scroll"); f.context.userScrollIntentUntil = 0; f.flush(); assert.equal(f.clicks(), 0);
+  for (const extra of [{ deltaY: 20 }, { deltaY: -20, deltaX: 40 }, { deltaY: -20, ctrlKey: true },
+    { deltaY: -20, target: { closest: () => ({}) } }]) { f.dispatch("wheel", extra); f.flush(); }
+  for (const extra of [{ key: "ArrowDown" }, { key: "ArrowUp", shiftKey: true }, { key: "Home", isComposing: true },
+    { key: "Home", target: { closest: () => ({}) } }]) { f.dispatch("keydown", extra); f.flush(); }
+  f.selection("selected"); f.dispatch("wheel", { deltaY: -20 }); f.flush(); f.selection("");
+  assert.equal(f.clicks(), 0);
+  for (const state of ["busy", "failed", "other-agent", "scrollable"]) {
+    f.time(); f.button.disabled = state === "busy"; f.button.dataset.autoLoadPaused = state === "failed" ? "1" : "";
+    f.context.rpc.nativeCodex = state !== "other-agent"; f.messages.scrollHeight = state === "scrollable" ? 1000 : 200;
+    f.dispatch("wheel", { deltaY: -20 }); f.flush();
+  }
+  assert.equal(f.clicks(), 0);
+});
+for (const input of ["wheel", "touch", "key"]) {
+  test(`integrated short Codex ${input} never rearms shared scroll intent`, () => {
+    const f = shortHistoryFixture({ integrated: true });
+    const up = () => {
+      if (input === "wheel") f.dispatch("wheel", { deltaY: -30, deltaX: 0 });
+      if (input === "touch") f.dispatch("touchmove", { touches: [{ clientX: 10, clientY: 40 }] });
+      if (input === "key") f.dispatch("keydown", { key: "PageUp" });
+    };
+    if (input === "touch") f.dispatch("touchstart", { touches: [{ clientX: 10, clientY: 10 }] });
+    up(); f.flush(); assert.equal(f.clicks(), 1);
+    f.button.disabled = true;
+    if (input === "key") f.dispatch("keydown", { key: "PageUp", repeat: true }); else up();
+    // The first reply prepends rows, retains nextCursor and becomes scrollable.
+    // Its native compensation scroll is dispatched after finally clears busy.
+    f.messages.scrollHeight = 900; f.messages.scrollTop = 100;
+    f.button.disabled = false; f.dispatch("scroll"); f.flush();
+    assert.equal(f.clicks(), 1, "the same consumed gesture cannot admit a second batch through the common listener");
+    if (input === "wheel") f.time();
+    if (input === "touch") {
+      f.dispatch("touchend", { touches: [] });
+      f.dispatch("touchstart", { touches: [{ clientX: 10, clientY: 10 }] });
+    }
+    if (input === "key") f.dispatch("keyup", { key: "PageUp" });
+    up(); f.dispatch("scroll"); f.flush();
+    assert.equal(f.clicks(), 2, "a fresh deliberate gesture still loads through the common path");
+  });
+}
+
+test("short Codex queued input cannot load after switching the view", () => {
+  const f = shortHistoryFixture(); f.dispatch("wheel", { deltaY: -20 }); f.context.viewGeneration++; f.flush(); assert.equal(f.clicks(), 0);
+});
+test("short Codex touch disambiguation and fresh wheel gestures never cascade on redraw", () => {
+  for (const move of [[40, 15], [10, -10]]) {
+    const f = shortHistoryFixture();
+    f.dispatch("touchstart", { touches: [{ clientX: 10, clientY: 10 }] });
+    f.dispatch("touchmove", { touches: [{ clientX: move[0], clientY: move[1] }] });
+    f.dispatch("touchmove", { touches: [{ clientX: 10, clientY: 80 }] }); f.flush(); assert.equal(f.clicks(), 0);
+  }
+  const f = shortHistoryFixture();
+  f.dispatch("wheel", { deltaY: -20 }); f.flush(); assert.equal(f.clicks(), 1);
+  f.dispatch("scroll"); f.flush(); assert.equal(f.clicks(), 1);
+  f.time(); f.dispatch("wheel", { deltaY: -20 }); f.flush(); assert.equal(f.clicks(), 2);
+  f.dispatch("touchstart", { touches: [{ clientX: 10, clientY: 10 }] });
+  f.dispatch("touchmove", { touches: [{ clientX: 10, clientY: 50 }, { clientX: 20, clientY: 50 }] }); f.flush();
+  assert.equal(f.clicks(), 2);
+});

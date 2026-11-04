@@ -43,12 +43,18 @@ class Node {
 }
 
 function harness(api) {
-  const messages = new Node(), notices = [], calls = [], contextCalls = [], timers = [];
+  const messages = new Node(), notices = [], calls = [], contextCalls = [], timers = [], documentEvents = new Map();
+  const doc = { createElement: tag => new Node(tag), body: new Node("body"), activeElement: null,
+    addEventListener(type, fn) { if (!documentEvents.has(type)) documentEvents.set(type, new Set()); documentEvents.get(type).add(fn); },
+    removeEventListener(type, fn) { documentEvents.get(type)?.delete(fn); } };
+  doc.activeElement = doc.body;
   const ctx = vm.createContext({ URLSearchParams, AbortController, apiBase: "/r/owned", viewGeneration: 1, subagentTracker: null,
     agentTranscriptPresentation, agentStatusText: status => status, genericInputBlock: () => null,
-    codexNativeHistoryButton: null, codexNativePollTimer: null, autoScrollPinned: false,
-    document: { createElement: tag => new Node(tag) },
-    window: { stepsembleI18n: { t: value => value } },
+    codexNativeHistoryButton: null, codexNativePollTimer: null, autoScrollPinned: false, userScrollIntentUntil: 0,
+    document: doc,
+    window: { stepsembleI18n: { t: value => value },
+      addEventListener(type, fn) { const key = `window:${type}`; if (!documentEvents.has(key)) documentEvents.set(key, new Set()); documentEvents.get(key).add(fn); },
+      removeEventListener(type, fn) { documentEvents.get(`window:${type}`)?.delete(fn); } },
     el: { messages, taskReplayNote: new Node() },
     api: async (url, opts) => { calls.push({ url, ...opts }); return api(new URL(url, "http://owned"), opts); },
     toast: msg => notices.push(msg), tKey: (key, vars = {}) => key + ":" + (vars.detail || ""),
@@ -66,9 +72,58 @@ function harness(api) {
     makeMsgShell(role, label, container) { const wrap = new Node(), bubble = new Node(); wrap.appendChild(bubble); container.appendChild(wrap); return { wrap, bubble }; },
   });
   vm.runInContext(slice, ctx);
+  ctx.appendCodexNativeActivity = (rows, container) => { const node = new Node(); node.textContent = "collapsed work"; container.appendChild(node); };
   ctx.rpc = { nativeCodex: true, nativeThreadId: "thread-a", nativeTranscriptState: ctx.createCodexNativeTranscriptState() };
-  return { ctx, calls, contextCalls, notices, messages, state: ctx.rpc.nativeTranscriptState, connection: ctx.rpc, timers };
+  return { ctx, calls, contextCalls, notices, messages, state: ctx.rpc.nativeTranscriptState, connection: ctx.rpc, timers,
+    documentEvents, documentInput(type, target = doc.body) { for (const fn of documentEvents.get(type) || []) fn({ type, target }); },
+    windowInput(type) { for (const fn of documentEvents.get(`window:${type}`) || []) fn({ type, target: doc.body }); } };
 }
+
+for (const activity of ["untouched", "pointer", "focus", "window"]) {
+  test(`native older keyboard focus lease ${activity}`, async () => {
+    let release, requested;
+    const pending = new Promise(resolve => { release = resolve; }), arrived = new Promise(resolve => { requested = resolve; });
+    const h = harness(async url => {
+      const kind = url.pathname.split("/").at(-1), cursor = url.searchParams.get("cursor");
+      if (kind === "thread") return { thread: { id: "thread-a", status: { type: "idle" } } };
+      if (kind === "turns") return page([]);
+      if (cursor) { requested(); await pending; }
+      return page(Array.from({ length: 8 }, (_, n) => entry("turn-a", `${cursor ? "older" : "latest"}-${n}`)), cursor ? "older-two" : "older-one");
+    });
+    await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+    const button = h.ctx.codexNativeHistoryButton, doc = h.ctx.document;
+    let disabled = false, restored = 0;
+    Object.defineProperty(button, "disabled", { get: () => disabled, set: value => {
+      disabled = value; if (value && doc.activeElement === button) doc.activeElement = doc.body;
+    } });
+    button.focus = options => { assert.equal(options.preventScroll, true); restored++; doc.activeElement = button; };
+    doc.activeElement = button;
+    const loading = h.ctx.loadOlderCodexNativeHistory(); await arrived;
+    assert.equal(doc.activeElement, doc.body, "native disabled controls blur");
+    if (activity === "pointer") h.documentInput("pointerdown");
+    if (activity === "window") h.windowInput("blur");
+    if (activity === "focus") { doc.activeElement = new Node("input"); h.documentInput("focusin", doc.activeElement); }
+    release(); await loading;
+    assert.equal(restored, activity === "untouched" ? 1 : 0);
+    if (activity === "untouched") assert.equal(doc.activeElement, button);
+    assert.equal([...h.documentEvents.values()].reduce((sum, listeners) => sum + listeners.size, 0), 0, "temporary focus listeners cleaned up");
+  });
+}
+
+test("manual Codex older admission consumes shared scroll intent", async () => {
+  const h = harness(url => {
+    const kind = url.pathname.split("/").at(-1), cursor = url.searchParams.get("cursor");
+    if (kind === "thread") return { thread: { id: "thread-a", status: { type: "idle" } } };
+    if (kind === "turns") return page([]);
+    return page(Array.from({ length: 8 }, (_, n) => entry("turn-a", `${cursor ? "older" : "latest"}-${n}`)), cursor ? "older-two" : "older-one");
+  });
+  await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  h.ctx.userScrollIntentUntil = 1800; // The explicit button's pointerdown/Enter.
+  await h.ctx.loadOlderCodexNativeHistory();
+  assert.equal(h.ctx.userScrollIntentUntil, 0, "the admitted action consumes intent before any prepend scroll");
+  assert.equal(h.state.itemsCursor, "older-two"); assert.equal(h.state.hasMore, true);
+  assert.equal(h.calls.filter(call => call.url.includes("/items?")).length, 2);
+});
 
 test("failed turn errors remain in their chronological turn and never duplicate across polls or a new failure", () => {
   const h = harness(() => ({}));
@@ -140,7 +195,7 @@ test("failed first/older pages keep their own retry cursor while successful stre
     if (kind === "turns") return page([]);
     attempts++;
     if (attempts === 1 || attempts === 3) throw new Error("offline");
-    if (attempts === 2) { assert.equal(url.searchParams.has("cursor"), false); return page([entry("a", "latest")], "older"); }
+    if (attempts === 2) { assert.equal(url.searchParams.has("cursor"), false); return page(messagesPage("latest"), "older"); }
     assert.equal(url.searchParams.get("cursor"), "older"); return page([entry("a", "first")]);
   });
   await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
@@ -148,7 +203,7 @@ test("failed first/older pages keep their own retry cursor while successful stre
   assert.match(h.ctx.el.taskReplayNote.textContent, /offline/);
   await h.ctx.loadOlderCodexNativeHistory(); assert.equal(h.state.itemsCursor, "older");
   await h.ctx.loadOlderCodexNativeHistory(); assert.equal(h.state.itemsCursor, "older");
-  assert.equal(h.state.entries.length, 1);
+  assert.equal(h.state.entries.length, 8);
   await h.ctx.loadOlderCodexNativeHistory();
   assert.equal(h.state.itemsCursor, null); assert.equal(h.state.error, null);
   assert.equal(h.calls.filter(v => v.url.includes("/turns?")).length, 1);
@@ -187,7 +242,7 @@ test("polling preserves old pages and their cursors, updates same-length content
   const h = harness(url => url.pathname.endsWith("/thread")
     ? { thread: { status: { type: "idle" } } }
     : url.pathname.endsWith("/turns") ? page([turn("a")])
-    : page([entry("a", "latest", latest)], "current-tail"));
+    : page([entry("a", "latest", latest), ...Array.from({ length: 7 }, (_, i) => entry("a", `other-${i}`))], "current-tail"));
   await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
   h.ctx.applyCodexNativeTranscriptPage(h.state, { items: page([entry("a", "older")], "older-tail") }, { older: true });
   h.ctx.renderCodexNativeSnapshot(h.connection);
@@ -265,4 +320,131 @@ test("aborting a history read prevents its next request even if the transport re
   assert.equal(h.calls.length, 1); assert.deepEqual(h.messages.children, initialNodes);
   assert.equal(h.state.entries.length, 0);
   assert.equal(h.calls[0].signal.aborted, true);
+});
+
+const tools = (prefix, count = 50, output = "ok") => Array.from({ length: count }, (_, i) => ({ turnId: "a",
+  item: { id: `${prefix}-${i}`, type: "commandExecution", command: "synthetic only", aggregatedOutput: output, status: "completed" } }));
+const messagesPage = prefix => Array.from({ length: 8 }, (_, i) => entry("a", `${prefix}-${i}`));
+function readableHarness(items) {
+  return harness(url => url.pathname.endsWith("/thread") ? { thread: { status: { type: "idle" } } }
+    : url.pathname.endsWith("/turns") ? page([turn("a")], "turn-tail") : items(url.searchParams.get("cursor")));
+}
+test("readable history initial seeks messages through tools, renders first page early, and ordinary polls stay cheap", async () => {
+  let finish;
+  const waiting = new Promise(resolve => { finish = resolve; });
+  const h = readableHarness(cursor => cursor === "older" ? waiting : page([entry("a", "latest"), ...tools("first", 49)], "older"));
+  const request = h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.calls.filter(call => call.url.includes("/items?")).length, 2);
+  assert.equal(h.connection.nativeLoading, false, "composer ready before older continuation resolves");
+  assert.ok(h.messages.textContent.includes("latest"));
+  finish(page(messagesPage("older"), "tail")); await request;
+  assert.equal(h.state.entries.length, 58); assert.equal(h.state.itemsCursor, "tail");
+  assert.equal(h.state.turnsCursor, "turn-tail");
+  const count = h.calls.length; await h.ctx.refreshCodexNativeSnapshot(h.connection);
+  assert.equal(h.calls.length - count, 3, "poll only reads metadata, summaries and latest items");
+  assert.equal(h.state.itemsCursor, "tail"); assert.equal(h.state.error, null);
+});
+test("readable history manual older seeks NEW messages not retained ones, keeps anchors and independent summaries", async () => {
+  const h = readableHarness(cursor => cursor === "older" ? page(tools("work"), "messages") : page(messagesPage("earlier")));
+  h.ctx.applyCodexNativeTranscriptPage(h.state, { turns: page([turn("a")], "summary"), items: page(messagesPage("retained"), "older") });
+  h.ctx.renderCodexNativeSnapshot(h.connection); h.messages.scrollTop = 150;
+  const anchor = h.messages.children[1], before = anchor.getBoundingClientRect().top;
+  await h.ctx.loadOlderCodexNativeHistory();
+  assert.equal(h.state.entries.length, 66); assert.equal(h.state.itemsCursor, null);
+  assert.equal(h.state.turnsCursor, "turn-tail");
+  assert.equal(h.calls.filter(call => call.url.includes("/turns?")).length, 1);
+  assert.equal(anchor.getBoundingClientRect().top, before);
+});
+test("readable history all-tools and large pages have finite admission caps without false EOF", async () => {
+  for (const large of [false, true]) {
+    let reads = 0;
+    const h = readableHarness(() => page(tools(`page-${++reads}`, 50, large ? "x".repeat(6000) : "ok"), `c${reads}`));
+    await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+    assert.equal(reads, large ? 1 : 4); assert.equal(h.state.entries.length, reads * 50);
+    assert.equal(h.state.itemsCursor, `c${reads}`); assert.equal(h.state.hasMore, true); assert.equal(h.state.error, null);
+  }
+});
+test("readable history continuation keeps successful rows on failure/cycle and leaves exact manual retry boundary", async () => {
+  for (const failure of ["offline", "cycle", "invalid"]) {
+    let reads = 0;
+    const h = readableHarness(() => {
+      reads++;
+      if (reads === 1) return page(tools("first"), "c1");
+      if (reads === 2) return page(tools("second"), "c2");
+      if (failure === "offline") throw new Error("offline");
+      return failure === "cycle" ? page([entry("a", "bad")], "c1") : page(tools("too-many", 51), null);
+    });
+    await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+    assert.equal(reads, 3); assert.equal(h.state.entries.length, 100); assert.equal(h.state.itemsCursor, "c2");
+    assert.match(h.state.error, /offline|cursor_repeated|page_invalid/);
+    assert.equal(h.ctx.codexNativeHistoryButton.dataset.autoLoadPaused, "1");
+    assert.equal(h.state.olderError, h.state.error); assert.equal(h.state.hasMore, true);
+  }
+});
+test("readable history continuation abort, Host/view switch and send revision stop follow-ons and stale writes", async () => {
+  for (const change of ["abort", "host", "view", "send"]) {
+    let finish;
+    const waiting = new Promise(resolve => { finish = resolve; });
+    const h = readableHarness(cursor => cursor ? waiting : page(tools("first"), "c1"));
+    const request = h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.calls.filter(call => call.url.includes("/items?")).length, 2);
+    if (change === "abort") h.connection.nativeHistoryRequest.abort();
+    if (change === "host") h.ctx.apiBase = "/r/new";
+    if (change === "view") { h.ctx.viewGeneration++; h.ctx.rpc = {}; }
+    if (change === "send") h.connection.nativeSendRevision = 1;
+    finish(page(tools("late"), "c2")); await request;
+    if (change === "send") await new Promise(resolve => setImmediate(resolve));
+    // A send schedules one cheap fresh snapshot; no stale continuation applies.
+    if (change !== "send") assert.equal(h.calls.filter(call => call.url.includes("/items?")).length, 2);
+    assert.equal(h.state.entries.some(row => row.item.id.startsWith("late")), false);
+    assert.equal(h.state.itemsCursor, "c1"); assert.equal(h.connection.nativeRefreshInFlight, false);
+  }
+});
+
+test("readable history latency admission stops after a slow successful first page", async () => {
+  let now = 0, reads = 0;
+  const h = readableHarness(() => { reads++; now = 1300; return page(tools("slow"), "older"); });
+  h.ctx.Date = { now: () => now };
+  await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  assert.equal(reads, 1); assert.equal(h.state.entries.length, 50); assert.equal(h.state.itemsCursor, "older");
+});
+test("readable history counts visible messages, not blank plans, collapsed work, duplicate rows or summary items", async () => {
+  let reads = 0;
+  const h = readableHarness(() => {
+    reads++;
+    return reads === 1 ? page([...messagesPage("same").slice(0, 7), entry("a", "blank", "  "),
+      { turnId: "a", item: { id: "blank-plan", type: "plan", text: "" } }], "c1")
+      : reads === 2 ? page(messagesPage("same").slice(0, 7), "c2") : page([entry("a", "eighth")]);
+  });
+  await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  assert.equal(reads, 3); assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 8);
+  assert.equal(h.state.entries.length, 10); assert.equal(h.state.itemsCursor, null);
+});
+test("readable history manual partial failure pauses through polling and explicit retry starts at failed cursor only", async () => {
+  let failed = false, retry = false;
+  const cursors = [];
+  const h = harness(url => {
+    if (url.pathname.endsWith("/thread")) return { thread: { status: { type: "idle" } } };
+    if (url.pathname.endsWith("/turns")) return page([]);
+    const cursor = url.searchParams.get("cursor"); cursors.push(cursor);
+    if (!cursor) return page(messagesPage("latest"), "older");
+    if (cursor === "older") return page(tools("older-work"), "failed-page");
+    if (!retry) { failed = true; throw new Error("offline"); }
+    return page(messagesPage("earliest"));
+  });
+  await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  await h.ctx.loadOlderCodexNativeHistory();
+  assert.equal(failed, true); assert.equal(h.state.entries.length, 58);
+  assert.equal(h.state.itemsCursor, "failed-page"); assert.equal(h.state.olderError, "offline");
+  const echo = new Node(); h.messages.appendChild(echo); echo.isConnected = true;
+  h.connection.codexNativeEchoes = [{ node: echo, text: "pending send", knownKeys: new Set() }];
+  await h.ctx.refreshCodexNativeSnapshot(h.connection);
+  assert.equal(h.ctx.codexNativeHistoryButton.dataset.autoLoadPaused, "1");
+  assert.equal(h.state.itemsCursor, "failed-page"); assert.equal(echo.parentNode, h.messages);
+  retry = true; await h.ctx.loadOlderCodexNativeHistory();
+  assert.deepEqual(cursors, [null, "older", "failed-page", null, "failed-page"]);
+  assert.equal(h.state.entries.length, 66); assert.equal(h.state.error, null); assert.equal(h.state.hasMore, false);
+  assert.equal(echo.parentNode, h.messages);
 });

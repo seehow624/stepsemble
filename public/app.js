@@ -6258,6 +6258,34 @@ function showCodexNativeHistoryButton() {
   if (codexNativeHistoryButton.parentNode !== el.messages) el.messages.prepend(codexNativeHistoryButton);
 }
 
+function codexNativeReadableKeys(state) {
+  return new Set(codexNativeRenderUnits(state.entries).filter(unit => unit.kind === "message"
+    && (unit.view.text?.trim() || unit.view.images > 0)).map(unit => unit.key));
+}
+
+// Admission bounds include the first item page: at most 4 x 50 items,
+// 262144 serialized UTF-16 code units, or 1200ms before starting another
+// request. A large/slow final page is retained, never truncated. Summaries
+// and collapsed work do not count as readable conversation.
+async function continueCodexNativeReadableHistory(connection, firstPage, before, startedAt, { signal, isCurrent }) {
+  const state = connection.nativeTranscriptState;
+  let pages = 1, size = JSON.stringify(firstPage.items || {}).length;
+  while (isCurrent() && !signal.aborted && !state.error && state.itemsCursor !== null
+    && pages < 4 && size < 262144 && Date.now() - startedAt < 1200) {
+    const added = [...codexNativeReadableKeys(state)].filter(key => !before.has(key)).length;
+    if (added >= 8) break;
+    const page = await loadCodexNativeTranscript(connection.nativeThreadId, {
+      older: true, turnsCursor: null, itemsCursor: state.itemsCursor, signal, isCurrent,
+    });
+    if (!isCurrent() || signal.aborted) return;
+    applyCodexNativeTranscriptPage(state, page, { older: true });
+    state.olderError = state.error;
+    renderCodexNativeSnapshot(connection, { preserveScroll: true });
+    pages += 1;
+    size += JSON.stringify(page.items || {}).length;
+  }
+}
+
 async function loadCodexNativeTranscript(threadId, {
   older = false, turnsCursor, itemsCursor, signal, isCurrent = () => true,
 } = {}) {
@@ -6470,13 +6498,26 @@ async function loadOlderCodexNativeHistory() {
   const connection = rpc;
   const state = connection?.nativeCodex ? connection.nativeTranscriptState : null;
   if (!state || state.loading || connection.nativeRefreshInFlight || !state.hasMore) return;
-  const generation = viewGeneration;
+  userScrollIntentUntil = 0; // The explicit action owns this batch, not its prepend scroll.
+  const generation = viewGeneration, base = apiBase;
+  const startedAt = Date.now(), before = codexNativeReadableKeys(state);
   const controller = new AbortController();
-  const isCurrent = () => rpc === connection && generation === viewGeneration;
+  const isCurrent = () => rpc === connection && generation === viewGeneration && base === apiBase;
+  const focusButton = document.activeElement === codexNativeHistoryButton ? codexNativeHistoryButton : null;
+  let restoreFocus = !!focusButton;
+  const focusEvents = ["pointerdown", "keydown", "focusin"];
+  const releaseFocus = event => {
+    if (event.type !== "focusin" || event.target !== focusButton && event.target !== document.body
+      && event.target !== document.documentElement) restoreFocus = false;
+  };
   connection.nativeHistoryRequest = controller;
   state.loading = true;
-  showCodexNativeHistoryButton();
   try {
+    if (focusButton) {
+      for (const type of focusEvents) document.addEventListener(type, releaseFocus, true);
+      window.addEventListener("blur", releaseFocus);
+    }
+    showCodexNativeHistoryButton();
     const page = await loadCodexNativeTranscript(connection.nativeThreadId, {
       older: true, turnsCursor: state.turnsCursor, itemsCursor: state.itemsCursor,
       signal: controller.signal, isCurrent,
@@ -6485,15 +6526,25 @@ async function loadOlderCodexNativeHistory() {
     applyCodexNativeTranscriptPage(state, page, { older: true });
     state.olderError = state.error;
     renderCodexNativeSnapshot(connection, { preserveScroll: true });
+    await continueCodexNativeReadableHistory(connection, page, before, startedAt, { signal: controller.signal, isCurrent });
   } catch (error) {
     if (isCurrent() && error.name !== "AbortError") {
       state.error = String(error.message).slice(0, 128);
       toast(tKey("runtime.historyFailed", { detail: state.error }), true);
     }
   } finally {
+    if (focusButton) {
+      for (const type of focusEvents) document.removeEventListener(type, releaseFocus, true);
+      window.removeEventListener("blur", releaseFocus);
+    }
     state.loading = false;
     if (connection.nativeHistoryRequest === controller) connection.nativeHistoryRequest = null;
-    if (isCurrent()) showCodexNativeHistoryButton();
+    if (isCurrent()) {
+      showCodexNativeHistoryButton();
+      // Disabled buttons blur natively; restore only our untouched focus lease.
+      if (restoreFocus && focusButton === codexNativeHistoryButton && focusButton.parentNode === el.messages
+        && !focusButton.disabled && document.activeElement === document.body) focusButton.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -6561,10 +6612,11 @@ function renderCodexNativeApprovals(connection, permissions) {
 async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) {
   if (!connection || rpc !== connection || !connection.nativeCodex) return;
   if (connection.nativeTranscriptState.loading || connection.nativeRefreshInFlight) return;
-  const generation = viewGeneration;
+  const generation = viewGeneration, base = apiBase;
+  const startedAt = Date.now(), before = initial ? codexNativeReadableKeys(connection.nativeTranscriptState) : null;
   const sendRevision = connection.nativeSendRevision || 0, goalRevision = connection.nativeGoalRevision || 0;
   const controller = new AbortController();
-  const isCurrent = () => rpc === connection && generation === viewGeneration;
+  const isCurrent = () => rpc === connection && generation === viewGeneration && base === apiBase;
   connection.nativeHistoryRequest = controller;
   connection.nativeRefreshInFlight = true;
   showCodexNativeHistoryButton();
@@ -6640,6 +6692,10 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     codexNativePollTimer = setInterval(() => {
       if (!document.hidden) void refreshCodexNativeSnapshot(connection);
     }, status === "running" ? 2500 : 8000);
+    if (initial) await continueCodexNativeReadableHistory(connection, page, before, startedAt, {
+      signal: controller.signal,
+      isCurrent: () => isCurrent() && sendRevision === (connection.nativeSendRevision || 0),
+    });
   } catch (error) {
     if (!isCurrent() || error.name === "AbortError") return;
     connection.nativeLoading = false;
@@ -8672,12 +8728,81 @@ const EARLIER_MESSAGES_EDGE = 600;
 let earlierMessagesFrame = 0;
 el.messages.addEventListener("scroll", () => {
   if (earlierMessagesFrame || Date.now() >= userScrollIntentUntil) return;
+  const connection = rpc, generation = viewGeneration;
   earlierMessagesFrame = requestAnimationFrame(() => {
     earlierMessagesFrame = 0;
+    if (rpc !== connection || viewGeneration !== generation || Date.now() >= userScrollIntentUntil) return;
     if (el.messages.scrollTop > EARLIER_MESSAGES_EDGE) return;
+    const button = el.messages.querySelector(".history-load-button");
+    if (connection?.nativeCodex) userScrollIntentUntil = 0;
+    if (button && !button.disabled && !button.dataset.autoLoadPaused) button.click();
+  });
+}, { passive: true });
+
+// A short list cannot emit scroll at its upper edge. Recognize only upward
+// reading intent on Codex's non-scrollable surface, leaving native input,
+// selection and every other agent's scrolling alone.
+function shortCodexHistorySurface(event) {
+  return rpc?.nativeCodex && el.messages.scrollHeight <= el.messages.clientHeight + 1
+    && !event.defaultPrevented && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+    && !event.target?.closest?.("input, textarea, select, button, a, summary, [role=button], [role=textbox], [contenteditable]:not([contenteditable=false])")
+    && !window.getSelection()?.toString();
+}
+function queueShortCodexHistory() {
+  if (earlierMessagesFrame) return;
+  const connection = rpc, generation = viewGeneration, base = apiBase;
+  earlierMessagesFrame = requestAnimationFrame(() => {
+    earlierMessagesFrame = 0;
+    if (rpc !== connection || viewGeneration !== generation || apiBase !== base) return;
+    // Consume this approach before the prepend can emit a native scroll.
+    userScrollIntentUntil = 0;
     const button = el.messages.querySelector(".history-load-button");
     if (button && !button.disabled && !button.dataset.autoLoadPaused) button.click();
   });
+}
+let shortCodexWheelUntil = 0, shortCodexWheelConsumed = false;
+let shortCodexTouch = null, shortCodexTouchConsumed = false, shortCodexKey = null;
+el.messages.addEventListener("wheel", event => {
+  const now = Date.now(), continuing = now < shortCodexWheelUntil;
+  if (!continuing) shortCodexWheelConsumed = false;
+  shortCodexWheelUntil = now + 250;
+  // The common listener runs first. A consumed burst must also suppress its
+  // renewed intent, including after a prepend makes the list scrollable.
+  if (continuing && shortCodexWheelConsumed && rpc?.nativeCodex) userScrollIntentUntil = 0;
+  if (!continuing && event.deltaY < 0 && Math.abs(event.deltaY) > Math.abs(event.deltaX || 0)
+    && shortCodexHistorySurface(event)) {
+    shortCodexWheelConsumed = true;
+    queueShortCodexHistory();
+  }
+}, { passive: true });
+el.messages.addEventListener("touchstart", event => {
+  shortCodexTouchConsumed = false;
+  const touch = event.touches?.length === 1 && event.touches[0];
+  shortCodexTouch = touch && shortCodexHistorySurface(event)
+    ? { x: touch.clientX, y: touch.clientY, connection: rpc, generation: viewGeneration } : null;
+}, { passive: true });
+el.messages.addEventListener("touchmove", event => {
+  if (shortCodexTouchConsumed && rpc?.nativeCodex) { userScrollIntentUntil = 0; return; }
+  const start = shortCodexTouch, touch = event.touches?.length === 1 && event.touches[0];
+  if (!start) return;
+  if (!touch || rpc !== start.connection || viewGeneration !== start.generation || !shortCodexHistorySurface(event)) {
+    shortCodexTouch = null; return;
+  }
+  const dx = touch.clientX - start.x, dy = touch.clientY - start.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 12) return;
+  shortCodexTouch = null; // One decision per gesture, including horizontal/downward movement.
+  if (dy > 0 && dy > Math.abs(dx)) { shortCodexTouchConsumed = true; queueShortCodexHistory(); }
+}, { passive: true });
+for (const type of ["touchend", "touchcancel"]) el.messages.addEventListener(type, () => {
+  shortCodexTouch = null; shortCodexTouchConsumed = false;
+}, { passive: true });
+el.messages.addEventListener("keydown", event => {
+  if (event.repeat && event.key === shortCodexKey && rpc?.nativeCodex) { userScrollIntentUntil = 0; return; }
+  if (!event.repeat && !event.isComposing && ["ArrowUp", "PageUp", "Home"].includes(event.key)
+    && shortCodexHistorySurface(event)) { shortCodexKey = event.key; queueShortCodexHistory(); }
+}, { passive: true });
+el.messages.addEventListener("keyup", event => {
+  if (event.key === shortCodexKey) shortCodexKey = null;
 }, { passive: true });
 el.scrollBottomBtn?.addEventListener("click", () => {
   autoScrollPinned = true;

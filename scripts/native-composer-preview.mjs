@@ -387,10 +387,13 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false, agentSpeed = false } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false, agentSpeed = false, codexHistory = null } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
+  // Optional owned pages for readable-history UI cases; never an adapter or
+  // a native process. Keep request receipts separate from synthetic sends.
+  state.codexHistoryReads = [];
   state.codexFailure = codexFailure;
   state.richContent = richContent;
   state.projectReview = projectReview;
@@ -563,7 +566,15 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
         thread: codexThreadPayload(), goalAvailable: true, goal: state.codexGoal ? { ...state.codexGoal } : null,
       });
       if (pathname === "/api/codex/turns" && req.method === "GET") return json(res, 200, { data: codexTurns(), nextCursor: null });
-      if (pathname === "/api/codex/items" && req.method === "GET") return json(res, 200, { data: codexItems(), nextCursor: null });
+      if (pathname === "/api/codex/items" && req.method === "GET") {
+        if (!codexHistory) return json(res, 200, { data: codexItems(), nextCursor: null });
+        const cursor = requestUrl.searchParams.get("cursor"), index = cursor === null ? 0 : Number(cursor.replace(/^fixture-page-/, ""));
+        state.codexHistoryReads.push({ cursor, limit: requestUrl.searchParams.get("limit") });
+        if (codexHistory.failCursor === cursor) return json(res, 503, { error: "fixture_history_unavailable" });
+        if (codexHistory.waitForCursor === cursor) await codexHistory.waitForPage;
+        const result = codexHistory.pages[index];
+        return result ? json(res, 200, result) : json(res, 400, { error: "fixture_history_cursor_invalid" });
+      }
       if (pathname === "/api/host-files/open" && req.method === "POST") {
         const body = await parseJsonBody(req);
         const file = body.path, count = (imageLookups.get(file) || 0) + 1;
