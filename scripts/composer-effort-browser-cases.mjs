@@ -61,12 +61,12 @@ const composer = ui => ui.evaluate(() => {
 const CLAUDE_PLACES = { Low: 0.1, Medium: 0.325, High: 0.55, "Extra high": 0.775, Max: 1 };
 const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) <= 0.01, `${message}: ${actual} is not ${expected}`);
 
-async function settingsFor(context, { theme, reducedMotion = true }) {
-  await context.addInitScript(({ theme, reducedMotion }) => {
-    if (location.protocol !== "http:") return;
+async function settingsFor(context, origin, { theme, reducedMotion = true }) {
+  await context.addInitScript(({ origin, theme, reducedMotion }) => {
+    if (location.origin !== origin) return;
     localStorage.setItem("stepsemble.onboarding.v1", "complete");
     localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme, reducedMotion, showTemporarySessions: true }));
-  }, { theme, reducedMotion });
+  }, { origin, theme, reducedMotion });
 }
 
 async function nativeCases(browser, width) {
@@ -74,7 +74,7 @@ async function nativeCases(browser, width) {
   const phone = width < 600;
   const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: phone, hasTouch: phone, serviceWorkers: "block", locale: "en-US" });
   try {
-    await settingsFor(context, { theme: phone ? "light" : "dark" });
+    await settingsFor(context, preview.origin, { theme: phone ? "light" : "dark" });
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const host = { claude: "live" };
     await context.route("**/api/claude/structured/models?**", route => route.fulfill({ json: host.claude === "live"
@@ -185,7 +185,7 @@ async function sliderCase(browser, width) {
   const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: phone, hasTouch: phone, serviceWorkers: "block", locale: "en-US",
     reducedMotion: phone ? "reduce" : "no-preference" });
   try {
-    await settingsFor(context, { theme: phone ? "dark" : "light", reducedMotion: phone });
+    await settingsFor(context, preview.origin, { theme: phone ? "dark" : "light", reducedMotion: phone });
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const host = { model: "opus", effort: "xhigh", efforts: [], models: [], calls: [] };
     const other = { id: "minimax/MiniMax-M3.1-Flash", name: "MiniMax-M3.1-Flash", resolvedModel: "minimax/MiniMax-M3.1-Flash", description: "Magpie gateway · MiniMax",
@@ -318,7 +318,7 @@ async function lightCase(browser) {
   const preview = await createNativeComposerPreview();
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: "block", locale: "en-US", reducedMotion: "no-preference" });
   try {
-    await settingsFor(context, { theme: "light", reducedMotion: false });
+    await settingsFor(context, preview.origin, { theme: "light", reducedMotion: false });
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const page = await context.newPage(); page.setDefaultTimeout(15_000);
     await page.goto(preview.origin + "/workspace.html"); await workspaceReady(page);
@@ -348,7 +348,7 @@ async function lineCase(browser, width) {
   const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: phone, hasTouch: phone, serviceWorkers: "block", locale: "en-US",
     reducedMotion: phone ? "reduce" : "no-preference" });
   try {
-    await settingsFor(context, { theme: "dark", reducedMotion: phone });
+    await settingsFor(context, preview.origin, { theme: "dark", reducedMotion: phone });
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const host = { model: "opus", effort: "xhigh", efforts: [], calls: [] };
     await context.route("**/api/claude/structured/models?**", route => route.fulfill({ json: { models: MAGPIE_MODELS, currentModel: host.model === "opus" ? "claude-opus-5-5" : host.model,
@@ -486,7 +486,7 @@ async function piCase(browser, width) {
     await waitForServer(child); child.stdout.resume(); child.stderr.resume();
     const phone = width < 600;
     context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: phone, hasTouch: phone, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
-    await settingsFor(context, { theme: "dark" });
+    await settingsFor(context, base, { theme: "dark" });
     await context.route("**/*", route => new URL(route.request().url()).origin === base ? route.fallback() : route.abort());
     // Pi's own report of its context.
     await context.route("**/api/rpc-cmd", route => route.request().postDataJSON()?.command?.type === "get_session_stats"

@@ -20,10 +20,11 @@ export async function runInterfaceStyleBrowserCases(browser) {
     let stage = "fixture";
     try {
       // Frames run this too; only the first page seeds the preferences.
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true }));
-      });
+      }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);

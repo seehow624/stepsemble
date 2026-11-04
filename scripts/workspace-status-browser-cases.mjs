@@ -18,10 +18,11 @@ export async function runWorkspaceStatusBrowserCases(browser) {
       await fixture.setActivity("mini", 1, { working: false, completion: completion(2) });
       await fixture.setActivity("mini", 2, { working: false, completion: completion(3, "failed") });
       await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
-      });
+      }, fixture.origin);
       await page.goto(fixture.origin + "/workspace.html");
       // With two computers the current one's section comes first, below Recent.
       const rows = page.locator(".workspace-machine").first().locator(".workspace-session-row"), status = index => rows.nth(index).locator(".workspace-session-status");

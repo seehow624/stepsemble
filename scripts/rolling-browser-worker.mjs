@@ -111,10 +111,11 @@ async function runCase(host, client, viewport) {
       try { await route.fulfill({ status: 200, contentType: types[path.extname(filename)] || "application/octet-stream", body: await fs.readFile(filename) }); }
       catch { await route.fulfill({ status: 404, body: "not found" }); }
     });
-    await context.addInitScript(() => {
+    await context.addInitScript(origin => {
+      if (location.origin !== origin) return;
       localStorage.setItem("stepsemble.onboarding.v1", "complete");
       if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", showTemporarySessions: true, groupByProject: false, reducedMotion: true }));
-    });
+    }, base);
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     page.on("pageerror", error => errors.push(error.message));
     let sid;

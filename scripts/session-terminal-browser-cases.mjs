@@ -58,10 +58,11 @@ export async function runSessionTerminalBrowserCases(browser, { screenshotDirect
         if (new URL(route.request().url()).origin !== base) { foreign.push("blocked external request"); return route.abort(); }
         return route.continue();
       });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "zh-Hant", reducedMotion: true }));
-      });
+      }, base);
       page = await context.newPage(); page.setDefaultTimeout(15000);
       page.on("pageerror", error => errors.push(error.message));
       page.on("request", request => {

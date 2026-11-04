@@ -10,8 +10,8 @@ async function open(browser, { width, height = 844, look = "bold", theme = "dark
   const preview = await createNativeComposerPreview(previewOptions);
   const mobile = width < 600;
   const context = await browser.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, serviceWorkers: "block", reducedMotion: "reduce" });
-  await context.addInitScript(settings => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify(settings)); },
-    { locale, theme, look, fontScale, reducedMotion: true });
+  await context.addInitScript(({ origin, settings }) => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify(settings)); },
+    { origin: preview.origin, settings: { locale, theme, look, fontScale, reducedMotion: true } });
   await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
   const page = await context.newPage(); page.setDefaultTimeout(15000);
   const errors = []; page.on("pageerror", error => errors.push(error.message));

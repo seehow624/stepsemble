@@ -74,10 +74,11 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
         if (url.pathname === "/api/quota-sources") return route.fulfill({ json: QUOTA_SOURCES });
         return route.continue();
       });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", reducedMotion: true }));
-      });
+      }, base);
       const page = await context.newPage(); page.setDefaultTimeout(15000);
       page.on("pageerror", error => errors.push(error.message));
       const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();

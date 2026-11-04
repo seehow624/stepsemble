@@ -54,10 +54,11 @@ export async function runPiRecoveryBrowserCases(browser, { output, baselineApp =
       if (baselineApp && url.pathname === "/app.js") return route.fulfill({ contentType: "application/javascript", body: await fs.readFile(baselineApp, "utf8") });
       return route.continue();
     });
-    await context.addInitScript(() => {
+    await context.addInitScript(origin => {
+      if (location.origin !== origin) return;
       localStorage.setItem("stepsemble.onboarding.v1", "complete");
       localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true, showTemporarySessions: true }));
-    });
+    }, base);
     page = await context.newPage(); page.setDefaultTimeout(10000); page.on("pageerror", error => errors.push({ stage, message: error.message, stack: error.stack }));
     const token = (await fs.readFile(path.join(home, ".config/stepsemble/token"), "utf8")).trim();
     // Authenticate the owned fixture before navigating: WebKit otherwise can

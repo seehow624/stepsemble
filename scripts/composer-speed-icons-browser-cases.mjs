@@ -33,10 +33,11 @@ export async function runComposerSpeedIconsBrowserCases(browser, { output, engin
     const name = `${engine}-icons-${width}-${theme}-${look}`;
     let page;
     try {
-      await context.addInitScript(({ theme, look }) => {
+      await context.addInitScript(({ origin, theme, look }) => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme, look, reducedMotion: true }));
-      }, { theme, look });
+      }, { origin: preview.origin, theme, look });
       await context.route("**/api/workspace/usage*", route => route.fulfill({ json: { providers: [{ provider: "Claude", status: "ok", windows: [{ label: "5h", windowDurationMins: 300, remainingPercent: 72, resetsAt: Date.now() + 3600000 }] }] } }));
       // A real catalog/thread fixture with the longer reasoning label; repeated
       // catalog loads must preserve it rather than race a one-off DOM override.

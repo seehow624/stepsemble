@@ -22,10 +22,11 @@ export async function runWorkspacePanesBrowserCases(browser) {
     await context.route("**/api/workspace", route => route.fulfill({ json: { projects: ["/tmp/Panes"], entries: refs.map(ref => ({ ...entries[0], key: ref.key, record: { ...entries[0].record, cwd: "/tmp/Panes", name: ref.title + (revision ? ` revised ${revision}` : "") } })) } }));
     await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: `<textarea id="draft"></textarea><div style="height:2000px">viewer</div><script>window.commands=[];addEventListener("message",e=>{if(e.data?.type==="workspace-command")commands.push(e.data.command)});${bridge}</script>` }));
     // A layout saved while the pane held three tabs keeps the one it showed.
-    await page.addInitScript(refs => {
+    await page.addInitScript(({ origin, refs }) => {
+      if (location.origin !== origin) return;
       localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" }));
       if (!localStorage.getItem("stepsemble.workspace.layout.v1.main")) localStorage.setItem("stepsemble.workspace.layout.v1.main", JSON.stringify({ tree: { type: "pane", id: "main", tabs: refs, active: JSON.stringify([refs[2].host, refs[2].key]) }, focused: "main" }));
-    }, refs);
+    }, { origin: fixture.origin, refs });
     await page.goto(fixture.origin + "/workspace.html");
     const titles = page.locator(".workspace-tab"), panes = page.locator(".workspace-pane");
     const shown = () => page.evaluate(() => [...document.querySelectorAll(".workspace-pane")].map(pane => pane.querySelector(".workspace-tab-title")?.textContent || ""));
@@ -154,10 +155,11 @@ export async function runWorkspacePanesFocusBrowserCases(browser, cases = ["maxi
         const a = { type: "pane", id: "left", tabs: [refs[0]], active: identity(refs[0]) };
         const b = { type: "pane", id: "right", tabs: [refs[1]], active: identity(refs[1]) };
         const tree = scenario === "maximize" ? { type: "split", id: "split", axis: "row", ratio: .5, first: a, second: b } : a;
-        await page.addInitScript(tree => {
+        await page.addInitScript(({ origin, tree }) => {
+          if (location.origin !== origin) return;
           localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" }));
           localStorage.setItem("stepsemble.workspace.layout.v1.main", JSON.stringify({ tree, focused: "left" }));
-        }, tree);
+        }, { origin: fixture.origin, tree });
         await page.goto(fixture.origin + "/workspace.html");
         const paneA = page.locator('.workspace-pane[data-pane="left"]');
         const viewer = ref => page.locator(`iframe.workspace-frame[src*="entry=${ref.key}"]`);

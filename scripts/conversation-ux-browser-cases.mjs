@@ -90,10 +90,11 @@ export async function runSubagentExecutionBrowserCases(browser, { screenshots } 
     const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
     try {
       const locale = width === 393 ? "zh-Hant" : "en", unknown = locale === "zh-Hant" ? "未提供" : "Not provided";
-      await context.addInitScript(({ locale, theme }) => {
+      await context.addInitScript(({ origin, locale, theme }) => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme, reducedMotion: true }));
-      }, { locale, theme: width === 393 ? "light" : "dark" });
+      }, { origin: preview.origin, locale, theme: width === 393 ? "light" : "dark" });
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
       const keys = Object.fromEntries(entries.map(entry => [entry.record.agentId, entry.key])), reads = [];
@@ -265,10 +266,11 @@ export async function runGoalChipBrowserCases(browser, { screenshots } = {}) {
     const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
     try {
       const locale = width === 1280 ? "en" : "zh-Hant", words = locale === "en" ? { running: "Working", completed: "Completed" } : { running: "工作中", completed: "已完成" };
-      await context.addInitScript(({ locale, theme }) => {
+      await context.addInitScript(({ origin, locale, theme }) => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme, reducedMotion: true }));
-      }, { locale, theme: width === 393 ? "light" : "dark" });
+      }, { origin: preview.origin, locale, theme: width === 393 ? "light" : "dark" });
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       // The Host's Goal for the conversation shown, as /api/workflows reports it.
       let goal = { id: "ui-goal", objective: "Ship the release notes and check every link", status: "running", elapsedMs: 754_000, activity: "thinking", turns: 3, outputTokens: 1200, clockRunning: true };
@@ -339,7 +341,7 @@ export async function runTouchTargetBrowserCases(browser, { screenshots } = {}) 
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport, isMobile: viewport.touch, hasTouch: viewport.touch, serviceWorkers: "block" });
     try {
-      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true })); });
+      await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true })); }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -392,7 +394,7 @@ export async function runStatusColorBrowserCases(browser) {
   const preview = await createNativeComposerPreview();
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
   try {
-    await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+    await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const page = await context.newPage(), errors = [];
     page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -435,7 +437,7 @@ export async function runKeyboardFocusBrowserCases(browser) {
   const preview = await createNativeComposerPreview();
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
   try {
-    await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true })); });
+    await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true })); }, preview.origin);
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const page = await context.newPage(), errors = [];
     page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -468,7 +470,7 @@ export async function runNarrowSettingsBrowserCases(browser, { screenshots } = {
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport: { width, height: 760 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
     try {
-      await context.addInitScript(locale => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true })); }, locale);
+      await context.addInitScript(({ origin, locale }) => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true })); }, { origin: preview.origin, locale: locale });
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -502,7 +504,7 @@ export async function runHistoryEmptyBrowserCases(browser, { screenshots } = {})
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport: { width, height: 852 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
     try {
-      await context.addInitScript(locale => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "light", reducedMotion: true })); }, locale);
+      await context.addInitScript(({ origin, locale }) => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "light", reducedMotion: true })); }, { origin: preview.origin, locale: locale });
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -530,7 +532,7 @@ export async function runConversationColumnBrowserCases(browser, { screenshots }
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
     try {
-      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const goal = { id: "column-goal", objective: "Keep everything above the message box in line with it", status: "running", elapsedMs: 754_000, activity: "thinking", turns: 3, outputTokens: 1200, clockRunning: true };
       await context.route("**/api/workflows?entry=**", route => route.fulfill({ json: { runs: [{ ...goal, entry: new URL(route.request().url()).searchParams.get("entry") }] } }));
@@ -586,7 +588,7 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
     try {
-      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       let goal = { id: "dock-goal", objective: "Tidy what sits above the message box", status: "paused", elapsedMs: 754_000, activity: "paused", turns: 3, outputTokens: 1200, clockRunning: false };
       const dismissals = [];
@@ -686,7 +688,7 @@ export async function runGoalCloseBrowserCases(browser) {
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
     try {
-      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       let goal = { id: "close-goal", objective: "Ship the release notes", status: "completed", elapsedMs: 65_000, activity: "completed", turns: 2, outputTokens: 10, result: "Done" };
       const posts = [];
@@ -742,7 +744,7 @@ export async function runSessionSummaryBrowserCases(browser, { screenshots } = {
     const preview = await createNativeComposerPreview({ richContent: true });
     const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
     try {
-      await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+      await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       await context.route("**/api/workflows?entry=**", route => {
         const entry = new URL(route.request().url()).searchParams.get("entry");
@@ -873,7 +875,7 @@ export async function runPaneHeaderBrowserCases(browser, { screenshots } = {}) {
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
     try {
-      await context.addInitScript(locale => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true })); }, viewport.mobile ? "zh-Hant" : "en");
+      await context.addInitScript(({ origin, locale }) => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true })); }, { origin: preview.origin, locale: viewport.mobile ? "zh-Hant" : "en" });
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -920,10 +922,11 @@ export async function runSessionRecoveryBrowserCases(browser, { screenshots } = 
     const preview = await createNativeComposerPreview();
     const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 900, hasTouch: width < 900, serviceWorkers: "block" });
     try {
-      await context.addInitScript(locale => {
+      await context.addInitScript(({ origin, locale }) => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true }));
-      }, width === 393 ? "zh-Hant" : "en");
+      }, { origin: preview.origin, locale: width === 393 ? "zh-Hant" : "en" });
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
       const claude = entries.find(entry => entry.record.agentId === "claude-code").record;
@@ -1116,10 +1119,11 @@ export async function runEarlySendBrowserCases(browser) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
     let holdEntry = null, holdHistory = null;
     try {
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true }));
-      });
+      }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       const entries = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries;
       const claude = entries.find(entry => entry.record.agentId === "claude-code").record;
@@ -1206,10 +1210,11 @@ export async function runHistoryPagesBrowserCases(browser) {
   const preview = await createNativeComposerPreview();
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
   try {
-    await context.addInitScript(() => {
+    await context.addInitScript(origin => {
+      if (location.origin !== origin) return;
       localStorage.setItem("stepsemble.onboarding.v1", "complete");
       localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true }));
-    });
+    }, preview.origin);
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const claude = (await (await context.request.get(preview.origin + "/api/workspace")).json()).entries.find(entry => entry.record.agentId === "claude-code").record;
     const reads = [];
@@ -1291,7 +1296,7 @@ export async function runRenameImeBrowserCases(browser) {
   const preview = await createNativeComposerPreview();
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, serviceWorkers: "block" });
   try {
-    await context.addInitScript(() => { localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); });
+    await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
     await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
     const page = await context.newPage(), errors = [], renames = [];
     page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
@@ -1430,12 +1435,14 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       await waitForServer(child); child.stdout.resume(); child.stderr.resume();
       context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, isMobile: viewport.mobile, hasTouch: viewport.mobile,
         serviceWorkers: "block", locale: "en-US" });
-      await context.addInitScript(() => {
-        localStorage.setItem("stepsemble.onboarding.v1", "complete");
-        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
+      await context.addInitScript(origin => {
+        if (location.origin === origin) {
+          localStorage.setItem("stepsemble.onboarding.v1", "complete");
+          localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark" }));
+        }
         new MutationObserver(records => { for (const record of records) for (const node of record.addedNodes) if (node.classList?.contains("toast")) (window.__toasts ||= []).push(node.textContent); })
           .observe(document, { childList: true, subtree: true });
-      });
+      }, base);
       const errors = [], foreign = [];
       await context.route("**/*", route => { if (new URL(route.request().url()).origin !== base) { foreign.push(route.request().url()); return route.abort(); } return route.continue(); });
       const page = await context.newPage(); page.setDefaultTimeout(20000); page.on("pageerror", error => errors.push(error.message));

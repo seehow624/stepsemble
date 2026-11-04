@@ -20,12 +20,13 @@ export async function runCodexActivityBrowserCases(browser) {
         if (url.origin !== preview.origin) { foreign.push(url.origin); return route.abort(); }
         return route.continue();
       });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({
           locale: "en", reducedMotion: true, showTemporarySessions: true, groupByProject: false,
         }));
-      });
+      }, preview.origin);
       const login = await context.request.post(`${preview.origin}/api/login`, { data: { token: preview.token } });
       assert.equal(login.status(), 200);
       const page = await context.newPage();
@@ -115,10 +116,11 @@ async function runCodexFailureBrowserCases(browser) {
     let context, stage = "fixture";
     try {
       context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", reducedMotion: true, groupByProject: false }));
-      });
+      }, preview.origin);
       assert.equal((await context.request.post(`${preview.origin}/api/login`, { data: { token: preview.token } })).status(), 200);
       const page = await context.newPage(), errors = [];
       page.setDefaultTimeout(15_000); page.on("pageerror", error => errors.push(error.message));
@@ -184,10 +186,11 @@ export async function runRichContentBrowserCases(browser) {
     const preview = await createNativeComposerPreview({ richContent: true });
     const context = await browser.newContext({ viewport, serviceWorkers: "block", locale: "en-US" });
     try {
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", reducedMotion: true, groupByProject: false }));
-      });
+      }, preview.origin);
       await context.request.post(`${preview.origin}/api/login`, { data: { token: preview.token } });
       const page = await context.newPage(), errors = [];
       page.on("pageerror", e => errors.push(e.message));

@@ -18,7 +18,7 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         const page = await context.newPage(), errors = [];
         page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
         await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
-        await context.addInitScript(() => localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" })));
+        await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" })); }, fixture.origin);
         await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
         // On a desktop the other computer's first list comes late, while the
         // pointer rests on the list.

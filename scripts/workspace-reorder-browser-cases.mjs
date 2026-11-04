@@ -13,10 +13,11 @@ export async function runWorkspaceReorderBrowserCases(browser) {
     let stage = "open";
     try {
       await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", reducedMotion: true }));
-      });
+      }, fixture.origin);
       await page.goto(fixture.origin + "/workspace.html");
       const projects = page.locator(".workspace-project"), sessions = page.locator(".workspace-session");
       await projects.nth(2).waitFor();

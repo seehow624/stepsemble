@@ -17,10 +17,11 @@ export async function runProjectFilesBrowserCases(browser, { screenshots } = {})
         if (/project-(?:changes|file)/.test(url.pathname) && request.method() !== "GET") mutations.push(url.pathname);
         return route.continue();
       });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true, groupByProject: false }));
-      });
+      }, preview.origin);
       assert.equal((await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } })).status(), 200);
       const page = await context.newPage(); page.setDefaultTimeout(12000); page.on("pageerror", error => errors.push(error.message));
       await page.goto(preview.origin); await workspaceReady(page);

@@ -63,19 +63,21 @@ export async function runWebStabilityBrowserCases(browser) {
         }
         return route.continue();
       });
-      await context.addInitScript(() => {
-        localStorage.setItem("stepsemble.onboarding.v1", "complete");
-        localStorage.setItem("stepsemble.settings.v2", JSON.stringify({
-          locale: "en", theme: "light", reducedMotion: true,
-          showTemporarySessions: true, groupByProject: true,
-        }));
+      await context.addInitScript(origin => {
+        if (location.origin === origin) {
+          localStorage.setItem("stepsemble.onboarding.v1", "complete");
+          localStorage.setItem("stepsemble.settings.v2", JSON.stringify({
+            locale: "en", theme: "light", reducedMotion: true,
+            showTemporarySessions: true, groupByProject: true,
+          }));
+        }
         window.__stepsembleLongTasks = [];
         try {
           new PerformanceObserver((list) => {
             for (const entry of list.getEntries()) window.__stepsembleLongTasks.push(entry.duration);
           }).observe({ type: "longtask", buffered: true });
         } catch {}
-      });
+      }, base);
       const token = (await fs.readFile(path.join(fixture.home, ".config/stepsemble/token"), "utf8")).trim();
       const login = await context.request.post(`${base}/api/login`, { data: { token } });
       assert.equal(login.status(), 204);

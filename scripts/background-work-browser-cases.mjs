@@ -36,10 +36,11 @@ export async function runBackgroundWorkBrowserCases(browser, { screenshots } = {
       await waitForServer(child); child.stdout.resume(); child.stderr.resume();
       context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, isMobile: viewport.mobile, hasTouch: viewport.mobile,
         serviceWorkers: "block", locale: "en-US" });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", look: "bold", reducedMotion: true }));
-      });
+      }, base);
       const errors = [], foreign = [];
       await context.route("**/*", route => { if (new URL(route.request().url()).origin !== base) { foreign.push(route.request().url()); return route.abort(); } return route.continue(); });
       const page = await context.newPage(); page.setDefaultTimeout(20000); page.on("pageerror", error => errors.push(error.message));

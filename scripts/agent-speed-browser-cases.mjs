@@ -27,10 +27,11 @@ export async function runAgentSpeedBrowserCases(browser, { output = ".tmp-cua/ag
     const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 600, hasTouch: width < 600, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
     let stage = "open", page;
     try {
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true }));
-      });
+      }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       page = await context.newPage(); const errors = [], confirmations = [], nativeDialogs = [];
       page.on("pageerror", error => errors.push(error.message));
@@ -205,10 +206,11 @@ async function runUltraFastBrowserCases(browser, { output, engine }) {
     const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: width < 600, hasTouch: width < 600, serviceWorkers: "block", locale: "en-US", reducedMotion: "reduce" });
     let page, stage = "open";
     try {
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true }));
-      });
+      }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
       page = await context.newPage(); page.setDefaultTimeout(15000);
       const confirmations = [], errors = [], nativeDialogs = [];

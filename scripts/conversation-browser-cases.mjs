@@ -49,13 +49,14 @@ export async function runConversationBrowserCases(browser) {
         if (request.method() === "POST" && ["/api/open", "/api/send", "/api/agent-tasks", "/api/rpc-ui", "/api/agent/open"].includes(url.pathname)) mutations.push(url.pathname);
         return route.continue();
       });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         // All fixtures live under an owned temporary root. Explicitly include
         // them just like the existing Pi browser suite; do not weaken the
         // product's default rule that hides temporary/subagent histories.
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "light", reducedMotion: true, showTemporarySessions: true }));
-      });
+      }, base);
       const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror", error => errors.push(error.message));
       stage = "login";
       const token = (await fs.readFile(path.join(config, "token"), "utf8")).trim();

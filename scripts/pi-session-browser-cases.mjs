@@ -62,12 +62,12 @@ export async function runPiSessionBrowserCases(browser) {
         if (new URL(route.request().url()).origin !== base) { foreign.push("external request"); return route.abort(); }
         return route.continue();
       });
-      await context.addInitScript(() => {
+      await context.addInitScript(origin => {
         // about:blank, used to leave the Workspace, has no storage of its own.
-        if (location.protocol !== "http:") return;
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", showTemporarySessions: true, reducedMotion: true }));
-      });
+      }, base);
       const page = await context.newPage(); page.setDefaultTimeout(15000);
       page.on("pageerror", error => errors.push(error.message));
       page.on("response", async response => {

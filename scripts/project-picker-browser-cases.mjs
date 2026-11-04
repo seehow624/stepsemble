@@ -12,7 +12,7 @@ export async function runProjectPickerBrowserCases(browser) {
     try {
       const context = await browser.newContext({ viewport, locale: 'en-US' });
       // Keep service-worker storage fresh so first activation is still tested.
-      await context.addInitScript(() => localStorage.setItem('stepsemble.onboarding.v1', 'complete'));
+      await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem('stepsemble.onboarding.v1', 'complete'); }, f.base);
       const page = await context.newPage(), errors = [];
       let stage = 'login';
       page.on('pageerror', error => errors.push(error.message));

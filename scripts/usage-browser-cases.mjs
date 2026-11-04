@@ -41,10 +41,11 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
         return route.continue();
       });
       await context.addCookies([{ name: "stepsemble", value: cookie, url: fixture.origin }]);
-      await context.addInitScript(locale => {
+      await context.addInitScript(({ origin, locale }) => {
+        if (location.origin !== origin) return;
         localStorage.setItem("stepsemble.onboarding.v1", "complete");
         localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale, theme: "dark", reducedMotion: true }));
-      }, mobile ? "zh-Hant" : "en");
+      }, { origin: fixture.origin, locale: mobile ? "zh-Hant" : "en" });
       await page.clock.install({ time: new Date() });
       stage = "open overview";
       await page.goto(fixture.origin + "/workspace.html?host=mini");

@@ -16,7 +16,7 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
       page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
       page.on("request", request => { if (request.frame() !== page.mainFrame()) paneReads.push(new URL(request.url()).pathname); });
       await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
-      await context.addInitScript(theme => { if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme, reducedMotion: true })); }, viewport.theme);
+      await context.addInitScript(({ origin, theme }) => { if (location.origin !== origin) return; if (!localStorage.getItem("stepsemble.settings.v2")) localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme, reducedMotion: true })); }, { origin: fixture.origin, theme: viewport.theme });
       await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
       await page.goto(fixture.origin + "/workspace.html");
       const automations = page.locator("#workspace-automations-panel"), press = locator => viewport.mobile ? locator.tap() : locator.click();
