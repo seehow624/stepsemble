@@ -635,7 +635,42 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
         const line = document.querySelector("#composer-effort"), box = line.getBoundingClientRect(), chips = [...document.querySelectorAll("#subagent-bar > *")].map(node => node.getBoundingClientRect());
         const free = [], y = box.top + 2;
         for (let x = box.left + 8; x < box.right - 8; x += 6) if (!chips.some(r => r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) free.push(x);
-        return { free: free.length, line: free.filter(x => line.contains(document.elementFromPoint(x, y))).length };
+        // Keep every sample and the strict equality below. Only owned DOM
+        // geometry/styles are reported: no conversation text or HTML.
+        const misses = [];
+        const reached = free.filter(x => {
+          const hit = document.elementFromPoint(x, y), reached = line.contains(hit);
+          if (!reached && misses.length < 4) misses.push({ x, y, hit });
+          return reached;
+        }).length;
+        if (free.length > 0 && reached === free.length) return { free: free.length, line: reached };
+        const styles = (node, pseudo) => {
+          const s = getComputedStyle(node, pseudo);
+          return { generated: pseudo ? s.content !== "none" && s.content !== "normal" : undefined,
+            display: s.display, position: s.position, pointerEvents: s.pointerEvents, zIndex: s.zIndex,
+            overflowX: s.overflowX, overflowY: s.overflowY, borderRadius: s.borderRadius, transform: s.transform,
+            top: s.top, right: s.right, bottom: s.bottom, left: s.left, width: s.width, height: s.height };
+        };
+        const describe = node => {
+          if (!node) return null;
+          const r = node.getBoundingClientRect();
+          return { tag: node.localName, id: node.id, classes: [...node.classList].slice(0, 8),
+            box: { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height },
+            style: styles(node), before: styles(node, "::before"), after: styles(node, "::after") };
+        };
+        const ancestors = node => {
+          const result = [];
+          for (let n = node; n && result.length < 4; n = n.parentElement) result.push(describe(n));
+          return result;
+        };
+        return { free: free.length, line: reached, diagnostics: {
+          viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio, coarsePointer: matchMedia("(pointer: coarse)").matches },
+          sampleY: y, lineAncestors: ancestors(line), bar: describe(document.querySelector("#subagent-bar")),
+          chips: [...document.querySelectorAll("#subagent-bar > *")].slice(0, 8).map(describe),
+          missesTruncated: free.length - reached > misses.length,
+          misses: misses.map(({ x, y, hit }) => ({ x, y, hitAncestors: ancestors(hit),
+            stack: document.elementsFromPoint(x, y).slice(0, 4).map(describe) }))
+        } };
       });
       assert.ok(reach.free > 0 && reach.line === reach.free, `${viewport.width}: the thinking line is reachable between the chips: ` + JSON.stringify(reach));
       await toggle.click(); await detail.waitFor();

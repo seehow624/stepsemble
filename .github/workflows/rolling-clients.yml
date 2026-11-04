@@ -117,8 +117,8 @@ permissions:
 
 jobs:
   browser:
-    # Seven separately bounded browser suites plus cold native-reader setup.
-    # Keep each worker at five minutes; allow the new speed suite its own time.
+    # Original separately bounded browser suites plus cold native-reader setup.
+    # Keep each worker at five minutes; WebKit has its own job below.
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -145,8 +145,19 @@ jobs:
           cargo +1.97.1 build --manifest-path crates/history-source-reader/Cargo.toml --locked --release --bins --example owned_sqlite_writer
       - name: Test both directions against two shipped releases
         run: npm run test:rolling -- --history-helper="${{ runner.temp }}/stepsemble-browser-reader/release/stepsemble-history-source-reader"
+
+  usage-webkit:
+    # Playwright 1.63 uses current WebKit on macOS 15; macOS 14 is frozen.
+    # Do not share the original matrix's remaining job time.
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.19.0
+          package-manager-cache: false
       - name: Test retained Usage and sheet gestures in WebKit
-        if: runner.os == 'macOS'
         timeout-minutes: 5
         shell: bash
         run: |

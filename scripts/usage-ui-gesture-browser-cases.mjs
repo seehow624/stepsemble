@@ -9,13 +9,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export async function runUsageUIGestureBrowserCases(browser) {
   const css = await Promise.all(["public/style.css", "public/modules/workspace.css", "public/modules/usage.css"].map(name => fs.readFile(path.join(root, name), "utf8")));
   for (const reduced of [true, false]) {
+    const stage = name => console.log(JSON.stringify({ case: "usage-ui-gesture-stage", reducedMotion: reduced, stage: name }));
+    stage("context-create");
     const context = await browser.newContext({ viewport: { width: 1280, height: 1100 }, deviceScaleFactor: 1, colorScheme: "dark", reducedMotion: reduced ? "reduce" : "no-preference", serviceWorkers: "block" });
     const page = await context.newPage(), errors = [], network = [];
     page.setDefaultTimeout(12000); page.on("pageerror", error => errors.push(error.message));
     await context.route("**/*", route => { network.push(route.request().url()); return route.abort(); });
     try {
+      stage("fixture-content");
       await page.setContent(`<html lang="en" data-theme="dark" class="${reduced ? "reduced-motion" : ""}"><head><style>${css.join("\n")}</style></head><body><div id="workspace-projects" style="position:relative;width:340px;height:1100px"><button id="open">Limits</button><button id="project" draggable="true" class="btn workspace-project-toggle" style="position:absolute;left:0;top:680px;width:340px;height:100px">Owned project</button><button id="external" draggable="true" style="position:absolute;left:0;top:100px;width:200px;height:80px">External project</button></div></body></html>`);
+      stage("fixture-modules");
       for (const name of ["usage-data", "usage-ui", "workspace-reorder"]) await page.addScriptTag({ path: path.join(root, "public/modules", name + ".js") });
+      stage("fixture-bindings");
       await page.evaluate(() => {
         window.gestureFixture = { nativeDrags: [], pointerId: null, started: {}, ended: {}, nativeStarts: {}, reorderListeners: { dragover: new Set(), drop: new Set() } };
         document.addEventListener("dragstart", event => gestureFixture.nativeDrags.push(event), true);
@@ -33,22 +38,29 @@ export async function runUsageUIGestureBrowserCases(browser) {
       });
       const sheet = page.locator(".usage-sheet[data-state=open]"), gone = () => page.locator(".usage-sheet").waitFor({ state: "detached" });
       const open = async () => {
+        stage("open-click");
         await page.locator("#open").click();
+        stage("open-ready");
         await page.waitForFunction(() => { const s = document.querySelector(".usage-sheet[data-state=open]"); return s && !s.hasAttribute("aria-busy") && s.querySelector(".usage-quotas"); });
+        stage("open-animations");
         await page.evaluate(async () => {
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           await Promise.all(document.querySelector(".usage-sheet").getAnimations().map(animation => animation.finished));
         });
+        stage("open-complete");
       };
       const start = async () => { const box = await sheet.locator(".usage-sheet-head").boundingBox(); await page.mouse.move(box.x + 40, box.y + 10); await page.mouse.down(); return { x: box.x + 40, y: box.y + 10 }; };
+      stage("dismiss-drag");
       await open();
       const from = await start(); await page.mouse.move(from.x, from.y + 310, { steps: 8 }); await page.mouse.up(); await gone();
+      stage("reverse-drag");
       await open();
       const reverse = await start(); await page.mouse.move(reverse.x, reverse.y + 80, { steps: 4 });
       assert.equal(await sheet.evaluate(el => el.style.transform), "translateY(80px)", "the sheet tracks the mouse 1:1");
       await page.mouse.move(reverse.x, reverse.y, { steps: 4 }); await page.mouse.up();
       assert.equal(await sheet.evaluate(el => el.style.transform), "", "reverse release restores the sheet");
       for (const type of ["pointercancel", "lostpointercapture"]) {
+        stage(type);
         const at = await start(); await page.mouse.move(at.x, at.y + 80, { steps: 4 });
         await sheet.evaluate((el, type) => {
           const pointerId = gestureFixture.pointerId;
@@ -59,6 +71,7 @@ export async function runUsageUIGestureBrowserCases(browser) {
         await page.waitForFunction(() => { const s = document.querySelector(".usage-sheet[data-state=open]"); return s && !s.dataset.dragging && !s.style.transform; });
       }
       await page.keyboard.press("Escape"); await gone();
+      stage("tab-keyboard");
       await open();
       await sheet.locator("[data-overview-tab=usage]").click();
       assert.equal(await sheet.locator("[data-overview-tab=usage]").getAttribute("aria-selected"), "true", "a click still selects its tab");
@@ -71,6 +84,7 @@ export async function runUsageUIGestureBrowserCases(browser) {
         markers: document.querySelectorAll(".workspace-reorder-source, .workspace-reorder-marker, .workspace-reorder-ghost").length,
         listeners: Object.values(gestureFixture.reorderListeners).reduce((sum, listeners) => sum + listeners.size, 0) })),
       { starts: {}, nativeStarts: {}, markers: 0, listeners: 0 }, "sheet gestures never activate the real sidebar reorder handler or leave its listeners behind");
+      stage("external-drag");
       await open();
       const external = await page.locator("#external").boundingBox();
       await page.mouse.move(external.x + 20, external.y + 20); await page.mouse.down(); await page.mouse.move(external.x + 80, external.y + 60, { steps: 8 }); await page.mouse.up();
@@ -84,6 +98,6 @@ export async function runUsageUIGestureBrowserCases(browser) {
       { started: 1, nativeStart: 1, ended: 1, markers: 0, listeners: 0 }, "a subsequent real sidebar drag starts and cleans up normally");
       assert.deepEqual(errors, []); assert.deepEqual(network, []);
       console.log(JSON.stringify({ case: "usage-ui-gesture", reducedMotion: reduced, trustedExternalDnD: true, syntheticCancel: true, errors: 0, network: 0 }));
-    } finally { await context.close(); }
+    } finally { stage("context-close"); await context.close(); stage("context-closed"); }
   }
 }
