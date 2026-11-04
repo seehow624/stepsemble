@@ -33,7 +33,7 @@ function cleanCompletion(value) {
   return { id: value.id, kind: value.kind, at: value.at, read: value.read === true };
 }
 function createWorkspaceRegistry(filename) {
-  let state = { version: 1, entries: [], projects: [] }, healthy = true;
+  let state = { version: 1, entries: [], projects: [] }, healthy = true, initialReadError;
   try {
     const saved = JSON.parse(fs.readFileSync(filename, "utf8"));
     if (saved.version !== 1 || !Array.isArray(saved.entries) || !Array.isArray(saved.projects)) throw new Error("workspace_registry_invalid");
@@ -44,7 +44,7 @@ function createWorkspaceRegistry(filename) {
         ...(Number.isSafeInteger(row.activityAt) && row.activityAt > 0 ? { activityAt: row.activityAt } : {}) };
     }), projects: saved.projects.filter(p => typeof p === "string" && path.isAbsolute(p)) };
     if (saved.presentation) state.presentation = sidebarOrder.normalize(saved.presentation, state);
-  } catch (error) { if (error.code !== "ENOENT") healthy = false; }
+  } catch (error) { if (error.code !== "ENOENT") { healthy = false; initialReadError = error; } }
   function write(next) {
     if (!healthy) throw new Error("workspace_registry_unavailable");
     if (next.entries.length > 10000) throw new Error("workspace_registry_full");
@@ -58,7 +58,8 @@ function createWorkspaceRegistry(filename) {
     } finally { try { fs.unlinkSync(temp); } catch {} }
   }
   function list() {
-    if (!healthy) throw new Error("workspace_registry_unavailable");
+    // Retain the initial cause for fixed allowlisted diagnostics, never recovery.
+    if (!healthy) throw new Error("workspace_registry_unavailable", { cause: initialReadError });
     return structuredClone(state);
   }
   function remember(value, origin = "created") {

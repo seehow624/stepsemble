@@ -161,3 +161,43 @@ test("a session's latest activity persists, never moves back, and survives a res
   assert.equal(createWorkspaceRegistry(file).get(a.key).activityAt, 7000);
 });
 
+
+test("registry initial parse and invalid-state causes remain sticky and diagnostic-only", t => {
+  const { createLaunchDiagnostics } = require("../server/agent-launch-diagnostics");
+  for (const content of ["secret-marker", '{"version":2,"entries":[],"projects":[]}']) {
+    const file = fixture(t); fs.writeFileSync(file, content);
+    const registry = createWorkspaceRegistry(file);
+    const diagnostic = createLaunchDiagnostics({ STEPSEMBLE_AGENT_LAUNCH_DIAGNOSTICS: "1" }, () => 0);
+    diagnostic.markStage("workspace_registry");
+    let original;
+    assert.throws(() => registry.list(), error => {
+      original = error.cause;
+      assert.ok(original instanceof Error);
+      assert.equal(error.message, "workspace_registry_unavailable");
+      assert.equal(diagnostic.failure(error).category, "workspace_registry_unavailable");
+      assert.equal(diagnostic.failure(error).errorFamily, content === "secret-marker" ? "parse" : "unknown");
+      assert.equal(JSON.stringify(diagnostic.failure(error)).includes("secret-marker"), false);
+      return true;
+    });
+    fs.writeFileSync(file, '{"version":1,"entries":[],"projects":[]}');
+    assert.throws(() => registry.list(), error => error.cause === original);
+    assert.throws(() => registry.project("/project"), /workspace_registry_unavailable/);
+    assert.equal(fs.readFileSync(file, "utf8"), '{"version":1,"entries":[],"projects":[]}');
+  }
+});
+
+test("registry initial read OS cause is retained without relaxing refusal", t => {
+  const { createLaunchDiagnostics } = require("../server/agent-launch-diagnostics");
+  const file = fixture(t); fs.mkdirSync(file);
+  const registry = createWorkspaceRegistry(file);
+  const diagnostic = createLaunchDiagnostics({ STEPSEMBLE_AGENT_LAUNCH_DIAGNOSTICS: "1" }, () => 0);
+  diagnostic.markStage("workspace_registry");
+  assert.throws(() => registry.list(), error => {
+    assert.equal(error.cause.code, "EISDIR");
+    assert.equal(diagnostic.failure(error).code, "EISDIR");
+    assert.equal(diagnostic.failure(error).errorFamily, "os");
+    return true;
+  });
+  assert.throws(() => registry.project("/project"), /workspace_registry_unavailable/);
+  assert.equal(fs.statSync(file).isDirectory(), true);
+});

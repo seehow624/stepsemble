@@ -76,3 +76,22 @@ test("task_open diagnostics bound fixture counts and preserve both cleanup outco
     assert.equal(result.openedTasks, null); assert.equal(result.requestedTasks, null); assert.equal(result.cleanupConfirmed, false);
   }
 });
+
+test("task_open stage diagnostics are normalized again and absent unless fully valid", async () => {
+  const { createLaunchDiagnostics } = require("../server/agent-launch-diagnostics");
+  const summary = await loadSummary();
+  const diagnostic = createLaunchDiagnostics({ STEPSEMBLE_AGENT_LAUNCH_DIAGNOSTICS: "1" }, () => 0);
+  diagnostic.markStage("supervisor_spawn");
+  const safe = diagnostic.failure(new Error("secret-marker"));
+  const base = summary(fixture());
+  assert.deepEqual(summary(fixture({ body: { launchDiagnostic: { ...safe, stack: "secret-marker", path: "secret-marker" } } })), { ...base, launchDiagnostic: safe });
+  for (const value of [null, [], {}, Object.create(safe), { ...safe, stage: "secret-marker" }, { ...safe, code: "secret-marker" }]) {
+    assert.deepEqual(summary(fixture({ body: { launchDiagnostic: value } })), base);
+  }
+  assert.equal(JSON.stringify(summary(fixture({ body: { launchDiagnostic: { ...safe, token: "secret-marker" } } }))).includes("secret-marker"), false);
+});
+
+test("only the clean fixture environment explicitly enables launch diagnostics", async () => {
+  const { cleanSoakEnvironment } = await import("../scripts/reliability-soak.mjs");
+  assert.equal(cleanSoakEnvironment("synthetic-home", "synthetic-bin", 12345).STEPSEMBLE_AGENT_LAUNCH_DIAGNOSTICS, "1");
+});

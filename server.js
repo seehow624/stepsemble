@@ -71,6 +71,7 @@ const { createProjectFilesService } = require("./server/project-files");
 const { createPiResourcesService } = require("./server/pi-resources");
 const { createAgentTaskService, resolveCommand, resolvePtyRuntime, CONNECTOR_DEFINITIONS, safeConnectorId } = require("./server/agent-connectors");
 const { createAgentAuthService } = require("./server/agent-auth");
+const { createLaunchDiagnostics } = require("./server/agent-launch-diagnostics");
 const { firstRunStatus, trustAntigravityFolder } = require("./server/agent-first-run");
 const { windowsLaunch } = require("./server/windows-launch");
 const { opencodexSource, readQuotaConfig, writeQuotaConfig, findCodexBar, createCodexBarReader } = require("./server/quota-sources");
@@ -5131,9 +5132,12 @@ const historyHost = (() => {
 })();
 
 // Shared launch path for browser sessions and Host-owned Goals/schedules.
-async function openAgentTask(body, { signal, resumeEntry } = {}) {
+async function openAgentTask(body, { signal, resumeEntry, launchDiagnostics } = {}) {
+  launchDiagnostics?.markStage("workspace_registry");
   workspaceRegistry.list();
+  launchDiagnostics?.markStage("opencode_probe");
   await ensureOpenCodeNativeProbe();
+  launchDiagnostics?.markStage("codex_probe");
   await ensureCodexNativeProbe();
   const workspaceResult = (value) => {
     {
@@ -5183,6 +5187,7 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       if (previous) await previous;
       if (gone()) return;
     }
+    launchDiagnostics?.markStage("claude_guard");
     if (agentId === "claude-code" && claudeDesktopUpgrade.isRunning()) {
       throw Object.assign(new Error("desktop_upgrade_in_progress"), { statusCode: 409 });
     }
@@ -5271,7 +5276,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         const recoverable = new Set(["upstream_http_400", "upstream_http_404", "upstream_http_409", "upstream_http_500"]);
         if (!recoverable.has(String(error?.code || "")) || gone()) throw error;
         if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
-        const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+        const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree },
+          ...(launchDiagnostics ? [{ markStage: launchDiagnostics.markStage }] : []));
         if (gone()) return;
         return workspaceResult({ ...fallback, kind: "cli", agentId,
           nativeFallback: "opencode-native", nativeFallbackReason: "project_session_unavailable" });
@@ -5317,7 +5323,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
         // missing capability or protocol mismatch returns to the
         // supervised bounded connector for the same allow-listed agent.
         if (body.workflow) throw new Error("Native background execution is unavailable for this agent");
-        const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree });
+        const fallback = await agentTasks.open({ agentId, cwd, name: body?.name, worktree },
+          ...(launchDiagnostics ? [{ markStage: launchDiagnostics.markStage }] : []));
         return workspaceResult({ ...fallback, kind: "cli", agentId, nativeFallback: "acp", nativeFallbackReason: session.code });
         return;
       }
@@ -5469,7 +5476,8 @@ async function openAgentTask(body, { signal, resumeEntry } = {}) {
       // agy warns when one conversation is open in two of its processes;
       // the stream that held it lets go before the terminal takes it.
       if (resume) await antigravityAcp?.release(resume).catch(() => {});
-      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree, ...(resume ? { resume } : {}) });
+      const result = await agentTasks.open({ agentId, cwd, name: body?.name, worktree, ...(resume ? { resume } : {}) },
+        ...(launchDiagnostics ? [{ markStage: launchDiagnostics.markStage }] : []));
       return workspaceResult({ ...result, kind: "cli", agentId });
     }
   } finally {
@@ -8410,13 +8418,15 @@ const server = http.createServer(async (req, res) => {
       // worktree for native Pi and external CLI agents.
       if (p === "/api/agent/open" && req.method === "POST") {
         const body = await readJSON(req, 64 * 1024), controller = new AbortController();
+        const launchDiagnostics = createLaunchDiagnostics();
         const onClose = () => { if (!res.writableEnded) controller.abort(); };
         res.once("close", onClose);
         try {
-          const task = await openAgentTask(body, { signal: controller.signal });
+          const task = await openAgentTask(body, { signal: controller.signal, ...(launchDiagnostics ? { launchDiagnostics } : {}) });
           if (task && !controller.signal.aborted) sendJSON(res, task.agentId === "pi" ? 200 : 201, task);
         } catch (error) {
-          if (!controller.signal.aborted) sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task", ...(error.code ? { code: String(error.code) } : {}) });
+          if (!controller.signal.aborted) sendJSON(res, error.statusCode || 409, { error: error.message || "Could not start agent task", ...(error.code ? { code: String(error.code) } : {}),
+            ...(launchDiagnostics ? { launchDiagnostic: launchDiagnostics.failure(error) } : {}) });
         } finally { res.off("close", onClose); }
         return;
       }

@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { freePort, waitForServer, stopServer } from "./host-performance-baseline.mjs";
+import launchDiagnostics from "../server/agent-launch-diagnostics.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const terminal = new Set(["completed", "failed", "stopped", "orphaned", "detached"]);
@@ -32,6 +33,7 @@ const taskOpenMessages = new Map([
 export function taskOpenFailureSummary({ stage, status, body, openedTasks, requestedTasks, cleanupConfirmed }) {
   if (stage !== "task_open" || !Number.isInteger(status) || status < 400 || status > 599) return null;
   const response = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  const launchDiagnostic = launchDiagnostics.normalizeLaunchDiagnostic(Object.getOwnPropertyDescriptor(response, "launchDiagnostic")?.value);
   return {
     httpStatus: status,
     code: taskOpenErrorCodes.has(response.code) ? response.code : "unknown",
@@ -39,6 +41,7 @@ export function taskOpenFailureSummary({ stage, status, body, openedTasks, reque
     openedTasks: Number.isInteger(openedTasks) && openedTasks >= 0 && openedTasks <= 8 ? openedTasks : null,
     requestedTasks: Number.isInteger(requestedTasks) && requestedTasks >= 1 && requestedTasks <= 8 ? requestedTasks : null,
     cleanupConfirmed: cleanupConfirmed === true,
+    ...(launchDiagnostic ? { launchDiagnostic } : {}),
   };
 }
 
@@ -61,7 +64,8 @@ export function cleanSoakEnvironment(home, bin, port) {
     if (process.env[key]) env[key] = process.env[key];
   return { ...env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config"), XDG_CACHE_HOME: path.join(home, ".cache"), PI_HOME: home,
     PATH: `${bin}${path.delimiter}${path.dirname(process.execPath)}`, PI_BIN: path.join(home, "missing-pi"),
-    STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: "0", STEPSEMBLE_BROWSE_ROOTS: home };
+    STEPSEMBLE_HOST: "127.0.0.1", STEPSEMBLE_PORT: String(port), STEPSEMBLE_ORPHAN_EXIT: "0", STEPSEMBLE_BROWSE_ROOTS: home,
+    STEPSEMBLE_AGENT_LAUNCH_DIAGNOSTICS: "1" };
 }
 
 async function save(filename, value) {

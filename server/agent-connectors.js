@@ -1171,7 +1171,8 @@ function createAgentTaskService({
     throw lastError || new Error("Agent task supervisor did not start");
   }
 
-  async function open({ agentId, cwd, name, worktree = null, resume = null } = {}) {
+  async function open({ agentId, cwd, name, worktree = null, resume = null } = {}, { markStage } = {}) {
+    markStage?.("command_resolution");
     const definition = definitionFor(agentId);
     if (!definition || definition.id === "pi") {
       const error = new Error("Use the native Pi connector for Pi Agent");
@@ -1197,6 +1198,7 @@ function createAgentTaskService({
       error.statusCode = 409;
       throw error;
     }
+    markStage?.("cwd_validation");
     const realCwd = typeof validateCwd === "function" ? validateCwd(cwd) : null;
     if (!realCwd) {
       const error = new Error("Project folder is unavailable");
@@ -1204,6 +1206,7 @@ function createAgentTaskService({
       error.code = "project_folder_unavailable";
       throw error;
     }
+    markStage?.("task_initialization");
     const id = crypto.randomUUID();
     const now = Date.now();
     const task = {
@@ -1260,6 +1263,7 @@ function createAgentTaskService({
     const useDesktop = definition.id === "claude-code" && desktopClaude;
     const launchHome = appHome || env.HOME || os.homedir();
     tasks.set(id, task);
+    markStage?.("canonical_create");
     const canonical = await createCanonical(task);
     if (canonical.kind === "reject" && !["journal_unavailable", "journal_result_uncertain", "journal_closed"].includes(canonical.code)) {
       tasks.delete(id);
@@ -1269,6 +1273,7 @@ function createAgentTaskService({
     }
     persist();
     try {
+      markStage?.("supervisor_spawn");
       const launched = useDesktop
         ? await desktopClaude.launchTask({ id, name: task.name, cwd: spawnCwd, startedAt: now })
         : await launchAgentSupervisor({ task, appHome: launchHome, command, ptyRuntime, args,
@@ -1288,6 +1293,7 @@ function createAgentTaskService({
       throw error;
     }
     try {
+      markStage?.("supervisor_wait");
       await waitForSupervisor(task);
     } catch (error) {
       if (useDesktop) {
@@ -1300,8 +1306,11 @@ function createAgentTaskService({
       try { if (task.supervisorPid) process.kill(task.supervisorPid, "SIGTERM"); } catch {}
       throw error;
     }
+    // Include the preceding journal tail in the canonical-start boundary.
+    markStage?.("canonical_start");
     await task.journalTail;
     if (task.status === "running") await recordCanonicalStart(task);
+    markStage?.("public_result");
     return { ...publicTask(task), command: path.basename(command) };
   }
 
