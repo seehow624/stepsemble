@@ -583,10 +583,10 @@ export async function runConversationColumnBrowserCases(browser, { screenshots }
 // box; one of their panels opens at a time, below them. Codex's goal pauses,
 // goes on and is removed from its panel, and a waiting Stepsemble Goal is
 // removed from the conversation.
-export async function runConversationDockBrowserCases(browser, { screenshots } = {}) {
+export async function runConversationDockBrowserCases(browser, { screenshots, deviceScaleFactor = 1 } = {}) {
   for (const viewport of [{ width: 1440, height: 900, mobile: false }, { width: 393, height: 852, mobile: true }]) {
     const preview = await createNativeComposerPreview();
-    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+    const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block", deviceScaleFactor });
     try {
       await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.onboarding.v1", "complete"); localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme: "dark", reducedMotion: true })); }, preview.origin);
       await context.request.post(preview.origin + "/api/login", { data: { token: preview.token } });
@@ -632,18 +632,99 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
       // The row passes taps through between its chips: the thinking line under
       // it stays reachable there.
       const reach = await codex.evaluate(() => {
-        const line = document.querySelector("#composer-effort"), box = line.getBoundingClientRect(), chips = [...document.querySelectorAll("#subagent-bar > *")].map(node => node.getBoundingClientRect());
-        const free = [], y = box.top + 2;
-        for (let x = box.left + 8; x < box.right - 8; x += 6) if (!chips.some(r => r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)) free.push(x);
-        // Keep every sample and the strict equality below. Only owned DOM
-        // geometry/styles are reported: no conversation text or HTML.
+        function dockHitQueryIntersects(r, style, x, y) {
+          // elementFromPoint uses a 1×1 CSS-pixel query rect, not a mathematical
+          // point or a DPR-sized cell: WebKit HitTestLocation.cpp 598ea962 lines
+          // 29–33/82–105; Blink hit_test_location.h ea7a7384 lines 84–87.
+          // Pinned upstream blobs and saved observation provenance are in
+          // test-support/conversation-dock-hit-fixtures.json (not build commits).
+          if (!(r.width > 0 && r.height > 0)) return false;
+          const left = Math.max(x, r.left), right = Math.min(x + 1, r.right);
+          const top = Math.max(y, r.top), bottom = Math.min(y + 1, r.bottom);
+          if (left >= right || top >= bottom) return false;
+          const radius = value => {
+            const parts = value.split(/\s+/);
+            const length = (part, size) => parseFloat(part) * (part.endsWith("%") ? size / 100 : 1);
+            return [length(parts[0], r.width), length(parts[1] || parts[0], r.height)];
+          };
+          const corners = [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].map(radius);
+          // CSS scales overlapping corner radii together, including pill radii.
+          const scale = Math.min(1, r.width / (corners[0][0] + corners[1][0]), r.width / (corners[3][0] + corners[2][0]),
+            r.height / (corners[0][1] + corners[3][1]), r.height / (corners[1][1] + corners[2][1]));
+          for (let i = 0; i < corners.length; i++) {
+            const [rx, ry] = corners[i].map(value => value * scale);
+            if (!rx || !ry) continue;
+            const onLeft = i === 0 || i === 3, onTop = i < 2;
+            const cx = onLeft ? r.left + rx : r.right - rx, cy = onTop ? r.top + ry : r.bottom - ry;
+            if ((onLeft ? right < cx : left > cx) && (onTop ? bottom < cy : top > cy)) {
+              const dx = (Math.max(left, Math.min(cx, right)) - cx) / rx;
+              const dy = (Math.max(top, Math.min(cy, bottom)) - cy) / ry;
+              if (dx * dx + dy * dy > 1) return false;
+            }
+          }
+          return true;
+        }
+        function dockGeneratedHitRegion(node, owner) {
+          const box = node.getBoundingClientRect(), host = getComputedStyle(node), style = getComputedStyle(node, "::after");
+          if (!(box.width > 0 && box.height > 0) || host.display === "none" || host.visibility === "hidden"
+            || style.content === "none" || style.content === "normal" || style.display === "none"
+            || style.visibility === "hidden" || style.pointerEvents === "none") return null;
+          // The dock's generated target is its existing inset-only ::after.
+          // Absolute insets start at the relative host's padding-box edges,
+          // inside its border; read computed CSS rather than add a magic halo.
+          const unsupported = () => { throw new Error("Unsupported dock generated hit-region CSS"); };
+          const sides = ["Top", "Right", "Bottom", "Left"];
+          if (host.position !== "relative" || style.position !== "absolute" || host.transform !== "none" || style.transform !== "none"
+            || host.overflowX !== "visible" || host.overflowY !== "visible" || sides.some(side => style["margin" + side] !== "0px")) unsupported();
+          for (let parent = node.parentElement; parent && owner.contains(parent); parent = parent.parentElement) {
+            const ancestor = getComputedStyle(parent);
+            if (ancestor.overflowX !== "visible" || ancestor.overflowY !== "visible" || ancestor.transform !== "none") unsupported();
+          }
+          const px = value => {
+            if (!/^-?(?:\d+|\d*\.\d+)px$/.test(value)) unsupported();
+            return parseFloat(value);
+          };
+          const left = box.left + px(host.borderLeftWidth) + px(style.left), right = box.right - px(host.borderRightWidth) - px(style.right);
+          const top = box.top + px(host.borderTopWidth) + px(style.top), bottom = box.bottom - px(host.borderBottomWidth) - px(style.bottom);
+          return { box: { left, top, right, bottom, width: right - left, height: bottom - top }, style };
+        }
+        const line = document.querySelector("#composer-effort"), box = line.getBoundingClientRect();
+        const chips = [...document.querySelectorAll("#subagent-bar > *")].map((node, index) => {
+          const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+          const generated = [node, ...node.querySelectorAll("button")].map(target => dockGeneratedHitRegion(target, node)).filter(Boolean);
+          return { node, index, box, style, regions: [{ box, style }, ...generated], expected: 0, matched: 0 };
+        });
+        const samples = [], y = box.top + 2;
+        // Predict every original point before reading any hit. Rectangular
+        // groups own descendants and their generated targets. The direct bubble
+        // owns its rounded principal shape plus its existing generated target.
+        // Hidden/zero-area panels cannot claim points.
+        for (let x = box.left + 8; x < box.right - 8; x += 6) {
+          const owners = chips.filter(chip => chip.style.display !== "none" && chip.style.visibility !== "hidden"
+            && chip.style.pointerEvents !== "none" && chip.regions.some(region => dockHitQueryIntersects(region.box, region.style, x, y)));
+          samples.push({ x, owners });
+        }
+        let free = 0, reached = 0, chipOwned = 0, chipMatched = 0, ambiguous = 0, mismatchCount = 0;
         const misses = [];
-        const reached = free.filter(x => {
-          const hit = document.elementFromPoint(x, y), reached = line.contains(hit);
-          if (!reached && misses.length < 4) misses.push({ x, y, hit });
-          return reached;
-        }).length;
-        if (free.length > 0 && reached === free.length) return { free: free.length, line: reached };
+        for (const { x, owners } of samples) {
+          const hit = document.elementFromPoint(x, y);
+          let matched = false;
+          if (!owners.length) { free++; matched = line.contains(hit); if (matched) reached++; }
+          else if (owners.length === 1) {
+            const owner = owners[0]; chipOwned++; owner.expected++;
+            matched = owner.node.contains(hit);
+            if (matched) { chipMatched++; owner.matched++; }
+          } else ambiguous++;
+          if (!matched) {
+            mismatchCount++;
+            if (misses.length < 4) misses.push({ x, y, hit, expectedOwners: owners.length ? owners.map(owner => `chip-${owner.index}`) : ["thinking-line"] });
+          }
+        }
+        const counts = { total: samples.length, free, line: reached, chipOwned, chipMatched, ambiguous,
+          chipOwners: chips.map(chip => ({ owner: `chip-${chip.index}`, expected: chip.expected, matched: chip.matched })) };
+        // Keep strict equality, and positively verify all chip-owned samples.
+        // Only owned DOM geometry/styles are reported: no text or HTML.
+        if (free > 0 && reached === free && counts.total === free + chipOwned && chipMatched === chipOwned && !ambiguous) return counts;
         const styles = (node, pseudo) => {
           const s = getComputedStyle(node, pseudo);
           return { generated: pseudo ? s.content !== "none" && s.content !== "normal" : undefined,
@@ -663,16 +744,19 @@ export async function runConversationDockBrowserCases(browser, { screenshots } =
           for (let n = node; n && result.length < 4; n = n.parentElement) result.push(describe(n));
           return result;
         };
-        return { free: free.length, line: reached, diagnostics: {
+        return { ...counts, diagnostics: {
           viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio, coarsePointer: matchMedia("(pointer: coarse)").matches },
           sampleY: y, lineAncestors: ancestors(line), bar: describe(document.querySelector("#subagent-bar")),
           chips: [...document.querySelectorAll("#subagent-bar > *")].slice(0, 8).map(describe),
-          missesTruncated: free.length - reached > misses.length,
-          misses: misses.map(({ x, y, hit }) => ({ x, y, hitAncestors: ancestors(hit),
+          missesTruncated: mismatchCount > misses.length,
+          misses: misses.map(({ x, y, hit, expectedOwners }) => ({ x, y, expectedOwners, hitAncestors: ancestors(hit),
             stack: document.elementsFromPoint(x, y).slice(0, 4).map(describe) }))
         } };
       });
-      assert.ok(reach.free > 0 && reach.line === reach.free, `${viewport.width}: the thinking line is reachable between the chips: ` + JSON.stringify(reach));
+      assert.ok(reach.free > 0 && reach.line === reach.free && reach.total === reach.free + reach.chipOwned
+        && reach.chipMatched === reach.chipOwned && reach.ambiguous === 0
+        && reach.chipOwners.every(owner => owner.expected === owner.matched),
+      `${viewport.width}: the thinking line and every chip-owned point are reachable: ` + JSON.stringify(reach));
       await toggle.click(); await detail.waitFor();
       // The row grows upwards from the message box; the chips keep their rows.
       const [detailTop] = await tops(codex, ["#native-run-detail"]), opened = await chipLayout();
