@@ -44,7 +44,8 @@ const runtime = process.argv[2];
 const suite = process.argv[3], historyHelper = process.argv[4];
 if (!runtime || !path.isAbsolute(runtime)) throw new Error("Missing isolated browser runtime");
 if (!["core", "conversation-ux", "agent-speed", "workspace", "sources", "codex"].includes(suite) || process.argv.length > 5
-  || (["core", "conversation-ux", "agent-speed", "workspace"].includes(suite) ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
+  || (suite === "core" ? historyHelper !== undefined && !path.isAbsolute(historyHelper)
+    : ["conversation-ux", "agent-speed", "workspace"].includes(suite) ? historyHelper !== undefined : !historyHelper || !path.isAbsolute(historyHelper)))
   throw new Error("Invalid browser suite or owned helper path");
 if (process.platform === "win32") throw new Error("Historical Hosts cannot launch this Unix synthetic peer; Windows rolling runtime is not claimed");
 const { chromium } = await import(pathToFileURL(path.join(runtime, "node_modules/playwright/index.mjs")));
@@ -197,7 +198,8 @@ try {
     await runProjectPickerBrowserCases(browser);
     await runConversationBrowserCases(browser);
     await runWebStabilityBrowserCases(browser);
-    await runCodexActivityBrowserCases(browser);
+    // Without the owned history helper only four workers run, so core keeps this coverage.
+    if (!historyHelper) await runCodexActivityBrowserCases(browser);
     await runComposerEffortBrowserCases(browser);
   }
   else if (suite === "conversation-ux") {
@@ -220,6 +222,9 @@ try {
     await runInterfaceStyleBrowserCases(browser);
     await runDesignPolishBrowserCases(browser, { engine: "chromium" });
   }
-  else if (suite === "sources") await runHistorySourcesBrowserCases(browser, historyHelper);
+  else if (suite === "sources") {
+    await runHistorySourcesBrowserCases(browser, historyHelper);
+    await runCodexActivityBrowserCases(browser);
+  }
   else await runCodexHistoryBrowserCases(browser, historyHelper);
 } finally { await cleanup(); }

@@ -1,6 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path");
 const manifest = require("../scripts/browser-test-runtime/package.json"), lock = require("../scripts/browser-test-runtime/package-lock.json");
+const { compileFunction, createContext } = require("node:vm");
 test("browser runtime lock pins reviewed public packages and rejects changed sources or hashes", async () => {
   const { validateBrowserLock } = await import("../scripts/check-rolling-clients.mjs");
   assert.equal(validateBrowserLock(manifest, lock), true);
@@ -39,10 +40,123 @@ test("browser matrix splits finite workers without losing or repeating any suite
   assert.deepEqual(jobs.map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace", "sources", "codex"]);
   for (const job of jobs) {
     assert.equal(path.basename(job.args[0]), "rolling-browser-worker.mjs");
-    assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(["sources", "codex"].includes(job.suite) ? [helper] : [])]);
+    assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(["core", "sources", "codex"].includes(job.suite) ? [helper] : [])]);
   }
-  assert.deepEqual(browserWorkerJobs(runtime).map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace"]);
+  const fallback = browserWorkerJobs(runtime);
+  assert.deepEqual(fallback.map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace"]);
+  for (const job of fallback) assert.deepEqual(job.args.slice(1), [runtime, job.suite]);
 });
+// Compile only the real dispatch body: no worker import, browser, Host or native CLI.
+const coreBrowserHelpers = ["runAgentTerminalBrowserCases", "runSessionTerminalBrowserCases", "runAntigravityStreamBrowserCases",
+  "runAgentSetupBrowserCases", "runMagpieGatewayBrowserCases", "runPiSessionBrowserCases", "runProjectPickerBrowserCases",
+  "runConversationBrowserCases", "runWebStabilityBrowserCases", "runComposerEffortBrowserCases"];
+function expectedBrowserCalls(helper) {
+  const call = (name, ...args) => ({ name, args });
+  return {
+    core: coreBrowserHelpers.map(name => call(name)),
+    "conversation-ux": [call("runPiRecoveryBrowserCases", { output: path.join("/owned/temp", "pi-recovery") }), call("runConversationUxBrowserCases")],
+    "agent-speed": [call("runComposerQueueBrowserCases"), ...["native", "magpie"].map(route => call("runAgentSpeedBrowserCases", {
+      engine: "chromium", route, output: path.join("/owned/temp", "agent-speed"),
+    })), call("runUsageBrowserCases")],
+    workspace: ["runScrollbarBrowserCases", "runProjectFilesBrowserCases", "runWorkspaceReorderBrowserCases", "runWorkspacePanesBrowserCases",
+      "runWorkspaceMachinesBrowserCases", "runWorkspaceSchedulesBrowserCases", "runWorkspaceStatusBrowserCases", "runInterfaceStyleBrowserCases"]
+      .map(name => call(name)).concat(call("runDesignPolishBrowserCases", { engine: "chromium" })),
+    sources: [call("runHistorySourcesBrowserCases", helper), call("runCodexActivityBrowserCases")],
+    codex: [call("runCodexHistoryBrowserCases", helper)],
+  };
+}
+async function captureBrowserDispatch(workerSource, jobs) {
+  const worker = workerSource.replace(/\r\n/g, "\n");
+  const start = worker.indexOf('  if (suite === "core") {'), end = worker.indexOf("} finally { await cleanup(); }", start);
+  assert.ok(start >= 0 && end > start, "actual final suite dispatch is present");
+  const names = [...new Set(Object.values(expectedBrowserCalls("/owned/helper")).flat().map(call => call.name))];
+  const dispatch = compileFunction(`return (async () => {\n${worker.slice(start, end)}\n})();`,
+    ["suite", "browser", "historyHelper", "pins", "released", "exec", "runCase", "path", "root", "temp", "console", ...names],
+    { parsingContext: createContext({}) });
+  const pins = [{ tag: "synthetic-old-a", commit: "a".repeat(40) }, { tag: "synthetic-old-b", commit: "b".repeat(40) }];
+  const plain = value => JSON.parse(JSON.stringify(value));
+  const graph = {};
+  for (const job of jobs) {
+    const record = graph[job.suite] = { calls: [], pairs: [], released: [], exec: [] }, browser = {};
+    const released = async pin => { record.released.push(pin); return { name: pin.tag, directory: path.join("/owned/temp", pin.tag), commit: pin.commit }; };
+    const exec = async (command, args, options) => {
+      record.exec.push(plain({ command, args, options }));
+      assert.equal(command, "git");
+      assert.ok([JSON.stringify(["rev-parse", "HEAD"]), JSON.stringify(["status", "--porcelain"])].includes(JSON.stringify(args)));
+      return { stdout: args[0] === "rev-parse" ? "synthetic-head\n" : "" };
+    };
+    await dispatch(job.suite, browser, job.args[3], pins, released, exec,
+      async (host, client, viewport) => record.pairs.push(plain({ host, client, viewport })),
+      path, "/owned/root", "/owned/temp", { log() {} }, ...names.map(name => async (actualBrowser, ...args) => {
+        assert.equal(actualBrowser, browser, `${name} receives the same worker browser`);
+        record.calls.push({ name, args: plain(args) });
+      }));
+  }
+  return { graph, pins };
+}
+
+test("rolling actual dispatch routes complete Codex activity exactly once in both matrix modes", async t => {
+  const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
+  const source = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8").replace(/\r\n/g, "\n");
+  const snapshots = [];
+  for (const [ending, worker] of [["LF", source], ["CRLF", source.replace(/\n/g, "\r\n")]]) {
+    for (const helper of ["/owned/helper", undefined]) {
+      const jobs = browserWorkerJobs("/owned/runtime", helper), captured = await captureBrowserDispatch(worker, jobs);
+      snapshots.push({ ending, helper, jobs, ...captured });
+      t.diagnostic(JSON.stringify({ ending, mode: helper ? "helper6" : "nohelper4", jobs, graph: captured.graph }));
+    }
+  }
+  for (const { ending, helper, jobs, graph, pins } of snapshots) {
+    const owners = Object.entries(graph).flatMap(([suite, row]) => row.calls.filter(call => call.name === "runCodexActivityBrowserCases").map(() => suite));
+    assert.deepEqual(owners, [helper ? "sources" : "core"], `${ending}: complete Codex activity owner in ${helper ? "helper6" : "nohelper4"}`);
+    const expected = expectedBrowserCalls(helper);
+    if (!helper) expected.core.splice(-1, 0, { name: "runCodexActivityBrowserCases", args: [] });
+    assert.deepEqual(jobs.map(job => job.suite), helper ? Object.keys(expected) : Object.keys(expected).slice(0, 4));
+    for (const job of jobs) {
+      const row = graph[job.suite];
+      assert.deepEqual(row.calls, expected[job.suite], `${ending}: ${job.suite} helper order and arguments`);
+      if (job.suite !== "core") assert.deepEqual({ pairs: row.pairs, released: row.released, exec: row.exec }, { pairs: [], released: [], exec: [] });
+    }
+    const current = { name: "development", directory: "/owned/root", commit: "synthetic-head" };
+    const pairs = [];
+    for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) for (const pin of pins) {
+      const release = { name: pin.tag, directory: path.join("/owned/temp", pin.tag), commit: pin.commit };
+      pairs.push({ host: current, client: release, viewport }, { host: release, client: current, viewport });
+    }
+    assert.deepEqual(graph.core.pairs, pairs, `${ending}: all eight original historical pair/viewport calls exactly once`);
+    assert.deepEqual(graph.core.released, pins);
+    assert.deepEqual(graph.core.exec, [
+      { command: "git", args: ["rev-parse", "HEAD"], options: { cwd: "/owned/root" } },
+      { command: "git", args: ["status", "--porcelain"], options: { cwd: "/owned/root" } },
+    ]);
+  }
+});
+
+test("rolling worker argument guard permits only core optional absolute helper and retains fail-closed suites", async () => {
+  const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
+  const source = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8").replace(/\r\n/g, "\n");
+  for (const workerSource of [source, source.replace(/\n/g, "\r\n")]) {
+    const worker = workerSource.replace(/\r\n/g, "\n"), start = worker.indexOf("const runtime = process.argv[2];"), end = worker.indexOf('if (process.platform === "win32")', start);
+    assert.ok(start >= 0 && end > start);
+    const guard = compileFunction(worker.slice(start, end), ["process", "path"], { parsingContext: createContext({}) });
+    const validate = args => guard({ argv: ["node", "worker", ...args] }, path);
+    for (const helper of [undefined, "/owned/helper"]) for (const job of browserWorkerJobs("/owned/runtime", helper)) assert.doesNotThrow(() => validate(job.args.slice(1)));
+    for (const suite of ["core", "sources", "codex"]) {
+      assert.doesNotThrow(() => validate(["/owned/runtime", suite, "/owned/helper"]));
+      for (const helper of ["relative/helper", ""]) assert.throws(() => validate(["/owned/runtime", suite, helper]), /Invalid browser suite or owned helper path/);
+      assert.throws(() => validate(["/owned/runtime", suite, "/owned/helper", "extra"]), /Invalid browser suite or owned helper path/);
+    }
+    for (const suite of ["sources", "codex"]) assert.throws(() => validate(["/owned/runtime", suite]), /Invalid browser suite or owned helper path/);
+    for (const suite of ["conversation-ux", "agent-speed", "workspace"]) {
+      assert.doesNotThrow(() => validate(["/owned/runtime", suite]));
+      for (const helper of ["/owned/helper", "relative/helper", ""]) assert.throws(() => validate(["/owned/runtime", suite, helper]), /Invalid browser suite or owned helper path/);
+      assert.throws(() => validate(["/owned/runtime", suite, "/owned/helper", "extra"]), /Invalid browser suite or owned helper path/);
+    }
+    for (const runtime of [undefined, "", "relative/runtime"]) assert.throws(() => validate([runtime, "core"]), /Missing isolated browser runtime/);
+    for (const suite of [undefined, "", "unknown"]) assert.throws(() => validate(["/owned/runtime", suite]), /Invalid browser suite or owned helper path/);
+  }
+});
+
 test("browser runner distinguishes process-budget cancellation from a case failure and waits for close", async () => {
   const { run } = await import("../scripts/check-rolling-clients.mjs"), { EventEmitter } = require("node:events");
   let attempts = 0, closed = false;
