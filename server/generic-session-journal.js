@@ -179,15 +179,18 @@ function createGenericSessionJournal({ configDir, onUnavailable = null } = {}) {
   }
 
   async function create(task) {
-    if (!journal) return reject("journal_unavailable");
+    // Startup failure can clear journal while projection or client calls await.
+    // Retain the client so its bounded rejection policy handles that failure.
+    const client = journal;
+    if (!client) return reject("journal_unavailable");
     const ids = canonicalIds(task);
     const initial = await initialProjection({ ...task, ...ids }, ids);
     if (initial.kind !== "view") return initial;
-    const created = await journal.create(initial.state);
+    const created = await client.create(initial.state);
     if (created.kind === "reject" && created.code === "session_exists") {
-      const existing = await journal.read(ids.sessionId);
+      const existing = await client.read(ids.sessionId);
       if (existing.kind !== "view") return existing;
-      const grant = await journal.setGrant(ids.sessionId, DEVICE_ID, true);
+      const grant = await client.setGrant(ids.sessionId, DEVICE_ID, true);
       if (grant.kind === "reject") return grant;
       const currentRun = existing.state.projection.runs.find(row => row.run.runId === ids.runId) || existing.state.projection.runs.at(-1);
       return {
@@ -199,7 +202,7 @@ function createGenericSessionJournal({ configDir, onUnavailable = null } = {}) {
       };
     }
     if (created.kind === "reject") return created;
-    const grant = await journal.setGrant(ids.sessionId, DEVICE_ID, true);
+    const grant = await client.setGrant(ids.sessionId, DEVICE_ID, true);
     if (grant.kind === "reject") return grant;
     return { kind: "created", sessionId: ids.sessionId, runId: ids.runId, incarnationId: ids.incarnationId, state: initial.state };
   }
