@@ -4,6 +4,11 @@ import { readFile } from "node:fs/promises";
 import { compileFunction } from "node:vm";
 import { FROZEN, DOCK_FIXTURE, dockSamples, predictDockOwner, summarizeDockSamples, assessDockClick, isOwnedFixtureRequest, runDockContextLifecycle } from "../scripts/dock-hit-boundary-diagnostic.mjs";
 
+function dockConversationBranch(worker) {
+  const source = worker.replace(/\r\n/g, "\n");
+  return source.slice(source.indexOf('else if (suite === "conversation-ux")'), source.indexOf('else if (suite === "agent-speed")'));
+}
+
 // Pure/source checks only: importing the helper neither binds a server nor launches a browser.
 test("dock diagnostic retains all 134 original points and independent outward predictions", () => {
   for (const dpr of [1, 2]) {
@@ -178,14 +183,22 @@ test("dock fixture refuses foreign and nonfixture requests without browser or Ho
   assert.match(DOCK_FIXTURE, /border-radius:999px/);
 });
 
-test("dock Linux hook precedes unconditional original case without launches, new workers or acceptance changes", async () => {
+test("dock source reader treats LF and CRLF identically", async () => {
+  const worker = await readFile(new URL("../scripts/rolling-browser-worker.mjs", import.meta.url), "utf8");
+  const lf = worker.replace(/\r\n/g, "\n"), crlf = lf.replace(/\n/g, "\r\n");
+  assert.equal(dockConversationBranch(crlf), dockConversationBranch(lf));
+});
+
+test("dock diagnostic stays explicit-only and leaves original suites intact across line endings", async () => {
   const worker = await readFile(new URL("../scripts/rolling-browser-worker.mjs", import.meta.url), "utf8");
   const helper = await readFile(new URL("../scripts/dock-hit-boundary-diagnostic.mjs", import.meta.url), "utf8");
-  const branch = worker.slice(worker.indexOf('else if (suite === "conversation-ux")'), worker.indexOf('else if (suite === "agent-speed")'));
-  assert.match(branch, /if \(process\.platform === "linux"\)/);
-  assert.equal((branch.match(/await runConversationUxBrowserCases\(browser\)/g) || []).length, 1);
-  assert.ok(branch.indexOf("runDockHitBoundaryDiagnostic(browser") < branch.indexOf("await runConversationUxBrowserCases(browser)"));
-  assert.match(branch, /\n    }\n    await runConversationUxBrowserCases\(browser\);/);
+  const lf = worker.replace(/\r\n/g, "\n");
+  for (const representation of [lf, lf.replace(/\n/g, "\r\n")]) {
+    const branch = dockConversationBranch(representation);
+    assert.equal((branch.match(/await runConversationUxBrowserCases\(browser\)/g) || []).length, 1);
+    assert.match(branch, /await runPiRecoveryBrowserCases\(browser,[^\n]+\n    await runConversationUxBrowserCases\(browser\);/);
+    assert.doesNotMatch(representation, /runDockHitBoundaryDiagnostic|dockDiagnosticHold/);
+  }
   assert.doesNotMatch(helper, /\.launch\(|dispatchEvent|waitForTimeout|mouse\.up\(|scrollIntoView|userAgent|process\.env|server\.js|native-composer-preview/);
   assert.ok(helper.indexOf("predictions: dockSamples(dpr)") < helper.indexOf("document.elementFromPoint"));
   assert.match(helper, /boundMs: 12000/);
@@ -193,6 +206,5 @@ test("dock Linux hook precedes unconditional original case without launches, new
   assert.match(helper, /record\.result = record\.failures\.length \? "hold" : "complete"/);
   assert.match(helper, /context\.close\(\)/);
   assert.match(helper, /withinDockDeadline\(closeOwned\(\), deadline\)/);
-  assert.ok(branch.indexOf("assert.equal(dockDiagnosticHold") < branch.indexOf("await runConversationUxBrowserCases(browser)"), "true mechanism HOLD stops before further input; coherent contradiction still runs the original case");
   assert.match(helper, /server\.closeAllConnections\(\)/);
 });

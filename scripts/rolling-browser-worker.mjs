@@ -25,7 +25,6 @@ import { runCodexHistoryBrowserCases } from "./history-codex-browser-cases.mjs";
 import { runCodexActivityBrowserCases } from "./codex-activity-browser-cases.mjs";
 import { runComposerEffortBrowserCases } from "./composer-effort-browser-cases.mjs";
 import { runConversationUxBrowserCases } from "./conversation-ux-browser-cases.mjs";
-import { runDockHitBoundaryDiagnostic } from "./dock-hit-boundary-diagnostic.mjs";
 import { runComposerQueueBrowserCases } from "./composer-queue-browser-cases.mjs";
 import { runAgentSpeedBrowserCases } from "./agent-speed-browser-cases.mjs";
 import { runScrollbarBrowserCases } from "./scrollbar-browser-cases.mjs";
@@ -203,18 +202,6 @@ try {
   }
   else if (suite === "conversation-ux") {
     await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "pi-recovery") });
-    let dockDiagnosticHold = false;
-    if (process.platform === "linux") {
-      try {
-        const records = await runDockHitBoundaryDiagnostic(browser, { engine: "chromium" });
-        for (const record of records) console.log(JSON.stringify(record));
-        dockDiagnosticHold = records.some(record => record.result === "hold");
-      } catch {
-        dockDiagnosticHold = true;
-        console.log(JSON.stringify({ case: "dock-hit-boundary-diagnostic", result: "hold", failure: "diagnostic-setup-or-cleanup" }));
-      }
-      assert.equal(dockDiagnosticHold, false, "Dock diagnostic mechanism HOLD (not a hypothesis contradiction)");
-    }
     await runConversationUxBrowserCases(browser);
   }
   else if (suite === "agent-speed") {

@@ -76,14 +76,16 @@ jobs:
             ${{ steps.archive.outputs.checksum }}
             ${{ steps.archive.outputs.legacy_archive }}
             ${{ steps.archive.outputs.legacy_checksum }}
-      - name: Publish GitHub Release
+      # An authorized publisher verifies acceptance and all four downloaded
+      # artifacts before making this draft public. See docs/release-publication.md.
+      - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PRERELEASE: ${{ steps.policy.outputs.prerelease }}
         run: |
           archive="stepsemble-${GITHUB_REF_NAME}.tar.gz"
           legacy_archive="pi-harbor-${GITHUB_REF_NAME}.tar.gz"
-          gh_args=(--verify-tag --generate-notes --title "Stepsemble ${GITHUB_REF_NAME#v}")
+          gh_args=(--draft --verify-tag --generate-notes --title "Stepsemble ${GITHUB_REF_NAME#v}")
           case "$RELEASE_PRERELEASE" in
             true) gh_args+=(--prerelease --latest=false) ;;
             false) ;;

@@ -1,4 +1,5 @@
-// Diagnostic hypothesis ONLY. No production oracle or CSS repair, and no browser launch.
+// The bounded four-cell experiment contradicted this model. Explicit diagnostic
+// only: no automatic worker hook, production oracle, CSS repair or browser launch.
 import assert from "node:assert/strict";
 import http from "node:http";
 import os from "node:os";

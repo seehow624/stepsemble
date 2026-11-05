@@ -54,8 +54,10 @@ test("release policy CLI works from a path containing spaces and fails closed", 
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 });
 
-test("release workflow keeps candidate publishing prerelease-only and preserves attestation", () => {
+test("release workflow creates drafts and preserves prerelease policy and attestation", () => {
   const workflow = fs.readFileSync(path.resolve(".github/workflows/release.yml"), "utf8");
+  assert.match(workflow, /gh_args=\(--draft --verify-tag --generate-notes --title/);
+  assert.doesNotMatch(workflow, /gh release edit/);
   assert.match(workflow, /scripts\/release-policy\.mjs/);
   assert.match(workflow, /RELEASE_PRERELEASE: \$\{\{ steps\.policy\.outputs\.prerelease \}\}/);
   assert.match(workflow, /case "\$RELEASE_PRERELEASE" in[\s\S]*true\) gh_args\+=\(--prerelease --latest=false\) ;;[\s\S]*false\) ;;[\s\S]*\*\) echo "invalid release policy output" >&2; exit 1/);
@@ -65,9 +67,9 @@ test("release workflow keeps candidate publishing prerelease-only and preserves 
   assert.doesNotMatch(workflow, /gh release create \$GITHUB_REF_NAME/);
 });
 
-test("release publish shell flags are fail-closed", { skip: process.platform === "win32" }, () => {
+test("release draft creation shell flags are fail-closed", { skip: process.platform === "win32" }, () => {
   const workflow = fs.readFileSync(path.resolve(".github/workflows/release.yml"), "utf8");
-  const marker = "      - name: Publish GitHub Release";
+  const marker = "      - name: Create draft GitHub Release";
   const publishStep = workflow.slice(workflow.indexOf(marker));
   const runMatch = publishStep.match(/        run: \|\n([\s\S]*)$/);
   assert.ok(runMatch, "publish step shell script is present");
@@ -102,8 +104,8 @@ test("release publish shell flags are fail-closed", { skip: process.platform ===
     "stepsemble-v3.0.7-rc.7.tar.gz", "stepsemble-v3.0.7-rc.7.tar.gz.sha256",
     "pi-harbor-v3.0.7-rc.7.tar.gz", "pi-harbor-v3.0.7-rc.7.tar.gz.sha256",
   ]);
-  assert.deepEqual(candidate.args.slice(7, 11), ["--verify-tag", "--generate-notes", "--title", "Stepsemble 3.0.7-rc.7"]);
-  assert.deepEqual(candidate.args.slice(11), ["--prerelease", "--latest=false"]);
+  assert.deepEqual(candidate.args.slice(7, 12), ["--draft", "--verify-tag", "--generate-notes", "--title", "Stepsemble 3.0.7-rc.7"]);
+  assert.deepEqual(candidate.args.slice(12), ["--prerelease", "--latest=false"]);
 
   const stable = runPublish("v3.0.7", "false");
   assert.equal(stable.status, 0, stable.stderr);
@@ -112,8 +114,8 @@ test("release publish shell flags are fail-closed", { skip: process.platform ===
     "stepsemble-v3.0.7.tar.gz", "stepsemble-v3.0.7.tar.gz.sha256",
     "pi-harbor-v3.0.7.tar.gz", "pi-harbor-v3.0.7.tar.gz.sha256",
   ]);
-  assert.deepEqual(stable.args.slice(7, 11), ["--verify-tag", "--generate-notes", "--title", "Stepsemble 3.0.7"]);
-  assert.deepEqual(stable.args.slice(11), []);
+  assert.deepEqual(stable.args.slice(7, 12), ["--draft", "--verify-tag", "--generate-notes", "--title", "Stepsemble 3.0.7"]);
+  assert.deepEqual(stable.args.slice(12), []);
 
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release shell probe "));
   const probe = path.join(probeRoot, "created-by-injection");

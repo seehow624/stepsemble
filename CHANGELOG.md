@@ -5,6 +5,7 @@
 - Load Codex history by readable conversation units instead of letting folded tool and reasoning records consume the visible page. Initial and earlier-history loads seek eight readable messages within unchanged per-page transport limits and bounded request, size, and latency admission.
 - Continue earlier history from deliberate upward wheel, touch, or keyboard intent even when the conversation is too short to scroll. Keep each consumed gesture or explicit action to one bounded load, with stable reading anchors, retry cursors, drafts, and focus ownership.
 - Preserve keyboard focus after an earlier-history button finishes loading without stealing focus back from another workspace pane or window.
+- Keep bounded CLI launches from throwing when optional session-journal initialization fails during asynchronous projection, without changing journaling, approval, acknowledgement, or corruption-rejection policies.
 
 ## 3.10.7
 
