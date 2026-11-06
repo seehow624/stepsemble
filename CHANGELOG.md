@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.10.9
+
+- Open Pi and Codex sessions with substantially more readable conversation, targeting 40 readable message units initially and 40 new units for each earlier-history action. Folded tools, reasoning and metadata do not count as conversation.
+- Keep progressive history reads bounded while preserving composer readiness, reader anchors, drafts, focus, exact cursors, partial-error recovery and one-action batch ownership.
+- Build historical tool details on demand instead of eagerly constructing every collapsed output. Retain original arguments, ordered results, errors, subagent metadata and copy controls, including live completion of historical pending calls.
+- Preserve already larger native and OpenCode history windows, and respect the actual limits of retained-event and terminal-only sources rather than inventing unavailable older records.
+
 ## 3.10.8
 
 - Load Codex history by readable conversation units instead of letting folded tool and reasoning records consume the visible page. Initial and earlier-history loads seek eight readable messages within unchanged per-page transport limits and bounded request, size, and latency admission.
