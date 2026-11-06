@@ -353,41 +353,45 @@ test("Grok Build is checked with its own JSON check and updated by its updater",
 
 test("an agent CLI in an npm folder of its own is checked against npm and updated in that folder", { skip: process.platform === "win32" }, async () => {
   const { root, file } = tempState();
-  // /Volumes/devkit/Tools/agent-clis/kilo, as npm install --prefix leaves it.
-  const prefix = path.join(root, "agent-clis", "kilo");
-  const packageRoot = path.join(prefix, "node_modules", "@kilocode", "cli");
+  // /Volumes/devkit/Tools/agent-clis/fixture-cli, as npm install --prefix leaves it.
+  const prefix = path.join(root, "agent-clis", "fixture-cli");
+  const packageRoot = path.join(prefix, "node_modules", "@fixture", "cli");
   fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
-  fs.writeFileSync(path.join(prefix, "package.json"), JSON.stringify({ dependencies: { "@kilocode/cli": "^7.7.9" } }));
-  fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@kilocode/cli", version: "7.7.9" }));
-  fs.writeFileSync(path.join(packageRoot, "bin", "kilo"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(prefix, "package.json"), JSON.stringify({ dependencies: { "@fixture/cli": "^7.7.9" } }));
+  fs.writeFileSync(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@fixture/cli", version: "7.7.9" }));
+  fs.writeFileSync(path.join(packageRoot, "bin", "fixture-cli"), "#!/bin/sh\n", { mode: 0o755 });
   fs.mkdirSync(path.join(root, "bin"));
-  fs.symlinkSync(path.join(packageRoot, "bin", "kilo"), path.join(root, "bin", "kilo"));
+  fs.symlinkSync(path.join(packageRoot, "bin", "fixture-cli"), path.join(root, "bin", "fixture-cli"));
   const calls = [];
   let installed = "7.7.9";
+  // A source-aware npm CLI, as Codex is registered in protocol/harness-updates.json.
+  const harness = { id: "fixture-cli", label: "Fixture CLI", commands: ["fixture-cli"], executableEnv: "STEPSEMBLE_FIXTURE_CLI_BIN", package: "@fixture/cli",
+    check: { kind: "source-aware", package: "@fixture/cli", brewPackage: "fixture-cli" },
+    update: { kind: "source-aware", package: "@fixture/cli", brewPackage: "fixture-cli", verify: true } };
   const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
   const service = createHarnessUpdateService({
-    registry: { ...registry, harnesses: registry.harnesses.filter(item => item.id === "kilo") },
+    registry: { ...registry, harnesses: [harness] },
     stateFile: file, env: { PATH: "/fake", HOME: root },
-    resolve: name => ({ kilo: path.join(root, "bin", "kilo"), npm: "/fake/npm" })[name] || null,
+    resolve: name => ({ "fixture-cli": path.join(root, "bin", "fixture-cli"), npm: "/fake/npm" })[name] || null,
     runner: async (command, args) => {
       calls.push([command, args]);
       if (args[0] === "--version") return { code: 0, stdout: installed + "\n", stderr: "" };
       if (args.join(" ") === "root --global") return { code: 0, stdout: path.join(root, "global", "lib", "node_modules") + "\n", stderr: "" };
-      if (args.join(" ") === "view @kilocode/cli version") return { code: 0, stdout: "7.8.1\n", stderr: "" };
+      if (args.join(" ") === "view @fixture/cli version") return { code: 0, stdout: "7.8.1\n", stderr: "" };
       if (args[0] === "install") { installed = "7.8.1"; return { code: 0, stdout: "", stderr: "" }; }
       return { code: 1, stdout: "", stderr: "" };
     },
     busy: () => false,
   });
-  let row = (await service.check({ id: "kilo" })).harnesses[0];
+  let row = (await service.check({ id: "fixture-cli" })).harnesses[0];
   assert.deepEqual([row.source, row.currentVersion, row.latestVersion, row.status], ["npm-prefix", "7.7.9", "7.8.1", "available"]);
-  row = (await service.update({ id: "kilo", confirm: true })).harnesses[0];
+  row = (await service.update({ id: "fixture-cli", confirm: true })).harnesses[0];
   assert.deepEqual(calls.find(call => call[1][0] === "install"),
-    ["/fake/npm", ["install", "--prefix", fs.realpathSync(prefix), "--no-audit", "--no-fund", "@kilocode/cli@7.8.1"]]);
+    ["/fake/npm", ["install", "--prefix", fs.realpathSync(prefix), "--no-audit", "--no-fund", "@fixture/cli@7.8.1"]]);
   assert.equal(row.currentVersion, "7.8.1");
   // Anywhere else nothing proves who installed it, and it is not updated.
   fs.rmSync(path.join(prefix, "package.json"));
-  await assert.rejects(() => service.update({ id: "kilo", confirm: true }), error => error.code === "source_unknown");
+  await assert.rejects(() => service.update({ id: "fixture-cli", confirm: true }), error => error.code === "source_unknown");
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -419,12 +423,12 @@ test("an agent released on GitHub reads its installed version and checks only th
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("Oh My Pi's release is read from its npm package, and omp update installs it", async () => {
-  assert.equal(parseVersion("omp/18.6.1"), "18.6.1");
+test("a release read from the npm registry is compared without touching the installation, and the agent's own update installs it", async () => {
+  assert.equal(parseVersion("fixture-cli/18.6.1"), "18.6.1");
   assert.equal(parseVersion("error: /tmp/18.6.1"), null);
   const registry = JSON.parse(fs.readFileSync(path.join(__dirname, "../protocol/harness-updates.json"), "utf8"));
-  const omp = registry.harnesses.find(item => item.id === "omp");
-  assert.deepEqual([omp.executableEnv, omp.check.kind, omp.check.package, omp.update.args], ["STEPSEMBLE_OMP_BIN", "registry-version", "@oh-my-pi/pi-coding-agent", ["update"]]);
+  const harness = { id: "fixture-cli", label: "Fixture CLI", commands: ["fixture-cli"], executableEnv: "STEPSEMBLE_FIXTURE_CLI_BIN",
+    check: { kind: "registry-version", package: "@fixture/cli" }, update: { kind: "command", args: ["update"], verify: true } };
   for (const [published, status] of [
     ["18.6.1\n", "up-to-date"],
     ["18.7.0\n", "available"],
@@ -432,17 +436,17 @@ test("Oh My Pi's release is read from its npm package, and omp update installs i
     const { root, file } = tempState();
     const calls = [];
     const service = createHarnessUpdateService({
-      registry: { ...registry, harnesses: [omp] },
+      registry: { ...registry, harnesses: [harness] },
       stateFile: file, env: { PATH: "/fake", HOME: root },
-      resolve: name => name === "omp" ? "/fake/omp" : name === "npm" ? "/fake/npm" : null,
+      resolve: name => name === "fixture-cli" ? "/fake/fixture-cli" : name === "npm" ? "/fake/npm" : null,
       runner: async (command, args) => { calls.push([command, ...args]); return args[0] === "--version"
-        ? { code: 0, stdout: "omp/18.6.1", stderr: "" }
+        ? { code: 0, stdout: "fixture-cli/18.6.1", stderr: "" }
         : { code: 0, stdout: published, stderr: "" }; },
       busy: () => false,
     });
-    const row = (await service.check({ id: "omp" })).harnesses[0];
+    const row = (await service.check({ id: "fixture-cli" })).harnesses[0];
     assert.deepEqual([row.currentVersion, row.status], ["18.6.1", status]);
-    assert.deepEqual(calls, [["/fake/omp", "--version"], ["/fake/npm", "view", "@oh-my-pi/pi-coding-agent", "version"]], "the installation is not touched");
+    assert.deepEqual(calls, [["/fake/fixture-cli", "--version"], ["/fake/npm", "view", "@fixture/cli", "version"]], "the installation is not touched");
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

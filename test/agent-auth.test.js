@@ -87,10 +87,10 @@ test("every agent's commands are fixed argument lists with no shell or browser-s
   assert.equal(commandArgs(providerChoice, "--help"), null, "a provider can never become an option");
   assert.equal(commandArgs(providerChoice, "a b"), null);
   assert.equal(findChoice("codex", "login", "shell"), null);
-  assert.equal(findChoice("cline", "logout"), null, "an agent without a sign-out command offers none");
-  assert.deepEqual(commandArgs(findChoice("omp", "login")), ["login"], "Oh My Pi asks for its provider in its own sign-in");
-  assert.equal(findChoice("omp", "login").interactive, true);
-  assert.deepEqual(commandArgs(findChoice("omp", "status")), ["usage"]);
+  assert.equal(findChoice("grok-build", "status"), null, "an agent without a status command offers none");
+  assert.deepEqual(commandArgs(findChoice("opencode", "login")), ["auth", "login"], "OpenCode asks for its provider in its own sign-in");
+  assert.equal(findChoice("opencode", "login").interactive, true);
+  assert.deepEqual(commandArgs(findChoice("antigravity", "status")), ["models"]);
 });
 
 test("a sign-in runs in a terminal, relays its link and code, and hides a pasted secret", unix, async () => {
@@ -183,7 +183,7 @@ test("requests are validated and a busy agent is left alone", unix, async () => 
   const svc = service({ hasActiveWork: agentId => busy && agentId === "codex" });
   await assert.rejects(svc.start({ agentId: "shell", action: "login" }), error => error.code === "invalid_request");
   await assert.rejects(svc.start({ agentId: "codex", action: "exec" }), error => error.code === "invalid_request");
-  await assert.rejects(svc.start({ agentId: "cline", action: "status" }), error => error.code === "action_unsupported");
+  await assert.rejects(svc.start({ agentId: "grok-build", action: "status" }), error => error.code === "action_unsupported");
   busy = true;
   await assert.rejects(svc.start({ agentId: "codex", action: "login", choice: "device" }), error => error.code === "agent_busy");
   const status = await svc.start({ agentId: "codex", action: "status" });

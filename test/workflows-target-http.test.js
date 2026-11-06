@@ -6,7 +6,7 @@ test("isolated schedule targets preserve native identity through idle release an
   const {cleanEnvironment}=await import("../scripts/check-rolling-clients.mjs"),{freePort,waitForServer,stopServer}=await import("../scripts/host-performance-baseline.mjs");
   const home=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),"stepsemble-workflow-target-"))),bin=path.join(home,"bin"),sessions=path.join(home,".pi/agent/sessions"),log=path.join(home,"peer.log");
   await fs.mkdir(bin);await fs.mkdir(sessions,{recursive:true});const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
-  for(const [name,mode] of [["pi","pi"],["claude","claude"],["kilo","acp"]])await fs.writeFile(path.join(bin,name),`#!/bin/sh\nSTEPSEMBLE_WORKFLOW_PEER=${mode} STEPSEMBLE_WORKFLOW_PEER_LOG=${quote(log)} STEPSEMBLE_WORKFLOW_PEER_SESSIONS=${quote(sessions)} exec ${quote(process.execPath)} ${quote(path.resolve("test-support/workflow-peer.cjs"))} "$@"\n`,{mode:0o700});
+  for(const [name,mode] of [["pi","pi"],["claude","claude"],["grok","acp"]])await fs.writeFile(path.join(bin,name),`#!/bin/sh\nSTEPSEMBLE_WORKFLOW_PEER=${mode} STEPSEMBLE_WORKFLOW_PEER_LOG=${quote(log)} STEPSEMBLE_WORKFLOW_PEER_SESSIONS=${quote(sessions)} exec ${quote(process.execPath)} ${quote(path.resolve("test-support/workflow-peer.cjs"))} "$@"\n`,{mode:0o700});
   const port=await freePort(),base=`http://127.0.0.1:${port}`;let child,cookie="",output="";
   const request=(route,body)=>fetch(base+route,{headers:{Cookie:cookie,Origin:base,...(body?{"Content-Type":"application/json"}:{})},...(body?{method:"POST",body:JSON.stringify(body)}:{})});
   const json=async(route,body)=>{const res=await request(route,body),data=await res.json();assert(res.ok,JSON.stringify(data)+output);return data;};
@@ -75,7 +75,7 @@ test("isolated schedule targets preserve native identity through idle release an
   // Claude's released process and ACP's persisted native load also retain the
   // exact Workspace membership; schedule pins cannot override either one.
   const bindings=[];
-  for(const agentId of ["claude-code","kilo"]){
+  for(const agentId of ["claude-code","grok-build"]){
     const created=await json("/api/workflows",{title:"Original native title",objective:"Original native history",agentId,cwd:home,mode:"task",...(agentId==="claude-code"?{permission:"acceptEdits",choice:{model:"fixture"}}:{})});
     const done=await finished(created.id);assert.equal(done.status,"completed");
     const prior=(await json("/api/workspace/entry?key="+done.entry)).record;

@@ -54,14 +54,15 @@ Stepsemble. The Host scans the current user's Codex `sessions` and
 
 | Agent | Saved source | Details |
 | --- | --- | --- |
-| OMP | `~/.omp/agent/sessions/*.jsonl` | Native assistant usage, distinct from Pi |
-| OpenCode / Kilo CLI | `~/.local/share/{opencode,kilo}/*.db` and legacy `storage/message` | SQLite WAL snapshot, deduplicated by native response ID |
+| OpenCode | `~/.local/share/opencode/*.db` and legacy `storage/message` | SQLite WAL snapshot, deduplicated by native response ID |
 | Hermes | `~/.hermes/state.db` and profile databases | Per-model ledgers, auxiliary tasks and unattributed residuals; session totals use the session start date |
 | Gemini CLI | `~/.gemini/tmp/*/chats/session-*.json` | Cache interpretation checked against the redundant total |
-| Cline CLI | `~/.cline/data/sessions/*.messages.json` | Assistant metrics and model metadata |
-| Cline / Kilo / Roo extensions | Editor `User/globalStorage/<extension>/tasks/*/ui_messages.json` | VS Code, Insiders, Cursor, Windsurf and VS Code Server default stores |
+| Roo Code extension | Editor `User/globalStorage/<extension>/tasks/*/ui_messages.json` | VS Code, Insiders, Cursor, Windsurf and VS Code Server default stores |
 | Grok Build | `~/.grok/logs/unified.jsonl`, `sessions/*/updates.jsonl` | Per-inference logs preferred over overlapping turn totals; overlap is marked incomplete |
 | Antigravity | `~/.gemini/{antigravity-cli,antigravity}/conversations/*.db` | Bounded generator metadata; missing per-call dates explicitly use session start |
+
+The Oh My Pi, Cline CLI, Cline extension and Kilo Code readers were removed in
+3.10.10; their histories stay on disk unread.
 
 Unrecognized stores, editor profiles outside default locations, deleted histories
 and formats without usable token counts cannot be reconstructed. Totals describe available records in the selected period.

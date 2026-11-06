@@ -49,7 +49,7 @@
     const short = compact && total.knownCost >= 1000;
     return (total.unpricedCalls || total.unknownUnpricedRecords ? "≥ " : "≈ ") + new Intl.NumberFormat(localeOf(), { style: "currency", currency: "USD", ...(short ? { notation: "compact", maximumFractionDigits: 1, minimumFractionDigits: 0 } : { maximumFractionDigits: 2, minimumFractionDigits: 2 }) }).format(total.knownCost);
   }
-  const agentName = id => ({ pi: "Pi", codex: "Codex", "claude-code": "Claude Code", omp: "Oh My Pi", opencode: "OpenCode", hermes: "Hermes", gemini: "Gemini CLI", cline: "Cline", "kilo": "Kilo Code", "roo-code": "Roo Code", "grok-build": "Grok Build", antigravity: "Antigravity" })[id] || id;
+  const agentName = id => ({ pi: "Pi", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", hermes: "Hermes", gemini: "Gemini CLI", "roo-code": "Roo Code", "grok-build": "Grok Build", antigravity: "Antigravity" })[id] || id;
   const vendorNames = { openai: "OpenAI", anthropic: "Anthropic", minimax: "MiniMax", z_ai: "Z.AI", deepseek: "DeepSeek", gemini: "Google", xai: "xAI" };
   const vendorName = id => Object.hasOwn(vendorNames, id) ? vendorNames[id] : id;
   const modelLabel = row => { const identity = Data.modelIdentity(row.provider, row.name); return { name: identity.model, provider: vendorName(identity.provider) }; };

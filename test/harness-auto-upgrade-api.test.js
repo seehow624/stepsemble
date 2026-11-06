@@ -29,7 +29,7 @@ test("every upgradable agent has an automatic-upgrade switch on the Host", { ski
   const status = await (await request("/api/harness-updates/status")).json();
   assert.ok(!status.harnesses.some(row => row.id === "gemini-cli"), "Gemini CLI is no longer listed");
   const ids = Object.keys(status.autoUpgrade).sort();
-  assert.deepEqual(ids, ["antigravity", "claude-code", "cline", "codex", "grok-build", "kilo", "omp", "opencode", "pi"]);
+  assert.deepEqual(ids, ["antigravity", "claude-code", "codex", "grok-build", "opencode", "pi"]);
   for (const id of ids) assert.equal(status.autoUpgrade[id].enabled, false, id + " is off until turned on");
   // Each one waits for a release this Stepsemble supports.
   for (const id of ids) assert.equal(status.autoUpgrade[id].checksSupport, true, id);

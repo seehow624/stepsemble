@@ -13,7 +13,6 @@ adapter for that agent. No account is used and no paid model request is made.
 | Pi | `npm run -s check:pi-release` | npm tag `latest` | the npm package | a full conversation with a local fake model (`docs/pi-release-checks.md`) |
 | OpenCode | `npm run -s check:opencode-release` | npm tag `latest` of `opencode-ai` | the platform build from npm | the Host's managed `opencode serve` and client: health and version; a conversation created, listed, named and read; a message answered by a local fake model (the anthropic provider pointed at it); status; a branch |
 | Google Antigravity | `npm run -s check:antigravity-release` | the release Antigravity's update service has rolled out to 100% | the installed `agy` copied to a scratch folder and updated there with `agy update` (Antigravity publishes no download per version) | the version; the flags Stepsemble starts it with (`--effort`, `--mode`, `--add-dir`, `--dangerously-skip-permissions` among them) and the `models` command; signed out, `agy models` says so. Then, with a custom model in agy's settings pointing at a local fake Gemini API (`test-support/fake-gemini-api.mjs`), whole turns run through Stepsemble's bridge and approval gate: the stream names its conversation and answers with token usage; a command the gate denies never runs and an allowed one runs (Stepsemble starts agy without its own approval only because of this); `--conversation` continues with another model and level, which reach the model; Stop ends a turn and the next message goes on |
-| Cline, Kilo Code, Oh My Pi | `npm run -s check:acp-release -- <cline\|kilo\|omp>` | npm tag `latest` | the npm package (Oh My Pi's runs on Bun) | the Host's ACP adapter: the agent answers initialize; a new conversation opens (Kilo, with its models and modes) or, signed out, is answered with a sign-in request the Host reads as such (Cline, Oh My Pi); the agent stops cleanly |
 
 `npm run -s check:agent-releases` runs all of them, one after another, and
 prints one JSON object: `action` is `adapt` when a release failed a check,
@@ -21,7 +20,8 @@ prints one JSON object: `action` is `adapt` when a release failed a check,
 
 Each check keeps its verdict per release in
 `~/.config/stepsemble/<name>-release-checks.json` (claude, grok, pi, opencode,
-antigravity, cline, kilo, omp) with the Stepsemble version that made it. A
+antigravity) with the Stepsemble version that made it. The Cline, Kilo Code
+and Oh My Pi checks were removed with those agents in 3.10.10. A
 release that passed is not checked again (`--force` checks it anyway). Only
 stable releases are checked: a version with anything after its three numbers
 is refused.

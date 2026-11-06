@@ -18,8 +18,8 @@
   height: 20px;
   background: var(--agent-mark) center / contain no-repeat;
 }
-.agent-logo:is([data-agent-id="codex"], [data-agent-id="opencode"], [data-agent-id="grok-build"], [data-agent-id="cline"], [data-agent-id="kilo"],
-  [data-agent-id="omp"], [data-agent-id="gpt"], [data-agent-id="chatgpt"]) .agent-logo-mark {
+.agent-logo:is([data-agent-id="codex"], [data-agent-id="opencode"], [data-agent-id="grok-build"],
+  [data-agent-id="gpt"], [data-agent-id="chatgpt"]) .agent-logo-mark {
   width: 100%;
   height: 100%;
   border-radius: 26%;
@@ -36,9 +36,6 @@
 .agent-logo[data-agent-id="opencode"] { --agent-mark: url("/agent-logos/v2/opencode.svg"); }
 .agent-logo[data-agent-id="grok-build"] { --agent-mark: url("/agent-logos/v2/grok.svg"); }
 .agent-logo[data-agent-id="antigravity"] { --agent-mark: url("/agent-logos/v2/antigravity.svg"); }
-.agent-logo[data-agent-id="cline"] { --agent-mark: url("/agent-logos/v2/cline.svg"); }
-.agent-logo[data-agent-id="kilo"] { --agent-mark: url("/agent-logos/v2/kilo.svg"); }
-.agent-logo[data-agent-id="omp"] { --agent-mark: url("/agent-logos/v2/omp.svg"); }
 .agent-logo[data-agent-id="gpt"], .agent-logo[data-agent-id="chatgpt"] { --agent-mark: url("/agent-logos/v2/openai.svg"); }
 .agent-logo[data-agent-id="agent"] { --agent-mark: url("/agent-logos/v2/agent.svg"); }
 .agent-task-row, .agent-task-center-row { grid-template-columns: 28px minmax(0, 1fr) auto; }

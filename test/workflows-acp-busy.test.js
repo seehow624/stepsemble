@@ -45,10 +45,10 @@ async function fixture(t,agentId){
   return {host,adapter,entry,prompts,get,run,assertQueued,finishNative,inject:()=>{injectNative=true;},user:()=>userPrompt,permission(sessionId=entry.record.nativeSessionId){emit({jsonrpc:"2.0",id:77,method:"session/request_permission",params:{sessionId,options:[{optionId:"allow-once",name:"Allow once",kind:"allow_once"}]}});}};
 }
 
-for(const agentId of ["kilo","grok-build"]){
+for(const agentId of ["antigravity","grok-build"]){
   test(`${agentId} partial completed plan does not admit a schedule before the native prompt finishes`,async t=>{
     const f=await fixture(t,agentId),user=f.adapter.prompt(f.entry.record.nativeSessionId,"Original native work");await wait();
-    assert.equal(f.adapter.sessions()[0].status,agentId==="kilo"?"idle":"running");assert.equal(f.adapter.sessionWorking(f.entry.record.nativeSessionId),true);
+    assert.equal(f.adapter.sessions()[0].status,agentId==="antigravity"?"idle":"running");assert.equal(f.adapter.sessionWorking(f.entry.record.nativeSessionId),true);
     await f.run();f.assertQueued();assert.equal(f.prompts.length,1);
     f.finishNative();await user;await f.host.tick();await wait();assert.equal(f.prompts.length,2);
     f.finishNative();await wait();assert.equal(f.get().status,"completed");

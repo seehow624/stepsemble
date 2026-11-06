@@ -125,7 +125,7 @@ function validSaved(saved, agent, expected, format, artifact) {
 }
 
 async function readUsageFile(source, budget, indexDir) {
-  if (source.format && !["native", "omp", "pi-transcript", "pi-events"].includes(source.format)) return readExtraUsageFile(source, budget);
+  if (source.format && !["native", "pi-transcript", "pi-events"].includes(source.format)) return readExtraUsageFile(source, budget);
   let handle;
   const { file, root, agent, expected, format = "native", artifact = "" } = source;
   try {

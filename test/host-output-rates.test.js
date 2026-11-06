@@ -107,7 +107,7 @@ test("Codex duplicate start notifications and late usage cannot mix consecutive 
   assert.equal(rows[0].startedAt, 10000); assert.equal(rows[0].modelMs, 2000);
 });
 
-for (const agent of ["omp", "cline", "kilo", "grok-build"]) test(`${agent} collects ACP updates without a viewer and counts whole-turn usage`, t => {
+for (const agent of ["antigravity", "grok-build"]) test(`${agent} collects ACP updates without a viewer and counts whole-turn usage`, t => {
   const f = fixture(t, agent, { nativeAcp: true });
   const event = value => f.host.acp(agent, { sessionId: "session", ...value });
   event({ type: "rate.turn.started" });

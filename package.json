@@ -43,7 +43,6 @@
     "check:pi-release": "node scripts/check-pi-release.mjs",
     "check:antigravity-release": "node scripts/check-antigravity-release.mjs",
     "check:opencode-release": "node scripts/check-opencode-release.mjs",
-    "check:acp-release": "node scripts/check-acp-release.mjs",
     "check:agent-releases": "node scripts/check-agent-releases.mjs",
     "check:opencodex-release": "node scripts/check-opencodex-release.mjs",
     "test:native:pi-release": "node scripts/check-native-pi-release.mjs",

@@ -48,12 +48,6 @@ const cases = [
     [{ id: "MiniMax-M3", provider: "minimax", name: "MiniMax-M3" }, "MiniMax-M3", "MiniMax"],
     [{ id: "qwen/qwen3-coder", provider: "openrouter", name: "qwen/qwen3-coder" }, "qwen3-coder", "OpenRouter · Qwen"],
   ]),
-  ...rows("kilo", [
-    [{ id: "kilo/anthropic/claude-opus-5.5", name: "Kilo Gateway/Anthropic: Claude Opus 5.5 (new)", provider: "kilo" }, "Claude Opus 5.5", "Kilo Gateway · Anthropic · new"],
-    [{ id: "kilo/anthropic/claude-fable-5", name: "Kilo Gateway/Anthropic: Claude Fable 5 ($$$$)", provider: "kilo" }, "Claude Fable 5", "Kilo Gateway · Anthropic · $$$$"],
-    [{ id: "kilo/openai/gpt-4o-2024-05-13", name: "Kilo Gateway/OpenAI: GPT-4o (2024-05-13)", provider: "kilo" }, "GPT-4o 2024-05-13", "Kilo Gateway · OpenAI"],
-    [{ id: "kilo/kilo-auto/balanced", name: "Kilo Gateway/Auto Balanced", provider: "kilo" }, "Auto Balanced", "Kilo Gateway"],
-  ]),
 ];
 
 test("every agent's models are named by the model, with the provider on the second line and no brackets", () => {

@@ -38,7 +38,7 @@ test("choices hold model and level ids only, within bounds", () => {
   assert.equal(store.record("hermes", null, { prompt: "secret" }), false);
   assert.equal(store.record("hermes", "../escape", { model: "openrouter:openai/gpt-6-luna" }), true);
   assert.equal(store.session("hermes", "../escape"), null);
-  for (let index = 0; index < MAX_SESSIONS + 5; index += 1) store.record("kilo", "s" + index, { model: "m" });
-  assert.equal(store.session("kilo", "s0"), null);
-  assert.deepEqual(store.session("kilo", "s" + (MAX_SESSIONS + 4)), { model: "m" });
+  for (let index = 0; index < MAX_SESSIONS + 5; index += 1) store.record("antigravity", "s" + index, { model: "m" });
+  assert.equal(store.session("antigravity", "s0"), null);
+  assert.deepEqual(store.session("antigravity", "s" + (MAX_SESSIONS + 4)), { model: "m" });
 });

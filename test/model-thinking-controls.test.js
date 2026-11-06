@@ -66,8 +66,8 @@ function harness() {
     connectorAllowsLiveControls: () => access.live,
     changeThinkingLevel: (level, options) => { changes.push([level, options]); return Promise.resolve(); },
     modelPresentation: require("../public/modules/model-presentation"),
-    agentConnectorLabel: id => ({ kilo: "Kilo" })[id] || id,
-    acpAgentOf: () => "kilo",
+    agentConnectorLabel: id => ({ antigravity: "Antigravity" })[id] || id,
+    acpAgentOf: () => "antigravity",
     acpThoughtOption: options => (Array.isArray(options) ? options : []).find(option => option?.category === "thought_level" && option.options?.length) || null,
     tKey: (key, vars = {}) => ({
       "runtime.thinkingUnsupported": "No thinking levels",
@@ -318,7 +318,7 @@ test("agents with no level to choose show no line, and the button says why", () 
   // An ACP agent without a thought_level option.
   context.rpc = { nativeAcp: true, acpConfigOptions: [] };
   context.syncNativeThinkingSelect(context.rpc);
-  assert.deepEqual([line(el).hidden, line(el).name], [true, "Kilo offers none"]);
+  assert.deepEqual([line(el).hidden, line(el).name], [true, "Antigravity offers none"]);
   // Grok lists its levels from Extra high down; the line ranks them, by the names Grok gives.
   context.rpc = { nativeGrokAcp: true, acpConfigOptions: [{ id: "effort", category: "thought_level", currentValue: "high",
     options: ["xhigh", "high", "medium", "low"].map(value => ({ value, name: "Grok " + value })) }] };

@@ -80,7 +80,7 @@ const { CONTRACT_VERSION: AGENT_CAPABILITY_CONTRACT_VERSION } = require("./serve
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
 const { taskFromThread: codexTaskFromThread } = require("./server/codex-native-history-adapter");
 const { createGrokAcpAdapter } = require("./server/grok-acp-adapter");
-const { createAgentClientProtocolAdapter, readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
+const { readSessionRegistry, writeSessionRegistry } = require("./server/agent-client-protocol-adapter");
 const { CLAUDE_STRUCTURED_VERSION, CLAUDE_PERMISSION_MODES, claudeSupportsBypass } = require("./server/claude-code-structured-adapter");
 const { launchClaudeStructuredSession, parkIdleClaudeStructuredSession } = require("./server/claude-structured-launch");
 const { createClaudeIdleRelease, idleReleaseDelay } = require("./server/claude-idle-release");
@@ -2138,7 +2138,7 @@ const piResources = createPiResourcesService({ home: APP_HOME });
 let claudeLaunchReservations = 0;
 let nativeWorkRequests = 0;
 let claudeDesktopUpgrade = null;
-const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|cline|kilo|omp|antigravity)\/acp\/(?:session|prompt|permission|config)|claude\/structured\/(?:prompt|model|effort|permission))$/;
+const NATIVE_WORK_ROUTE = /^\/api\/(?:open|send|cmd|rpc-cmd|rpc-ui|agent\/(?:open|send|input|approval)|codex\/mutation\/(?:turn|resume|approval|goal)|opencode\/(?:session|message|model|permission)|(?:grok|antigravity)\/acp\/(?:session|prompt|permission|config)|claude\/structured\/(?:prompt|model|effort|permission))$/;
 const hasClaudeTasks = () => claudeLaunchReservations > 0 || agentTasks.list().some(task => task.agentId === "claude-code" && ["starting", "running", "reconnecting", "waiting"].includes(task.status));
 const desktopClaude = process.platform === "darwin" && (process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY
   || fs.existsSync(path.join(CONFIG_DIR, "claude-desktop", "config.json")))
@@ -2229,10 +2229,9 @@ const grokDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "grok-buil
 const grokCommand = String(process.env.STEPSEMBLE_GROK_BIN || "").trim()
   ? resolveCommand({ ...grokDefinition, commands: [String(process.env.STEPSEMBLE_GROK_BIN).trim()] }, { env: process.env, includeKnownPaths: false })
   : resolveCommand(grokDefinition, { env: process.env });
-// Cline, Kilo Code and Oh My Pi all publish an ACP stdio server. Enable the bridge
-// automatically when the executable is installed; an explicit 0/false still
-// gives operators a safe rollback to the bounded CLI connector. No ACP
-// process is spawned during boot.
+// ACP bridges are enabled automatically when the executable is installed; an
+// explicit 0/false still gives operators a safe rollback to the bounded CLI
+// connector. No ACP process is spawned during boot.
 function acpFlag(name, fallback) {
   const raw = String(process.env[name] || "").trim().toLowerCase();
   return raw ? new Set(["1", "true", "yes", "on"]).has(raw) : fallback;
@@ -2242,23 +2241,6 @@ function acpFlag(name, fallback) {
 const grokAcpEnabled = acpFlag("STEPSEMBLE_GROK_ACP", !!grokCommand);
 const grokAcp = grokAcpEnabled && grokCommand ? createGrokAcpAdapter({ command: grokCommand, cwd: APP_HOME, env: process.env,
   onRateEvent: event => { hostRates.acp("grok-build", event); workflowEvents.emit("grok-build", event.sessionId, event); } }) : null;
-const kiloDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "kilo");
-const clineDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "cline");
-const ompDefinition = CONNECTOR_DEFINITIONS.find(item => item.id === "omp");
-const kiloCommand = resolveCommand(kiloDefinition, { env: process.env });
-const clineCommand = resolveCommand(clineDefinition, { env: process.env });
-const ompCommand = resolveCommand(ompDefinition, { env: process.env });
-const kiloAcpEnabled = acpFlag("STEPSEMBLE_KILO_ACP", !!kiloCommand);
-const clineAcpEnabled = acpFlag("STEPSEMBLE_CLINE_ACP", !!clineCommand);
-const ompAcpEnabled = acpFlag("STEPSEMBLE_OMP_ACP", !!ompCommand);
-const clineAcp = clineAcpEnabled && clineCommand ? createAgentClientProtocolAdapter({ command: clineCommand, args: ["--acp"], cwd: APP_HOME, env: process.env, label: "Cline", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-cline-sessions.json"), onRateEvent: event => { hostRates.acp("cline", event); workflowEvents.emit("cline", event.sessionId, event); } }) : null;
-const kiloAcp = kiloAcpEnabled && kiloCommand ? createAgentClientProtocolAdapter({ command: kiloCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Kilo Code", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-kilo-sessions.json"), onRateEvent: event => { hostRates.acp("kilo", event); workflowEvents.emit("kilo", event.sessionId, event); } }) : null;
-// Oh My Pi opens a conversation even before it is signed in, with no model to
-// answer it; the bridge counts that as its sign-in being needed.
-const ompAcp = ompAcpEnabled && ompCommand ? createAgentClientProtocolAdapter({ command: ompCommand, args: ["acp"], cwd: APP_HOME, env: process.env, label: "Oh My Pi", clientVersion: APP_VERSION,
-  registryFile: path.join(CONFIG_DIR, "acp-omp-sessions.json"), requiresModel: true, onRateEvent: event => { hostRates.acp("omp", event); workflowEvents.emit("omp", event.sessionId, event); } }) : null;
 // Models that Claude Code and the ACP agents offered in their last conversation,
 // for Settings → Models & providers.
 const agentModelCache = createAgentModelCache({ file: path.join(CONFIG_DIR, "agent-models.json") });
@@ -2278,16 +2260,16 @@ function choiceForSession(agentId, sessionId) {
   const choice = { ...last, ...own };
   return Object.keys(choice).length ? choice : null;
 }
-// The agents behind the ACP adapter's interface: Cline, Kilo Code and Oh My
-// Pi over their own ACP servers, Antigravity through the bridge over
-// agy's stream (server/antigravity-acp-bridge.js).
-const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "omp", "antigravity"]);
-const ACP_TASK_ID = /^(cline|kilo|omp|antigravity):/;
-const ACP_LABELS = Object.freeze({ cline: "Cline", kilo: "Kilo Code", omp: "Oh My Pi", antigravity: "Google Antigravity" });
-const ACP_DIRECTORY_LABELS = Object.freeze({ cline: "Cline ACP", kilo: "Kilo Code ACP", omp: "Oh My Pi ACP", antigravity: "Google Antigravity" });
+// The agents behind the ACP adapter's interface: Antigravity through the
+// bridge over agy's stream (server/antigravity-acp-bridge.js). Cline, Kilo
+// Code and Oh My Pi were removed in 3.10.10; their stored conversations stay
+// readable as history.
+const ACP_AGENT_IDS = Object.freeze(["antigravity"]);
+const ACP_TASK_ID = /^(antigravity):/;
+const ACP_LABELS = Object.freeze({ antigravity: "Google Antigravity" });
+const ACP_DIRECTORY_LABELS = Object.freeze({ antigravity: "Google Antigravity" });
 function acpAdapterForAgent(agentId) {
-  return agentId === "cline" ? clineAcp : agentId === "kilo" ? kiloAcp : agentId === "omp" ? ompAcp
-    : agentId === "antigravity" ? antigravityAcp : null;
+  return agentId === "antigravity" ? antigravityAcp : null;
 }
 
 // The last turn a Claude conversation recorded, read from the end of Claude's
@@ -5083,7 +5065,7 @@ async function readJSON(req, maxBytes) {
   const body = await readJSONRaw(req, maxBytes);
   const route = String(req.url || "").split("?")[0];
   const mutatingPiCommand = ["/api/rpc-cmd", "/api/cmd"].includes(route) && !/^get_/.test(String(body?.command?.type || body?.type || "")) && !["abort"].includes(body?.command?.type || body?.type);
-  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|cline|kilo|omp|antigravity)\/acp\/prompt)$/.test(route)) {
+  if (mutatingPiCommand || /^\/api\/(send|agent\/send|opencode\/message|codex\/mutation\/turn|claude\/structured\/prompt|(grok|antigravity)\/acp\/prompt)$/.test(route)) {
     const ids = [body?.sid, body?.taskId, body?.threadId, body?.sessionId].filter(Boolean);
     const entry = workspaceRegistry.list().entries.find(row => [row.record.sid, row.record.id, row.record.taskId, row.record.nativeThreadId, row.record.nativeSessionId].some(id => id && ids.includes(id)));
     if (entry && workflows.locked(entry.key)) throw Object.assign(new Error("Pause the Goal before sending another message"), { statusCode: 409 });
@@ -6583,7 +6565,7 @@ const server = http.createServer(async (req, res) => {
         try {
           // Magpie travels beside OpenCodex's own fields, which older pages read.
           const [opencodexStatus, magpieStatus] = await Promise.all([
-            openCodexGateway.status({ agentId: url.searchParams.get("agentId") }),
+            openCodexGateway.status(),
             magpieGateway.status().catch(() => null),
           ]);
           sendJSON(res, 200, { ...opencodexStatus, magpie: magpieStatus });
@@ -6607,14 +6589,6 @@ const server = http.createServer(async (req, res) => {
             const magpie = action === "magpie_codex_routing" ? await magpieGateway.setCodexRouting(body.enabled)
               : await magpieGateway.setClaudeSessionRouting(body.enabled);
             result = { ...(await openCodexGateway.status()), magpie };
-          }
-          else if (action === "omp_integration") {
-            if (auth.mode === "browser" && !req.headers.origin) { sendJSON(res, 403, { error: "origin_required", code: "origin_required" }); return; }
-            if (Object.keys(body).some(key => !["action", "enabled"].includes(key)) || typeof body.enabled !== "boolean") {
-              sendJSON(res, 400, { error: "invalid_request", code: "invalid_request" }); return;
-            }
-            if (!ompAcp) { sendJSON(res, 409, { error: "omp_unavailable", code: "omp_unavailable" }); return; }
-            result = await openCodexGateway.setOmpIntegration(body.enabled);
           }
           else { sendJSON(res, 400, { error: "unknown gateway action" }); return; }
           sendJSON(res, 200, result);
@@ -6799,10 +6773,10 @@ const server = http.createServer(async (req, res) => {
         } catch (error) { sendJSON(res, error.statusCode || 503, { error: error.code || "grok_config_failed" }); }
         return;
       }
-      // Standard ACP endpoints for Cline, Kilo Code, Oh My Pi and Antigravity. They intentionally
-      // mirror the Grok adapter's browser contract while sharing the protocol
+      // Standard ACP endpoints for Antigravity. They intentionally mirror the
+      // Grok adapter's browser contract while sharing the protocol
       // implementation and preserving the agent-owned session identity.
-      const acpMatch = p.match(/^\/api\/(cline|kilo|omp|antigravity)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
+      const acpMatch = p.match(/^\/api\/(antigravity)\/acp(?:\/(sessions|session|events|pending|prompt|cancel|permission|config))?$/);
       if (acpMatch) {
         const agentId = acpMatch[1];
         const action = acpMatch[2] || "root";
@@ -7244,8 +7218,8 @@ const server = http.createServer(async (req, res) => {
         // started is loaded from Grok before the pane shows it.
         if (record.agentId === "grok-build" && record.nativeGrokAcp && record.nativeSessionId && grokAcp
           && !grokAcp.sessions().some(row => row.id === record.nativeSessionId)) record.needsLoad = true;
-        // So do Kilo, Cline and Oh My Pi: after a restart, for example an
-        // update, their conversation is loaded again before it takes a message.
+        // So does Antigravity: after a restart, for example an update, its
+        // conversation is loaded again before it takes a message.
         const acpAdapter = record.nativeAcp && record.nativeSessionId ? acpAdapterForAgent(record.agentId) : null;
         if (acpAdapter && !acpAdapter.sessions().some(row => row.id === record.nativeSessionId && row.loaded !== false)) record.needsLoad = true;
         if (record.agentId === "pi" && record.sid) {
@@ -8855,21 +8829,15 @@ function shutdown(signal) {
     codexPersistedObserver.shutdown(),
     codexNative.close(),
     grokAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
-    clineAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
-    kiloAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
-    ompAcp?.close?.() || { kind: "disabled", cleanupConfirmed: true },
     claudeStructuredCleanup,
     antigravityCleanup,
     openCodeManaged.close(),
-  ]).then(([usageResult, historyResult, nativeHistoryResult, persistedResult, codexResult, grokResult, clineResult, kiloResult, ompResult, claudeResults, antigravityResults, openCodeResult]) => ({
+  ]).then(([usageResult, historyResult, nativeHistoryResult, persistedResult, codexResult, grokResult, claudeResults, antigravityResults, openCodeResult]) => ({
     ...(historyResult || {}),
     cleanupConfirmed: usageResult?.cleanupConfirmed === true && historyResult?.cleanupConfirmed === true && nativeHistoryResult?.cleanupConfirmed !== false
       && persistedResult?.cleanupConfirmed !== false
       && codexResult?.cleanupConfirmed !== false
       && grokResult?.cleanupConfirmed !== false
-      && clineResult?.cleanupConfirmed !== false
-      && kiloResult?.cleanupConfirmed !== false
-      && ompResult?.cleanupConfirmed !== false
       && openCodeResult?.cleanupConfirmed !== false
       && (!Array.isArray(claudeResults) || claudeResults.every(result => result?.cleanupConfirmed !== false))
       && (!Array.isArray(antigravityResults) || antigravityResults.every(result => result?.cleanupConfirmed !== false)),

@@ -59,7 +59,7 @@ The target is best-effort viewing, not a change to model context or answer verbo
 | Codex mutable native transcript | 20 turn summaries +50 items; independent opaque cursors | Seek40 new readable render-unit keys;8 item-page /1MiB UTF16 /1200ms next-page admission; preserve cursor/error/send/focus/intent guards. Ordinary polling stays one latest page. |
 | Claude / Codex read-only catalog, Claude structured existing / branch | 300 messages, tools separate; source version and row boundary | Preserve300 and source-version/read-only gates; never reduce to40. |
 | OpenCode read-only / mutable | 200-message reconcile snapshot; no client older cursor | Preserve200 and cwd/read-only gates; sparse tools-only sources remain source-dependent. |
-| Grok ACP; cline / kilo / omp / Antigravity ACP | Retained structured snapshot,2048 events / default8MiB | Preserve retention and terminal semantics; no proven backwards-message API, no40-history guarantee. |
+| Grok ACP; Antigravity ACP | Retained structured snapshot,2048 events / default8MiB | Preserve retention and terminal semantics; no proven backwards-message API, no40-history guarantee. |
 | Antigravity older structured conversation | Terminal-only unsupported-history notice | Preserve explicit limitation; no automatic reopen. |
 | Generic canonical journal / legacy SSE / terminal fallback |100-event forward replay; max100 pages /512KiB rendered text, retained floor | Preserve replay/fallback bounds; deltas/offsets are not backwards-readable pages. |
 

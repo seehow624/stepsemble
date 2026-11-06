@@ -1,8 +1,10 @@
 "use strict";
 
-// Offline ACP agent for browser tests. It answers session/new in the older
-// "modes" form Hermes 0.21 uses, changes mode with session/set_mode and
-// replies to each prompt with one line. No model, network or credentials.
+// Offline ACP agent for browser tests, run as Grok Build (`grok agent stdio`;
+// server/grok-acp-adapter.js). It offers the cached-token sign-in Grok's
+// adapter looks for and accepts it, answers session/new in the older "modes"
+// form Hermes 0.21 uses, changes mode with session/set_mode and replies to
+// each prompt with one line. No model, network or credentials.
 const readline = require("node:readline");
 
 const out = value => process.stdout.write(JSON.stringify(value) + "\n");
@@ -20,7 +22,10 @@ rl.on("line", line => {
   const reply = result => { if (Object.hasOwn(frame, "id")) out({ jsonrpc: "2.0", id: frame.id, result }); };
   const params = frame.params || {};
   if (frame.method === "initialize") {
-    reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: true } }, agentInfo: { name: "fake-acp", version: "0.0.1" }, authMethods: [] });
+    reply({ protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: true } }, agentInfo: { name: "fake-acp", version: "0.0.1" },
+      authMethods: [{ id: "cached_token", name: "Fixture sign-in" }] });
+  } else if (frame.method === "authenticate") {
+    reply({});
   } else if (frame.method === "session/new" || frame.method === "session/load") {
     const sessionId = frame.method === "session/load" ? params.sessionId : "fake-acp-" + process.pid + "-" + (++counter);
     if (!current.has(sessionId)) current.set(sessionId, "default");

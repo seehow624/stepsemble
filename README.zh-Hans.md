@@ -4,8 +4,8 @@
 
 Stepsemble 是一个开源、自托管、移动优先的本地 coding agent 工作区。Pi Agent
 使用原生会话路径；同一界面也能启动主机上已安装的 Claude Code、Codex CLI、Grok
-Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 和 Oh My Pi（`omp`）。
-Cline、Kilo、Oh My Pi 在本机存在可执行文件时使用官方 ACP；不兼容时安全回退有界通用 connector。
+Build、OpenCode 和 Google Antigravity（`agy`）。Cline、Kilo Code 和 Oh My Pi 已在 3.10.10 移除；
+用它们保存的会话和排程仍可读取，但不能再启动。
 
 ## 隐私与安全
 
@@ -93,7 +93,7 @@ type %USERPROFILE%\.config\stepsemble\token
 
 登录 Agent：在该 Agent 的对话输入 `/login`；`/logout` 和 `/status` 用法相同。Stepsemble 会在对话所在的主机运行该 Agent 自己的指令，并以终端画面呈现：登录链接变成按钮、一次性代码可以复制，输入的内容会送回指令；API key、token、密码这类输入会自动隐藏，也会在输出中遮蔽。在 Pi 对话输入 `/login`，会列出 Pi 支持的服务商，可用账号登录或 API key。
 
-输入框采用 Codex 的排版：左边是附件和**审批模式**，右边依次是 context 圆环、模型和圆形发送键。**审批模式**列出这个对话所用 Agent 自己的权限模式：Codex 是只读、默认、完全访问；Claude Code 是手动确认、自动接受编辑、规划、自动、不询问、跳过权限；OpenCode 是 Build 和 Plan；Kilo、Cline 列出它们报告的模式；Grok Build 是默认和规划，这是它实际会应用的两种；Google Antigravity 是手动确认、自动接受编辑、规划和跳过权限，由 Stepsemble 自己的审批关卡执行（见下方）。Pi 没有这类模式，所以不会显示。每个对话会记住自己的选择；Codex 从下一条消息开始应用，其他 Agent 立即生效。跳过权限需要 Claude Code 的 CLI 支持；如果这台 Mac 通过 Stepsemble 的 Claude 桌面助手启动 Claude Code，助手也要是新版，可在设置的 Claude Code 页面查看并更新。
+输入框采用 Codex 的排版：左边是附件和**审批模式**，右边依次是 context 圆环、模型和圆形发送键。**审批模式**列出这个对话所用 Agent 自己的权限模式：Codex 是只读、默认、完全访问；Claude Code 是手动确认、自动接受编辑、规划、自动、不询问、跳过权限；OpenCode 是 Build 和 Plan；Grok Build 是默认和规划，这是它实际会应用的两种；Google Antigravity 是手动确认、自动接受编辑、规划和跳过权限，由 Stepsemble 自己的审批关卡执行（见下方）。Pi 没有这类模式，所以不会显示。每个对话会记住自己的选择；Codex 从下一条消息开始应用，其他 Agent 立即生效。跳过权限需要 Claude Code 的 CLI 支持；如果这台 Mac 通过 Stepsemble 的 Claude 桌面助手启动 Claude Code，助手也要是新版，可在设置的 Claude Code 页面查看并更新。
 
 **Settings → Agents & models → Models & providers** 会列出主机上安装的每个 Agent。每个 Agent 的页面会说明怎么登录、列出它提供的模型，以及它自己的设置：Pi 的模型显示、自定义 Provider 与最近 7 天用量、OpenCode 的服务商与本机服务器，还有主机装有 Magpie 或 OpenCodex 时，Codex 与 Claude Code 的转发。同一区的 **Quota sources** 用来选择订阅与 API 额度从哪里读取：各 Agent 自己的登录、Pi 的登录与 key、Magpie、OpenCodex，或 CodexBar 的 CLI。每个来源都能开关；同一个服务有多个来源时，也能指定要用哪一个。
 
@@ -106,8 +106,9 @@ OpenCodex 连接了 Pi 时，主机每 5 分钟、以及每次打开模型菜单
 ## Workspace 里的 Agent
 
 Workspace 的**新建会话**会列出本机 Pi Agent，以及已安装的 Claude Code、Codex
-CLI、Grok Build、OpenCode、Google Antigravity（`agy`）、Cline、Kilo Code 和 Oh My Pi。
+CLI、Grok Build、OpenCode 和 Google Antigravity（`agy`）。
 Hermes Agent 交给它自己的桌面版和手机 App，Stepsemble 不再连接、提供或升级它。
+Cline、Kilo Code 和 Oh My Pi 已在 3.10.10 移除：用它们保存的会话、Goal 和排程仍留在存储中、可以读取，但不再列出、升级或再次运行。
 在**新建会话**中可以选择 Agent，并可勾选隔离 Git worktree；Agent 还没登录时，同一个窗口会先提供它自己的登录，登录完成后建立会话。CLI 的 stdout/stderr 会流式显示在对话中；macOS/Linux 使用内置
 `server/pty-bridge.py` 提供交互式终端，Windows 或没有 Python 的主机则使用安全 pipe。
 计时器会在离开页面或关闭浏览器后继续；在 Workspace 侧边列表重新打开即可回放有限长度的输出。
@@ -116,13 +117,8 @@ Hermes Agent 交给它自己的桌面版和手机 App，Stepsemble 不再连接�
 重启 Stepsemble 网页服务后会重新接管监督器，任务计时和输出继续；如果主机或监督器本身被终止，
 任务会如实标记为已中断。Workspace 侧边列表显示每个会话的状态，每个窗格都有停止按钮，**其他 App 的历史**可以搜索主机上的所有会话，也能打开只读的历史阅读器。
 
-Grok Build 只要装了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回终端方式）。Cline、Kilo、Oh My Pi 使用
-标准 ACP 的 session/update、cancel 与 permission options；Stepsemble 不读取私有
-credential、gateway 或 session store。可用 `STEPSEMBLE_CLINE_ACP=0`、
-`STEPSEMBLE_KILO_ACP=0`、`STEPSEMBLE_OMP_ACP=0` 分别回退 CLI。
-Oh My Pi 用 Bun 安装（`bun install -g @oh-my-pi/pi-coding-agent`，需要 Bun 1.3.14 以上），
-`omp` 会在 `~/.bun/bin`，Stepsemble 会到那里找。
-`omp` 还没登录模型供应商时，新建 Oh My Pi 会话会先提供 `omp login`。
+Grok Build 只要装了 `grok` 就使用 ACP（`STEPSEMBLE_GROK_ACP=0` 可改回终端方式）；Stepsemble 不读取私有
+credential、gateway 或 session store。
 
 Google Antigravity 只要装了 `agy`，就走它官方文档记载的 headless 流（stream-json）；
 `STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 可改回终端。每个会话就是 agy 自己的会话，界面和 ACP Agent 的会话一样：

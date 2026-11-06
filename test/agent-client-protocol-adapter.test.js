@@ -53,7 +53,7 @@ test("ACP adapter initializes, creates, prompts, and cancels through standard me
   const child = childFixture();
   const updates = [];
   const rates = [];
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, onUpdate: update => updates.push(update), onRateEvent: event => rates.push(event) });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, onUpdate: update => updates.push(update), onRateEvent: event => rates.push(event) });
   t.after(() => adapter.close());
   const session = await adapter.createSession({ directory: "/tmp" });
   assert.equal(session.kind, "created");
@@ -85,7 +85,7 @@ test("an ACP turn outlasts the request time limit", async t => {
       else if (frame.method === "session/prompt") setTimeout(() => reply({ stopReason: "end_turn" }), 80);
     }
   });
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 20 });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, requestTimeoutMs: 20 });
   t.after(() => adapter.close());
   const session = await adapter.createSession({ directory: "/tmp" });
   const result = await adapter.prompt(session.sessionId, "a long task");
@@ -95,7 +95,7 @@ test("an ACP turn outlasts the request time limit", async t => {
 
 test("ACP prompts carry image attachments beside their text", async t => {
   const child = childFixture();
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
   t.after(() => adapter.close());
   const session = await adapter.createSession({ directory: "/tmp" });
   const png = "iVBORw0KGgoAAAANSUhEUg==";
@@ -125,7 +125,7 @@ test("ACP model choice is read and applied through session config options", asyn
     { id: "mode", name: "Mode", category: "mode", currentValue: "ask", options: [{ value: "ask", name: "Ask" }] },
   ];
   const child = childFixture({ configOptions });
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
   t.after(() => adapter.close());
   const session = await adapter.createSession({ directory: "/tmp" });
 
@@ -251,7 +251,7 @@ test("an ACP message is kept with the conversation's updates, and a refusal keep
       }
     }
   });
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/kilo", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => child });
   t.after(() => adapter.close());
   await adapter.createSession({ directory: "/tmp" });
   assert.equal((await adapter.prompt("session-1", "hello there")).kind, "prompted");
@@ -265,7 +265,7 @@ test("an ACP message is kept with the conversation's updates, and a refusal keep
   assert.equal(refused.error, "Internal error: You need to sign in to use this model.");
 });
 
-// Oh My Pi 18.6 before its sign-in: session/new answers with mode and thinking
+// An agent before its sign-in: session/new answers with mode and thinking
 // options but no model, and a prompt fails as a bare "Internal error" whose
 // data says why.
 function modelLessChild() {
@@ -278,14 +278,14 @@ function modelLessChild() {
       const frame = JSON.parse(line);
       const reply = value => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, ...value }) + "\n");
       if (frame.method === "initialize") reply({ result: { agentCapabilities: { loadSession: true, sessionCapabilities: { close: {} } } } });
-      else if (frame.method === "session/new") reply({ result: { sessionId: "omp-1", configOptions: [
+      else if (frame.method === "session/new") reply({ result: { sessionId: "acp-1", configOptions: [
         { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Default" }, { value: "plan", name: "Plan" }] },
         { id: "thinking", name: "Thinking", category: "thought_level", type: "select", currentValue: "auto", options: [{ value: "off", name: "Off" }, { value: "auto", name: "Auto" }] },
       ] } });
       else if (frame.method === "session/load") reply({ result: {} });
       else if (frame.method === "session/close") { child.closed.push(frame.params.sessionId); reply({ result: {} }); }
       else if (frame.method === "session/prompt") reply({ error: { code: -32603, message: "Internal error",
-        data: { details: "No model selected.\n\nUse /login, set an API key environment variable, or create /x/.omp/agent/agent.db\n\nThen use /model to select a model." } } });
+        data: { details: "No model selected.\n\nUse /login, set an API key environment variable, or create /x/.agent/agent.db\n\nThen use /model to select a model." } } });
     }
   });
   return child;
@@ -293,23 +293,23 @@ function modelLessChild() {
 
 test("an ACP agent that needs a model counts a new conversation without one as signed out", async t => {
   const child = modelLessChild();
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/omp", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, requiresModel: true });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => child, requiresModel: true });
   t.after(() => adapter.close());
   const created = await adapter.createSession({ directory: "/tmp" });
   assert.equal(created.kind, "reject");
   assert.equal(created.code, "acp_auth_required");
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(child.closed, ["omp-1"], "the unusable conversation is closed again");
-  assert.equal(adapter.sessions().some(row => row.id === "omp-1"), false);
+  assert.deepEqual(child.closed, ["acp-1"], "the unusable conversation is closed again");
+  assert.equal(adapter.sessions().some(row => row.id === "acp-1"), false);
   // A conversation that already exists is opened again either way.
-  assert.equal((await adapter.createSession({ directory: "/tmp", sessionId: "omp-1" })).kind, "loaded");
+  assert.equal((await adapter.createSession({ directory: "/tmp", sessionId: "acp-1" })).kind, "loaded");
 });
 
 test("an ACP Internal error shows the agent's reason from its data", async t => {
-  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/omp", args: ["acp"], cwd: "/tmp", spawnImpl: () => modelLessChild() });
+  const adapter = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => modelLessChild() });
   t.after(() => adapter.close());
   assert.equal((await adapter.createSession({ directory: "/tmp" })).kind, "created", "without requiresModel the conversation opens");
-  const refused = await adapter.prompt("omp-1", "hello");
+  const refused = await adapter.prompt("acp-1", "hello");
   assert.equal(refused.kind, "reject");
   assert.equal(refused.code, "acp_auth_required");
   assert.match(refused.error, /^No model selected\. Use \/login, /);

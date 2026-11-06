@@ -64,19 +64,6 @@ function clineMessages(agent, values, session, model = "unknown") {
   }
   return {session,rows,meta:{},partial};
 }
-function clineCli(value, session, manifest = {}) {
-  if (!Array.isArray(value?.messages)) return null;
-  session=text(value.sessionId || session,400);const rows=[];let partial=false,model=manifest.model,provider=manifest.provider;
-  for(const message of value.messages) {
-    if(message.role!=="assistant") continue;
-    model=message.modelInfo?.id || model;provider=message.modelInfo?.provider || provider;
-    const m=message.metrics;if(!m) continue;
-    const r=call("cline",session,message.id,message.ts,model,provider,
-      breakdown({input:m.inputTokens,output:m.outputTokens,cacheRead:m.cacheReadTokens,cacheWrite:m.cacheWriteTokens},true),{cost:m.cost});
-    if(r) rows.push(r);else partial=true;
-  }
-  return {session,rows,meta:{cwd:text(manifest.cwd || manifest.workspace_root,4096),name:text(manifest.title)},partial};
-}
 function grokLog(values, session = "") {
   const rows=[],models=new Map(),meta=new Map();let partial=false;
   for(const m of values) {
@@ -142,4 +129,4 @@ function antigravityGeneration(blob, session, index, context = {}) {
     breakdown({input:input===null || prompt===null?null:input+prompt,output,cacheRead:cache,reasoning:thought},false,true),{dateApproximate:!at});
 }
 function antigravityContext(blob) {const fields=proto(blob);let cwd=str(nested(fields,1),1);try{const url=new URL(cwd);cwd=url.protocol==="file:"?decodeURIComponent(url.pathname):"";}catch{cwd="";}return {started:protoTime(nested(fields,2)),cwd:text(cwd,4096)};}
-module.exports={breakdown,call,opencodeMessage,geminiSession,clineMessages,clineCli,grokLog,grokUpdates,proto,protoTime,antigravityGeneration,antigravityContext};
+module.exports={breakdown,call,opencodeMessage,geminiSession,clineMessages,grokLog,grokUpdates,proto,protoTime,antigravityGeneration,antigravityContext};

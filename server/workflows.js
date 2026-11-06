@@ -5,7 +5,7 @@ const fs = require("node:fs"), path = require("node:path"), { randomUUID, create
 const ACTIVE = new Set(["starting", "running", "waiting"]);
 const RESUMABLE = new Set(["paused", "blocked", "interrupted"]);
 const FINISHED = new Set(["limited", "completed", "failed", "stopped"]);
-const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "grok-build", "antigravity"];
+const AGENTS = ["pi", "codex", "claude-code", "opencode", "grok-build", "antigravity"];
 const CHOICE = /^[^\s\u0000-\u001f\u007f]{1,256}$/, PERMISSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 // A temporary failure retries the same turn; a usage limit waits for its reset.
 const RETRY_DELAYS = [30000, 120000, 480000];
@@ -47,7 +47,11 @@ function targetEntry(value) {
   if (typeof value !== "string" || !/^[a-f0-9-]{36}$/.test(value)) throw invalid("Invalid target conversation");
   return value;
 }
-const retired = row => row.agentId === "hermes";
+// Agents no longer in the product (Hermes; Oh My Pi, Cline and Kilo Code since
+// 3.10.10). Their saved rows stay verbatim in storage, outside every
+// operational view, and are never admitted again.
+const RETIRED_AGENTS = new Set(["hermes", "omp", "cline", "kilo"]);
+const retired = row => RETIRED_AGENTS.has(row.agentId);
 function definition(body) { return taskDefinition(body, false); }
 // Retired rows are validated for storage only, never admitted for execution.
 function taskAgent(body, saved) {

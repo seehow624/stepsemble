@@ -2,8 +2,8 @@
 
 // A CLI written as a script names its runtime on its first line, such as
 // "#!/usr/bin/env node" or "#!/usr/bin/env bun". Package managers keep that
-// runtime in the same folder as the CLI (Bun puts both bun and omp in
-// ~/.bun/bin), so a service started with a short PATH could find the CLI and
+// runtime in the same folder as the CLI (Bun puts both bun and the CLIs it
+// installs in ~/.bun/bin), so a service started with a short PATH could find the CLI and
 // still fail to start it. The CLI's own folder is added at the end of PATH:
 // it fills that gap without changing which programs the PATH already chooses.
 

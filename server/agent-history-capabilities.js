@@ -16,9 +16,6 @@ const CAPABILITIES = Object.freeze({
   codex: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   opencode: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
   "grok-build": Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
-  cline: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
-  kilo: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
-  omp: Object.freeze({ mode: "compat", history: "canonical_bounded", subagents: "unavailable", approval: "structured_ack_required" }),
 });
 
 function historyConfiguredFor(agentId, configured) {
@@ -74,22 +71,6 @@ function capabilityFor(agentId, { journalAvailable = false, nativeHistoryConfigu
       approval: "structured_ack_required",
       session: "native_api",
       source: "grok-acp-v1",
-      adapter: adapter.adapter,
-      nativeVersion: adapter.version || null,
-      readOnly: false,
-      journal,
-      journalScope: journalAvailable ? "host-local" : "unavailable",
-    };
-  }
-  if (["cline", "kilo", "omp"].includes(id) && adapter?.ready === true && adapter?.adapter === "acp-v1") {
-    return {
-      ...base,
-      mode: "native_api",
-      history: "native_api",
-      subagents: "native_observed",
-      approval: "structured_ack_required",
-      session: "native_api",
-      source: "agent-client-protocol-v1",
       adapter: adapter.adapter,
       nativeVersion: adapter.version || null,
       readOnly: false,

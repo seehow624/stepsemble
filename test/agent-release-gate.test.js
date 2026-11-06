@@ -21,7 +21,7 @@ function setup({ now = 0 } = {}) {
 }
 
 test("every agent Stepsemble upgrades for you but Codex has a release check", () => {
-  assert.deepEqual(Object.keys(AGENT_CHECKS).sort(), ["antigravity", "claude-code", "cline", "grok-build", "kilo", "omp", "opencode", "pi"]);
+  assert.deepEqual(Object.keys(AGENT_CHECKS).sort(), ["antigravity", "claude-code", "grok-build", "opencode", "pi"]);
   for (const { script } of Object.values(AGENT_CHECKS)) assert.ok(fs.existsSync(path.join(__dirname, "..", "scripts", script)), script);
 });
 
@@ -47,16 +47,16 @@ test("a release never checked, or failed in an older Stepsemble, is checked in t
   assert.deepEqual(f.settled, [{ id: "grok-build", version: "1.0.50" }]);
   assert.equal(f.spawned.length, 2, "the next one starts");
   assert.deepEqual(f.spawned[1].args.slice(-1), ["1.1.0"]);
-  // An ACP agent's check names the agent.
+  // Each check is its agent's own script, with the version as its only argument.
   f.spawned[1].child.emit("close", 0);
-  f.gate.verdict("kilo", "7.8.8");
-  assert.deepEqual(f.spawned[2].args.slice(1), ["kilo", "7.8.8"]);
+  f.gate.verdict("antigravity", "1.3.2");
+  assert.deepEqual(f.spawned[2].args, [path.join("/stepsemble", "scripts", "check-antigravity-release.mjs"), "1.3.2"]);
 });
 
 test("only stable releases are installed, and a check that could not run is tried again after an hour", () => {
   const f = setup();
   for (const version of ["3.0.70-nightly.1791548447", "7.8.7-rc.1", "0.0.0-dev-202610081429", "latest"]) {
-    assert.deepEqual([f.gate.verdict("cline", version).state, f.gate.verdict("cline", version).reason], ["unsupported", "not_stable"], version);
+    assert.deepEqual([f.gate.verdict("opencode", version).state, f.gate.verdict("opencode", version).reason], ["unsupported", "not_stable"], version);
   }
   assert.equal(f.spawned.length, 0);
   f.gate.verdict("antigravity", "1.3.2");

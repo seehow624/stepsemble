@@ -69,7 +69,7 @@ function createUsageParser(agent, expectedId, { maxRows = 100000, checkpoint: sa
   }
   function consume(row) {
     if (!row || typeof row !== "object") return;
-    if (agent === "pi" || agent === "omp") {
+    if (agent === "pi") {
       let message, summary = false;
       if (format === "pi-transcript") {
         if (row.version !== 1 || !artifactTypes.has(row.recordType) || !["foreground", "async"].includes(row.source) || typeof row.agent !== "string"

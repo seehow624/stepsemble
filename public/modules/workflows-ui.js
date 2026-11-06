@@ -5,7 +5,7 @@
   if (root) root.StepsembleWorkflows = api;
 })(typeof window !== "undefined" ? window : null, function (root) {
   "use strict";
-  const AGENTS = ["pi", "codex", "claude-code", "omp", "opencode", "cline", "kilo", "grok-build", "antigravity"];
+  const AGENTS = ["pi", "codex", "claude-code", "opencode", "grok-build", "antigravity"];
   const ACTIVE = ["queued", "starting", "running", "waiting", "stopping"];
   const RESUMABLE = ["paused", "blocked", "interrupted"];
   const ATTENTION = ["waiting", "blocked", "interrupted", "failed", "limited"];
@@ -145,7 +145,7 @@
     const call = (body, target = contextValue.target) => api("/api/workflows", body, target);
     const rows = () => data?.schedules || [];
     const current = () => rows().find(row => row.id === selected);
-    const agentName = id => root.StepsembleAgentIdentity?.lookup(id).label || ({ pi:"Pi Agent", codex:"Codex", "claude-code":"Claude Code", omp:"Oh My Pi", opencode:"OpenCode", cline:"Cline", kilo:"Kilo Code", "grok-build":"Grok Build" })[id] || id;
+    const agentName = id => root.StepsembleAgentIdentity?.lookup(id).label || ({ pi:"Pi Agent", codex:"Codex", "claude-code":"Claude Code", opencode:"OpenCode", "grok-build":"Grok Build" })[id] || id;
     const liveTime = row => elapsed(row, received.get(row.id) || Date.now(), connected ? Date.now() : frozenAt);
     function close() {
       epoch++; revision++; root.clearTimeout(timer); root.clearInterval(clock);

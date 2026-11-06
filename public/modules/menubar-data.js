@@ -4,7 +4,7 @@
   else root.StepsembleMenubarData = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
-  const AGENT_NAMES = Object.freeze({ codex: "Codex", "claude-code": "Claude Code", pi: "Pi", omp: "Oh My Pi", opencode: "OpenCode", hermes: "Hermes", gemini: "Gemini CLI", cline: "Cline", "kilo": "Kilo Code", "roo-code": "Roo Code", "grok-build": "Grok Build", antigravity: "Antigravity" });
+  const AGENT_NAMES = Object.freeze({ codex: "Codex", "claude-code": "Claude Code", pi: "Pi", opencode: "OpenCode", hermes: "Hermes", gemini: "Gemini CLI", "roo-code": "Roo Code", "grok-build": "Grok Build", antigravity: "Antigravity" });
   function range(now = new Date(), timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
     const start = new Date(now); start.setHours(0, 0, 0, 0);
     const end = new Date(start); end.setDate(end.getDate() + 1);

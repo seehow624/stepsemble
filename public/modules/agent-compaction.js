@@ -1,7 +1,7 @@
 /* Explicit compaction only; a pane observes Host work and never owns its lifetime. */
 (function(root,factory){const api=factory(root);if(typeof module==="object"&&module.exports)module.exports=api;else root.StepsembleAgentCompaction=api;})(typeof window!=="undefined"?window:globalThis,function(root){
   "use strict";
-  const AGENTS=new Set(["pi","claude-code","codex","opencode","cline","kilo","omp","grok-build","antigravity"]);
+  const AGENTS=new Set(["pi","claude-code","codex","opencode","grok-build","antigravity"]);
   const ACTIVE=new Set(["running"]);
   function parse(value){if(typeof value!=="string")return null;const match=value.trimStart().match(/^\/compact(?:\s+([\s\S]*))?$/i);return match?{instructions:(match[1]||"").trim()}:null;}
   const eligible=agent=>AGENTS.has(agent);

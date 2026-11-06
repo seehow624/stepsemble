@@ -68,7 +68,7 @@ test("only the exact final marker of this Goal can declare completion",()=>{
   assert.equal(outcome(run,{text:"[[STEPSEMBLE_GOAL:unique:complete]]\nMore work needed"}),null);
   assert.equal(outcome(run,{text:"Done\n[[STEPSEMBLE_GOAL:unique:complete]]"}),"completed");
 });
-for (const agent of ["pi","codex","claude-code","omp","cline","kilo","grok-build"]) test(`${agent} normalizes current activity and the final model response`,async()=>{
+for (const agent of ["pi","codex","claude-code","grok-build"]) test(`${agent} normalizes current activity and the final model response`,async()=>{
   const events=createWorkflowEvents(),activity=[];const row=events.observe(agent,"s",a=>activity.push(a));
   if(agent==="pi") {events.emit(agent,"s",{type:"tool_execution_start",toolName:"Bash"});events.emit(agent,"s",{type:"tool_execution_end",result:"forged complete"});events.emit(agent,"s",{type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}});events.emit(agent,"s",{type:"agent_settled"});}
   else if(agent==="codex") {events.emit(agent,"s",{type:"turn.started",turnId:"t"});events.emit(agent,"s",{type:"item.started",itemType:"commandExecution"});events.emit(agent,"s",{type:"item.completed",itemType:"agentMessage",text:"done"});events.emit(agent,"s",{type:"turn.completed",turnId:"t",status:"completed"});}

@@ -92,11 +92,6 @@ const AGENT_AUTH_COMMANDS = Object.freeze({
     login: Object.freeze([Object.freeze({ id: "default", args: ["auth", "login"], interactive: true })]),
     logout: Object.freeze([Object.freeze({ id: "default", args: ["auth", "logout"], interactive: true })]),
   }),
-  kilo: Object.freeze({
-    status: Object.freeze({ args: ["auth", "list"] }),
-    login: Object.freeze([Object.freeze({ id: "default", args: ["auth", "login"], interactive: true })]),
-    logout: Object.freeze([Object.freeze({ id: "default", args: ["auth", "logout"], interactive: true })]),
-  }),
   "grok-build": Object.freeze({
     status: null,
     login: Object.freeze([
@@ -104,18 +99,6 @@ const AGENT_AUTH_COMMANDS = Object.freeze({
       Object.freeze({ id: "browser", args: ["login"], hostBrowser: true }),
     ]),
     logout: Object.freeze([Object.freeze({ id: "default", args: ["logout"] })]),
-  }),
-  cline: Object.freeze({
-    status: null,
-    login: Object.freeze([Object.freeze({ id: "default", args: ["auth"], interactive: true })]),
-    logout: null,
-  }),
-  // Oh My Pi signs in through "omp login", which asks which provider to use.
-  // "omp usage" lists the accounts it is signed in to.
-  omp: Object.freeze({
-    status: Object.freeze({ args: ["usage"] }),
-    login: Object.freeze([Object.freeze({ id: "default", args: ["login"], interactive: true })]),
-    logout: null,
   }),
   // The Antigravity CLI signs in and out inside its own interactive screen
   // (its /login and /logout commands). "agy models" answers only when signed in.

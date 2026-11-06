@@ -15,7 +15,7 @@
   const PROVIDERS = Object.freeze({
     anthropic: "Anthropic", openai: "OpenAI", "openai-codex": "ChatGPT", native: "ChatGPT", chatgpt: "ChatGPT",
     "chatgpt or codex subscription": "ChatGPT", magpie: "Magpie", claude: "Anthropic", codex: "ChatGPT", minimax: "MiniMax", "minimax-cn": "MiniMax", "opencode-go": "OpenCode Go",
-    "opencode go": "OpenCode Go", opencode: "OpenCode Zen", openrouter: "OpenRouter", kilo: "Kilo Gateway", "kilo gateway": "Kilo Gateway",
+    "opencode go": "OpenCode Go", opencode: "OpenCode Zen", openrouter: "OpenRouter",
     xai: "xAI", "x-ai": "xAI", google: "Google", gemini: "Google", "google-vertex": "Google Vertex", deepseek: "DeepSeek", qwen: "Qwen",
     alibaba: "Alibaba", moonshotai: "Moonshot AI", moonshot: "Moonshot AI", "z-ai": "Z.ai", zai: "Z.ai", zhipuai: "Zhipu AI",
     "ollama-cloud": "Ollama Cloud", ollama: "Ollama", "github-copilot": "GitHub Copilot", mistral: "Mistral", mistralai: "Mistral",
@@ -24,10 +24,10 @@
     xiaomi: "Xiaomi", "aion-labs": "AionLabs", inception: "Inception", "bytedance-seed": "ByteDance Seed", "ibm-granite": "IBM",
   });
   // The agent itself when a list names no provider.
-  const AGENT_PROVIDERS = Object.freeze({ "claude-code": "Anthropic", codex: "OpenAI", "grok-build": "xAI", kilo: "Kilo Gateway" });
+  const AGENT_PROVIDERS = Object.freeze({ "claude-code": "Anthropic", codex: "OpenAI", "grok-build": "xAI" });
   // Agent ids some lists use in place of a provider; never shown as one.
   // OpenCode's own provider is also called "opencode", so its list keeps it.
-  const AGENT_IDS = new Set(["claude-code", "codex", "grok-build", "kilo", "cline", "omp", "antigravity"]);
+  const AGENT_IDS = new Set(["claude-code", "codex", "grok-build", "antigravity"]);
   // Bracketed words that describe a model rather than name it.
   const TAG = /^(?:new|free|\$+|beta|alpha|preview|deprecated|legacy|experimental|retir(?:es|ing)\b.*|\d+%\s*off)$/i;
 
@@ -208,8 +208,6 @@
     // A provider's own id: "OpenRouter · anthropic/claude-sonnet-5", id "openrouter:anthropic/claude-sonnet-5".
     const scoped = /^([A-Za-z0-9][A-Za-z0-9._-]*):(.+)$/.exec(id);
     if (scoped && (match = /^(.+?)\s+·\s+(.+)$/.exec(name))) { route = providerName(scoped[1]) || match[1]; name = match[2]; }
-    // Kilo: "Kilo Gateway/Anthropic: Claude Opus 5.5 (new)".
-    else if ((match = /^([^/:]*\s[^/:]*)\/(?:([^:/]+):\s+)?(.+)$/.exec(name))) { route = providerName(match[1]); if (match[2]) vendor = match[2]; name = match[3]; }
     // "anthropic/claude-sonnet-5": a vendor and its model.
     if ((match = /^([A-Za-z0-9][A-Za-z0-9._~-]*)\/(.+)$/.exec(name))) { vendor = match[1].replace(/^~/, ""); name = match[2]; }
     // A Magpie id's level and 1M tag describe the run, not the model.

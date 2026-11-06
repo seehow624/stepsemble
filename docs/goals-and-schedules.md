@@ -48,9 +48,12 @@ conversation interface and continues in that conversation when another turn is
 needed. The Goal's chip shows its state and elapsed time; opened, it also shows
 current activity, turns, output tokens and the most recent result.
 
-Supported native agents: Pi, Claude Code, Codex, OpenCode, Oh My Pi (OMP), Cline,
-Kilo and Grok Build. The installed agent must be signed in and its native
+Supported native agents: Pi, Claude Code, Codex, OpenCode, Grok Build and
+Google Antigravity. The installed agent must be signed in and its native
 adapter enabled. Generic terminal-only conversations are not supported.
+Goals and schedules saved with Hermes, or with Oh My Pi, Cline or Kilo Code
+(removed in 3.10.10), stay in storage unchanged: they are not listed, run,
+resumed or edited, and a new one with those agents is refused.
 
 A schedule can pin a model, reasoning level and permission mode for the new
 conversations it opens. Without a pin, a new conversation uses the agent's last

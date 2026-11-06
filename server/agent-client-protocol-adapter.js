@@ -1,7 +1,8 @@
 "use strict";
 
 // Shared Agent Client Protocol (ACP) v1 bridge for agents that expose an ACP
-// server over stdio (Cline, Kilo Code and Oh My Pi). The bridge deliberately
+// server over stdio; Antigravity's bridge presents its interface and Grok
+// Build's adapter mirrors its contract. The bridge deliberately
 // keeps its authority at the wire boundary: it does not read an agent's
 // private database, credential store, or TUI history files. Session IDs,
 // updates, and permission request IDs are accepted only after the ACP peer
@@ -226,9 +227,9 @@ function createAgentClientProtocolAdapter({
   onRateEvent = null,
   onPermission = null,
   registryFile = null,
-  // An agent that opens a conversation without a single model (Oh My Pi
-  // before its sign-in) cannot answer it. With this set, that new
-  // conversation counts as the agent's sign-in being needed.
+  // An agent that opens a conversation without a single model (before its
+  // sign-in) cannot answer it. With this set, that new conversation counts
+  // as the agent's sign-in being needed.
   requiresModel = false,
 } = {}) {
   const rateEvent = event => { try { onRateEvent?.(event); } catch {} };
@@ -341,7 +342,7 @@ function createAgentClientProtocolAdapter({
       // model", is shown to the person instead of a bare "not sent".
       if (Object.hasOwn(frame, "error")) {
         // A bare JSON-RPC "Internal error" may carry the agent's reason in its
-        // data: Oh My Pi says "No model selected … Use /login" there.
+        // data, such as "No model selected … Use /login".
         const raw = String(frame.error?.message || ""), details = typeof frame.error?.data?.details === "string" ? frame.error.data.details : "";
         const message = safeText(details && /^internal error$/i.test(raw.trim()) ? details.replace(/\s*\n\s*/g, " ").trim() : raw, 500);
         const authRequired = frame.error?.code === -32000 || /\bauthenticat(?:e|ion) (?:is )?required|call authenticate\b/i.test(raw)

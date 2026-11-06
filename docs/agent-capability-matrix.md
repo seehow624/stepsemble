@@ -12,7 +12,6 @@
 | OpenCode server | 原生 file parts | 原生模型清單、送出時選擇 | 最新回覆用量及模型容量 |
 | Claude structured | Anthropic image blocks | initialize 模型清單、set_model 原生 ACK | 最新 assistant 輸入與 cache tokens；容量由原生 modelUsage 提供 |
 | Codex app-server | 原生 image data URL | model/list 清單、下一個 turn 的 model/effort | thread/tokenUsage/updated 的 last 與 modelContextWindow |
-| Cline / Kilo / Oh My Pi ACP | ACP image blocks | 僅 agent 有提供 model config option 時 | 僅 agent 有回報用量與容量時 |
 | 純終端／唯讀歷史 | 不提供發送圖片 | 不提供即時模型控制 | 不推算原生 context |
 
 未知用量或容量保留未知，不以累積計費 token 冒充當前上下文。模型清單依電腦上官方 harness 的設定與帳號回傳，不寫入全域帳號／provider 設定。Codex 的舊分頁若指向另一個已開啟的原生 thread，送出／停止會拒絕並要求重新開啟正確對話。
@@ -39,9 +38,7 @@
 | Codex | 官方 app-server JSON-RPC thread/turn/item、model/list、tokenUsage 與 approval | reviewed `0.153.4`／`0.154.0`／`0.156.1`／`0.157.0` 可原生 resume、圖片 prompt、model/effort、context、interrupt 與 approval；使用 owner-only intent journal | 原生 response 可作 bounded ACK；approval pipe `written` 仍只是 `awaiting_confirmation`。未審核版本不開原生 mutation；不能承諾未來任意版本即時相容。 |
 | Grok Build | 官方 CLI 支援 `--session-id`／`--resume`／`--continue`、`~/.grok/sessions`、streaming JSON，以及 `grok agent stdio` 的 ACP JSON-RPC；另有 permission mode、subagents、session list/search/export | 3.6.0 起裝有 `grok` 就使用 `grok-acp-v1` structured ACP session（`STEPSEMBLE_GROK_ACP=0` 關閉）；Grok 1.0.41 在 ACP 不列出模式，但 `session/set_mode` 對 `default`／`plan` 會回報 `current_mode_update`，其他名稱（含 `--permission-mode` 的值）回 OK 卻不套用，所以核准選單只提供預設與規劃；Stepsemble 驗證 initialize/authenticate/session/new/session/prompt/update/cancel、permission request/response，Agent Hub 可開啟、重送、停止與顯示 ACP options；3.6.3 起回答中顯示停止鍵與工作狀態、停止改送 ACP 規範的 `session/cancel` 通知（Grok 1.0.41 對請求形式回 Method not found 且繼續回答）、回答不再受 30 秒請求逾時限制；Grok 1.0.41 的 `promptCapabilities.image` 為 false，但實測 ACP 圖片區塊會交給模型（答對測試圖的顏色），所以附件照常提供；3.6.2 起模型與思考等級取自 Grok 回報的 `configOptions`（`model`、`reasoning_effort`，含 `~/.grok/config.toml` 設定的 OpenCodex 模型），以 `session/set_config_option` 切換 | 需本機 `grok` 可執行；沒有登入時 `/api/agent/open` 回 409 `grok_auth_required`，Workspace 的新增對話會提供 Grok 自己的登入。Stepsemble 不讀 `~/.grok/sessions`；3.6.2 起 Host 重啟後打開 Workspace 裡的 Grok 對話，會以 ACP `session/load` 向 Grok 載入（保留回放的歷史、名稱、模型與模式），載入失敗就顯示錯誤，不把它當成完整歷史。 |
 | Google Antigravity | 官方 [`agy` headless CLI](https://antigravity.google/docs/cli/headless/)：`--input-format stream-json`、`--output-format stream-json`、`--conversation`、`--model`、`--effort`、`--mode`、`--add-dir`、`--dangerously-skip-permissions`；輸出 `init`／`step_update`／`result` NDJSON；PreToolUse hook（`.agents/hooks.json`） | 裝有 `agy` 就使用 `antigravity-acp-v1`：以 ACP adapter 的介面呈現（`server/antigravity-acp-bridge.js`），Agent Hub 與其他 ACP Agent 共用畫面與路由（`/api/antigravity/acp/*`）。模型、思考強度（gateway 模型 low／medium／high）、四種核准模式、Allow／Deny 卡片（含子代理的動作）、context（容量取自 Magpie 模型清單）、圖片（存成檔案由 agy `read_file`）、停止、排隊送出、Goal、Host 重啟後接續（registry＋transcript replay）、列出在 agy 自己畫面開始的對話（`conversation_summaries.db` 私有副本）、引用為 handoff 來源 | 核准由 Stepsemble 的 PreToolUse hook 獨佔（agy 以 `--dangerously-skip-permissions` 啟動），hook／gate 一律 fail-closed，沒經 gate 允許就完成的變更動作會停止對話（tripwire）；新版 agy 必須通過 `check-native-antigravity-release.mjs` 的 gate 實測才採用。模型、思考強度與規劃模式只在 agy 啟動時讀，換了之後下一則訊息才重開 agy 接回同一對話。agy 串流沒有 fork、compaction、思考文字；`ask_question` 會被 agy 自動略過；`--mode auto` API key 帳號不能用。`STEPSEMBLE_ANTIGRAVITY_STRUCTURED=0` 回終端機。 |
-| Cline | 官方 CLI 提供 `--acp` Agent Client Protocol 模式、session/prompt/update、permission request，以及 `--json` headless 模式 | **已完成 ACP native adapter**；若本機有 `cline`，Stepsemble 以 `cline --acp` 啟動標準 ACP，保留 upstream session ID、stream update、cancel 與 option-bound approval；Host restart 後以 bounded index 提供 resume 入口 | Stepsemble 不讀 Cline 私有資料庫；完整 transcript 仍由 upstream `session/load` 提供。可用 `STEPSEMBLE_CLINE_ACP=0` 回退 bounded CLI。3.6.0 起 ACP 回 -32000（需要驗證）時不再退回 bounded CLI，改回 409 `cline_auth_required`，由新增對話提供 `cline auth`；Kilo 相同。 |
-| Kilo Code | 官方 CLI 提供 `kilo run`、JSON 格式、session resume，以及 ACP server | **已完成 ACP native adapter**；若本機有 `kilo`，Stepsemble 以 `kilo acp` 啟動標準 ACP，支援 session/new/load、prompt/update、cancel 與 option-bound approval；Host restart 後以 bounded index 提供 resume 入口 | 不讀 Kilo 私有 credential/store；跨 restart 不掃描 SQLite，仍由 upstream `session/load` 決定 transcript。可用 `STEPSEMBLE_KILO_ACP=0` 回退 bounded CLI。 |
-| Oh My Pi | 官方 `omp acp` ACP v1 stdio server：session/new/load/list/fork/resume/close、prompt/update、cancel、permission request；登入用 `omp login` | **已完成 ACP native adapter**；若本機有 `omp`（Bun 裝在 `~/.bun/bin`），Stepsemble 以 `omp acp` 啟動標準 ACP；Host restart 後以 bounded index 提供 resume 入口 | omp 未登入時 `session/new` 仍會成功但沒有 model 選項，prompt 才回 `-32603 Internal error`（`data.details` 為 "No model selected … Use /login"）。Stepsemble 因此把「新對話沒有 model 選項」視為需要登入，關閉該空對話並回 409 `omp_auth_required`，由新增對話提供 `omp login`。可用 `STEPSEMBLE_OMP_ACP=0` 回退 bounded CLI。 |
+| Cline、Kilo Code、Oh My Pi | （已在 3.10.10 移除） | 不再是支援的 agent：不列在新增對話、不啟動 ACP、不檢查或升級 | 用它們儲存的對話、Goal 與排程仍留在儲存中、可以讀取，但不再執行；共用的 ACP adapter（`server/agent-client-protocol-adapter.js`）保留給 Grok Build 與 Antigravity |
 
 ## OpenCode native adapter 使用方式
 
@@ -99,17 +96,11 @@ Agent Hub 的 Claude task 會以 public `claude -p --output-format stream-json -
 
 在 host mode 下，`POST /api/claude/structured/permission` 只接受目前 `can_use_tool` request 的 ID，並送出官方 control response；Allow 會帶回 request 的原始 `input`，Deny 會帶回使用者拒絕訊息。未知、重複或 legacy permission frame 一律 fail-closed。若明確配置 `--permission-prompt-tool` MCP tool，Stepsemble 會停用 host response，改由 MCP tool 擁有決策。
 
-### Cline、Kilo Code、Oh My Pi（ACP）
+### 共用 ACP adapter
 
-這三個 connector 都使用標準 ACP JSON-RPC over stdio；Stepsemble 不把單次 JSON output 或私有 SQLite／gateway 檔案當成歷史 authority。執行檔存在時預設啟用，若要回退安全 bounded CLI，可設定：
+`server/agent-client-protocol-adapter.js` 是標準 ACP JSON-RPC over stdio 的共用實作：Grok Build 的 adapter 以同一套契約呈現，Antigravity 的 bridge 對外呈現它的介面。Stepsemble 不把單次 JSON output 或私有 SQLite／gateway 檔案當成歷史 authority。Cline、Kilo Code 與 Oh My Pi 已在 3.10.10 移除，不再經這個 adapter 啟動。
 
-```sh
-export STEPSEMBLE_CLINE_ACP=0
-export STEPSEMBLE_KILO_ACP=0
-export STEPSEMBLE_OMP_ACP=0
-```
-
-ACP adapter 只接受 upstream 回傳的 session ID，並驗證 `session/update` 的 session scope。`session/request_permission` 的回覆只接受當次 request 提供的 `optionId`；不自動選擇、不使用 yolo、不複製訂閱／OAuth。瀏覽器使用的路由為 `/api/{cline|kilo|omp}/acp/{sessions,session,events,pending,prompt,cancel,permission}`；restart index 只存 resume 所需的非秘密 metadata。
+ACP adapter 只接受 upstream 回傳的 session ID，並驗證 `session/update` 的 session scope。`session/request_permission` 的回覆只接受當次 request 提供的 `optionId`；不自動選擇、不使用 yolo、不複製訂閱／OAuth。瀏覽器使用的路由為 `/api/antigravity/acp/{sessions,session,events,pending,prompt,cancel,permission}`（Grok Build 為 `/api/grok/acp/*`）；restart index 只存 resume 所需的非秘密 metadata。
 
 ### Codex
 
@@ -156,7 +147,7 @@ export STEPSEMBLE_ANTIGRAVITY_BIN=/absolute/path/to/agy
 
 Agent Hub 經 `server/antigravity-acp-bridge.js` 以 `agy --input-format stream-json --output-format stream-json`
 執行每個對話（輸入 `{"event":"user","message":{"content":"…"}}`，只接受官方 `init`／`step_update`／`result` 事件），
-對外呈現 ACP adapter 的介面，所以與 Cline、Kilo 等共用：
+對外呈現 ACP adapter 的介面，所以與 Grok Build 共用同一套畫面與路由形式：
 
 - `GET /api/antigravity/acp`、`GET /api/antigravity/acp/events?sessionId=…`（含 `composerQueue`）、`GET /api/antigravity/acp/pending`。
 - `POST /api/antigravity/acp/session`、`POST /api/antigravity/acp/prompt`（agy 工作中則進排隊）、`POST /api/antigravity/acp/cancel`（SIGINT）、
@@ -179,7 +170,7 @@ bridge 先拒絕（`antigravity_command_unavailable`），頁面提供「在終�
 
 ## 為什麼其他 harness 仍然分級
 
-Claude Code 官方 CLI 的 `--resume`、`--output-format stream-json`、`--input-format stream-json`、`--permission-prompts host` 與 control channel 是公開介面；Stepsemble 已把可驗證的 JSONL session／resume／subagent correlation／permission round-trip 接起來。[Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage) 是執行／resume／permission 的公開界面。Codex app-server 則明確定義 thread／turn／item lifecycle 與 approval request；Stepsemble 對 mutation 使用第二層 opt-in 和 intent journal，仍以實際 JSON-RPC evidence 為準。[Codex app-server](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md) 是目前的官方契約。ACP 的 baseline 是 `initialize`、`session/new`、`session/prompt`、`session/update`、`session/cancel` 與 `session/request_permission`；Stepsemble 對 Cline、Kilo、Oh My Pi 使用同一套 bounded ACP adapter。[ACP overview](https://agentclientprotocol.com/protocol/overview)、[ACP schema](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/schema/v1/schema.json)
+Claude Code 官方 CLI 的 `--resume`、`--output-format stream-json`、`--input-format stream-json`、`--permission-prompts host` 與 control channel 是公開介面；Stepsemble 已把可驗證的 JSONL session／resume／subagent correlation／permission round-trip 接起來。[Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage) 是執行／resume／permission 的公開界面。Codex app-server 則明確定義 thread／turn／item lifecycle 與 approval request；Stepsemble 對 mutation 使用第二層 opt-in 和 intent journal，仍以實際 JSON-RPC evidence 為準。[Codex app-server](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md) 是目前的官方契約。ACP 的 baseline 是 `initialize`、`session/new`、`session/prompt`、`session/update`、`session/cancel` 與 `session/request_permission`；Stepsemble 對 Grok Build 與 Antigravity 使用同一套 bounded ACP adapter 契約。[ACP overview](https://agentclientprotocol.com/protocol/overview)、[ACP schema](https://github.com/agentclientprotocol/agent-client-protocol/blob/main/schema/v1/schema.json)
 
 任何 harness 升級到 native 等級前，都必須有：官方版本／協議來源、bounded parser、session／message／child／status／approval fixtures、重啟 reconcile 測試，以及在未設定或 upstream 失敗時回落 `canonical_bounded` 的證據。
 

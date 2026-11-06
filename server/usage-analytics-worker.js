@@ -43,7 +43,7 @@ async function machineUsage({ home, roots, entries, indexDir, workspaceOnly = fa
         if (item.record.agentId !== source.agent) return false;
         const native = nativeId(item.record);
         return !!native && (native === id || !source.artifact && native === source.expected)
-          || ["pi", "omp"].includes(source.agent) && typeof item.record.file === "string" && path.resolve(source.root, item.record.file) === source.file;
+          || source.agent === "pi" && typeof item.record.file === "string" && path.resolve(source.root, item.record.file) === source.file;
       });
       const registered = registrations[0];
       if (workspaceOnly && !registered) continue;

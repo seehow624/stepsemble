@@ -43,22 +43,17 @@ const scenarios = [
     history: { mode: "native_api", approval: "native_api" },
     nativeAdapter: { configured: true, ready: true, state: "ready", approvalReady: true },
   }, { followUp: "ready", model: "ready", images: "ready", approval: "ready", context: "ready" }],
-  ["cline-configured-acp", "cline", {
+  ["grok-configured-acp", "grok-build", {
     installed: true,
     journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "configured" },
-  }, { followUp: "ready", model: "limited", reasoning: "unknown", approval: "ready", recovery: "limited" }],
+  }, { followUp: "ready", model: "unknown", reasoning: "unknown", approval: "ready", recovery: "limited" }],
   ["antigravity-acp", "antigravity", {
     installed: true,
     journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "configured" },
   }, { followUp: "ready", model: "ready", reasoning: "limited", images: "limited", approval: "ready", context: "limited", recovery: "ready" }],
-  ["omp-configured-acp", "omp", {
-    installed: true,
-    journalAvailable: true,
-    nativeAdapter: { configured: true, ready: false, state: "configured" },
-  }, { followUp: "ready", model: "limited", reasoning: "unknown", approval: "ready", recovery: "limited" }],
-  ["missing", "kilo", { installed: false }, { session: "unavailable", followUp: "unavailable", history: "unavailable" }],
+  ["missing", "antigravity", { installed: false }, { session: "unavailable", followUp: "unavailable", history: "unavailable" }],
 ];
 
 const report = [];

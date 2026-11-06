@@ -31,16 +31,15 @@ async function waitForOwnedProcesses(service) {
 
 test("Agent Hub exposes only the allow-listed connector ids", () => {
   const catalog = discoverConnectors({ piBin: process.execPath, env: { PATH: "" }, includeKnownPaths: false });
-  assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode", "antigravity", "cline", "kilo", "omp"]);
+  assert.deepEqual(catalog.map((item) => item.id), ["pi", "claude-code", "codex", "grok-build", "opencode", "antigravity"]);
   assert.equal(catalog[0].installed, true);
   assert.equal(catalog[0].protocolVersion, null);
   assert.deepEqual(catalog[0].events, [], "native Pi must not claim the generic task event stream");
   assert.equal(catalog.slice(1).every((item) => item.protocolVersion === 1 && item.events.includes("task_exit")), true);
   assert.equal(catalog.slice(1).every((item) => item.installed === false), true);
-  assert.equal(catalog.find((item) => item.id === "cline").maturity, "structured");
-  assert.equal(catalog.find((item) => item.id === "kilo").category, "coding");
-  assert.equal(catalog.find((item) => item.id === "omp").category, "coding");
-  assert.equal(catalog.find((item) => item.id === "omp").maturity, "structured");
+  assert.equal(catalog.find((item) => item.id === "antigravity").maturity, "structured");
+  assert.equal(catalog.find((item) => item.id === "grok-build").category, "coding");
+  for (const removed of ["cline", "kilo", "omp"]) assert.equal(catalog.some((item) => item.id === removed), false, removed + " was removed in 3.10.10");
   assert.equal(catalog.every((item) => item.category === "coding"), true, "every agent starts coding conversations");
   assert.equal(catalog[1].transport, null);
   assert.equal(resolvePtyRuntime({ env: { PATH: "" } }) !== null, process.platform !== "win32");

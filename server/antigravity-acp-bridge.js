@@ -2,7 +2,7 @@
 
 // Google Antigravity (agy) behind the interface of the ACP adapter
 // (server/agent-client-protocol-adapter.js), so the Host and the page treat
-// an Antigravity conversation like Cline's or Kilo's: models, reasoning
+// an Antigravity conversation like Grok Build's: models, reasoning
 // level, approval modes, Allow/Deny, work steps, context, pictures, Stop,
 // resume after a restart.
 //

@@ -400,9 +400,9 @@ their CI pins.
 ## Upgrade monitor
 
 The first watcher is now shipped as `npm run watch:harness`. It observes the
-installed versions of Codex, Claude Code, OpenCode, Pi and Oh My Pi,
-and keeps extension/hosted harnesses such as Cline, Kilo, Grok Build and
-Antigravity visible as explicit `manual` entries. The report is written to
+installed versions of Codex, Claude Code, OpenCode and Pi,
+and keeps hosted harnesses such as Grok Build and Antigravity visible as
+explicit `manual` entries. The report is written to
 `~/.config/stepsemble/harness-compatibility.json` with owner-only permissions.
 
 Codex receives the full isolated schema preflight. The other harnesses are

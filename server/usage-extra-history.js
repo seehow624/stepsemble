@@ -2,7 +2,7 @@
 const fs=require("node:fs/promises"), path=require("node:path");
 const {DatabaseSync}=require("node:sqlite");
 const R=require("./usage-extra-records"), {text,time,number}=require("./usage-records");
-const SUPPORTED=new Set(["omp","opencode","hermes","gemini","cline","kilo","roo-code","grok-build","antigravity"]);
+const SUPPORTED=new Set(["opencode","hermes","gemini","roo-code","grok-build","antigravity"]);
 const cache=new Map(), MAX_JSON=32*1024*1024, MAX_ROWS=100000;
 const own=stat=>typeof process.getuid!=="function" || Number(stat.uid)===process.getuid();
 const inside=(root,file)=>{const rel=path.relative(root,file);return rel!=="" && rel!==".." && !rel.startsWith(".."+path.sep) && !path.isAbsolute(rel);};
@@ -13,12 +13,9 @@ async function discoverExtraUsageFiles(home, roots, budget) {
   const files=[],sources=[],canonical=new Set();
   const data=roots.data || path.join(home,".local","share");
   const configured={
-    omp:[[roots.omp || path.join(home,".omp","agent","sessions"),"omp"]],
     opencode:[[roots.opencode || path.join(data,"opencode"),"opencode"]],
     hermes:[[roots.hermes || path.join(home,".hermes"),"hermes"]],
     gemini:[[roots.gemini || path.join(home,".gemini","tmp"),"gemini"]],
-    cline:[[roots.cline || path.join(home,".cline","data","sessions"),"cline-cli"]],
-    "kilo":[[roots.kilo || path.join(data,"kilo"),"kilo"]],
     "grok-build":[[roots.grok || path.join(home,".grok","sessions"),"grok"],[path.join(roots.grokHome || path.join(home,".grok"),"logs"),"grok-log"]],
     antigravity:[[roots.antigravity || path.join(home,".gemini","antigravity-cli","conversations"),"antigravity"],[roots.antigravityExtension || path.join(home,".gemini","antigravity","conversations"),"antigravity"]],
     "roo-code":[],
@@ -27,22 +24,22 @@ async function discoverExtraUsageFiles(home, roots, budget) {
     :process.platform==="win32"?["Code","Code - Insiders","Cursor","Windsurf"].map(e=>path.join(roots.appData || path.join(home,"AppData","Roaming"),e,"User"))
     :["Code","Code - Insiders","Cursor","Windsurf"].map(e=>path.join(roots.configHome || path.join(home,".config"),e,"User"));
   editors.push(path.join(home,".vscode-server","data","User"));
-  const extensions={cline:"saoudrizwan.claude-dev","kilo":"kilocode.kilo-code","roo-code":"rooveterinaryinc.roo-cline"};
+  // Roo Code is a VS Code extension that stores each task's ui_messages.json
+  // (the Cline-derived "cline-ui" format) under the editor's globalStorage.
+  const extensions={"roo-code":"rooveterinaryinc.roo-cline"};
   for(const [agent,extension] of Object.entries(extensions)) {
     if(roots[agent+"Tasks"]) configured[agent].push([roots[agent+"Tasks"],"cline-ui"]);
     else for(const editor of editors) configured[agent].push([path.join(editor,"globalStorage",extension,"tasks"),"cline-ui"]);
   }
   function classify(file,kind) {
     const base=path.basename(file);
-    if(kind==="omp" && base.endsWith(".jsonl")) return "native";
-    if(["opencode","kilo"].includes(kind)) {
-      if(base===(kind==="opencode"?"opencode.db":"kilo.db"))return "opencode-db";
+    if(kind==="opencode") {
+      if(base==="opencode.db")return "opencode-db";
       if(base.endsWith(".json") && file.includes(path.sep+"storage"+path.sep+"message"+path.sep))return "opencode-json";
     }
     if(kind==="hermes" && base==="state.db")return "hermes-db";
     if(kind==="gemini" && base.startsWith("session-") && base.endsWith(".json") && path.basename(path.dirname(file))==="chats")return "gemini-json";
     if(kind==="cline-ui" && base==="ui_messages.json")return "cline-ui";
-    if(kind==="cline-cli" && base.endsWith(".messages.json"))return "cline-cli";
     if(kind==="grok" && base==="updates.jsonl")return "grok-updates";
     if(kind==="grok-log" && base==="unified.jsonl")return "grok-log";
     if(kind==="antigravity" && /^[a-f0-9-]{36}\.db$/i.test(base))return "antigravity-db";
@@ -59,16 +56,15 @@ async function discoverExtraUsageFiles(home, roots, budget) {
         // profile stores are histories; never scan those source repositories.
         if(kind==="hermes" && depth===0 && child.name!=="profiles")continue;
         if(kind==="hermes" && depth>2)continue;
-        if(["opencode","kilo"].includes(kind) && depth===0 && child.name!=="storage")continue;
-        if(["opencode","kilo"].includes(kind) && depth===1 && child.name!=="message")continue;
+        if(kind==="opencode" && depth===0 && child.name!=="storage")continue;
+        if(kind==="opencode" && depth===1 && child.name!=="message")continue;
         await walk(file,root,agent,kind,depth+1);continue;
       }
       const format=classify(file,kind);if(!format)continue;
       if(!child.isFile()){budget.limited=true;continue;}
       const stat=await fs.lstat(file).catch(()=>null);if(!stat || !own(stat)){budget.limited=true;continue;}
       const real=await fs.realpath(file).catch(()=>null);if(!real || canonical.has(real))continue;canonical.add(real);
-      const expected=kind==="omp"?child.name.match(/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}/i)?.[0] || ""
-        :format==="antigravity-db"?path.basename(file,".db"):format==="cline-cli"?path.basename(file,".messages.json"):path.basename(path.dirname(file));
+      const expected=format==="antigravity-db"?path.basename(file,".db"):path.basename(path.dirname(file));
       files.push({file,root,agent,format,expected,modified:stat.mtimeMs});
     }
   }
@@ -90,19 +86,11 @@ async function readJSON(handle,max=MAX_JSON) {
   while(at<bytes.length){const read=await handle.read(bytes,at,bytes.length-at,at);if(!read.bytesRead)break;at+=read.bytesRead;}
   return JSON.parse(bytes.subarray(0,at).toString("utf8"));
 }
-async function siblingJSON(source,name) {
-  let handle;try {
-    const file=path.join(path.dirname(source.file),name),stat=await fs.lstat(file);
-    if(!stat.isFile() || !own(stat) || stat.isSymbolicLink() || !inside(source.root,file))return null;
-    handle=await fs.open(file,require("node:fs").constants.O_RDONLY | (require("node:fs").constants.O_NOFOLLOW || 0));return await readJSON(handle,4*1024*1024);
-  }catch{return null;}finally{await handle?.close();}
-}
 async function jsonCollections(source,handle,budget) {
   const format=source.format, values=await readJSON(handle);
   let collection;
   if(format==="gemini-json")collection=R.geminiSession(values);
   else if(format==="cline-ui")collection=R.clineMessages(source.agent,values,source.expected);
-  else if(format==="cline-cli")collection=R.clineCli(values,source.expected,await siblingJSON(source,source.expected+".json") || {});
   else if(format==="opencode-json") {
     const row=R.opencodeMessage(source.agent,values);collection=values?.sessionID?{session:text(values.sessionID,400),rows:row?[row]:[],meta:{cwd:text(values.path?.cwd,4096)},partial:!!values.tokens && !row && values.role==="assistant"}:null;
   }

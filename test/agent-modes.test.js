@@ -22,7 +22,7 @@ test("the mode store keeps one mode per conversation across a restart and stays 
   const reopened = createAgentModeStore({ file });
   assert.equal(reopened.get("codex", "thread-1"), "read-only");
   assert.equal(reopened.get("claude-code", "session-1"), "plan");
-  assert.equal(reopened.get("kilo", "unknown"), null);
+  assert.equal(reopened.get("antigravity", "unknown"), null);
   if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   for (let index = 0; index < 520; index += 1) reopened.set("opencode", "session-" + index, "build");
   const saved = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -55,11 +55,11 @@ async function fixture(t, { claudeHelperOutdated } = {}) {
     },
     status: () => ({ nativeSessionId: "claude-native-1" }),
   };
-  let kiloMode = "default";
-  const kilo = {
-    sessionConfigOptions: id => id === "kilo-1" ? [{ id: "acp.mode", category: "mode", currentValue: kiloMode, legacy: true,
+  let antigravityMode = "default";
+  const antigravity = {
+    sessionConfigOptions: id => id === "antigravity-1" ? [{ id: "acp.mode", category: "mode", currentValue: antigravityMode, legacy: true,
       options: [{ value: "default", name: "Default", description: "Ask before edits." }, { value: "accept_edits", name: "Accept Edits", description: null }] }] : [],
-    setConfigOption: async (id, configId, value) => { calls.push(["kilo", id, configId, value]); kiloMode = value; return { kind: "configured" }; },
+    setConfigOption: async (id, configId, value) => { calls.push(["antigravity", id, configId, value]); antigravityMode = value; return { kind: "configured" }; },
   };
   const openCode = {
     status: () => ({ ready: true }),
@@ -76,7 +76,7 @@ async function fixture(t, { claudeHelperOutdated } = {}) {
   };
   const { readJSON, sendJSON } = createHttpUtils();
   const handle = createAgentModeRoutes({ store, codex, claudeHelperOutdated, resolveClaude: id => id === "claude-local-1" || id === "claude-native-1" ? { session: claude } : null,
-    openCode, openCodeDirectory: cwd => cwd, acpAdapterForAgent: id => id === "kilo" ? kilo : null, readJSON, sendJSON });
+    openCode, openCodeDirectory: cwd => cwd, acpAdapterForAgent: id => id === "antigravity" ? antigravity : null, readJSON, sendJSON });
   const server = http.createServer(async (req, res) => {
     if (!await handle(req, res, new URL(req.url, "http://localhost"))) sendJSON(res, 404, { error: "not_found" });
   });
@@ -102,11 +102,11 @@ test("each agent reports its own modes and the one in use; Pi and unknown agents
   assert.deepEqual(openCode.data.modes.map(mode => mode.id), ["build", "plan"], "only visible primary agents are modes");
   assert.equal(openCode.data.current, "plan", "the agent of the last user message");
   assert.deepEqual(f.calls.shift(), ["agents", "/owned/project"]);
-  const kilo = await f.get({ agentId: "kilo", sessionId: "kilo-1" });
-  assert.deepEqual(kilo.data.modes.map(mode => [mode.id, mode.label]), [["default", "Default"], ["accept_edits", "Accept Edits"]]);
-  assert.equal(kilo.data.current, "default");
+  const antigravity = await f.get({ agentId: "antigravity", sessionId: "antigravity-1" });
+  assert.deepEqual(antigravity.data.modes.map(mode => [mode.id, mode.label]), [["default", "Default"], ["accept_edits", "Accept Edits"]]);
+  assert.equal(antigravity.data.current, "default");
   assert.deepEqual((await f.get({ agentId: "pi", sessionId: "anything" })).data, { supported: false });
-  assert.deepEqual((await f.get({ agentId: "kilo", sessionId: "missing" })).data, { supported: false });
+  assert.deepEqual((await f.get({ agentId: "antigravity", sessionId: "missing" })).data, { supported: false });
   assert.equal((await f.get({ agentId: "codex", sessionId: "../escape" })).status, 400);
   f.setCodexReady(false);
   assert.deepEqual((await f.get({ agentId: "codex", sessionId: "thread-1" })).data, { supported: false }, "a terminal-only Codex has no modes");
@@ -133,10 +133,10 @@ test("changing a mode applies it the agent's way and remembers it for the conver
   assert.equal(f.store.get("opencode", "oc-1"), "build");
   assert.equal((await f.post({ agentId: "opencode", sessionId: "oc-1", mode: "explore" })).status, 400, "a subagent is not a mode");
 
-  const kilo = await f.post({ agentId: "kilo", sessionId: "kilo-1", mode: "accept_edits" });
-  assert.equal(kilo.data.current, "accept_edits");
-  assert.deepEqual(f.calls.at(-1), ["kilo", "kilo-1", "acp.mode", "accept_edits"]);
-  assert.equal(f.store.get("kilo", "kilo-1"), "accept_edits");
+  const antigravity = await f.post({ agentId: "antigravity", sessionId: "antigravity-1", mode: "accept_edits" });
+  assert.equal(antigravity.data.current, "accept_edits");
+  assert.deepEqual(f.calls.at(-1), ["antigravity", "antigravity-1", "acp.mode", "accept_edits"]);
+  assert.equal(f.store.get("antigravity", "antigravity-1"), "accept_edits");
   assert.equal((await f.post({ agentId: "pi", sessionId: "anything", mode: "x" })).status, 409);
 });
 

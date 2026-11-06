@@ -5,9 +5,9 @@ test("a pinned model and permission mode reach the new conversation before its f
   if(process.platform==="win32"){t.skip("POSIX executable protocol fixtures");return;}
   const {cleanEnvironment}=await import("../scripts/check-rolling-clients.mjs");const {freePort,waitForServer,stopServer}=await import("../scripts/host-performance-baseline.mjs");
   const home=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),"stepsemble-goal-pins-"))),bin=path.join(home,"bin"),log=path.join(home,"peer.log");await fs.mkdir(bin);
-  const projects={};for(const name of ["pi","pi-missing","claude","kilo"]){projects[name]=path.join(home,"projects",name);await fs.mkdir(projects[name],{recursive:true});}
+  const projects={};for(const name of ["pi","pi-missing","claude","grok"]){projects[name]=path.join(home,"projects",name);await fs.mkdir(projects[name],{recursive:true});}
   const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
-  for(const [name,mode] of [["pi","pi"],["claude","claude"],["kilo","acp"]])await fs.writeFile(path.join(bin,name),`#!/bin/sh\nSTEPSEMBLE_WORKFLOW_PEER_LOG=${quote(log)} STEPSEMBLE_WORKFLOW_PEER=${mode} exec ${quote(process.execPath)} ${quote(path.resolve("test-support/workflow-peer.cjs"))} "$@"\n`,{mode:0o700});
+  for(const [name,mode] of [["pi","pi"],["claude","claude"],["grok","acp"]])await fs.writeFile(path.join(bin,name),`#!/bin/sh\nSTEPSEMBLE_WORKFLOW_PEER_LOG=${quote(log)} STEPSEMBLE_WORKFLOW_PEER=${mode} exec ${quote(process.execPath)} ${quote(path.resolve("test-support/workflow-peer.cjs"))} "$@"\n`,{mode:0o700});
   const port=await freePort(),base=`http://127.0.0.1:${port}`;
   const child=spawn(process.execPath,[path.resolve("server.js")],{cwd:home,stdio:["ignore","pipe","pipe"],env:{...cleanEnvironment(home),PATH:[bin,path.dirname(process.execPath),"/usr/bin","/bin"].join(":"),PI_HOME:home,PI_BIN:path.join(bin,"pi"),STEPSEMBLE_HOST:"127.0.0.1",STEPSEMBLE_PORT:String(port),STEPSEMBLE_ORPHAN_EXIT:"0",STEPSEMBLE_TOKEN:"workflow-local-only",STEPSEMBLE_CLAUDE_STRUCTURED:"1",STEPSEMBLE_WORKSPACE_KEYCHAIN_USAGE:"0"}});
   let output="";child.stderr.on("data",b=>output+=b);t.after(async()=>{await stopServer(child);await fs.rm(home,{recursive:true,force:true});});await waitForServer(child);child.stdout.resume();
@@ -38,7 +38,7 @@ test("a pinned model and permission mode reach the new conversation before its f
   const claudeCommands=await peer("claude"),mode=claudeCommands.findIndex(c=>c.request?.subtype==="set_permission_mode"),user=claudeCommands.findIndex(c=>c.type==="user");
   assert.equal(claudeCommands[mode].request.mode,"acceptEdits");assert(mode<user,"the mode is set before the first prompt");
 
-  const kilo=await json("/api/workflows",{...config,agentId:"kilo",cwd:projects.kilo,permission:"no-such-mode"});
-  const kiloDone=await until(kilo.id,["completed","failed"]);assert.equal(kiloDone.status,"failed");assert.match(kiloDone.error,/pinned permission mode/);
+  const grok=await json("/api/workflows",{...config,agentId:"grok-build",cwd:projects.grok,permission:"no-such-mode"});
+  const grokDone=await until(grok.id,["completed","failed"]);assert.equal(grokDone.status,"failed");assert.match(grokDone.error,/pinned permission mode/);
   assert.equal((await peer("acp")).filter(c=>c.method==="session/prompt").length,0);
 });

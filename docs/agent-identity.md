@@ -16,11 +16,11 @@ Pi using a Claude/GPT model remains Pi; Codex using GPT remains Codex.
 | `opencode` | OpenCode / OpenCode frame |
 | `grok-build` | Grok Build / Grok mark |
 | `antigravity` | Google Antigravity / Stepsemble original orbital source mark |
-| `cline` | Cline / Stepsemble original neutral CLI mark |
-| `kilo` | Kilo Code / Stepsemble original neutral CLI mark |
-| `omp` | Oh My Pi / Stepsemble original neutral CLI mark (π with a spark) |
 | `gpt`, `chatgpt` | GPT, ChatGPT / OpenAI blossom; presentation only, no new connector |
 | anything else | neutral conversation mark |
+
+The `cline`, `kilo` and `omp` marks were removed in 3.10.10. A conversation
+stored with one of those ids still renders, with the neutral conversation mark.
 
 `client/agent-identity.ts` builds the shared inert DOM badge; its generated JS is
 used unchanged by the browser and Node tests. SVG provenance and the MIT notice

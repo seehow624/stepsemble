@@ -1543,7 +1543,8 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       const wrap = (name, script) => fs.writeFile(path.join(bin, name), "#!/bin/sh\nexec " + quote(process.execPath) + " " + quote(path.join(root, script)) + " \"$@\"\n", { mode: 0o700 });
       await wrap("pi", "test-support/rolling-pi.cjs");
       await wrap("claude", "test-support/desktop-claude-structured-peer.cjs");
-      await wrap("kilo", "test-support/fake-acp-agent.cjs");
+      // Grok Build's ACP adapter (`grok agent stdio`) driven by the offline fake.
+      await wrap("grok", "test-support/fake-acp-agent.cjs");
       const picture = path.join(home, "picture.png");
       await fs.writeFile(picture, PNG);
       const port = await freePort(), base = "http://127.0.0.1:" + port;
@@ -1773,9 +1774,9 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       out.openFailure = "sign-in and retry";
 
       stage = "ACP agent: working at once";
-      ui = await newWorkspaceSession(page, { agentId: "kilo", name: "UX ACP" });
+      ui = await newWorkspaceSession(page, { agentId: "grok-build", name: "UX ACP" });
       await ui.waitForFunction(connected, null, { timeout: 20000 });
-      await pendingTurn(page, ui, context, "**/api/kilo/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
+      await pendingTurn(page, ui, context, "**/api/grok/acp/prompt", "held back for ACP", "held back for ACP", out, "acp");
       await ui.waitForFunction(() => document.querySelectorAll("#messages .msg.assistant").length > 0);
       // This agent does not count its tokens, so its speed is estimated; a
       // reply with nothing to fold still gets a plain line for it.
@@ -1799,7 +1800,7 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
         // Each session opened from the list took the main pane's place.
         const bars = await page.evaluate(() => [...document.querySelectorAll(".workspace-tab")].map(tab => ({
           agent: tab.querySelector(".agent-logo")?.dataset.agentId || null, title: tab.querySelector(".workspace-tab-title")?.textContent || "" })));
-        assert.deepEqual(bars, [{ agent: "kilo", title: "UX ACP" }], JSON.stringify(bars));
+        assert.deepEqual(bars, [{ agent: "grok-build", title: "UX ACP" }], JSON.stringify(bars));
         assert.equal(await page.locator(".workspace-summary-button").isVisible(), true, "the title bar holds the summary");
         const pane = await ui.evaluate(() => {
           const shown = selector => { const node = document.querySelector(selector); return !!node && getComputedStyle(node).display !== "none" && node.getBoundingClientRect().width > 0; };

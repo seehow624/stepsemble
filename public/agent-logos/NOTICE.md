@@ -27,15 +27,6 @@ tile.
 - `v2/opencode.svg`: the official app icon, `packages/ui/src/assets/favicon/favicon-v3.svg`
   from [sst/opencode](https://github.com/sst/opencode), without its wrapper.
   Distributed under the [included MIT license](../vendor/licenses/opencode-LICENSE.txt).
-- `v2/omp.svg`: the official icon from https://omp.sh/favicon.svg
-  ([can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)), unchanged.
-  Distributed under the [included MIT license](../vendor/licenses/oh-my-pi-LICENSE.txt).
-- `v2/cline.svg`: the filled bot from the official
-  [Cline brand assets](https://cline.bot/brand) (`cline-icon-dark.svg`), in
-  #FCFCFD on the #282524 tile of the official `APP_ICON_DARK_fill.png`, at its
-  size and place there.
-- `v2/kilo.svg`: the official icon from https://kilo.ai/favicon/favicon.svg,
-  unchanged.
 - `v2/minimax.png`: unchanged from `v1/minimax.png`.
 - `v2/agent.svg`: Stepsemble's own neutral conversation fallback in one fixed
   grey, Apache-2.0.
@@ -47,16 +38,17 @@ tile.
 - `v1/claude.svg`, `v1/codex.svg`, `v1/grok.svg`, `v1/opencode.svg`,
   `v1/openai.svg`: unchanged SVG representations from Lobe Icons, pinned commit
   `a94750e3f5f8fc33757b839d85030e742284e43a`, MIT.
-- `v1/antigravity.svg`, `v1/cline.svg`, `v1/kilo.svg`, `v1/omp.svg`:
-  Stepsemble's original source-neutral marks, not official logos.
+- `v1/antigravity.svg`: Stepsemble's original source-neutral mark, not an
+  official logo.
 - `v1/agent.svg`: Stepsemble's own neutral fallback, Apache-2.0.
 
 All assets are served locally and precached. Replacing artwork requires a new
 asset directory version and corresponding CSS/service-worker updates; an
 earlier directory stays for clients that still name it.
 
-Current IDs: `pi`, `claude-code`, `codex`, `opencode`, `grok-build`, `antigravity`,
-`cline`, `kilo`, `omp`.
+Current IDs: `pi`, `claude-code`, `codex`, `opencode`, `grok-build`, `antigravity`.
+The Cline, Kilo Code and Oh My Pi marks were removed in 3.10.10; a stored
+conversation with one of those ids shows the neutral fallback.
 Explicit `gpt` and `chatgpt` source IDs have a presentation mapping to the OpenAI
 blossom for future use; this change adds no GPT/ChatGPT connector. Model labels,
 conversation titles, unknown IDs and arbitrary URLs never choose a brand mark.

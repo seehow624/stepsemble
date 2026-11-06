@@ -25,7 +25,7 @@ test("an unnamed session takes a short title from the first line of its first me
 });
 
 test("only the names agents give unnamed sessions count as no name", () => {
-  for (const name of ["", "Claude Code", "Claude Code 61fdc56e", "Grok 01a0d8d4", "Kilo Code ses_4d3a9", "Codex 019a0b1c",
+  for (const name of ["", "Claude Code", "Claude Code 61fdc56e", "Grok 01a0d8d4", "Antigravity ses_4d3a9", "Codex 019a0b1c",
     "OpenCode ses_3f2e1d0c", "New session - 2026-09-26T00:00:00.000Z", "Antigravity 7f3c2a10", "Pi"]) {
     assert.equal(workspacePlaceholderName(name), true, name);
   }

@@ -185,12 +185,12 @@
     return denominator > 0 ? (cacheRead / denominator) * 100 : null;
   }
 
-  // Usage from an agent speaking ACP (Grok Build, Kilo, Cline), in
+  // Usage from an agent speaking ACP (Grok Build, Antigravity), in
   // the dashboard's terms: Input is what the cache did not supply and Output
   // includes thinking, as Claude reports them.
   // - reply: the answer to a prompt. Grok names the turn's last model call in
   //   result._meta (and the turn's sum under _meta.usage); the protocol's
-  //   result.usage is the turn's sum, though Kilo gives its last call.
+  //   result.usage is the turn's sum, though some agents give their last call.
   // - report: the agent's own usage_update, { used, size }: the tokens now in
   //   its context and the context's size.
   // Agents count cached tokens inside input, or apart from it, and thinking
@@ -240,12 +240,12 @@
   }
 
   // A rate needs the whole prompt's output, not the last call's context.
-  // Grok keeps the turn sum under _meta.usage; Kilo's usage is only its
+  // Grok keeps the turn sum under _meta.usage; its result.usage is only its
   // last call, so without an explicit turn sum its rate remains estimated.
   function acpTurnOutput(reply, { agentId = "" } = {}) {
     const result = isRecord(reply?.result) ? reply.result : isRecord(reply) ? reply : {};
     const sum = isRecord(result._meta?.usage) ? result._meta.usage : null;
-    if (!sum && (agentId === "kilo" || agentId === "grok-build")) return null;
+    if (!sum && agentId === "grok-build") return null;
     const raw = sum || (isRecord(result.usage) ? result.usage : isRecord(reply?.usage) ? reply.usage : null);
     if (!raw) return null;
     const usage = { ...raw, inputTokens: raw.inputTokens ?? raw.input_tokens,

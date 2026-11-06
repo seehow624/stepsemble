@@ -153,7 +153,6 @@ function capabilityContract(agentId, { installed = false, history = null, native
   else if (id === "opencode") features = openCodeFeatures(history, journalAvailable);
   else if (id === "codex") features = codexFeatures(history, journalAvailable);
   else if (id === "claude-code") features = claudeFeatures(history, nativeAdapter, journalAvailable);
-  else if (["cline", "kilo", "omp"].includes(id)) features = acpFeatures(history, nativeAdapter, journalAvailable);
   else if (id === "grok-build") features = acpFeatures(history, nativeAdapter, journalAvailable, { grok: true });
   else if (id === "antigravity") features = antigravityFeatures(history, nativeAdapter, journalAvailable);
   else features = boundedCli({ journalAvailable });

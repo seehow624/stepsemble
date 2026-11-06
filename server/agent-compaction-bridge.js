@@ -4,7 +4,7 @@
 // replacement summary, swaps the model or opens a different conversation.
 const unavailable = reason => ({ supported: false, instructions: false, reason, busy: false });
 const failure = (code, statusCode = 409) => Object.assign(new Error(code), { code, statusCode });
-const acpAgents = new Set(["cline", "kilo", "omp", "grok-build"]);
+const acpAgents = new Set(["grok-build"]);
 function nativeId(record) {
   if (record.agentId === "pi") return record.sid;
   if (record.agentId === "claude-code") return String(record.id || record.taskId || record.nativeSessionId || "").replace(/^claude-code:/, "");

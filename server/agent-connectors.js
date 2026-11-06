@@ -103,36 +103,6 @@ const CONNECTOR_DEFINITIONS = Object.freeze([
     description: "Google Antigravity through its local CLI; structured stream mode is explicit opt-in.",
     capabilities: Object.freeze(["terminal", "streaming", "worktree", "canonical_session", "durable_journal", "approval_observation", "approval_ack_required"]),
   }),
-  Object.freeze({
-    id: "cline",
-    label: "Cline",
-    kind: "cli",
-    category: "coding",
-    maturity: "structured",
-    commands: Object.freeze(["cline"]),
-    description: "Cline through its official Agent Client Protocol (ACP) CLI mode.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree", "acp", "sessions", "approvals", "model_selection"]),
-  }),
-  Object.freeze({
-    id: "kilo",
-    label: "Kilo Code",
-    kind: "cli",
-    category: "coding",
-    maturity: "structured",
-    commands: Object.freeze(["kilo"]),
-    description: "Kilo Code through its official Agent Client Protocol (ACP) CLI mode.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree", "acp", "sessions", "approvals", "model_selection"]),
-  }),
-  Object.freeze({
-    id: "omp",
-    label: "Oh My Pi",
-    kind: "cli",
-    category: "coding",
-    maturity: "structured",
-    commands: Object.freeze(["omp"]),
-    description: "Oh My Pi (omp) through its official Agent Client Protocol (ACP) server.",
-    capabilities: Object.freeze(["terminal", "streaming", "worktree", "acp", "sessions", "approvals", "model_selection"]),
-  }),
 ]);
 
 function safeConnectorId(value) {

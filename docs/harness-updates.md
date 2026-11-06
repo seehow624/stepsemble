@@ -25,8 +25,6 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 | Claude Code | `npm view @anthropic-ai/claude-code dist-tags.stable`（Anthropic 的穩定版通道，只讀發佈版本） | `claude install <版本>`，裝的正是檢查過的那一版 | 不用 `latest`／`next`；`claude update` 會照 Claude 自己的通道設定裝最新版，所以不用。升級後重新讀取版本 |
 | OpenCode | Homebrew `brew outdated --json=v2 opencode`（讀 `current_version`、接受 tap 全名如 `anomalyco/tap/opencode`、有新版時 exit 1 仍是正常回答）；非 Homebrew 安裝時比對 npm `opencode-ai` 的發佈版本 | Homebrew `brew upgrade opencode` 或 `opencode upgrade <版本>` | 不會在檢查階段呼叫會改動安裝的 `upgrade` |
 | Pi Agent | `npm outdated --global --json @earendil-works/pi-coding-agent` | `npm install --global @earendil-works/pi-coding-agent@<版本>` | 只更新明確的 Pi package |
-| Oh My Pi | `npm view @oh-my-pi/pi-coding-agent version`（只讀發佈版本） | `omp update` | 照 omp 原本的安裝方式（Bun 或 standalone）更新；裝到的版本和檢查過的不同時，會再確認支援 |
-| Cline / Kilo Code | 依安裝來源：Homebrew、npm 全域，或自己的 npm 資料夾（`npm install --prefix <資料夾>`，如 `/Volumes/devkit/Tools/agent-clis/kilo`）時比對 npm 發佈版本（`cline`、`@kilocode/cli`） | 保留來源：`brew upgrade`、`npm install --global`，或 `npm install --prefix <資料夾> <package>@<版本>` | 它們自己的 updater（`cline update`、`kilo upgrade`）可能裝到別處，留下正在用的那份沒更新，所以不用；來源不明拒絕更新；升級後重新讀取版本 |
 | Grok Build | `grok update --check --json`（只檢查、JSON 回答） | `grok update` | 穩定版通道；Stepsemble 以 `--no-auto-update` 啟動 Grok，所以在這裡或 Grok 自己更新；升級後重新讀取版本 |
 | Antigravity | 讀 Antigravity 更新服務的首頁（`https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/`，內容像「Stable Version: 1.3.2. Rolled out to 100%」）；只有推送到 100% 才算有新版 | `agy update`，並在前後讀 `agy --version` 確認版本有變 | `agy update` 沒有只檢查的選項，會直接安裝，所以檢查只讀那個頁面、不執行它。它約 5 秒完成、不需要回答問題；舊程式留成 `agy.<數字>.old`，下次執行 agy 時自己清掉。2026-10-09 在暫存複本實測 1.2.14 → 1.3.2 |
 
@@ -49,10 +47,10 @@ Stepsemble 的「設定 → 更新 → Coding agents」是 coding agent 本身�
 「支援」怎麼決定：
 
 - **Codex**：比對 Codex 公開的 app-server 契約（見 `docs/codex-compatibility-runtime.md` 的「Automatic Codex upgrades」）。
-- **Claude Code、Grok Build、Pi、Antigravity、OpenCode、Cline、Kilo、Oh My Pi**：每個 agent 的 release check（`docs/agent-release-checks.md`）在這台主機上、在暫存資料夾裡實際跑一次那個新版，結果存在 `~/.config/stepsemble/<名稱>-release-checks.json`（`server/agent-release-gate.js`）。通過才算支援；沒通過就等，等到每天早上的檢查修好 Stepsemble、發布新版、兩台更新之後，新的 Stepsemble 會再檢查一次，通過了才升級。檢查在背景一次跑一個，跑完 30 秒內就會升級。
+- **Claude Code、Grok Build、Pi、Antigravity、OpenCode**：每個 agent 的 release check（`docs/agent-release-checks.md`）在這台主機上、在暫存資料夾裡實際跑一次那個新版，結果存在 `~/.config/stepsemble/<名稱>-release-checks.json`（`server/agent-release-gate.js`）。通過才算支援；沒通過就等，等到每天早上的檢查修好 Stepsemble、發布新版、兩台更新之後，新的 Stepsemble 會再檢查一次，通過了才升級。檢查在背景一次跑一個，跑完 30 秒內就會升級。
 - **只裝穩定版**：版本號後面帶任何東西（`-beta`、`-rc`、`-nightly`、`-dev`）的一律不裝；各 agent 讀的也都是它的穩定通道（Claude Code 的 `stable`、npm 的 `latest`、xAI 的 stable、Antigravity 推送到 100% 的版本）。可以指定版本的 updater 會裝剛好檢查過的那一版。
 
-Stepsemble 啟動 agent 時會關掉它們自己的自動更新，免得它們自己換成還沒檢查過的版本：Claude Code `DISABLE_AUTOUPDATER=1`（Mac 上由 Claude 桌面助手設定）、Antigravity `AGY_CLI_DISABLE_AUTO_UPDATE=true`（`=1` 不算數，2026-10-10 實測）、OpenCode `OPENCODE_DISABLE_AUTOUPDATE=1`、Grok Build `--no-auto-update`。Stepsemble 自己跑升級時會拿掉這些變數。在終端機直接開這些 agent 不受影響，它們照自己的設定更新；Cline、Kilo、Oh My Pi 沒有已知的關閉方式。
+Stepsemble 啟動 agent 時會關掉它們自己的自動更新，免得它們自己換成還沒檢查過的版本：Claude Code `DISABLE_AUTOUPDATER=1`（Mac 上由 Claude 桌面助手設定）、Antigravity `AGY_CLI_DISABLE_AUTO_UPDATE=true`（`=1` 不算數，2026-10-10 實測）、OpenCode `OPENCODE_DISABLE_AUTOUPDATE=1`、Grok Build `--no-auto-update`。Stepsemble 自己跑升級時會拿掉這些變數。在終端機直接開這些 agent 不受影響，它們照自己的設定更新。Cline、Kilo Code 與 Oh My Pi 已在 3.10.10 移除，不再檢查或升級。
 
 Gemini CLI 不在清單裡：2026-06-18 起它不再接受個人 Google 帳號，Google 把這些使用者轉到 Antigravity CLI（`agy`），所以 Stepsemble 只支援 Antigravity。
 

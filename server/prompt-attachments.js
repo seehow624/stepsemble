@@ -66,7 +66,7 @@ function normalizeImages(images, { limit = DEFAULT_IMAGE_LIMIT, totalBytes = MAX
   return result;
 }
 
-/** Agent Client Protocol content blocks (Cline, Kilo, Grok). */
+/** Agent Client Protocol content blocks (Grok, Antigravity). */
 function acpImageBlocks(images) {
   return normalizeImages(images, { limit: IMAGE_LIMITS.acp, totalBytes: ACP_TOTAL_BASE64_BYTES })
     .map(({ data, mimeType }) => ({ type: "image", data, mimeType }));

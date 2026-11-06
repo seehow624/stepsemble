@@ -1,7 +1,7 @@
 "use strict";
 // The usage details show what each agent really used. The numbers here are
 // the ones measured on this Mac: Claude Code's StepSay answer, a Codex thread,
-// and one turn each of Grok Build, Hermes and Kilo.
+// and one turn each of Grok Build, Hermes and an ACP agent reporting its last call.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -112,12 +112,12 @@ test("ACP agents' usage reads the same whichever way each agent counts", () => {
   assert.deepEqual(hermes.contextUsage, { tokens: 23128, contextWindow: 272000, percent: 23128 / 272000 * 100 });
   // Without the agent's own report a turn's sum is no context size.
   assert.equal(context.acpUsageStats(hermesReply, null, { capacity: 272000 }).contextUsage.tokens, null);
-  // Kilo: its last call, cached and thinking listed apart.
-  const kilo = context.acpUsageStats({ result: { usage: { inputTokens: 17914, outputTokens: 13, totalTokens: 19990, thoughtTokens: 15, cachedReadTokens: 2048 }, _meta: {} } },
+  // An agent reporting its last call: cached and thinking listed apart.
+  const lastCall = context.acpUsageStats({ result: { usage: { inputTokens: 17914, outputTokens: 13, totalTokens: 19990, thoughtTokens: 15, cachedReadTokens: 2048 }, _meta: {} } },
     { used: 19962, size: 256000 });
-  assert.equal(kilo.scope, "call");
-  assert.deepEqual([kilo.tokens.input, kilo.tokens.output, kilo.tokens.cacheRead], [17914, 28, 2048]);
-  assert.equal(kilo.contextUsage.tokens, 19962);
+  assert.equal(lastCall.scope, "call");
+  assert.deepEqual([lastCall.tokens.input, lastCall.tokens.output, lastCall.tokens.cacheRead], [17914, 28, 2048]);
+  assert.equal(lastCall.contextUsage.tokens, 19962);
   // A report before any reply shows the context alone.
   assert.deepEqual(context.acpUsageStats(null, { used: 5000, size: 100000 }).contextUsage, { tokens: 5000, contextWindow: 100000, percent: 5 });
   assert.equal(context.acpUsageStats({ result: { stopReason: "end_turn" } }), null);
@@ -139,11 +139,11 @@ test("ACP speed uses a whole-turn count rather than the last call's context", ()
     usage: { inputTokens: 43635, outputTokens: 282, totalTokens: 43917, modelCalls: 2 } } } };
   assert.equal(context.acpTurnOutput(grok, { agentId: "grok-build" }), 282);
   assert.equal(context.acpTurnOutput({ result: { _meta: { outputTokens: 215 } } }, { agentId: "grok-build" }), null);
-  const kilo = { result: { usage: { inputTokens: 17914, outputTokens: 13, totalTokens: 19990, thoughtTokens: 15, cachedReadTokens: 2048 } } };
-  assert.equal(context.acpTurnOutput(kilo, { agentId: "kilo" }), null, "a final-call count cannot replace the turn estimate");
+  const lastCall = { result: { usage: { inputTokens: 17914, outputTokens: 13, totalTokens: 19990, thoughtTokens: 15, cachedReadTokens: 2048 } } };
+  assert.equal(context.acpTurnOutput(lastCall, { agentId: "grok-build" }), null, "a final-call count cannot replace the turn estimate");
   const hermes = { result: { usage: { inputTokens: 38270, outputTokens: 1369, thoughtTokens: 1126, totalTokens: 39639 } } };
   assert.equal(context.acpTurnOutput(hermes, { agentId: "hermes" }), 1369, "reasoning already in output is not counted twice");
-  assert.equal(context.acpTurnOutput({ usage: { inputTokens: 100, outputTokens: 10, thoughtTokens: 20, totalTokens: 130 } }, { agentId: "omp" }), 30);
+  assert.equal(context.acpTurnOutput({ usage: { inputTokens: 100, outputTokens: 10, thoughtTokens: 20, totalTokens: 130 } }, { agentId: "antigravity" }), 30);
   assert.equal(context.acpTurnOutput({ usage: { output_tokens: 30 } }), 30);
   assert.equal(context.acpTurnOutput({ result: { stopReason: "end_turn" } }), null);
 });

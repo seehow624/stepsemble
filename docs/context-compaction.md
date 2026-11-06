@@ -16,7 +16,7 @@ option refuse the note instead of dropping it; send `/compact` alone.
 | Claude Code | Claude's own `/compact` in the same structured session | Yes |
 | Codex | App-server `thread/compact/start` on the same thread | No |
 | OpenCode | `POST /session/:id/summarize` with the conversation's own model | No |
-| Oh My Pi, Kilo, Cline, Grok Build | The compaction command the agent advertises for that session (`compact`, `compress` or `summarize`) | Only if the agent advertises an input |
+| Grok Build | The compaction command the agent advertises for that session (`compact`, `compress` or `summarize`) | Only if the agent advertises an input |
 | Google Antigravity | Disabled: its headless stream has no compaction operation | — |
 
 Terminal-only conversations compact in their own terminal. Read-only history,

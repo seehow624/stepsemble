@@ -93,14 +93,14 @@ test("OpenCode and Codex contracts follow the probed adapter mode", () => {
 });
 
 test("configured ACP and Antigravity paths stay bounded to what their protocols report", () => {
-  const acp = capabilityContract("cline", { installed: true, journalAvailable: true,
+  const acp = capabilityContract("grok-build", { installed: true, journalAvailable: true,
     history: { mode: "compat" }, nativeAdapter: { configured: true, ready: false, state: "configured" } });
   assert.equal(acp.features.followUp.status, "ready");
-  assert.equal(acp.features.model.status, "limited");
+  assert.equal(acp.features.model.status, "unknown", "Grok reports no model control over ACP");
   assert.equal(acp.features.reasoning.status, "unknown");
   assert.equal(acp.features.approval.status, "ready");
 
-  const degraded = capabilityContract("cline", { installed: true, journalAvailable: true,
+  const degraded = capabilityContract("grok-build", { installed: true, journalAvailable: true,
     nativeAdapter: { configured: true, ready: false, state: "degraded" } });
   assert.equal(degraded.features.followUp.status, "limited");
   assert.equal(degraded.features.approval.status, "limited");

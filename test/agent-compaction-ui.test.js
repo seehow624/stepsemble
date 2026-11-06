@@ -13,7 +13,7 @@ function fixture(){
 test("only the complete compact command is intercepted, preserving multiline instructions",()=>{
  assert.deepEqual(parse(" /COMPACT  Keep decisions\nand current work "),{instructions:"Keep decisions\nand current work"});assert.deepEqual(parse("/compact"),{instructions:""});
  for(const text of ["/compactor","/compact-other","Explain /compact","`/compact`",null])assert.equal(parse(text),null);
- for(const agent of ["pi","claude-code","codex","opencode","cline","kilo","omp","grok-build","antigravity"])assert.equal(eligible(agent),true);
+ for(const agent of ["pi","claude-code","codex","opencode","grok-build","antigravity"])assert.equal(eligible(agent),true);
  for(const agent of ["unknown",null])assert.equal(eligible(agent),false);
 });
 

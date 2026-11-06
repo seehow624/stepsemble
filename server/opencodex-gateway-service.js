@@ -6,7 +6,6 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { boundedJson } = require("./provider-live-catalog");
 const { execFile } = require("node:child_process");
-const { piLaunch } = require("./pi-launch");
 const {
   routingFilePath,
   gatewaySettingsPath,
@@ -100,72 +99,7 @@ function createOpenCodexGatewayService({
   const catalogRequests = new Map();
   const catalogCache = new Map();
   const commandEnv = { ...env, HOME: appHome, USERPROFILE: appHome };
-  let ompMutation = false;
 
-  // Use the gateway's managed writer, including its conflict refusal and
-  // backup journal. Never copy provider credentials or edit OMP YAML here.
-  async function ompCommand(action) {
-    const binary = findOpencodexBinary(commandEnv);
-    if (!binary) throw new OpenCodexGatewayError("OpenCodex is not installed", 404, "opencodex_missing");
-    const launch = piLaunch(binary, ["integration", "client", action, "--client", "omp", "--json"], { env: commandEnv });
-    return new Promise((resolve, reject) => {
-      execFileImpl(launch.file, launch.args, { env: launch.env, windowsHide: true, windowsVerbatimArguments: launch.windowsVerbatimArguments,
-        timeout: 20000, maxBuffer: 256 * 1024, encoding: "utf8" }, (error, stdout) => {
-        // CLI diagnostics may contain paths/config values. Expose only our
-        // bounded, fixed error codes, never arbitrary stdout/stderr.
-        if (error) return reject(new OpenCodexGatewayError("OpenCodex integration command failed", error.killed ? 504 : 409,
-          action !== "status" ? "omp_gateway_unconfirmed" : error.killed ? "opencodex_action_timeout" : "omp_gateway_command_failed"));
-        try { resolve(JSON.parse(stdout)); }
-        catch { reject(new OpenCodexGatewayError("Unsupported OpenCodex integration response", 409,
-          action === "status" ? "omp_gateway_unsupported" : "omp_gateway_unconfirmed")); }
-      });
-    });
-  }
-
-  async function ompStatus() {
-    try {
-      const value = await ompCommand("status");
-      if (value?.clientId !== "omp" || !["absent", "current", "stale", "conflict", "unsafe"].includes(value.state)) {
-        throw new OpenCodexGatewayError("Unsupported OpenCodex integration response", 409, "omp_gateway_unsupported");
-      }
-      // The running gateway can have a different HOME/profile from OMP.
-      // A successful write to that other profile would be a false success.
-      const profile = String(commandEnv.OMP_PROFILE ?? commandEnv.PI_PROFILE ?? "").trim();
-      const override = String(commandEnv.PI_CODING_AGENT_DIR || "").trim();
-      const root = path.join(appHome, commandEnv.PI_CONFIG_DIR || ".omp");
-      const directory = profile && profile !== "default" ? path.join(root, "profiles", profile, "agent")
-        : override ? (override.startsWith("~/") ? path.join(appHome, override.slice(2)) : path.resolve(override)) : path.join(root, "agent");
-      const file = path.join(directory, !fs.existsSync(path.join(directory, "models.yml")) && fs.existsSync(path.join(directory, "models.yaml")) ? "models.yaml" : "models.yml");
-      if (typeof value.configPath !== "string" || path.resolve(value.configPath) !== path.resolve(file)) {
-        throw new OpenCodexGatewayError("OpenCodex and OMP use different profiles", 409, "omp_gateway_profile_mismatch");
-      }
-      return { state: value.state, supported: true, busy: ompMutation };
-    } catch (error) {
-      return { state: "unavailable", supported: false, busy: ompMutation, error: error.code || "omp_gateway_command_failed" };
-    }
-  }
-
-  async function setOmpIntegration(enabled) {
-    if (typeof enabled !== "boolean") throw new OpenCodexGatewayError("enabled must be boolean", 400, "invalid_request");
-    if (ompMutation) throw new OpenCodexGatewayError("OpenCodex setup is already running", 409, "omp_gateway_busy");
-    ompMutation = true;
-    try {
-      const before = await ompStatus();
-      if (!before.supported) throw new OpenCodexGatewayError("Start or update OpenCodex on this host", 409, before.error);
-      if (["conflict", "unsafe"].includes(before.state)) throw new OpenCodexGatewayError("Review OMP configuration in OpenCodex first", 409, "omp_gateway_conflict");
-      if (enabled) {
-        const config = readOpencodexConfig();
-        const probe = await probeModels("http://127.0.0.1:" + (config?.port || DEFAULT_PORT));
-        if (!probe.reachable) throw new OpenCodexGatewayError("OpenCodex is offline", 409, "omp_gateway_offline");
-        if (!probe.models.length) throw new OpenCodexGatewayError("Configure models in OpenCodex first", 409, "omp_gateway_no_models");
-      }
-      const result = await ompCommand(enabled ? "enable" : "disable");
-      if (result?.ok !== true || result.clientId !== "omp") throw new OpenCodexGatewayError("OpenCodex did not confirm the change", 409, "omp_gateway_unconfirmed");
-      const after = await ompStatus();
-      if (after.state !== (enabled ? "current" : "absent")) throw new OpenCodexGatewayError("OpenCodex did not confirm the change", 409, "omp_gateway_unconfirmed");
-      return { ...after, busy: false };
-    } finally { ompMutation = false; }
-  }
   async function gatewayCatalog(origin, claude = false) {
     const key = origin + (claude ? "/claude" : "/codex");
     const cached = catalogCache.get(key);
@@ -435,13 +369,12 @@ function createOpenCodexGatewayService({
       }));
   }
 
-  async function status({ agentId } = {}) {
+  async function status() {
     const localConfig = readOpencodexConfig();
     const port = Number(localConfig?.port) || DEFAULT_PORT;
     const origin = "http://127.0.0.1:" + port;
     // Bun's first-contact handshake on a cold idle gateway can miss a short
     // timeout; one immediate retry keeps the panel from flashing offline.
-    const ompPending = agentId === "omp" ? ompStatus() : null;
     let probe = await probeModels(origin);
     if (!probe.reachable) probe = await probeModels(origin);
     const claudeSettings = readClaudeSettings();
@@ -467,7 +400,6 @@ function createOpenCodexGatewayService({
         sessionRouting: claudeRoutingHere(wiring),
       },
       catalogModels: readCodexCatalog(),
-      ...(ompPending ? { omp: await ompPending } : {}),
     };
   }
 
@@ -524,8 +456,6 @@ function createOpenCodexGatewayService({
     restoreNative,
     restoreGateway,
     setClaudeSessionRouting,
-    ompStatus,
-    setOmpIntegration,
     claudeWiring,
     refreshClaudeGatewayCache,
     codexModels,

@@ -27,9 +27,6 @@ const AGENT_CHECKS = Object.freeze({
   pi: { script: "check-pi-release.mjs", records: "pi" },
   antigravity: { script: "check-antigravity-release.mjs", records: "antigravity" },
   opencode: { script: "check-opencode-release.mjs", records: "opencode" },
-  cline: { script: "check-acp-release.mjs", args: ["cline"], records: "cline" },
-  kilo: { script: "check-acp-release.mjs", args: ["kilo"], records: "kilo" },
-  omp: { script: "check-acp-release.mjs", args: ["omp"], records: "omp" },
 });
 const CHECK_TIMEOUT_MS = 20 * 60 * 1000;
 // A check that could not run (offline, a download failed) is tried again
@@ -74,7 +71,7 @@ function createAgentReleaseGate({ root, appVersion, home = os.homedir(), env = p
       pump();
     };
     try {
-      child = spawnImpl(process.execPath, [path.join(root, "scripts", definition.script), ...(definition.args || []), next.version], {
+      child = spawnImpl(process.execPath, [path.join(root, "scripts", definition.script), next.version], {
         cwd: root, env: { ...env, HOME: home, PATH: searchPath(home) }, stdio: "ignore", windowsHide: true,
       });
     } catch { finish("spawn_failed"); return; }

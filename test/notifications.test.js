@@ -26,7 +26,7 @@ test("only owned root work emits lifecycle facts, with no transcript and no repl
   f.remove(); assert.deepEqual(f.service.read(f.cursor).events, []);
 });
 test("Codex, Claude and ACP completion deduplicate native terminal events and fence turns", () => {
-  for (const agent of ["codex", "claude-code", "omp", "antigravity"]) {
+  for (const agent of ["codex", "claude-code", "grok-build", "antigravity"]) {
     const f = fixture(agent);
     f.service.observe(agent, "task", { type: agent === "codex" ? "turn.started" : "rate.turn.started", turnId: "current" });
     if (agent === "codex") { f.service.observe(agent, "task", { type: "turn.completed", turnId: "stale", status: "completed" }); assert.equal(f.published.length, 0); }

@@ -8,8 +8,8 @@ async function write(file,value){await fs.mkdir(path.dirname(file),{recursive:tr
 const msg=(id="msg1")=>({id,sessionID:"session1",role:"assistant",modelID:"claude-test",providerID:"anthropic",time:{created:AT},tokens:{input:100,output:20,reasoning:5,cache:{read:80,write:10}},cost:.1,content:"PRIVATE PROMPT MUST NOT LEAVE READER"});
 const input=home=>({home,entries:[],query:{from:AT-1,to:AT+1000,timeZone:"UTC"}});
 
-test("OpenCode and Kilo use separate identities, reasoning and cache once",()=>{
- const a=R.opencodeMessage("opencode",msg()),b=R.opencodeMessage("kilo",msg());
+test("two agents sharing the OpenCode record format keep separate identities, reasoning and cache once",()=>{
+ const a=R.opencodeMessage("opencode",msg()),b=R.opencodeMessage("fixture-agent",msg());
  assert.deepEqual(a.tokens,{input:100,output:25,cacheRead:80,cacheWrite:10});assert.notEqual(a.identity,b.identity);assert.equal(JSON.stringify(a).includes("PRIVATE"),false);
 });
 test("Gemini resolves cached input against the saved total and marks ambiguity",()=>{
@@ -18,15 +18,13 @@ test("Gemini resolves cached input against the saved total and marks ambiguity",
  assert.equal(parse({input:20,output:20,thoughts:5,cached:80,total:125}).rows[0].tokens.input,20);
  const bad=parse({input:100,output:20,cached:80,total:999});assert.equal(bad.partial,true);assert.equal(bad.rows[0].tokens.input,null);
 });
-test("Cline extension and CLI have different cache contracts",()=>{
+test("Roo Code's extension records count cached reads apart from input",()=>{
  const ui=R.clineMessages("roo-code",[{type:"say",say:"api_req_started",ts:AT,text:JSON.stringify({tokensIn:20,tokensOut:10,cacheReads:80,cost:.02})}],"s");
- const cli=R.clineCli({messages:[{role:"assistant",id:"m",ts:AT,metrics:{inputTokens:100,outputTokens:10,cacheReadTokens:80,cost:.02}}]},"s");
- assert.equal(ui.rows[0].tokens.input,20);assert.equal(cli.rows[0].tokens.input,20);assert.equal(ui.rows[0].cost,.02);
+ assert.equal(ui.rows[0].tokens.input,20);assert.equal(ui.rows[0].tokens.cacheRead,80);assert.equal(ui.rows[0].cost,.02);
 });
-test("OMP uses native Pi usage without conflating the two agents",()=>{
- const rows=[{type:"session",id:UUID,cwd:"/project"},{type:"message",id:"m",timestamp:AT,message:{role:"assistant",model:"m",provider:"p",usage:{input:10,output:2,cacheRead:5,cacheWrite:0}}}];
- const p=createUsageParser("pi",UUID),o=createUsageParser("omp",UUID);for(const r of rows){p.consume(r);o.consume(r);}
- assert.equal(o.result().rows.length,1);assert.notEqual(o.result().rows[0].identity,p.result().rows[0].identity);
+test("readers removed in 3.10.10 are no longer offered",()=>{
+ for(const agent of ["omp","cline","kilo"])assert.equal(H.SUPPORTED.has(agent),false,agent);
+ assert.equal(typeof R.clineCli,"undefined");
 });
 test("Grok validates per-inference identity and does not add reasoning twice",()=>{
  const row={sid:"s",pid:42,ts:AT,msg:"shell.turn.inference_done",ctx:{model:"grok",loop_index:1,prompt_tokens:100,cached_prompt_tokens:80,completion_tokens:20}};
@@ -77,7 +75,7 @@ test("menu bar distinguishes unavailable usage, partial cost and used versus rem
  const quotas=[{windows:[{usedPercent:30},{usedPercent:80}]}];assert.equal(M.badge("quota",null,quotas),"20%");assert.equal(M.badge("quota",null,quotas,"used"),"80%");
  assert.equal(M.badge("tokens",{total:{tokens:0}},[],"remaining","en",true),"—");assert.equal(M.badge("quota",null,quotas,"remaining","en",true),"20%");
  assert.equal(M.cost({unknownPricedRecords:1,knownCost:.12,unknownUnpricedRecords:1}),"≥ $0.12");assert.equal(M.cost({pricedCalls:0,knownCost:0}),"—");
- const r=M.range(new Date(AT));assert.ok(r.from<=AT && r.to>AT);assert.equal(Object.keys(M.AGENT_NAMES).length,12);
+ const r=M.range(new Date(AT));assert.ok(r.from<=AT && r.to>AT);assert.equal(Object.keys(M.AGENT_NAMES).length,9);
 });
 
 test("histories without provider metadata still label recognized model vendors",()=>{
@@ -85,19 +83,20 @@ test("histories without provider metadata still label recognized model vendors",
  assert.deepEqual(D.modelIdentity("antigravity","gemini-test"),{provider:"gemini",model:"gemini-test"});
  assert.deepEqual(D.modelIdentity("unknown","custom-model"),{provider:"unknown",model:"custom-model"});
 });
-test("machine discovery includes OMP, Gemini, Cline, Kilo, Roo and Antigravity numeric histories",async t=>{
+test("machine discovery includes Gemini, Roo and Antigravity numeric histories, and leaves removed agents' folders alone",async t=>{
  const home=await fixture(t);
+ // Histories of agents removed in 3.10.10 stay on disk unread.
  const omp=path.join(home,".omp/agent/sessions",UUID+".jsonl");await fs.mkdir(path.dirname(omp),{recursive:true});
  await fs.writeFile(omp,[{type:"session",id:UUID,cwd:"/demo"},{type:"message",id:"m",timestamp:AT,message:{role:"assistant",model:"test",usage:{input:10,output:2,cacheRead:0,cacheWrite:0}}}].map(JSON.stringify).join("\n")+"\n");
- await write(path.join(home,".gemini/tmp/project/chats/session-demo.json"),{sessionId:"g",messages:[{id:"m",type:"gemini",timestamp:AT,model:"gemini-test",tokens:{input:10,output:2,total:12}}]});
  await write(path.join(home,".cline/data/sessions/cli.messages.json"),{messages:[{id:"m",ts:AT,role:"assistant",metrics:{inputTokens:10,outputTokens:2}}]});
+ await write(path.join(home,".gemini/tmp/project/chats/session-demo.json"),{sessionId:"g",messages:[{id:"m",type:"gemini",timestamp:AT,model:"gemini-test",tokens:{input:10,output:2,total:12}}]});
  const ui=[{type:"say",say:"api_req_started",ts:AT,text:JSON.stringify({tokensIn:10,tokensOut:2,modelId:"claude-test"})}];
- await write(path.join(home,"kilo-tasks/k/ui_messages.json"),ui);await write(path.join(home,"roo-tasks/r/ui_messages.json"),ui);
+ await write(path.join(home,"roo-tasks/r/ui_messages.json"),ui);
  const folder=path.join(home,".gemini/antigravity-cli/conversations");await fs.mkdir(folder,{recursive:true});const db=new DatabaseSync(path.join(folder,UUID+".db"));
  db.exec("CREATE TABLE gen_metadata(idx INTEGER,data BLOB);CREATE TABLE trajectory_metadata_blob(data BLOB)");
  db.prepare("INSERT INTO trajectory_metadata_blob VALUES(?)").run(proto([[2,proto([[1,Math.floor(AT/1000)]])]]));
  db.prepare("INSERT INTO gen_metadata VALUES(?,?)").run(1,proto([[1,proto([[4,proto([[1,10],[2,0],[3,2],[9,2]])],[19,"gemini-test"]])]]));db.close();
  const entries=[{key:"native-ag",record:{agentId:"antigravity",nativeSessionId:"wrapper",nativeConversationId:UUID}}];
- const r=await report({...input(home),roots:{kiloTasks:path.join(home,"kilo-tasks"),"roo-codeTasks":path.join(home,"roo-tasks")},entries});
- assert.equal(r.total.tokens,72);assert.deepEqual(r.agents.map(a=>a.id).sort(),["antigravity","cline","gemini","kilo","omp","roo-code"]);assert.equal(r.coverage.missing,0);assert.equal(r.sessions.some(s=>s.id==="native-ag"),true);
+ const r=await report({...input(home),roots:{"roo-codeTasks":path.join(home,"roo-tasks")},entries});
+ assert.equal(r.total.tokens,36);assert.deepEqual(r.agents.map(a=>a.id).sort(),["antigravity","gemini","roo-code"]);assert.equal(r.coverage.missing,0);assert.equal(r.sessions.some(s=>s.id==="native-ag"),true);
 });

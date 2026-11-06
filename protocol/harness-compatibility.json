@@ -35,30 +35,6 @@
       "probe": "version-only"
     },
     {
-      "id": "omp",
-      "label": "Oh My Pi",
-      "kind": "structured-cli",
-      "executableEnv": "STEPSEMBLE_OMP_BIN",
-      "commands": ["omp"],
-      "probe": "version-only"
-    },
-    {
-      "id": "cline",
-      "label": "Cline",
-      "kind": "editor-extension",
-      "executableEnv": "STEPSEMBLE_CLINE_BIN",
-      "commands": [],
-      "probe": "manual"
-    },
-    {
-      "id": "kilo",
-      "label": "Kilo Code",
-      "kind": "editor-extension",
-      "executableEnv": "STEPSEMBLE_KILO_BIN",
-      "commands": [],
-      "probe": "manual"
-    },
-    {
       "id": "grok-build",
       "label": "Grok Build",
       "kind": "hosted-harness",

@@ -86,7 +86,7 @@ test("an ACP agent that branches conversations makes a new one; one that does no
     if (frame.method === "initialize") reply({ result: { agentCapabilities: { loadSession: true } } });
     if (frame.method === "session/new") reply({ result: { sessionId: "session-1" } });
   });
-  const other = createAgentClientProtocolAdapter({ command: "/usr/local/bin/cline", args: ["--acp"], cwd: "/tmp", spawnImpl: () => plain });
+  const other = createAgentClientProtocolAdapter({ command: "/usr/local/bin/acp-agent", args: ["acp"], cwd: "/tmp", spawnImpl: () => plain });
   t.after(() => other.close());
   await other.createSession({ directory: "/tmp" });
   assert.equal(other.status().forkable, false);

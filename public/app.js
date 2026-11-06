@@ -253,7 +253,7 @@ let grokAcpPollTimer = null;
 let acpPollTimer = null;
 let claudeStructuredPollTimer = null;
 // Agents the Host runs through its ACP adapters (server.js ACP_AGENT_IDS).
-const ACP_AGENT_IDS = Object.freeze(["cline", "kilo", "omp", "antigravity"]);
+const ACP_AGENT_IDS = Object.freeze(["antigravity"]);
 let codexNativeHistoryButton = null;
 let agentCatalogRequest = null;
 let newAgentStartPending = false;
@@ -13834,8 +13834,8 @@ function acpThoughtOption(configOptions) {
   const options = Array.isArray(configOptions) ? configOptions : [];
   return options.find((option) => option?.category === "thought_level" && option.options?.length) || null;
 }
-// Kilo, Cline and Oh My Pi share one ACP route and Grok has its own; both read
-// and change the same session config options.
+// Antigravity uses the shared ACP route and Grok has its own; both read and
+// change the same session config options.
 function acpConfigPath(connection) {
   if (connection?.nativeGrokAcp) return "/api/grok/acp/config";
   if (connection?.nativeAcp && connection.acpAgentId) return `/api/${connection.acpAgentId}/acp/config`;
@@ -14787,8 +14787,8 @@ function agentTerminalHostName(base = apiBase) {
 
 function agentTerminalLabel(agentId) {
   // Settings opened on its own page has no connector catalog loaded yet.
-  const names = { pi: "Pi Agent", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode", kilo: "Kilo Code",
-    omp: "Oh My Pi", "grok-build": "Grok Build", cline: "Cline", antigravity: "Antigravity" };
+  const names = { pi: "Pi Agent", codex: "Codex", "claude-code": "Claude Code", opencode: "OpenCode",
+    "grok-build": "Grok Build", antigravity: "Antigravity" };
   const label = agentConnectorLabel(agentId);
   return label && label !== agentId ? label : names[agentId] || label;
 }
@@ -14984,10 +14984,6 @@ async function prepareAgentTerminal(term) {
     watchAgentSetup(term);
     return;
   }
-  if (term.agentId === "omp" && term.action === "login") {
-    await prepareOmpConnection(term, choices);
-    return;
-  }
   if (!choices.length) {
     agentTerminalLine(term, agentTerminalText("unsupported." + term.action, { agent: label }), "warn");
     finishAgentTerminal(term, "failed");
@@ -15014,44 +15010,6 @@ async function prepareAgentTerminal(term) {
     await startAgentTerminalRun(term, { choice: choices[0].id });
     return;
   }
-  renderAgentTerminal();
-}
-
-// Both the settings page and /login use the selected Host's gateway. The
-// phone never opens a localhost URL or receives provider credentials.
-async function prepareOmpConnection(term, choices) {
-  const current = () => agentTerminal === term && term.hostBase === apiBase;
-  let gateway = null;
-  try { gateway = await api("/api/gateway/status?agentId=omp"); } catch {}
-  if (!current()) return;
-  const state = gateway?.omp;
-  term.phase = "choose";
-  term.notes = [{ tone: "info", text: gatewayText("omp.intro") }];
-  term.controls = [];
-  if (gateway?.installed && state) {
-    const blocked = state.busy || !state.supported || !gateway.reachable || !gateway.gatewayModels?.length || ["conflict", "unsafe"].includes(state.state);
-    if (blocked) term.notes.push({ tone: "warn", text: ompGatewayDetail(gateway) });
-    else term.controls.push({ type: "button", primary: true, label: gatewayText("omp.use"),
-      description: gatewayText("omp.sameHost"), onClick: async () => {
-        if (!current() || term.phase !== "choose") return;
-        term.phase = "running"; term.controls = []; term.notes = [{ text: gatewayText("omp.busy") }];
-        newAgentTerminalScreen(term); renderAgentTerminal();
-        try {
-          await post("/api/gateway/action", { action: "omp_integration", enabled: true });
-          if (!current()) return;
-          term.notes = [{ text: gatewayText("omp.done") }];
-          finishAgentTerminal(term, "completed");
-        } catch (error) {
-          if (!current()) return;
-          agentTerminalLine(term, gatewayActionError(error), "error");
-          await prepareOmpConnection(term, choices);
-        }
-      } });
-  } else term.notes.push({ tone: "info", text: gatewayText("omp.install") });
-  if (choices[0]) term.controls.push({ type: "button", label: gatewayText("omp.direct"),
-    description: gatewayText("omp.directHint"), onClick: () => {
-      if (current() && term.phase === "choose") void startAgentTerminalRun(term, { choice: choices[0].id });
-    } });
   renderAgentTerminal();
 }
 
@@ -18782,8 +18740,8 @@ let openCodeDialogEdit = null;
 // says how to sign in and shows the models it offers and its own settings:
 // Pi's visible models and custom providers, OpenCode's providers and local
 // server, and the OpenCodex routing for Codex and Claude Code.
-function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "kilo", "omp", "grok-build", "cline", "antigravity"]; }
-function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code" || agent === "omp"; }
+function modelSettingsAgentIds() { return ["pi", "codex", "claude-code", "opencode", "grok-build", "antigravity"]; }
+function isRoutedModelAgent(agent) { return agent === "codex" || agent === "claude-code"; }
 function currentModelSettingsAgent() { return modelSettingsAgent; }
 function modelAgentText(key, vars = {}) { return tKey("modelAgents." + key, vars); }
 
@@ -18873,7 +18831,7 @@ el.claudeHelperUpdate?.addEventListener("click", async () => {
 function modelAgentSummary(id, catalog = null) {
   if (id === "pi") return piModelSummaryText() || modelAgentText("summary.pi");
   // Gateway routing is mentioned only where the host has a gateway.
-  if (isRoutedModelAgent(id)) return modelAgentText(catalog?.magpie === true && id !== "omp" ? "summary.routedMagpie"
+  if (isRoutedModelAgent(id)) return modelAgentText(catalog?.magpie === true ? "summary.routedMagpie"
     : catalog?.opencodex === false ? "summary.models" : "summary.routed");
   if (id === "opencode") return modelAgentText("summary.opencode");
   return modelAgentText("summary.models");
@@ -19243,7 +19201,7 @@ el.opencodeProviderCancel?.addEventListener("click", closeOpenCodeProviderDialog
 el.opencodeProviderCancelBottom?.addEventListener("click", closeOpenCodeProviderDialog);
 
 // ===========================================================================
-// Codex, Claude & OMP gateway panel (OpenCodex integration)
+// Codex & Claude gateway panel (OpenCodex integration)
 // ===========================================================================
 
 let codexGatewayData = null;
@@ -19260,7 +19218,7 @@ function gatewayText(key, vars = {}) { return tKey("gateway." + key, vars); }
 // is there. A host from before that field keeps showing OpenCodex's.
 function codexGatewayVisible() {
   return isRoutedModelAgent(modelSettingsAgent) && codexGatewayBase === apiBase
-    && !!codexGatewayData && (modelSettingsAgent === "omp" || codexGatewayData.installed !== false || !!codexGatewayData.magpie?.installed);
+    && !!codexGatewayData && (codexGatewayData.installed !== false || !!codexGatewayData.magpie?.installed);
 }
 
 // Beside Magpie, OpenCodex shows only while it runs or an agent still goes
@@ -19289,7 +19247,7 @@ async function loadCodexGateway(force = false) {
     el.codexGatewayStatus.classList.remove("hidden");
   }
   try {
-    const result = await api("/api/gateway/status" + (modelSettingsAgent === "omp" ? "?agentId=omp" : ""), { signal: request.signal });
+    const result = await api("/api/gateway/status", { signal: request.signal });
     if (request.signal.aborted || generation !== viewGeneration || baseAtStart !== apiBase || agentAtStart !== modelSettingsAgent) return;
     codexGatewayData = result;
     codexGatewayBase = baseAtStart;
@@ -19346,11 +19304,6 @@ function codexGatewayNote(value) {
 
 function gatewayActionError(error) {
   const code = String(error?.code || "");
-  if (code.startsWith("omp_gateway_") || code === "opencodex_action_timeout") {
-    const key = { omp_gateway_conflict: "conflict", omp_gateway_offline: "offline", omp_gateway_no_models: "noModels",
-      omp_gateway_busy: "busy", omp_gateway_unconfirmed: "unconfirmed", omp_gateway_profile_mismatch: "profileMismatch" }[code] || "unavailable";
-    return gatewayText("omp." + key);
-  }
   if (code === "opencodex_missing") return gatewayText("error.missing");
   if (code === "magpie_missing") return gatewayText("magpie.missing");
   if (code === "magpie_offline") return gatewayText("magpie.offline");
@@ -19377,7 +19330,6 @@ function codexGatewayAction(label, question, body) {
       await post("/api/gateway/action", body);
       if (base !== apiBase || agent !== modelSettingsAgent) return;
       await loadCodexGateway(true);
-      if (base === apiBase && agent === modelSettingsAgent && body.action === "omp_integration" && body.enabled) toast(gatewayText("omp.done"));
     } catch (error) {
       if (base === apiBase && agent === modelSettingsAgent) toast(gatewayActionError(error), true);
     } finally {
@@ -19388,16 +19340,6 @@ function codexGatewayAction(label, question, body) {
   return actions;
 }
 
-function ompGatewayDetail(data) {
-  const state = data?.omp;
-  const key = data?.installed === false ? "install" : ["conflict", "unsafe"].includes(state?.state) ? "conflict"
-    : state?.error === "omp_gateway_profile_mismatch" ? "profileMismatch"
-    : state?.busy ? "busy" : !data?.reachable ? "offline"
-      : !state?.supported ? "unavailable" : !data.gatewayModels?.length ? "noModels"
-        : state.state === "current" ? "connected" : state.state === "stale" ? "stale" : "intro";
-  return gatewayText("omp." + key);
-}
-
 function renderCodexGateway() {
   if (!el.codexGatewayList) return;
   const visible = codexGatewayVisible();
@@ -19405,33 +19347,6 @@ function renderCodexGateway() {
   el.codexGatewayList.replaceChildren();
   if (!visible) return;
   const data = codexGatewayData;
-
-  if (modelSettingsAgent === "omp") {
-    const state = data.omp;
-    const card = codexGatewayCard("OpenCodex", ompGatewayDetail(data));
-    card.appendChild(codexGatewayNote(gatewayText("omp.sameHost")));
-    const allowed = state?.supported && !state.busy && !["conflict", "unsafe"].includes(state.state);
-    if (allowed && data.reachable && data.gatewayModels?.length) card.appendChild(codexGatewayAction(
-      gatewayText(state.state === "current" ? "omp.refresh" : "omp.use"), null, { action: "omp_integration", enabled: true }));
-    if (allowed && ["current", "stale"].includes(state.state)) card.appendChild(codexGatewayAction(
-      gatewayText("omp.disconnect"), gatewayText("omp.confirmDisconnect"), { action: "omp_integration", enabled: false }));
-    const refresh = document.createElement("button");
-    refresh.type = "button"; refresh.className = "btn ghost provider-row-action";
-    refresh.textContent = gatewayText("omp.check");
-    refresh.addEventListener("click", () => void loadCodexGateway(true));
-    card.appendChild(refresh);
-    card.appendChild(codexGatewayNote(gatewayText("omp.checkHint")));
-    const direct = document.createElement("button");
-    direct.type = "button"; direct.className = "btn ghost provider-row-action";
-    direct.textContent = gatewayText("omp.options");
-    const base = apiBase;
-    direct.addEventListener("click", () => {
-      if (base === apiBase && modelSettingsAgent === "omp") void openAgentTerminal({ agentId: "omp", action: "login" });
-    });
-    card.appendChild(direct);
-    el.codexGatewayList.appendChild(card);
-    return;
-  }
 
   if (data.magpie?.installed) renderMagpieGateway(data.magpie);
   if (!openCodexGatewayShown(data)) return;

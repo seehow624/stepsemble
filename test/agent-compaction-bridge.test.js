@@ -10,7 +10,7 @@ function fixture(){
  const bridge=createCompactionBridge({pi:{session:()=>piSession,busy:()=>false,command:async(sid,command)=>{calls.push(["pi",sid,command]);return {success:true,data:{tokensBefore:12000,estimatedTokensAfter:2000}};}},claude:()=>({session:claudeSession}),codex,openCode,acp:()=>acp,working:async()=>false,choice:()=>({model:"owned-provider/owned-model"})});
  return {bridge,calls,piSession,claudeState,codexState,codex,openCode,acp};
 }
-const records={pi:{agentId:"pi",sid:"pi-a",cwd:"/owned"},"claude-code":{agentId:"claude-code",id:"claude-code:claude-a",nativeClaudeStructured:true,cwd:"/owned"},codex:{agentId:"codex",nativeCodex:true,mutation:"native_api",nativeThreadId:"thread-a",cwd:"/owned"},opencode:{agentId:"opencode",nativeOpenCode:true,nativeSessionId:"open-a",cwd:"/owned"},omp:{agentId:"omp",nativeAcp:true,nativeSessionId:"acp-a",cwd:"/owned"},cline:{agentId:"cline",nativeAcp:true,nativeSessionId:"acp-a",cwd:"/owned"},kilo:{agentId:"kilo",nativeAcp:true,nativeSessionId:"acp-a",cwd:"/owned"},"grok-build":{agentId:"grok-build",nativeGrokAcp:true,nativeSessionId:"grok-a",cwd:"/owned"}};
+const records={pi:{agentId:"pi",sid:"pi-a",cwd:"/owned"},"claude-code":{agentId:"claude-code",id:"claude-code:claude-a",nativeClaudeStructured:true,cwd:"/owned"},codex:{agentId:"codex",nativeCodex:true,mutation:"native_api",nativeThreadId:"thread-a",cwd:"/owned"},opencode:{agentId:"opencode",nativeOpenCode:true,nativeSessionId:"open-a",cwd:"/owned"},"grok-build":{agentId:"grok-build",nativeGrokAcp:true,nativeSessionId:"grok-a",cwd:"/owned"}};
 for(const [agentId,record] of Object.entries(records))test(`${agentId} reports native compaction capability without sending a prompt`,async()=>{
  const f=fixture(),state=await f.bridge.describe(record);assert.equal(state.supported,true);assert.equal(state.instructions,["pi","claude-code"].includes(agentId));assert.equal(f.calls.length,0);
 });
@@ -25,13 +25,14 @@ test("Claude, Codex and OpenCode use their native operations, not a generated su
 test("an owned Codex thread may be resumed, but is never replaced by another conversation",async()=>{
  const f=fixture();f.codexState.threadId=null;await f.bridge.run(records.codex,{});assert.deepEqual(f.calls,[["resume","thread-a"],["codex","thread-a"]]);
 });
-test("unsupported ACP agents and Antigravity remain disabled",async()=>{
- const f=fixture();f.acp.compactionSupport=()=>({supported:false,instructions:false,reason:"compaction_unavailable"});assert.equal((await f.bridge.describe(records.cline)).supported,false);
- for(const record of [{agentId:"antigravity",nativeAcp:true},{agentId:"unknown",nativeAcp:true}]){assert.equal((await f.bridge.describe(record)).supported,false);await assert.rejects(f.bridge.run(record,{}));}
+test("unsupported ACP agents, removed agents and Antigravity remain disabled",async()=>{
+ const f=fixture();f.acp.compactionSupport=()=>({supported:false,instructions:false,reason:"compaction_unavailable"});assert.equal((await f.bridge.describe(records["grok-build"])).supported,false);
+ // Conversations stored before 3.10.10 may still name Cline, Kilo Code or Oh My Pi.
+ for(const record of [{agentId:"antigravity",nativeAcp:true},{agentId:"unknown",nativeAcp:true},{agentId:"cline",nativeAcp:true},{agentId:"kilo",nativeAcp:true},{agentId:"omp",nativeAcp:true}]){assert.equal((await f.bridge.describe(record)).supported,false);await assert.rejects(f.bridge.run(record,{}));}
  assert.equal(f.calls.length,0);
 });
 test("terminal-only conversations never claim a structured compaction capability",async()=>{
- const f=fixture();for(const agentId of ["claude-code","codex","opencode","omp","grok-build"])assert.equal((await f.bridge.describe({agentId})).reason,"compaction_terminal_only");
+ const f=fixture();for(const agentId of ["claude-code","codex","opencode","grok-build"])assert.equal((await f.bridge.describe({agentId})).reason,"compaction_terminal_only");
 });
 test("busy and disconnected native sessions do not dispatch",async()=>{
  const f=fixture();f.claudeState.state="running";await assert.rejects(f.bridge.run(records["claude-code"],{}),/compaction_busy/);

@@ -258,9 +258,10 @@ explicit input/output boundary before adding more state to the controllers.
   emit those generic task events. The development release-review correction
   advertises `protocolVersion: null` and `events: []` for native Pi; the older
   shipped catalog incorrectly populated the generic manifest fields for it.
-  Claude Code, Codex CLI, Grok Build, OpenCode, Google Antigravity, Cline,
-  and Kilo Code are discovered from an explicit allow-list and run only from their
-  resolved executable path. The browser can submit an Agent id and text, never
+  Claude Code, Codex CLI, Grok Build, OpenCode, and Google Antigravity are
+  discovered from an explicit allow-list and run only from their resolved
+  executable path. Cline, Kilo Code and Oh My Pi were removed in 3.10.10;
+  conversations stored with their ids stay readable as history. The browser can submit an Agent id and text, never
   an arbitrary command or shell fragment.
 - Generic CLI tasks have a bounded, private journal at
   `~/.config/stepsemble/agent-tasks.json` (mode `0600`). Their stdout/stderr is
@@ -281,9 +282,8 @@ explicit input/output boundary before adding more state to the controllers.
   keep the existing graceful-restart behavior.
 - Structured native bridges are separately opt-in and contract-scoped. Claude
   Code uses its public stream-json bridge, Grok uses ACP, Codex uses the
-  app-server adapter, OpenCode uses its local server, Antigravity uses the
-  `agy` stream-json contract, and Cline/Kilo/Oh My Pi use standard ACP over
-  stdio. Each bridge validates the upstream session identity and bounds event
+  app-server adapter, OpenCode uses its local server, and Antigravity uses the
+  `agy` stream-json contract behind the shared ACP adapter interface. Each bridge validates the upstream session identity and bounds event
   size; failed initialization falls back to the generic connector and approval
   responses remain option/request-bound rather than being auto-approved.
 - Worktree selection is server-side validated and uses the existing permanent
