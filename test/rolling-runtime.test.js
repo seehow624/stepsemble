@@ -69,7 +69,7 @@ test("browser matrix splits finite workers without losing or repeating any suite
   assert.deepEqual(jobs.map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace", "sources", "codex"]);
   for (const job of jobs) {
     assert.equal(path.basename(job.args[0]), "rolling-browser-worker.mjs");
-    assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(["core", "conversation-ux", "sources", "codex"].includes(job.suite) ? [helper] : [])]);
+    assert.deepEqual(job.args.slice(1), [runtime, job.suite, ...(["core", "sources", "codex"].includes(job.suite) ? [helper] : [])]);
   }
   const fallback = browserWorkerJobs(runtime);
   assert.deepEqual(fallback.map(job => job.suite), ["core", "conversation-ux", "agent-speed", "workspace"]);
@@ -83,15 +83,15 @@ function expectedBrowserCalls(helper) {
   const call = (name, ...args) => ({ name, args });
   return {
     core: coreBrowserHelpers.map(name => call(name)),
-    "conversation-ux": [call("runPiRecoveryBrowserCases", { output: path.join("/owned/temp", "pi-recovery") }), ...(!helper ? [call("runConversationUxBrowserCases")] : [])],
+    "conversation-ux": [call("runConversationUxBrowserCases")],
     "agent-speed": [call("runComposerQueueBrowserCases"), ...["native", "magpie"].map(route => call("runAgentSpeedBrowserCases", {
       engine: "chromium", route, output: path.join("/owned/temp", "agent-speed"),
-    })), call("runUsageBrowserCases")],
+    })), call("runUsageBrowserCases"), call("runPiRecoveryBrowserCases", { output: path.join("/owned/temp", "pi-recovery") })],
     workspace: ["runScrollbarBrowserCases", "runProjectFilesBrowserCases", "runWorkspaceReorderBrowserCases", "runWorkspacePanesBrowserCases",
       "runWorkspaceMachinesBrowserCases", "runWorkspaceSchedulesBrowserCases", "runWorkspaceStatusBrowserCases", "runInterfaceStyleBrowserCases"]
       .map(name => call(name)).concat(call("runDesignPolishBrowserCases", { engine: "chromium" })),
     sources: [call("runHistorySourcesBrowserCases", helper), call("runCodexActivityBrowserCases")],
-    codex: [call("runCodexHistoryBrowserCases", helper), call("runConversationUxBrowserCases")],
+    codex: [call("runCodexHistoryBrowserCases", helper)],
   };
 }
 async function captureBrowserDispatch(workerSource, jobs) {
@@ -124,16 +124,18 @@ async function captureBrowserDispatch(workerSource, jobs) {
   return { graph, pins };
 }
 
-function assertConversationUxRouting(graph, helper) {
-  const owners = Object.entries(graph).flatMap(([suite, row]) => row.calls.filter(call => call.name === "runConversationUxBrowserCases").map(() => suite));
-  assert.deepEqual(owners, [helper ? "codex" : "conversation-ux"], "complete Conversation UX runs exactly once in its mode owner");
+function assertBalancedHelperRouting(graph, helper) {
+  for (const [name, owner] of [["runConversationUxBrowserCases", "conversation-ux"], ["runPiRecoveryBrowserCases", "agent-speed"]]) {
+    const owners = Object.entries(graph).flatMap(([suite, row]) => row.calls.filter(call => call.name === name).map(() => suite));
+    assert.deepEqual(owners, [owner], `${name}: complete helper runs exactly once in its unconditional owner`);
+  }
   const expected = expectedBrowserCalls(helper);
-  for (const suite of ["conversation-ux", ...(helper ? ["codex"] : [])]) {
+  for (const suite of ["conversation-ux", "agent-speed", ...(helper ? ["codex"] : [])]) {
     assert.deepEqual(graph[suite].calls, expected[suite], `${suite}: complete ordered calls and arguments`);
   }
 }
 
-test("rolling actual dispatch routes complete Codex activity and Conversation UX exactly once in both matrix modes", async t => {
+test("rolling actual dispatch routes every complete helper exactly once in both matrix modes with PiRecovery after Usage", async t => {
   const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
   const source = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8").replace(/\r\n/g, "\n");
   const snapshots = [];
@@ -145,7 +147,7 @@ test("rolling actual dispatch routes complete Codex activity and Conversation UX
     }
   }
   for (const { ending, helper, jobs, graph, pins } of snapshots) {
-    assertConversationUxRouting(graph, helper);
+    assertBalancedHelperRouting(graph, helper);
     const owners = Object.entries(graph).flatMap(([suite, row]) => row.calls.filter(call => call.name === "runCodexActivityBrowserCases").map(() => suite));
     assert.deepEqual(owners, [helper ? "sources" : "core"], `${ending}: complete Codex activity owner in ${helper ? "helper6" : "nohelper4"}`);
     const expected = expectedBrowserCalls(helper);
@@ -171,33 +173,40 @@ test("rolling actual dispatch routes complete Codex activity and Conversation UX
   }
 });
 
-test("rolling Conversation UX oracle rejects old-route, dropped, duplicate, wrong-owner and lost-mode counterexamples", async t => {
+test("rolling balanced-helper oracle rejects stale, dropped, duplicate, wrong-owner, argument and order counterexamples", async t => {
   const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
   const source = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8").replace(/\r\n/g, "\n");
-  const fallbackCall = "if (!historyHelper) await runConversationUxBrowserCases(browser);";
-  const codexCalls = "await runCodexHistoryBrowserCases(browser, historyHelper);\n    await runConversationUxBrowserCases(browser);";
   const ux = "await runConversationUxBrowserCases(browser);";
-  const helper = "/owned/helper";
+  const recovery = 'await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "pi-recovery") });';
+  const usage = "await runUsageBrowserCases(browser);";
+  const codex = "await runCodexHistoryBrowserCases(browser, historyHelper);";
   const cases = [
-    ["old-route", helper, source.replace(fallbackCall, ux).replace(codexCalls, "await runCodexHistoryBrowserCases(browser, historyHelper);")],
-    ["drop-helper6", helper, source.replace(codexCalls, "await runCodexHistoryBrowserCases(browser, historyHelper);")],
-    ["duplicate-helper6", helper, source.replace(codexCalls, `${codexCalls}\n    ${ux}`)],
-    ["wrong-owner-helper6", helper, source.replace(codexCalls, "await runCodexHistoryBrowserCases(browser, historyHelper);")
-      .replace("await runHistorySourcesBrowserCases(browser, historyHelper);", `await runHistorySourcesBrowserCases(browser, historyHelper);\n    ${ux}`)],
-    ["lost-conversation-mode-argv", helper, source],
-    ["drop-fallback4", undefined, source.replace(fallbackCall, "")],
-    ["duplicate-fallback4", undefined, source.replace(fallbackCall, `${fallbackCall}\n    ${ux}`)],
-    ["wrong-owner-fallback4", undefined, source.replace(fallbackCall, "").replace("await runScrollbarBrowserCases(browser);", `await runScrollbarBrowserCases(browser);\n    ${ux}`)],
+    ["stale-E4020-conversation-recovery", source.replace(ux, `${recovery}\n    ${ux}`).replace(`${usage}\n    ${recovery}`, usage)],
+    ["stale-M6-codex-UX", source.replace(ux, `if (!historyHelper) ${ux}`).replace(codex, `${codex}\n    ${ux}`)
+      .replace(`${usage}\n    ${recovery}`, usage).replace(`if (!historyHelper) ${ux}`, `${recovery}\n    if (!historyHelper) ${ux}`)],
+    ["drop-UX", source.replace(ux, "")],
+    ["duplicate-UX", source.replace(ux, `${ux}\n    ${ux}`)],
+    ["wrong-owner-UX", source.replace(ux, "").replace("await runScrollbarBrowserCases(browser);", `await runScrollbarBrowserCases(browser);\n    ${ux}`)],
+    ["wrong-arguments-UX", source.replace(ux, "await runConversationUxBrowserCases(browser, historyHelper);")],
+    ["conditional-UX", source.replace(ux, `if (historyHelper) ${ux}`)],
+    ["drop-PiRecovery", source.replace(recovery, "")],
+    ["duplicate-PiRecovery", source.replace(recovery, `${recovery}\n    ${recovery}`)],
+    ["wrong-owner-PiRecovery", source.replace(recovery, "").replace(ux, `${ux}\n    ${recovery}`)],
+    ["wrong-output-PiRecovery", source.replace(recovery, 'await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "wrong-recovery") });')],
+    ["missing-arguments-PiRecovery", source.replace(recovery, "await runPiRecoveryBrowserCases(browser);")],
+    ["PiRecovery-before-Usage", source.replace(`${usage}\n    ${recovery}`, `${recovery}\n    ${usage}`)],
   ];
-  for (const [ending, newline] of [["LF", "\n"], ["CRLF", "\r\n"]]) for (const [label, mode, mutant] of cases) await t.test(`${ending}-${label}`, async () => {
-    const jobs = browserWorkerJobs("/owned/runtime", mode);
-    if (label === "lost-conversation-mode-argv") jobs.find(job => job.suite === "conversation-ux").args.pop();
-    const { graph } = await captureBrowserDispatch(mutant.replace(/\n/g, newline), jobs);
-    assert.throws(() => assertConversationUxRouting(graph, mode), assert.AssertionError);
-  });
+  for (const [ending, newline] of [["LF", "\n"], ["CRLF", "\r\n"]]) for (const mode of ["/owned/helper", undefined]) {
+    for (const [label, mutant] of cases) await t.test(`${ending}-${mode ? "helper6" : "nohelper4"}-${label}`, async () => {
+      assert.notEqual(mutant, source, "counterexample actually changes the dispatcher");
+      const jobs = browserWorkerJobs("/owned/runtime", mode);
+      const { graph } = await captureBrowserDispatch(mutant.replace(/\n/g, newline), jobs);
+      assert.throws(() => assertBalancedHelperRouting(graph, mode), assert.AssertionError);
+    });
+  }
 });
 
-test("rolling worker argument guard permits core/conversation optional absolute helper and retains fail-closed suites", async () => {
+test("rolling worker argument guard permits only core optional absolute helper and retains fail-closed suites", async () => {
   const { browserWorkerJobs } = await import("../scripts/check-rolling-clients.mjs");
   const source = fs.readFileSync(path.resolve("scripts/rolling-browser-worker.mjs"), "utf8").replace(/\r\n/g, "\n");
   for (const workerSource of [source, source.replace(/\n/g, "\r\n")]) {
@@ -206,13 +215,13 @@ test("rolling worker argument guard permits core/conversation optional absolute 
     const guard = compileFunction(worker.slice(start, end), ["process", "path"], { parsingContext: createContext({}) });
     const validate = args => guard({ argv: ["node", "worker", ...args] }, path);
     for (const helper of [undefined, "/owned/helper"]) for (const job of browserWorkerJobs("/owned/runtime", helper)) assert.doesNotThrow(() => validate(job.args.slice(1)));
-    for (const suite of ["core", "conversation-ux", "sources", "codex"]) {
+    for (const suite of ["core", "sources", "codex"]) {
       assert.doesNotThrow(() => validate(["/owned/runtime", suite, "/owned/helper"]));
       for (const helper of ["relative/helper", ""]) assert.throws(() => validate(["/owned/runtime", suite, helper]), /Invalid browser suite or owned helper path/);
       assert.throws(() => validate(["/owned/runtime", suite, "/owned/helper", "extra"]), /Invalid browser suite or owned helper path/);
     }
     for (const suite of ["sources", "codex"]) assert.throws(() => validate(["/owned/runtime", suite]), /Invalid browser suite or owned helper path/);
-    for (const suite of ["agent-speed", "workspace"]) {
+    for (const suite of ["conversation-ux", "agent-speed", "workspace"]) {
       assert.doesNotThrow(() => validate(["/owned/runtime", suite]));
       for (const helper of ["/owned/helper", "relative/helper", ""]) assert.throws(() => validate(["/owned/runtime", suite, helper]), /Invalid browser suite or owned helper path/);
       assert.throws(() => validate(["/owned/runtime", suite, "/owned/helper", "extra"]), /Invalid browser suite or owned helper path/);
@@ -267,7 +276,8 @@ test("rolling browser schedules complete Usage helper once after existing agent-
       "await runComposerQueueBrowserCases(browser);",
       'for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });',
       "await runUsageBrowserCases(browser);",
-    ], "Usage runs sequentially after the unchanged agent-speed cases");
+      'await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "pi-recovery") });',
+    ], "Usage stays after unchanged agent-speed cases and before complete PiRecovery");
     assert.doesNotMatch(workspace, /runUsageBrowserCases/, "workspace no longer carries the Usage workload");
   }
 });

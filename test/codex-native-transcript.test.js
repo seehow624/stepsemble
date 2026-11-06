@@ -178,7 +178,9 @@ for (const owner of ["rpc", "generation", "base"]) {
 test("Codex normal40 browser targets an already positioned and painted native surface", async () => {
   const browserSource = fs.readFileSync(require.resolve("../scripts/codex-activity-browser-cases.mjs"), "utf8");
   const marker = browserSource.indexOf("window.historyWheelTimes = [];");
-  const close = "          });";
+  // The wheel-initialization evaluate now also installs the owned diagnostic
+  // recorder and takes one argument; the positioning setup follows its close.
+  const close = "          }, !!diagnosticRequests);";
   const from = browserSource.indexOf(close, marker), end = browserSource.indexOf("let times = [];", from);
   assert.ok(marker >= 0 && from > marker && end > from);
   const setup = browserSource.slice(from + close.length, end);
@@ -677,3 +679,475 @@ for (const boundary of ["body", "html"]) {
     });
   }
 }
+
+// MOCKED diagnostic contracts: execute the actual owned fixture callbacks, not
+// copies of recorder logic. These tests do not establish browser chronology.
+const focusDiagnosticSource = fs.readFileSync(require.resolve("../scripts/codex-activity-browser-cases.mjs"), "utf8");
+function diagnosticRegion(start, end) {
+  assert.equal(focusDiagnosticSource.split(start).length, 2, `unique start: ${start}`);
+  assert.equal(focusDiagnosticSource.split(end).length, 2, `unique end: ${end}`);
+  const a = focusDiagnosticSource.indexOf(start), b = focusDiagnosticSource.indexOf(end, a + start.length);
+  assert.ok(b > a);
+  return focusDiagnosticSource.slice(a + start.length, b);
+}
+const diagnosticHelpers = diagnosticRegion("// BEGIN Codex readable diagnostic helpers", "// END Codex readable diagnostic helpers");
+const diagnosticInstallCallback = "manual => {" + diagnosticRegion("await pane.evaluate(manual => {", "}, !!diagnosticRequests);") + "}";
+const diagnosticSelectedCallback = diagnosticRegion("else assert.equal(await button.evaluate(", "), true, \"explicit keyboard retry keeps its button focus\");");
+const diagnosticRangeCallback = diagnosticRegion("const range = await pane.evaluate(", ");\n          if (fullBatch)");
+const diagnosticFailureBoundary = "catch (error) {" + diagnosticRegion("      } catch (error) {\n        if (diagnosticRequests)", "\n    }\n  }\n}").replace(/^/, "\n        if (diagnosticRequests)");
+
+function diagnosticHarness({ unavailableParent = false, listenerFailure = false } = {}) {
+  const listeners = [], mutations = [];
+  let clock = 0;
+  function target(tagName) {
+    const node = { tagName, isConnected: true, hidden: false, parentNode: null,
+      getAttribute(name) { assert.equal(name, "aria-hidden"); return null; },
+      addEventListener(type, fn, options) {
+        if (listenerFailure && type !== "wheel") throw new Error("mock listener unavailable");
+        listeners.push({ target: node, type, fn, options });
+      },
+      focus() { mutations.push("focus"); }, setAttribute() { mutations.push("attribute"); },
+    };
+    for (const key of ["textContent", "innerText", "innerHTML", "value", "ariaLabel"]) {
+      Object.defineProperty(node, key, { get() { throw new Error(`private read: ${key}`); }, set() { mutations.push(key); } });
+    }
+    return node;
+  }
+  function doc() {
+    const d = target(), nodes = { ".history-load-button": target("BUTTON"), "#input": target("TEXTAREA"),
+      "#workspace-search": target("INPUT"), "#messages": target("DIV") };
+    d.body = target("BODY"); d.documentElement = target("HTML"); d.activeElement = d.body;
+    d.hasFocus = () => true; d.visibilityState = "visible";
+    d.querySelector = selector => { assert.ok(Object.hasOwn(nodes, selector)); return nodes[selector]; };
+    nodes[".history-load-button"].parentNode = nodes["#messages"]; nodes[".history-load-button"].disabled = false;
+    nodes["#messages"].scrollTop = 17; nodes["#messages"].scrollHeight = 800; nodes["#messages"].clientHeight = 300;
+    return { d, nodes };
+  }
+  const pane = doc(), parent = doc(), win = target(), parentWin = target(), frame = target("IFRAME");
+  frame.ownerDocument = parent.d; win.frameElement = frame; win.parent = parentWin; parentWin.document = parent.d;
+  if (unavailableParent) Object.defineProperty(win, "parent", { get() { throw new Error("mock cross origin"); } });
+  parent.d.activeElement = frame;
+  const connection = Object.freeze({ nativeTranscriptState: Object.freeze({ loading: false }), nativeRefreshInFlight: false, nativeHistoryRequest: {} });
+  const ctx = vm.createContext({ window: win, document: pane.d, rpc: connection, viewGeneration: 7,
+    apiBase: "/private/base-secret", codexNativeHistoryButton: pane.nodes[".history-load-button"],
+    performance: { now: () => ++clock } });
+  const compile = code => vm.compileFunction(`return (${code});`, [], { parsingContext: ctx })();
+  const install = compile(diagnosticInstallCallback);
+  install(true);
+  const recorder = win.__codexReadableFocusDiagnostic;
+  function fire(on, type, extra = {}) {
+    const event = { type, target: pane.nodes[".history-load-button"], relatedTarget: null, eventPhase: 1, isTrusted: true,
+      preventDefault() { mutations.push("default"); }, stopPropagation() { mutations.push("propagation"); }, ...extra };
+    for (const listener of listeners.filter(l => l.target === on && l.type === type)) listener.fn(event);
+    return event;
+  }
+  return { ctx, compile, install, recorder, listeners, mutations, pane, parent, win, parentWin, frame, connection, fire };
+}
+function diagnosticNodeHelpers({ timeout = false, emitFailure = false } = {}) {
+  const logs = [], timers = [], cleared = [];
+  const ctx = vm.createContext({ performance: { now: () => 12 }, console: { error(line) { logs.push(line); if (emitFailure) throw new Error("mock log failure"); } },
+    setTimeout(fn, ms) { timers.push({ fn, ms }); if (timeout) queueMicrotask(fn); return timers.length; },
+    clearTimeout(id) { cleared.push(id); } });
+  const helpers = vm.compileFunction(diagnosticHelpers + "\nreturn { createCodexReadableRequestDiagnostic, rethrowCodexReadableDiagnostic };", [], { parsingContext: ctx })();
+  return { ...helpers, logs, timers, cleared };
+}
+
+test("Codex readable focus diagnostic: stable opaque references, parent/frame relation and external identities", () => {
+  const h = diagnosticHarness(), button = h.pane.nodes[".history-load-button"];
+  h.pane.d.activeElement = button;
+  h.fire(h.pane.d, "click"); h.fire(h.parent.d, "focusout", { target: h.frame, relatedTarget: h.parent.nodes["#workspace-search"] });
+  const trace = plain(h.recorder.read()), [click, out] = trace.events;
+  assert.equal(trace.inconclusive, false); assert.equal(click.snapshot.parent.ownsFrame, true);
+  assert.equal(click.target.id, click.snapshot.pane.active.id); assert.equal(click.target.id, click.snapshot.button.owner.id);
+  assert.notEqual(click.target.id, out.target.id); assert.equal(out.target.category, "owned-frame");
+  assert.equal(out.relatedTarget.category, "workspace-search");
+  assert.equal(click.snapshot.rpcId, out.snapshot.rpcId); assert.equal(click.snapshot.apiBaseId, out.snapshot.apiBaseId);
+  assert.equal(click.snapshot.viewGeneration, 7); assert.equal(click.snapshot.frame.attached, true);
+  assert.equal(click.snapshot.frame.hidden, false); assert.equal(click.snapshot.frame.ariaHidden, false);
+  assert.equal(click.snapshot.button.enabled, true); assert.equal(click.snapshot.button.inMessages, true);
+  assert.equal(click.snapshot.parent.hasFocus, true); assert.equal(click.snapshot.pane.visibility, "visible");
+  h.parent.d.activeElement = h.parent.nodes["#workspace-search"]; h.frame.isConnected = false; h.frame.hidden = true;
+  h.recorder.checkpoint("settled");
+  const changed = h.recorder.read().checkpoints.settled.snapshot;
+  assert.equal(changed.parent.ownsFrame, false); assert.equal(changed.frame.attached, false); assert.equal(changed.frame.hidden, true);
+  assert.deepEqual(h.mutations, []); assert.equal(h.ctx.rpc, h.connection);
+});
+
+test("Codex readable focus diagnostic: capture/passive document listeners and only noncapturing window blur/focus", () => {
+  const h = diagnosticHarness();
+  for (const boundary of [h.pane.d, h.parent.d]) {
+    const listeners = h.listeners.filter(l => l.target === boundary);
+    assert.deepEqual(listeners.map(l => l.type), ["pointerdown", "keydown", "keyup", "click", "focusin", "focusout"]);
+    for (const l of listeners) assert.deepEqual(plain(l.options), { capture: true, passive: true });
+  }
+  for (const boundary of [h.win, h.parentWin]) {
+    const listeners = h.listeners.filter(l => l.target === boundary);
+    assert.deepEqual(listeners.map(l => l.type), ["blur", "focus"]);
+    for (const l of listeners) assert.deepEqual(plain(l.options), { capture: false, passive: true });
+    h.fire(boundary, "blur"); // An element blur must not be labelled window blur.
+    assert.equal(h.recorder.read().events.length, boundary === h.win ? 0 : 1);
+    h.fire(boundary, "blur", { target: boundary });
+  }
+  assert.deepEqual(plain(h.recorder.read()).events.map(e => e.scope), ["pane-window", "parent-window"]);
+  assert.deepEqual(h.mutations, []);
+});
+
+test("Codex readable focus diagnostic: single pane ordering, Enter/Space classification and private-key redaction", () => {
+  const h = diagnosticHarness();
+  for (const [key, expected] of [["Enter", "Enter"], [" ", "Space"], ["secret-typed-key", "other"]]) {
+    const event = h.fire(h.pane.d, "keydown", { key, repeat: true, ctrlKey: true, timeStamp: -900 });
+    assert.equal(h.recorder.read().events.at(-1).keyClass, expected);
+    assert.equal(event.key, key);
+  }
+  h.fire(h.parent.d, "keyup", { key: "Enter", timeStamp: 999999 });
+  h.fire(h.pane.d, "pointerdown"); h.fire(h.pane.d, "focusin");
+  const trace = plain(h.recorder.read());
+  assert.deepEqual(trace.events.map(e => e.sequence), [2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(trace.events.map(e => e.paneMonotonicMs), [2, 3, 4, 5, 6, 7]);
+  assert.equal(trace.events[0].repeat, true); assert.equal(trace.events[0].ctrl, true); assert.equal(trace.events[0].shift, false);
+  assert.equal(trace.events[0].phase, 1); assert.equal(trace.events[0].isTrusted, true);
+  const serialized = JSON.stringify(trace);
+  for (const secret of ["secret-typed-key", "/private/base-secret", "timeStamp", "textContent", "ariaLabel"]) assert.equal(serialized.includes(secret), false);
+  assert.deepEqual(h.mutations, []);
+});
+
+test("Codex readable focus diagnostic: unavailable parent, failed collection and bounded overflow are inconclusive", () => {
+  const h = diagnosticHarness({ unavailableParent: true });
+  for (let n = 0; n < 131; n++) h.fire(h.pane.d, "click");
+  h.recorder.checkpoint("settled"); h.recorder.checkpoint("selected", h.pane.nodes[".history-load-button"]);
+  h.recorder.checkpoint("not-a-retained-name");
+  const trace = plain(h.recorder.read());
+  assert.equal(trace.events.length, 128); assert.equal(trace.overflowCount, 3); assert.equal(trace.truncated, true);
+  assert.equal(trace.parentUnavailable, true); assert.equal(trace.inconclusive, true); assert.equal(trace.events[0].snapshot.parent, null);
+  assert.deepEqual(Object.keys(trace.checkpoints), ["installed", "settled", "selected"]);
+  assert.equal(trace.checkpoints.selected.sequence, 134);
+  const broken = diagnosticHarness({ listenerFailure: true }).recorder.read();
+  assert.equal(broken.collectionErrors, 1); assert.equal(broken.inconclusive, true);
+  const failing = diagnosticHarness(); failing.pane.d.hasFocus = () => { throw new Error("private failure text"); };
+  failing.fire(failing.pane.d, "click"); failing.recorder.checkpoint("settled");
+  assert.equal(failing.recorder.read().collectionErrors, 2);
+  assert.equal(JSON.stringify(failing.recorder.read()).includes("private failure text"), false);
+  const identities = diagnosticHarness();
+  for (let n = 0; n < 34; n++) { identities.ctx.apiBase = `private-${n}`; identities.fire(identities.pane.d, "click"); }
+  assert.equal(identities.recorder.read().identityTruncated, true); assert.equal(identities.recorder.read().inconclusive, true);
+});
+
+test("Codex readable focus diagnostic: latest/null cursor versus older request metadata, bounds and loading/refresh witnesses", () => {
+  const helpers = diagnosticNodeHelpers(), requests = helpers.createCodexReadableRequestDiagnostic();
+  for (const path of ["/unrelated?token=private-token", "/api/codex/items", "/api/codex/turns?cursor=private-cursor", "/api/codex/items?cursor=private-cursor", "/api/codex/items?cursor="]) {
+    requests.record(new URL(path, "http://owned.invalid"));
+  }
+  let trace = plain(requests.read());
+  assert.equal(trace.count, 4); assert.deepEqual(trace.events.map(e => e.kind), ["latest", "older", "older", "latest"]);
+  assert.deepEqual(trace.events.map(e => e.cursorPresent), [false, true, true, true]);
+  assert.deepEqual(trace.events.map(e => e.cursorKind), ["absent", "opaque", "opaque", "empty"]);
+  assert.equal(trace.events[0].cursorId, null); assert.equal(trace.events[1].cursorId, trace.events[2].cursorId);
+  assert.deepEqual(trace.events.map(e => e.endpoint), ["items", "turns", "items", "items"]);
+  assert.match(trace.clock, /NOT pane order/); assert.equal(JSON.stringify(trace).includes("private-"), false);
+  for (let n = 0; n < 62; n++) requests.record(new URL("http://owned.invalid/api/codex/items"));
+  requests.record({ get pathname() { throw new Error("private-error"); } });
+  trace = plain(requests.read()); assert.equal(trace.events.length, 64); assert.equal(trace.overflowCount, 2);
+  assert.equal(trace.collectionErrors, 1); assert.equal(trace.truncated, true); assert.equal(trace.inconclusive, true);
+  const h = diagnosticHarness();
+  h.ctx.rpc = { nativeTranscriptState: { loading: true }, nativeRefreshInFlight: false, nativeHistoryRequest: {} };
+  h.fire(h.pane.d, "click");
+  h.ctx.rpc.nativeTranscriptState.loading = false; h.ctx.rpc.nativeRefreshInFlight = true; h.ctx.rpc.nativeHistoryRequest = {};
+  h.fire(h.pane.d, "click");
+  const [older, refresh] = plain(h.recorder.read()).events.map(e => e.snapshot);
+  assert.equal(older.loading, true); assert.equal(older.nativeRefreshInFlight, false);
+  assert.equal(refresh.loading, false); assert.equal(refresh.nativeRefreshInFlight, true);
+  assert.notEqual(older.requestControllerId, refresh.requestControllerId);
+  assert.equal(older.rpcId, refresh.rpcId);
+});
+
+test("Codex readable focus diagnostic: actual settlement/selected callbacks keep range and strict boolean unchanged", () => {
+  const h = diagnosticHarness(), button = h.pane.nodes[".history-load-button"];
+  assert.deepEqual(plain(h.compile(diagnosticRangeCallback)()), { top: 17, max: 500 });
+  const selected = h.compile(diagnosticSelectedCallback);
+  assert.equal(selected(button), false);
+  h.pane.d.activeElement = button; assert.equal(selected(button), true);
+  const trace = plain(h.recorder.read());
+  assert.equal(trace.checkpoints.selected.snapshot.selected.id, trace.checkpoints.selected.snapshot.button.owner.id);
+  assert.equal(trace.checkpoints.selected.snapshot.selected.id, trace.checkpoints.selected.snapshot.pane.active.id);
+  assert.deepEqual(h.mutations, []);
+  delete h.win.__codexReadableFocusDiagnostic;
+  h.install(false); assert.equal(h.win.__codexReadableFocusDiagnostic, undefined);
+  assert.equal(selected(button), true); assert.deepEqual(plain(h.compile(diagnosticRangeCallback)()), { top: 17, max: 500 });
+  assert.equal(h.win.historyWheelTimes.length, 0);
+  h.fire(h.pane.nodes["#messages"], "wheel"); assert.equal(h.win.historyWheelTimes.length, 2); // Two actual installations, unchanged wheel observer.
+});
+
+test("Codex readable focus diagnostic: failure-only JSON escaping, original error identity and actual cleanup boundary", async () => {
+  for (const outcome of ["success", "reject", "throw", "timeout", "emit-failure", "nonmanual"]) {
+    const helpers = diagnosticNodeHelpers({ timeout: outcome === "timeout", emitFailure: outcome === "emit-failure" });
+    const original = new Error("original assertion"), cleanup = [], requests = helpers.createCodexReadableRequestDiagnostic();
+    const collect = () => {
+      if (outcome === "reject") return Promise.reject(new Error("private-collection-error"));
+      if (outcome === "throw") throw new Error("private-collection-error");
+      if (outcome === "timeout") return new Promise(() => {});
+      return { safe: "line\n\u001b\"\\", inconclusive: false };
+    };
+    const boundary = vm.compileFunction("return (async () => { try { throw original; } " + diagnosticFailureBoundary + "})();",
+      ["original", "diagnosticRequests", "rethrowCodexReadableDiagnostic", "diagnosticPane", "mode", "viewport", "reduced", "releasePage", "context", "preview"]);
+    await assert.rejects(boundary(original, outcome === "nonmanual" ? null : requests, helpers.rethrowCodexReadableDiagnostic,
+      { evaluate: collect }, "manual", { width: 1440, height: 1000 }, false, () => cleanup.push("release"),
+      { close: async () => { cleanup.push("context"); } }, { close: async () => { cleanup.push("preview"); } }), e => e === original);
+    assert.deepEqual(cleanup, ["release", "context", "preview"]);
+    if (outcome === "nonmanual") { assert.equal(helpers.logs.length, 0); assert.equal(helpers.timers.length, 0); continue; }
+    assert.equal(helpers.logs.length, 1); assert.equal(helpers.logs[0].includes("\n"), false); assert.equal(helpers.logs[0].includes("\u001b"), false);
+    assert.equal(helpers.logs[0].includes("private-collection-error"), false);
+    const report = JSON.parse(helpers.logs[0]);
+    assert.equal(report.browser.status, outcome === "timeout" ? "collection-timeout" : ["reject", "throw"].includes(outcome) ? "collection-failed" : "collected");
+    assert.equal(report.controllerLocals, "UNKNOWN"); assert.equal(report.historicalLinuxCause, "UNKNOWN");
+    assert.equal(helpers.timers[0].ms, 750); assert.deepEqual(helpers.cleared, [1]);
+  }
+  // Even a context-close failure reaches the original nested preview finally.
+  const helpers = diagnosticNodeHelpers(), original = new Error("assertion"), closeError = new Error("close"), cleanup = [];
+  const boundary = vm.compileFunction("return (async () => { try { throw original; } " + diagnosticFailureBoundary + "})();",
+    ["original", "diagnosticRequests", "rethrowCodexReadableDiagnostic", "diagnosticPane", "mode", "viewport", "reduced", "releasePage", "context", "preview"]);
+  await assert.rejects(boundary(original, null, helpers.rethrowCodexReadableDiagnostic, null, "burst", {}, false,
+    () => cleanup.push("release"), { close: async () => { cleanup.push("context"); throw closeError; } },
+    { close: async () => { cleanup.push("preview"); } }), e => e === closeError);
+  assert.deepEqual(cleanup, ["release", "context", "preview"]);
+});
+
+// The ordinary latest-page poll disables the same button through
+// nativeRefreshInFlight. Exercise the ACTUAL refresh controller with the same
+// mocked disabled-button fallback and captured real focusin listener as the
+// older-page lease above. The second latest read is held to observe flight.
+function heldRefreshFocus(boundary, { reject = false } = {}) {
+  let release, requested, threadReads = 0, latestReads = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const arrived = new Promise(resolve => { requested = resolve; });
+  const h = harness(async url => {
+    const kind = url.pathname.split("/").at(-1), cursor = url.searchParams.get("cursor");
+    if (kind === "thread") {
+      if (reject && ++threadReads === 2) { requested(); await pending; throw new Error("offline"); }
+      return { thread: { id: "thread-a", status: { type: "idle" } } };
+    }
+    if (kind === "turns") return page([]);
+    assert.equal(cursor, null, "a poll refresh only reads the latest page");
+    if (++latestReads === 2) { requested(); await pending; }
+    return page(Array.from({ length: 40 }, (_, n) => entry("turn-a", `latest-${n}`)), "older-one");
+  });
+  const doc = h.ctx.document;
+  doc.documentElement = new Node("html");
+  const root = boundary === "body" ? doc.body : doc.documentElement;
+  return { h, doc, root, arrived, release };
+}
+
+function leaseRefreshButton(h, doc, root) {
+  const button = h.ctx.codexNativeHistoryButton;
+  assert.ok(button, "the initial refresh produced the history button");
+  let disabled = !!button.disabled, restored = 0, implicitFocusEvents = 0;
+  Object.defineProperty(button, "disabled", { configurable: true, get: () => disabled, set: value => {
+    disabled = value;
+    if (value && doc.activeElement === button) {
+      doc.activeElement = root;
+      implicitFocusEvents++;
+      h.documentInput("focusin", root);
+    }
+  } });
+  button.focus = options => {
+    assert.deepEqual(plain(options), { preventScroll: true });
+    restored++;
+    doc.activeElement = button;
+  };
+  return { button, restored: () => restored, implicitFocusEvents: () => implicitFocusEvents };
+}
+
+const listenerCounts = h => Object.fromEntries([...h.documentEvents].map(([type, listeners]) => [type, listeners.size]));
+const listenerTotal = h => [...h.documentEvents.values()].reduce((sum, listeners) => sum + listeners.size, 0);
+
+for (const boundary of ["body", "html"]) {
+  for (const activity of ["untouched", "explicit-input", "pointer", "key", "windowblur", "staleRPC", "generation", "base", "detached", "replaced", "alreadybutton", "disabledbutton"]) {
+    test(`Codex refresh focus lease: actual poll refresh ${boundary}/${activity}`, async () => {
+      const { h, doc, root, arrived, release } = heldRefreshFocus(boundary);
+      await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+      assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 40);
+      assert.equal(h.state.itemsCursor, "older-one");
+      assert.equal(h.documentEvents.size, 0, "the initial refresh with no button installs no lease listeners");
+      const lease = leaseRefreshButton(h, doc, root), button = lease.button;
+      h.ctx.userScrollIntentUntil = 1800; // Pending reading input is not a refresh's to consume.
+      doc.activeElement = button;
+      const refreshing = h.ctx.refreshCodexNativeSnapshot(h.connection);
+      await arrived;
+      assert.equal(lease.implicitFocusEvents(), 1, "disabled fallback dispatches to the captured real focusin listener");
+      assert.equal(doc.activeElement, root);
+      assert.equal(button.disabled, true);
+      assert.equal(h.connection.nativeRefreshInFlight, true);
+      assert.equal(h.state.loading, false);
+      assert.ok(h.connection.nativeHistoryRequest);
+      assert.deepEqual(listenerCounts(h), { pointerdown: 1, keydown: 1, focusin: 1, "window:blur": 1 });
+      let input;
+      if (activity === "explicit-input") {
+        input = new Node("input"); doc.activeElement = input; h.documentInput("focusin", input);
+      }
+      if (activity === "pointer") h.documentInput("pointerdown", root);
+      if (activity === "key") h.documentInput("keydown", root);
+      if (activity === "windowblur") h.windowInput("blur");
+      if (activity === "staleRPC") h.ctx.rpc = { nativeCodex: true, nativeTranscriptState: h.ctx.createCodexNativeTranscriptState() };
+      if (activity === "generation") h.ctx.viewGeneration++;
+      if (activity === "base") h.ctx.apiBase = "/r/another-owned-view";
+      // Mutate the external owner only after the actual final re-enable. Do not
+      // replace the controller's render/finally or any focus/ownership predicate.
+      const mutated = ["detached", "replaced", "alreadybutton", "disabledbutton"].includes(activity);
+      let ownerMutations = 0, replacement;
+      if (mutated) {
+        const show = h.ctx.showCodexNativeHistoryButton;
+        h.ctx.showCodexNativeHistoryButton = (...args) => {
+          const result = show(...args);
+          if (!h.connection.nativeRefreshInFlight) {
+            ownerMutations++;
+            if (activity === "detached") button.remove();
+            if (activity === "replaced") {
+              replacement = new Node("button"); replacement.disabled = false;
+              button.replaceWith(replacement); h.ctx.codexNativeHistoryButton = replacement;
+            }
+            if (activity === "alreadybutton") { doc.activeElement = button; h.documentInput("focusin", button); }
+            if (activity === "disabledbutton") button.disabled = true;
+          }
+          return result;
+        };
+      }
+      release();
+      await refreshing;
+      const stale = ["staleRPC", "generation", "base"].includes(activity);
+      assert.equal(lease.restored(), activity === "untouched" ? 1 : 0, "only an untouched implicit root lease restores focus");
+      assert.equal(doc.activeElement, activity === "untouched" || activity === "alreadybutton" ? button : input || root,
+        "settlement never steals focus from an input or foreign/revoked owner");
+      assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 40, "the latest page refreshes the same forty keys");
+      assert.equal(h.state.entries.length, 40);
+      assert.equal(h.state.itemsCursor, "older-one");
+      assert.equal(h.state.turnsCursor, null);
+      assert.equal(h.state.hasMore, true);
+      assert.equal(h.state.loading, false);
+      assert.equal(h.connection.nativeRefreshInFlight, false);
+      assert.equal(h.connection.nativeHistoryRequest, null);
+      assert.equal(listenerTotal(h), 0, "temporary focus listeners are always removed");
+      assert.equal(h.contextCalls.length, stale ? 1 : 2, "a stale completion still writes nothing");
+      assert.equal(!!h.connection.connectionLost, false);
+      assert.equal(h.ctx.userScrollIntentUntil, 1800, "a poll refresh is not a reading action");
+      const itemCalls = h.calls.filter(call => call.url.includes("/items?"));
+      assert.deepEqual(itemCalls.map(call => new URL(call.url, "http://owned").searchParams.get("cursor")), [null, null],
+        "no items reads beyond the two latest pages");
+      assert.equal(h.calls.length, 6);
+      assert.deepEqual(h.notices, []);
+      assert.ok(!h.state.error);
+      assert.equal(ownerMutations, mutated ? 1 : 0);
+      if (activity === "detached") assert.equal(button.parentNode, null);
+      if (activity === "replaced") { assert.equal(button.parentNode, null); assert.equal(h.ctx.codexNativeHistoryButton, replacement); assert.equal(replacement.parentNode, h.messages); }
+      if (activity === "disabledbutton") assert.equal(button.disabled, true);
+      else if (!stale) assert.equal(button.disabled, false, "settlement re-enables the button");
+    });
+  }
+}
+
+for (const boundary of ["body", "html"]) {
+  test(`Codex refresh focus lease: unfocused button installs no lease ${boundary}`, async () => {
+    const { h, doc, root, arrived, release } = heldRefreshFocus(boundary);
+    await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+    const lease = leaseRefreshButton(h, doc, root), button = lease.button;
+    doc.activeElement = root;
+    const refreshing = h.ctx.refreshCodexNativeSnapshot(h.connection);
+    await arrived;
+    assert.equal(button.disabled, true);
+    assert.equal(h.connection.nativeRefreshInFlight, true);
+    assert.equal(h.documentEvents.size, 0, "no lease listeners at any time without a focused button");
+    assert.equal(lease.implicitFocusEvents(), 0);
+    release();
+    await refreshing;
+    assert.equal(h.documentEvents.size, 0);
+    assert.equal(lease.restored(), 0);
+    assert.equal(doc.activeElement, root);
+    assert.equal(button.disabled, false);
+    assert.equal(h.connection.nativeRefreshInFlight, false);
+    assert.equal(h.connection.nativeHistoryRequest, null);
+    assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 40);
+    assert.equal(h.calls.length, 6);
+  });
+}
+
+test("Codex refresh focus lease: initial refresh before the button exists installs no lease", async () => {
+  let release, requested, focusCalls = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const arrived = new Promise(resolve => { requested = resolve; });
+  const h = harness(async url => {
+    const kind = url.pathname.split("/").at(-1);
+    if (kind === "thread") return { thread: { id: "thread-a", status: { type: "idle" } } };
+    if (kind === "turns") return page([]);
+    requested(); await pending;
+    return page(Array.from({ length: 40 }, (_, n) => entry("turn-a", `latest-${n}`)), "older-one");
+  });
+  const doc = h.ctx.document;
+  doc.documentElement = new Node("html");
+  const createElement = doc.createElement;
+  doc.createElement = tag => { const node = createElement(tag); if (tag === "button") node.focus = () => { focusCalls++; }; return node; };
+  assert.equal(h.ctx.codexNativeHistoryButton, null);
+  const initial = h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+  await arrived;
+  const button = h.ctx.codexNativeHistoryButton;
+  assert.ok(button, "the first refresh creates the disabled button while in flight");
+  assert.equal(button.disabled, true);
+  assert.equal(h.documentEvents.size, 0);
+  assert.equal(doc.activeElement, doc.body);
+  release();
+  await initial;
+  assert.equal(focusCalls, 0);
+  assert.equal(h.documentEvents.size, 0);
+  assert.equal(button.disabled, false);
+  assert.equal(doc.activeElement, doc.body);
+  assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 40);
+  assert.equal(h.calls.length, 3);
+});
+
+for (const boundary of ["body", "html"]) {
+  for (const activity of ["untouched", "key"]) {
+    test(`Codex refresh focus lease: rejected latest read still releases and restores ${boundary}/${activity}`, async () => {
+      const { h, doc, root, arrived, release } = heldRefreshFocus(boundary, { reject: true });
+      await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+      const lease = leaseRefreshButton(h, doc, root), button = lease.button;
+      doc.activeElement = button;
+      const refreshing = h.ctx.refreshCodexNativeSnapshot(h.connection);
+      await arrived;
+      assert.equal(lease.implicitFocusEvents(), 1);
+      assert.equal(doc.activeElement, root);
+      assert.equal(button.disabled, true);
+      assert.equal(h.connection.nativeRefreshInFlight, true);
+      assert.deepEqual(listenerCounts(h), { pointerdown: 1, keydown: 1, focusin: 1, "window:blur": 1 });
+      if (activity === "key") h.documentInput("keydown", root);
+      release();
+      await refreshing;
+      assert.equal(h.connection.connectionLost, true, "a transport failure still marks the connection lost");
+      assert.equal(h.connection.nativeLoading, false);
+      assert.equal(h.connection.nativeRefreshInFlight, false);
+      assert.equal(h.connection.nativeHistoryRequest, null);
+      assert.equal(button.disabled, false);
+      assert.equal(lease.restored(), activity === "untouched" ? 1 : 0);
+      assert.equal(doc.activeElement, activity === "untouched" ? button : root);
+      assert.equal(listenerTotal(h), 0, "temporary focus listeners are removed on failure too");
+      assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 40);
+      assert.equal(h.calls.length, 4);
+      assert.equal(h.calls.filter(call => call.url.includes("/items?")).length, 1);
+      assert.deepEqual(h.notices, []);
+      assert.ok(!h.state.error);
+    });
+  }
+}
+
+test("Codex refresh focus lease: shares the older controller's revocation predicate and restore guard", () => {
+  const flat = text => text.replace(/\s+/g, " ");
+  const count = needle => flat(source).split(flat(needle)).length - 1;
+  assert.equal(count(`const releaseFocus = event => {
+    if (event.type !== "focusin" || event.target !== focusButton && event.target !== document.body
+      && event.target !== document.documentElement) restoreFocus = false;
+  };`), 2, "older and refresh controllers share one revocation predicate");
+  assert.equal(count(`restoreFocus && focusButton === codexNativeHistoryButton && focusButton.parentNode === el.messages
+      && !focusButton.disabled && (document.activeElement === document.body
+        || document.activeElement === document.documentElement)) focusButton.focus({ preventScroll: true });`), 2,
+  "older and refresh controllers share one restore guard");
+  const refresh = source.slice(source.indexOf("async function refreshCodexNativeSnapshot("), source.indexOf("async function loadCodexModelCatalog("));
+  assert.equal(refresh.includes("userScrollIntentUntil"), false, "a poll refresh never consumes reading intent");
+  assert.ok(refresh.indexOf("document.addEventListener(type, releaseFocus, true)") < refresh.indexOf("showCodexNativeHistoryButton()"),
+    "the lease listeners precede the disabling call");
+});

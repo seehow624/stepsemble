@@ -221,6 +221,47 @@ export async function runRichContentBrowserCases(browser) {
   }
 }
 
+// BEGIN Codex readable diagnostic helpers
+// Private fixture witnesses, never controller admission/lease telemetry.
+function createCodexReadableRequestDiagnostic() {
+  const events = [], cursors = new Map();
+  let count = 0, overflowCount = 0, collectionErrors = 0;
+  return {
+    record(url) {
+      try {
+        if (url.pathname !== "/api/codex/items" && url.pathname !== "/api/codex/turns") return;
+        const cursor = url.searchParams.get("cursor");
+        count++;
+        if (events.length === 64) { overflowCount++; return; }
+        if (cursor !== null && !cursors.has(cursor)) cursors.set(cursor, cursors.size + 1);
+        events.push({ order: count, nodeMonotonicMs: performance.now(),
+          endpoint: url.pathname === "/api/codex/items" ? "items" : "turns",
+          kind: cursor ? "older" : "latest", cursorPresent: url.searchParams.has("cursor"),
+          cursorKind: cursor === null ? "absent" : cursor === "" ? "empty" : "opaque",
+          cursorId: cursor === null ? null : cursors.get(cursor) });
+      } catch { collectionErrors++; }
+    },
+    read() { return { clock: "Node performance.now; NOT pane order", events, count, overflowCount,
+      truncated: overflowCount > 0, collectionErrors, inconclusive: overflowCount > 0 || collectionErrors > 0 }; },
+  };
+}
+
+async function rethrowCodexReadableDiagnostic(error, collect, labels, requests) {
+  let timer;
+  try {
+    const browser = await Promise.race([
+      Promise.resolve().then(collect).then(trace => ({ status: "collected", trace }), () => ({ status: "collection-failed", inconclusive: true })),
+      new Promise(resolve => { timer = setTimeout(() => resolve({ status: "collection-timeout", inconclusive: true }), 750); }),
+    ]);
+    console.error(JSON.stringify({ diagnostic: "Codex readable external focus witnesses", labels, browser,
+      requests: requests.read(), controllerLocals: "UNKNOWN", historicalLinuxCause: "UNKNOWN" }));
+  } catch {
+    // Diagnostic failure must never replace the original assertion/error.
+  } finally { clearTimeout(timer); }
+  throw error;
+}
+// END Codex readable diagnostic helpers
+
 // Focused owned-HTTP cases, called directly by the isolated browser run.
 export async function runCodexReadableHistoryBrowserCases(browser) {
   const toolPage = index => Array.from({ length: 50 }, (_, n) => ({ turnId: "fixture-turn-0", item: {
@@ -271,12 +312,14 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
       ] : fullBatch ? [{ data: messages("Retained40", 40), nextCursor: "fixture-page-1" }]
         : Array.from({ length: 5 }, (_, index) => ({ data: reportTools(index), nextCursor: `fixture-page-${index + 1}` })) };
       const preview = await createNativeComposerPreview({ codexHistory: history });
-      let context, releasePage = null;
+      let context, releasePage = null, diagnosticPane = null;
+      const diagnosticRequests = action === "manual" || action === "manual-blur" ? createCodexReadableRequestDiagnostic() : null;
       try {
         context = await browser.newContext({ viewport, serviceWorkers: "block", locale: "en-US", reducedMotion: reduced ? "reduce" : "no-preference" });
         const foreign = [], errors = [];
         await context.route("**/*", route => {
           if (new URL(route.request().url()).origin !== preview.origin) { foreign.push(route.request().url()); return route.abort(); }
+          diagnosticRequests?.record(new URL(route.request().url()));
           return route.continue();
         });
         await context.addInitScript(({ origin, reduced }) => {
@@ -288,6 +331,7 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
         const page = await context.newPage(); page.setDefaultTimeout(15_000); page.on("pageerror", error => errors.push(error.message));
         await page.goto(preview.origin); await workspaceReady(page);
         const pane = await openFromSidebar(page, "Codex composer fixture");
+        if (diagnosticRequests) diagnosticPane = pane;
         await pane.waitForFunction(() => !document.querySelector("#input").readOnly);
         let anchorEvidence = null, burstEvidence = null;
         if (mode === "readable") {
@@ -322,12 +366,103 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           history.waitForCursor = cursor;
           history.waitForPage = new Promise(resolve => { releasePage = resolve; });
           await pane.locator("#input").fill("Preserve burst draft");
-          await pane.evaluate(() => {
+          await pane.evaluate(manual => {
             window.historyWheelTimes = [];
             document.querySelector("#messages").addEventListener("wheel", () => {
               if (window.historyWheelTimes.length < 2) window.historyWheelTimes.push(performance.now());
             }, { passive: true });
-          });
+            // BEGIN Codex readable pane recorder
+            function installCodexReadablePaneDiagnostic() {
+              const events = [], checkpoints = {}, refs = new WeakMap(), primitives = new Map();
+              let nextId = 0, sequence = 0, overflowCount = 0, collectionErrors = 0, identityTruncated = false;
+              let parentDocument = null, parentWindow = null, frame = null, parentUnavailable = false;
+              const id = value => {
+                if (value === null || value === undefined) return null;
+                const objects = typeof value === "object" || typeof value === "function";
+                const map = objects ? refs : primitives;
+                if (!map.has(value)) {
+                  if (!objects && map.size === 32) { identityTruncated = true; return null; }
+                  map.set(value, ++nextId);
+                }
+                return map.get(value);
+              };
+              const owner = (node, doc) => {
+                let category = "other";
+                if (!node) category = "none";
+                else if (node === window || node === parentWindow) category = "window";
+                else if (node === doc) category = "document";
+                else if (node === doc.body) category = "body";
+                else if (node === doc.documentElement) category = "root";
+                else if (node === frame) category = "owned-frame";
+                else if (node === doc.querySelector(".history-load-button")) category = "history-button";
+                else if (node === doc.querySelector("#input")) category = "draft-input";
+                else if (node === doc.querySelector("#workspace-search")) category = "workspace-search";
+                else if (node === doc.querySelector("#messages")) category = "messages";
+                const tag = ["BUTTON", "INPUT", "TEXTAREA", "BODY", "HTML", "IFRAME", "DIV"].includes(node?.tagName) ? node.tagName : "other";
+                return { id: id(node), category, tag };
+              };
+              const snapshot = selected => {
+                const connection = typeof rpc === "undefined" ? null : rpc;
+                const button = typeof codexNativeHistoryButton === "undefined" ? null : codexNativeHistoryButton;
+                return {
+                  pane: { active: owner(document.activeElement, document), hasFocus: document.hasFocus(), visibility: document.visibilityState },
+                  parent: parentDocument ? { active: owner(parentDocument.activeElement, parentDocument),
+                    hasFocus: parentDocument.hasFocus(), visibility: parentDocument.visibilityState,
+                    ownsFrame: parentDocument.activeElement === frame } : null,
+                  frame: frame ? { id: id(frame), attached: frame.isConnected, hidden: frame.hidden,
+                    ariaHidden: frame.getAttribute("aria-hidden") === "true" } : null,
+                  rpcId: id(connection), viewGeneration: typeof viewGeneration === "number" && Number.isFinite(viewGeneration) ? viewGeneration : null,
+                  apiBaseId: id(typeof apiBase === "undefined" ? null : apiBase),
+                  button: { owner: owner(button, document), attached: !!button?.isConnected, parentId: id(button?.parentNode),
+                    inMessages: !!button && button.parentNode === document.querySelector("#messages"), enabled: !!button && !button.disabled },
+                  selected: owner(selected, document), loading: !!connection?.nativeTranscriptState?.loading,
+                  nativeRefreshInFlight: !!connection?.nativeRefreshInFlight, requestControllerId: id(connection?.nativeHistoryRequest),
+                };
+              };
+              const checkpoint = (name, selected) => {
+                try {
+                  // Only these fixed names are retained, independently of event overflow.
+                  if (!["installed", "settled", "selected"].includes(name)) return;
+                  checkpoints[name] = { sequence: ++sequence, paneMonotonicMs: performance.now(), snapshot: snapshot(selected) };
+                } catch { collectionErrors++; }
+              };
+              const observe = (scope, doc, event) => {
+                try {
+                  const order = ++sequence;
+                  if (events.length === 128) { overflowCount++; return; }
+                  const keyboard = event.type === "keydown" || event.type === "keyup";
+                  events.push({ sequence: order, paneMonotonicMs: performance.now(), scope, type: event.type,
+                    phase: event.eventPhase, isTrusted: !!event.isTrusted,
+                    keyClass: keyboard ? event.key === "Enter" ? "Enter" : event.key === " " ? "Space" : "other" : null,
+                    repeat: !!event.repeat, alt: !!event.altKey, ctrl: !!event.ctrlKey, meta: !!event.metaKey, shift: !!event.shiftKey,
+                    target: owner(event.target, doc), relatedTarget: owner(event.relatedTarget, doc), snapshot: snapshot() });
+                } catch { collectionErrors++; }
+              };
+              try {
+                frame = window.frameElement;
+                if (window.parent !== window && frame && frame.ownerDocument === window.parent.document) {
+                  parentWindow = window.parent; parentDocument = parentWindow.document;
+                } else parentUnavailable = true;
+              } catch { parentUnavailable = true; }
+              try {
+                for (const [scope, doc, win] of [["pane", document, window], ...(parentDocument ? [["parent", parentDocument, parentWindow]] : [])]) {
+                  for (const type of ["pointerdown", "keydown", "keyup", "click", "focusin", "focusout"]) {
+                    doc.addEventListener(type, event => observe(scope, doc, event), { capture: true, passive: true });
+                  }
+                  for (const type of ["blur", "focus"]) {
+                    win.addEventListener(type, event => { if (event.target === win) observe(scope + "-window", doc, event); }, { capture: false, passive: true });
+                  }
+                }
+              } catch { collectionErrors++; }
+              checkpoint("installed");
+              return { checkpoint, read() { return { clock: "single pane performance.now and sequence", events, checkpoints,
+                overflowCount, truncated: overflowCount > 0, collectionErrors, identityTruncated, parentUnavailable,
+                inconclusive: overflowCount > 0 || collectionErrors > 0 || identityTruncated || parentUnavailable,
+                limitations: ["external witnesses; controller admission and lease locals UNKNOWN", "isTrusted is not human intent", "focus events do not identify their producer", "capture begins after draft fill; no prior-event absence inference"] }; } };
+            }
+            // END Codex readable pane recorder
+            if (manual) window.__codexReadableFocusDiagnostic = installCodexReadablePaneDiagnostic();
+          }, !!diagnosticRequests);
           let normalAnchor = null, normalBefore = null;
           if (fullBatch) {
             // Position and paint before targeting native input, not beneath a
@@ -365,7 +500,7 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           await pane.getByText("Burst earlier 7", { exact: true }).waitFor();
           await pane.waitForFunction(() => !rpc.nativeTranscriptState.loading && !rpc.nativeRefreshInFlight);
           await pane.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-          const range = await pane.evaluate(() => { const m = document.querySelector("#messages"); return { top: m.scrollTop, max: m.scrollHeight - m.clientHeight }; });
+          const range = await pane.evaluate(() => { window.__codexReadableFocusDiagnostic?.checkpoint("settled"); const m = document.querySelector("#messages"); return { top: m.scrollTop, max: m.scrollHeight - m.clientHeight }; });
           if (fullBatch) {
             anchorEvidence = checkAnchor(normalBefore, await normalAnchor.evaluate(geometry), true);
             assert.equal(await pane.evaluate(() => codexNativeReadableKeys(rpc.nativeTranscriptState).size), 80);
@@ -377,7 +512,7 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           assert.equal(await pane.locator("#input").inputValue(), "Preserve burst draft");
           if (action === "burst") assert.equal(await pane.evaluate(() => document.activeElement.id), "input");
           else if (action === "manual-blur") assert.equal(await page.locator("#workspace-search").evaluate(node => document.activeElement === node), true, "the old pane never steals workspace focus");
-          else assert.equal(await button.evaluate(node => document.activeElement === node), true, "explicit keyboard retry keeps its button focus");
+          else assert.equal(await button.evaluate(node => { window.__codexReadableFocusDiagnostic?.checkpoint("selected", node); return document.activeElement === node; }), true, "explicit keyboard retry keeps its button focus");
           burstEvidence = { wheelGap: action === "burst" ? times[1] - times[0] : null, initialReads, range, fullBatch };
         } else {
           const button = pane.locator("#messages .history-load-button");
@@ -419,6 +554,12 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
         assert.ok(preview.state.codexHistoryReads.every(read => read.limit === "50"));
         assert.equal(preview.state.codexTurns.length, 0); assert.deepEqual(errors, []); assert.deepEqual(foreign, []);
         console.log(JSON.stringify({ case: "Codex readable history", mode, viewport, reduced, reads: preview.state.codexHistoryReads, anchor: anchorEvidence, burst: burstEvidence, result: "passed", modelCalls: 0 }));
+      } catch (error) {
+        if (diagnosticRequests) await rethrowCodexReadableDiagnostic(error,
+          () => diagnosticPane ? diagnosticPane.evaluate(() => window.__codexReadableFocusDiagnostic?.read() ?? { inconclusive: true, recorderUnavailable: true })
+            : { inconclusive: true, recorderUnavailable: true },
+          { mode, viewport, reduced }, diagnosticRequests);
+        throw error;
       } finally {
         releasePage?.();
         try { await context?.close(); } finally { await preview.close(); }

@@ -6744,10 +6744,21 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
   const sendRevision = connection.nativeSendRevision || 0, goalRevision = connection.nativeGoalRevision || 0;
   const controller = new AbortController();
   const isCurrent = () => rpc === connection && generation === viewGeneration && base === apiBase;
+  const focusButton = document.activeElement === codexNativeHistoryButton ? codexNativeHistoryButton : null;
+  let restoreFocus = !!focusButton;
+  const focusEvents = ["pointerdown", "keydown", "focusin"];
+  const releaseFocus = event => {
+    if (event.type !== "focusin" || event.target !== focusButton && event.target !== document.body
+      && event.target !== document.documentElement) restoreFocus = false;
+  };
   connection.nativeHistoryRequest = controller;
   connection.nativeRefreshInFlight = true;
-  showCodexNativeHistoryButton();
   try {
+    if (focusButton) {
+      for (const type of focusEvents) document.addEventListener(type, releaseFocus, true);
+      window.addEventListener("blur", releaseFocus);
+    }
+    showCodexNativeHistoryButton();
     const [page, mutation] = await Promise.all([
       loadCodexNativeTranscript(connection.nativeThreadId, { signal: controller.signal, isCurrent }),
       connection.nativeCodexMutation
@@ -6833,6 +6844,14 @@ async function refreshCodexNativeSnapshot(connection, { initial = false } = {}) 
     connection.nativeRefreshInFlight = false;
     if (connection.nativeHistoryRequest === controller) connection.nativeHistoryRequest = null;
     if (isCurrent()) showCodexNativeHistoryButton();
+    if (focusButton) {
+      for (const type of focusEvents) document.removeEventListener(type, releaseFocus, true);
+      window.removeEventListener("blur", releaseFocus);
+    }
+    // Disabled buttons blur natively; restore only our untouched focus lease.
+    if (isCurrent() && restoreFocus && focusButton === codexNativeHistoryButton && focusButton.parentNode === el.messages
+      && !focusButton.disabled && (document.activeElement === document.body
+        || document.activeElement === document.documentElement)) focusButton.focus({ preventScroll: true });
     if (isCurrent() && sendRevision !== (connection.nativeSendRevision || 0)) void refreshCodexNativeSnapshot(connection);
   }
 }

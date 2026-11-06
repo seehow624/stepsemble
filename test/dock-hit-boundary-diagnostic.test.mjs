@@ -4,9 +4,31 @@ import { readFile } from "node:fs/promises";
 import { compileFunction } from "node:vm";
 import { FROZEN, DOCK_FIXTURE, dockSamples, predictDockOwner, summarizeDockSamples, assessDockClick, isOwnedFixtureRequest, runDockContextLifecycle } from "../scripts/dock-hit-boundary-diagnostic.mjs";
 
-function dockConversationBranch(worker) {
+function dockSuiteBranch(worker, suite, nextSuite) {
   const source = worker.replace(/\r\n/g, "\n");
-  return source.slice(source.indexOf('else if (suite === "conversation-ux")'), source.indexOf('else if (suite === "agent-speed")'));
+  const start = source.indexOf(`else if (suite === "${suite}")`), end = source.indexOf(`else if (suite === "${nextSuite}")`, start);
+  assert.ok(start >= 0 && end > start, `${suite}: exact source boundaries remain present`);
+  return source.slice(start, end);
+}
+function dockConversationBranch(worker) {
+  return dockSuiteBranch(worker, "conversation-ux", "agent-speed");
+}
+function assertDockWorkerScheduling(worker) {
+  const source = worker.replace(/\r\n/g, "\n");
+  assert.equal(dockConversationBranch(source), 'else if (suite === "conversation-ux") {\n    await runConversationUxBrowserCases(browser);\n  }\n  ');
+  assert.equal(dockSuiteBranch(source, "agent-speed", "workspace"), [
+    'else if (suite === "agent-speed") {',
+    '    await runComposerQueueBrowserCases(browser);',
+    '    for (const route of ["native", "magpie"]) await runAgentSpeedBrowserCases(browser, { engine: "chromium", route, output: path.join(temp, "agent-speed") });',
+    '    await runUsageBrowserCases(browser);',
+    '    await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "pi-recovery") });',
+    '  }',
+    '  ',
+  ].join("\n"));
+  for (const name of ["runConversationUxBrowserCases", "runPiRecoveryBrowserCases"]) {
+    assert.equal(source.split(`await ${name}(`).length - 1, 1, `${name}: no missing or duplicate complete helper`);
+  }
+  assert.doesNotMatch(source, /runDockHitBoundaryDiagnostic|dockDiagnosticHold/);
 }
 
 // Pure/source checks only: importing the helper neither binds a server nor launches a browser.
@@ -189,16 +211,36 @@ test("dock source reader treats LF and CRLF identically", async () => {
   assert.equal(dockConversationBranch(crlf), dockConversationBranch(lf));
 });
 
+test("dock scheduling oracle rejects missing, duplicate, wrong-owner helpers and accidental diagnostic invocation", async () => {
+  const source = (await readFile(new URL("../scripts/rolling-browser-worker.mjs", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+  const ux = "await runConversationUxBrowserCases(browser);";
+  const recovery = 'await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "pi-recovery") });';
+  const usage = "await runUsageBrowserCases(browser);";
+  const codex = "await runCodexHistoryBrowserCases(browser, historyHelper);";
+  const mutants = [
+    source.replace(ux, ""),
+    source.replace(codex, `${codex}\n    ${ux}`),
+    source.replace(ux, "").replace(codex, `${codex}\n    ${ux}`),
+    source.replace(recovery, ""),
+    source.replace(codex, `${codex}\n    ${recovery}`),
+    source.replace(recovery, "").replace(ux, `${recovery}\n    ${ux}`),
+    source.replace(`${usage}\n    ${recovery}`, `${recovery}\n    ${usage}`),
+    source.replace(ux, `if (!historyHelper) ${ux}`).replace(codex, `${codex}\n    ${ux}`),
+    source.replace(recovery, 'await runPiRecoveryBrowserCases(browser, { output: path.join(temp, "wrong-recovery") });'),
+    source.replace(codex, `${codex}\n    await runDockHitBoundaryDiagnostic(browser);`),
+    source.replace(codex, `${codex}\n    const dockDiagnosticHold = true;`),
+  ];
+  for (const mutant of mutants) for (const newline of ["\n", "\r\n"]) {
+    assert.notEqual(mutant, source, "counterexample actually changes the worker");
+    assert.throws(() => assertDockWorkerScheduling(mutant.replace(/\n/g, newline)), assert.AssertionError);
+  }
+});
+
 test("dock diagnostic stays explicit-only and leaves original suites intact across line endings", async () => {
   const worker = await readFile(new URL("../scripts/rolling-browser-worker.mjs", import.meta.url), "utf8");
   const helper = await readFile(new URL("../scripts/dock-hit-boundary-diagnostic.mjs", import.meta.url), "utf8");
   const lf = worker.replace(/\r\n/g, "\n");
-  for (const representation of [lf, lf.replace(/\n/g, "\r\n")]) {
-    const branch = dockConversationBranch(representation);
-    assert.equal((branch.match(/await runConversationUxBrowserCases\(browser\)/g) || []).length, 1);
-    assert.match(branch, /await runPiRecoveryBrowserCases\(browser,[^\n]+\n    await runConversationUxBrowserCases\(browser\);/);
-    assert.doesNotMatch(representation, /runDockHitBoundaryDiagnostic|dockDiagnosticHold/);
-  }
+  for (const representation of [lf, lf.replace(/\n/g, "\r\n")]) assertDockWorkerScheduling(representation);
   assert.doesNotMatch(helper, /\.launch\(|dispatchEvent|waitForTimeout|mouse\.up\(|scrollIntoView|userAgent|process\.env|server\.js|native-composer-preview/);
   assert.ok(helper.indexOf("predictions: dockSamples(dpr)") < helper.indexOf("document.elementFromPoint"));
   assert.match(helper, /boundMs: 12000/);
