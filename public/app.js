@@ -4264,6 +4264,8 @@ function setChatTitle(title) {
 async function openExisting(s) {
   beginDraftScope({ file: s.file, cwd: s.cwd, name: s.name });
   const generation = ++viewGeneration;
+  const base = apiBase, startedAt = Date.now();
+  let firstPage = null, initialOwner = null;
   if (rpc) closeChat(!!(rpc.streaming || rpc.connectionLost));
   resetTaskProgress();
   resetProjectChanges();
@@ -4279,7 +4281,8 @@ async function openExisting(s) {
   setChatAgent(s.agentId ?? "pi");
   setChatPlace(s.cwd); resetLiveUsage();
   removeHistoryLoadButton();
-  historyState = { file: s.file, before: null, hasMore: false, loading: false };
+  historyState = { file: s.file, before: null, hasMore: false, loading: false, seen: new Set() };
+  const state = historyState;
   autoScrollPinned = true;
   el.messages.innerHTML = "";
   resetSessionUsage(s);
@@ -4293,7 +4296,8 @@ async function openExisting(s) {
 
   try {
     const detail = await api("/api/session?file=" + encodeURIComponent(s.file) + "&limit=300");
-    if (generation !== viewGeneration) return;
+    if (generation !== viewGeneration || base !== apiBase || historyState !== state) return;
+    validatePiHistoryPage(detail);
     currentSessionCwd = detail.cwd;
     // Detail is authoritative even when opening a stale Hub/search entry.
     setChatTitle(sessionDisplayTitle({ ...s, ...detail }));
@@ -4306,7 +4310,7 @@ async function openExisting(s) {
     for (const m of detail.messages || []) {
       if (performance.now() - sliceStarted > 8) {
         await new Promise(resolve => setTimeout(resolve, 0));
-        if (generation !== viewGeneration) return;
+        if (generation !== viewGeneration || base !== apiBase || historyState !== state) return;
         sliceStarted = performance.now();
       }
       maybeDateSeparator(m.ts || m.timestamp, staging);
@@ -4319,17 +4323,30 @@ async function openExisting(s) {
     el.messages.appendChild(fragment);
     keepSessionUsageAtEnd();
     layoutWorkLog();
-    historyState.before = detail.nextBefore;
-    historyState.hasMore = !!detail.hasMore;
+    state.before = detail.nextBefore;
+    state.hasMore = !!detail.hasMore;
+    state.seen = new Set(detail.messages.map(message => message.id));
+    firstPage = detail;
     showHistoryLoadButton();
     scrollBottom(true);
+    initialOwner = { draft: el.input.value, key: activeDraftKey, intent: userScrollIntentUntil,
+      children: el.messages.children.length, top: el.messages.scrollTop };
   } catch (e) {
     console.warn("歷史讀取失敗", e);
-    if (generation !== viewGeneration) return;
+    if (generation !== viewGeneration || base !== apiBase || historyState !== state) return;
     if (e.status === 422) { toast(e.message, true); return; }
     void refreshProjectChanges({ background: true });
   }
+  if (generation !== viewGeneration || base !== apiBase || historyState !== state) return;
   await connectRpc({ file: s.file }, generation);
+  // Attach first: the composer and live RPC must not wait for backfill. A
+  // changed reader/draft/live view relinquishes automatic initial ownership.
+  if (firstPage && generation === viewGeneration && base === apiBase && historyState === state
+    && initialOwner.draft === el.input.value && initialOwner.key === activeDraftKey
+    && initialOwner.intent === userScrollIntentUntil && initialOwner.top === el.messages.scrollTop
+    && initialOwner.children === el.messages.children.length) {
+    await loadOlderHistory(historyLoadButton, { firstPage, startedAt });
+  }
 }
 
 let currentSessionCwd = null;
@@ -4801,59 +4818,132 @@ function removeHistoryLoadButton() {
 }
 
 function showHistoryLoadButton() {
-  removeHistoryLoadButton();
-  if (!historyState?.hasMore) return;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "history-load-button";
-  button.textContent = "載入更早的訊息";
-  button.addEventListener("click", () => loadOlderHistory(button));
-  historyLoadButton = button;
-  el.messages.prepend(button);
+  const state = historyState;
+  if (!state?.hasMore) { removeHistoryLoadButton(); return; }
+  if (!historyLoadButton) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-load-button";
+    button.addEventListener("click", () => void loadOlderHistory(button));
+    historyLoadButton = button;
+  }
+  const button = historyLoadButton;
+  button.disabled = state.loading;
+  button.textContent = state.loading ? "載入中…" : "載入更早的訊息";
+  button.setAttribute("aria-busy", String(state.loading));
+  if (state.error) button.dataset.autoLoadPaused = "1"; else delete button.dataset.autoLoadPaused;
+  if (button.parentNode !== el.messages) el.messages.prepend(button);
 }
 
-async function loadOlderHistory(button) {
-  if (!historyState || historyState.loading || !historyState.hasMore) return;
-  const state = historyState;
-  const generation = viewGeneration;
+function piHistoryReadableCount(messages) {
+  return messages.filter(message => message.role === "user"
+    ? !!(message.text?.trim() || message.images > 0 || message.imageAttachments?.length)
+    : message.role === "assistant" && !!message.text?.trim()
+      && !(message.historyContextOmitted && message.stopReason !== "aborted")).length;
+}
+
+function validatePiHistoryPage(detail, before = null) {
+  if (!Array.isArray(detail?.messages) || detail.messages.length > 300
+    || !detail.messages.every(message => typeof message?.id === "string" && typeof message.role === "string")
+    || new Set(detail.messages.map(message => message.id)).size !== detail.messages.length
+    || !Number.isSafeInteger(detail.nextBefore) || detail.nextBefore < 0
+    || typeof detail.hasMore !== "boolean" || detail.hasMore !== (detail.nextBefore > 0)
+    || before !== null && detail.nextBefore >= before) throw new Error("pi_history_page_invalid");
+}
+
+async function loadOlderHistory(button, { firstPage = null, startedAt = Date.now() } = {}) {
+  const state = historyState, connection = rpc;
+  if (!state || state.loading || !state.hasMore || connection?.streaming || connection?.connectionLost) return;
+  const policy = readableHistoryPolicy();
+  let pages = firstPage ? 1 : 0, size = firstPage ? JSON.stringify(firstPage).length : 0;
+  let readable = firstPage ? piHistoryReadableCount(firstPage.messages) : 0;
+  if (readable >= policy.target || size >= policy.size || Date.now() - startedAt >= policy.ms) return;
+  const generation = viewGeneration, base = apiBase, eventId = connection?.lastEventId;
+  const draft = el.input.value, draftKey = activeDraftKey;
+  let interacting = false;
+  const interaction = () => { interacting = true; };
+  const events = ["pointerdown", "keydown", "input", "wheel", "touchstart", "focusin"];
+  const focusButton = document.activeElement === button ? button : null;
+  let restoreFocus = !!focusButton;
+  const releaseFocus = event => {
+    if (event.type !== "focusin" || event.target !== focusButton && event.target !== document.body
+      && event.target !== document.documentElement) restoreFocus = false;
+    if (firstPage) interaction();
+  };
+  const ownsView = () => generation === viewGeneration && base === apiBase && historyState === state && rpc === connection;
+  const isCurrent = () => ownsView() && !connection?.streaming && !connection?.connectionLost
+    && connection?.lastEventId === eventId && draft === el.input.value && draftKey === activeDraftKey
+    && (!firstPage || !interacting);
+  userScrollIntentUntil = 0; // One earlier action, never its own prepend's next batch.
   state.loading = true;
-  button.disabled = true;
-  button.textContent = "載入中…";
-  const oldHeight = el.messages.scrollHeight;
-  const oldTop = el.messages.scrollTop;
+  state.error = null;
   try {
-    const query = `?file=${encodeURIComponent(state.file)}&limit=300&before=${state.before}`;
-    const detail = await api("/api/session" + query);
-    if (generation !== viewGeneration || historyState !== state) return;
-    const staging = document.createElement("div");
-    let sliceStarted = performance.now();
-    for (const message of detail.messages || []) {
-      if (performance.now() - sliceStarted > 8) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-        if (generation !== viewGeneration || historyState !== state) return;
-        sliceStarted = performance.now();
-      }
-      appendHistoryMessage(message, staging);
-    }
-    const fragment = document.createDocumentFragment();
-    while (staging.firstChild) fragment.appendChild(staging.firstChild);
-    button.remove();
-    historyLoadButton = null;
-    el.messages.prepend(fragment);
-    mergeAdjacentWorkMessages();
-    layoutWorkLog({ keepScroll: true });
-    state.before = detail.nextBefore;
-    state.hasMore = !!detail.hasMore;
+    for (const type of events) document.addEventListener(type, releaseFocus, true);
+    window.addEventListener("blur", releaseFocus);
     showHistoryLoadButton();
-    el.messages.scrollTop = el.messages.scrollHeight - oldHeight + oldTop;
-    updateScrollBottomButton();
+    while (isCurrent() && state.hasMore && readable < policy.target && pages < policy.pages
+      && size < policy.size && Date.now() - startedAt < policy.ms) {
+      const before = state.before;
+      if (!Number.isSafeInteger(before) || before <= 0) throw new Error("pi_history_cursor_invalid");
+      const detail = await api(`/api/session?file=${encodeURIComponent(state.file)}&limit=300&before=${before}`);
+      if (!isCurrent()) return;
+      validatePiHistoryPage(detail, before);
+      // A changing active path has no source-version contract. Never apply an
+      // overlapping page as if it were a fresh, snapshot-consistent boundary.
+      if (detail.messages.some(message => state.seen.has(message.id))) throw new Error("pi_history_overlap");
+      const staging = document.createElement("div");
+      let sliceStarted = performance.now();
+      for (const message of detail.messages) {
+        if (performance.now() - sliceStarted > 8) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (!isCurrent()) return;
+          sliceStarted = performance.now();
+        }
+        appendHistoryMessage(message, staging);
+      }
+      if (!isCurrent()) return;
+      mergeAdjacentWorkMessages(staging);
+      // Measure after the await/yields: scrolling during a manual read belongs
+      // to the reader. Prefer a surviving visible node over height arithmetic.
+      const oldHeight = el.messages.scrollHeight, oldTop = el.messages.scrollTop;
+      const viewport = el.messages.getBoundingClientRect();
+      const anchors = [...el.messages.children].filter(node => node !== button && node.getBoundingClientRect().bottom > viewport.top)
+        .map(node => ({ node, top: node.getBoundingClientRect().top }));
+      const fragment = document.createDocumentFragment();
+      while (staging.firstChild) fragment.appendChild(staging.firstChild);
+      button?.remove();
+      el.messages.prepend(fragment);
+      mergeAdjacentWorkMessages();
+      layoutWorkLog({ keepScroll: true });
+      for (const message of detail.messages) state.seen.add(message.id);
+      state.before = detail.nextBefore;
+      state.hasMore = detail.hasMore;
+      showHistoryLoadButton();
+      const anchor = anchors.find(row => row.node.parentNode === el.messages);
+      el.messages.scrollTop = anchor ? oldTop + anchor.node.getBoundingClientRect().top - anchor.top
+        : el.messages.scrollHeight - oldHeight + oldTop;
+      updateScrollBottomButton();
+      readable += piHistoryReadableCount(detail.messages);
+      pages += 1;
+      size += JSON.stringify(detail).length;
+    }
   } catch (error) {
-    button.disabled = false;
-    button.dataset.autoLoadPaused = "1";
-    button.textContent = "載入更早的訊息";
-    toast(tKey("runtime.historyFailed", { detail: error.message }), true);
+    if (isCurrent()) {
+      state.error = String(error.message).slice(0, 128);
+      toast(tKey("runtime.historyFailed", { detail: state.error }), true);
+    }
   } finally {
-    if (historyState === state) state.loading = false;
+    for (const type of events) document.removeEventListener(type, releaseFocus, true);
+    window.removeEventListener("blur", releaseFocus);
+    state.loading = false;
+    if (ownsView()) {
+      // Input during the admitted batch cannot turn its own compensation
+      // scroll (including an already queued frame) into another approach.
+      userScrollIntentUntil = 0;
+      showHistoryLoadButton();
+      if (restoreFocus && focusButton === historyLoadButton && focusButton?.parentNode === el.messages
+        && !focusButton.disabled && document.activeElement === document.body) focusButton.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -6263,17 +6353,21 @@ function codexNativeReadableKeys(state) {
     && (unit.view.text?.trim() || unit.view.images > 0)).map(unit => unit.key));
 }
 
-// Admission bounds include the first item page: at most 4 x 50 items,
-// 262144 serialized UTF-16 code units, or 1200ms before starting another
-// request. A large/slow final page is retained, never truncated. Summaries
-// and collapsed work do not count as readable conversation.
+function readableHistoryPolicy() {
+  return { target: 40, pages: 8, size: 1048576, ms: 1200 };
+}
+
+// Admission bounds include the first page, retain a complete admitted page,
+// and leave the real earlier cursor reachable when the target is not met.
+// Summaries and collapsed work do not count as readable conversation.
 async function continueCodexNativeReadableHistory(connection, firstPage, before, startedAt, { signal, isCurrent }) {
   const state = connection.nativeTranscriptState;
+  const policy = readableHistoryPolicy();
   let pages = 1, size = JSON.stringify(firstPage.items || {}).length;
   while (isCurrent() && !signal.aborted && !state.error && state.itemsCursor !== null
-    && pages < 4 && size < 262144 && Date.now() - startedAt < 1200) {
+    && pages < policy.pages && size < policy.size && Date.now() - startedAt < policy.ms) {
     const added = [...codexNativeReadableKeys(state)].filter(key => !before.has(key)).length;
-    if (added >= 8) break;
+    if (added >= policy.target) break;
     const page = await loadCodexNativeTranscript(connection.nativeThreadId, {
       older: true, turnsCursor: null, itemsCursor: state.itemsCursor, signal, isCurrent,
     });
@@ -6540,6 +6634,7 @@ async function loadOlderCodexNativeHistory() {
     state.loading = false;
     if (connection.nativeHistoryRequest === controller) connection.nativeHistoryRequest = null;
     if (isCurrent()) {
+      userScrollIntentUntil = 0; // Pending input cannot turn our prepend into another reading action.
       showCodexNativeHistoryButton();
       // Disabled buttons blur natively; restore only our untouched focus lease.
       if (restoreFocus && focusButton === codexNativeHistoryButton && focusButton.parentNode === el.messages
@@ -9549,13 +9644,102 @@ function toolOutputLabel(name) {
   if (key.includes("read") || key.includes("cat")) return "Output";
   return "Result";
 }
-function makeToolCard(name, args, resultText, isError, running) {
+function historicalToolCurrent(card) {
+  const state = card.__historicalTool;
+  return !!state && state.generation === viewGeneration && state.base === apiBase && state.owner === historyState;
+}
+function labelHistoricalTool(card) {
+  const meta = card.__tool;
+  const error = card.classList.contains("err");
+  const label = `${error ? "! " : ""}▸ ${toolLabel(meta.name, meta.args, card.classList.contains("running")).text}`;
+  card.querySelector(".tool-name").textContent = label;
+  card.querySelector(".tool-head").setAttribute("aria-label", `${meta.name || "Tool"}${error ? " — error" : ""}`);
+}
+function historicalToolText(value) {
+  return typeof value === "string" ? value : value === undefined ? "" : JSON.stringify(value, null, 2);
+}
+function appendHistoricalToolText(body, className, text, label) {
+  const pre = document.createElement("pre");
+  pre.className = className;
+  pre.tabIndex = 0;
+  pre.setAttribute("aria-label", label);
+  pre.textContent = text;
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "reply-copy";
+  copy.textContent = tKey("reply.copy");
+  copy.setAttribute("aria-label", `${tKey("reply.copy")}: ${label}`);
+  copy.addEventListener("click", async () => {
+    try { await copyText(text); } catch { toast(tKey("reply.copyFailed"), true); }
+  });
+  body.append(pre, copy);
+  return pre;
+}
+function renderHistoricalToolResults(card) {
+  const state = card.__historicalTool;
+  if (!state.body) return;
+  state.pendingOutput?.remove();
+  state.pendingOutput = null;
+  if (!state.received) {
+    const pending = document.createElement("pre");
+    pending.className = "tool-output";
+    pending.textContent = "（執行中…）";
+    state.body.appendChild(pending);
+    state.pendingOutput = pending;
+  }
+  while (state.rendered < state.results.length) {
+    const result = state.results[state.rendered++];
+    const label = document.createElement("div");
+    label.className = "tool-output-label";
+    label.textContent = `${toolOutputLabel(card.__tool.name)}${result.isError ? " — error" : ""}`;
+    state.body.appendChild(label);
+    const output = appendHistoricalToolText(state.body, "tool-output", result.text, label.textContent);
+    // Empty output is displayed explicitly, but Copy always uses the original value.
+    if (!result.text) output.textContent = result.isError ? "（沒有收到工具輸出）" : "（無輸出）";
+    if (result.subagents || result.nested) {
+      const metadata = document.createElement("pre");
+      metadata.className = "tool-result-metadata";
+      metadata.tabIndex = 0;
+      metadata.setAttribute("aria-label", "Subagents");
+      metadata.textContent = historicalToolText({ subagents: result.subagents, nestedSubagents: result.nested });
+      state.body.appendChild(metadata);
+    }
+  }
+}
+function hydrateHistoricalTool(card) {
+  const state = card.__historicalTool;
+  if (!card.open || !card.isConnected || !historicalToolCurrent(card) || state.body) return;
+  const body = document.createElement("div");
+  body.className = "tool-body";
+  const name = document.createElement("div");
+  name.className = "tool-command";
+  name.textContent = card.__tool.name || "Tool";
+  body.appendChild(name);
+  const args = appendHistoricalToolText(body, "tool-arguments", historicalToolText(card.__tool.args), "Arguments");
+  if (card.__tool.args === undefined) args.textContent = "(not recorded)";
+  state.body = body;
+  card.appendChild(body);
+  renderHistoricalToolResults(card);
+}
+function makeToolCard(name, args, resultText, isError, running, { historical = false } = {}) {
   const details = document.createElement("details");
   details.className = "tool-card" + (isError ? " err" : "") + (running ? " running" : "");
   details.__tool = { name, args };
   if (SUBAGENT_TOOL_NAMES.has(name)) details.dataset.subagentTool = "";
   const summary = document.createElement("summary");
   summary.className = "tool-head";
+  if (historical) {
+    details.__historicalTool = { generation: viewGeneration, base: apiBase, owner: historyState, received: false, results: [], rendered: 0, body: null };
+    const title = document.createElement("span");
+    title.className = "tool-name";
+    title.dataset.i18nIgnore = "";
+    summary.appendChild(title);
+    details.appendChild(summary);
+    labelHistoricalTool(details);
+    if (SUBAGENT_TOOL_NAMES.has(name)) makeSubagentOpen(details, summary, null);
+    details.addEventListener("toggle", () => hydrateHistoricalTool(details));
+    return details;
+  }
   const iconBox = document.createElement("span");
   iconBox.className = "tool-ico";
   iconBox.innerHTML = `<svg class="icon" aria-hidden="true"><use href="${toolIcon(name, args)}"></use></svg>`;
@@ -9654,19 +9838,23 @@ function setToolCardState(card, { running = false, isError = false, text = null 
   const status = card.querySelector(".tool-status");
   const output = card.querySelector(".tool-output");
   const command = card.querySelector(".tool-command");
+  const historical = card.__historicalTool;
+  if (historical) isError = !!isError || historical.results.some(result => result.isError);
   card.classList.toggle("running", running);
   card.classList.toggle("err", !!isError);
-  if (title) setWorkLabel(title, toolLabel(meta.name, meta.args, running));
+  if (historical) labelHistoricalTool(card);
+  else if (title) setWorkLabel(title, toolLabel(meta.name, meta.args, running));
   if (title) { title.removeAttribute("title"); title.setAttribute("aria-label", toolTitle(meta.name, meta.args, false, { compact: false })); }
-  if (command) command.textContent = toolCommand(meta.name, meta.args);
+  if (command && !historical) command.textContent = toolCommand(meta.name, meta.args);
   if (sub) sub.textContent = running ? "working…" : "";
   if (status) {
     status.classList.remove("running", "error", "done");
     status.classList.add(running ? "running" : (isError ? "error" : "done"));
     status.setAttribute("aria-label", running ? "working" : (isError ? "error" : "success"));
   }
-  if (text !== null && output) output.textContent = text || (isError ? "（沒有收到工具輸出）" : "（無輸出）");
-  renderToolStat(card);
+  if (historical) renderHistoricalToolResults(card);
+  else if (text !== null && output) output.textContent = text || (isError ? "（沒有收到工具輸出）" : "（無輸出）");
+  if (!historical) renderToolStat(card);
   updateRunToolError(card, !!isError);
   if (card.dataset?.subagentTool !== undefined && typeof revealSubagentCard === "function") revealSubagentCard(card);
   const activity = card.closest(".activity-group")?.__activity;
@@ -9717,6 +9905,7 @@ function summarizeArgs(args) {
 function appendHistoryMessage(m, container = el.messages, options = {}) {
   if (m.role === "user") {
     const { wrap, bubble } = makeMsgShell("user", "你", container);
+    wrap.classList.remove("msg-in"); // Past messages must not animate the reader's anchor.
     stampMessageTime(wrap, m.ts || m.timestamp);
     if (m.text) bubble.appendChild(renderMarkdown(m.text));
     appendImageGallery(wrap, bubble, m.imageAttachments, m.images || 0);
@@ -9726,6 +9915,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     // still recover one when the first page did not contain any plan text.
     if (options.latest || container === el.messages || !taskProgress) updateTaskProgressFromAssistant(m.text, { running: false });
     const { wrap, bubble } = makeMsgShell("assistant", m.model ? `pi · ${m.model}` : "pi", container);
+    wrap.classList.remove("msg-in");
     stampMessageTime(wrap, m.ts || m.timestamp);
     const calls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
     // Pi stores thinking, then prose, then tool calls: keep that order so the
@@ -9745,7 +9935,7 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
         bubble.appendChild(activity.details);
       }
       for (const tc of calls) {
-        const card = makeToolCard(tc.name, tc.args, null);
+        const card = makeToolCard(tc.name, tc.args, null, false, false, { historical: true });
         if (tc.id) card.dataset.toolCallId = tc.id;
         activity.body.appendChild(card);
         activity.latest = toolTitle(tc.name, tc.args, false);
@@ -9763,7 +9953,19 @@ function appendHistoryMessage(m, container = el.messages, options = {}) {
     wrap.appendChild(msgActionsRow("assistant", () => m.text || m.errorMessage || "", { fork: piReplyFork({ entryId: m.id }) }));
     if (m.usage) attachMessageUsage(wrap, m.usage, activity);
   } else if (m.role === "toolResult") {
-    attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId, m.subagents, m.nestedSubagents);
+    const matched = attachToolResult(m.toolName, m.isError, m.text, container, m.toolCallId, m.subagents, m.nestedSubagents, { historical: true, record: m });
+    if (!matched) {
+      // Results whose call is outside this page remain accessible in source order.
+      const { wrap, bubble } = makeMsgShell("assistant", "pi", container);
+      wrap.classList.remove("msg-in");
+      stampMessageTime(wrap, m.ts || m.timestamp);
+      const activity = makeActivityGroup({ running: false });
+      bubble.appendChild(activity.details);
+      const card = makeToolCard(m.toolName, undefined, null, false, false, { historical: true });
+      if (m.toolCallId) card.dataset.toolCallId = m.toolCallId;
+      activity.body.appendChild(card);
+      attachHistoricalToolResult(card, m.isError, m.text, m.subagents, m.nestedSubagents, m);
+    }
   }
   if (container === el.messages) {
     keepSessionUsageAtEnd();
@@ -9889,14 +10091,39 @@ function makeSubagentOpen(card, summary, chevron) {
   summary.insertBefore(open, chevron);
   // The caller sets the card's tool id right after this returns; a card
   // drawn again from history then finds its subagents without a new event.
-  queueMicrotask(() => revealSubagentCard(card));
+  queueMicrotask(() => {
+    if (card.__historicalTool && (!card.isConnected || !historicalToolCurrent(card))) return;
+    revealSubagentCard(card);
+  });
 }
-function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null, subagents = null, nested = null) {
+function attachHistoricalToolResult(card, isError, text, subagents, nested, record) {
+  const state = card.__historicalTool;
+  state.received = true;
+  state.results.push({ record, text: historicalToolText(text), isError: !!isError, subagents, nested });
+  if (subagents) card.__subagentRecord = subagents;
+  if (Array.isArray(nested) && nested.length) card.__nestedSubagents = nested;
+  if (subagents || (Array.isArray(nested) && nested.length)) {
+    card.dataset.subagentTool = "";
+    const summary = card.querySelector(".tool-head");
+    if (!card.querySelector(".tool-subagent-open")) makeSubagentOpen(card, summary, null);
+  }
+  setToolCardState(card, { running: false, isError, text });
+  return card;
+}
+function attachToolResult(toolName, isError, text, container = el.messages, toolCallId = null, subagents = null, nested = null, { historical = false, record = null } = {}) {
+  if (historical) {
+    const cards = [...container.querySelectorAll(".tool-card")].reverse();
+    const matched = toolCallId
+      ? cards.find(card => card.__historicalTool && card.dataset.toolCallId === toolCallId)
+      : cards.find(card => card.__historicalTool && !card.__historicalTool.received);
+    return matched ? attachHistoricalToolResult(matched, isError, text, subagents, nested, record) : null;
+  }
   // Parallel calls finish in their own order; match a result to its call
   // when the history names it.
   if (toolCallId) {
     const matched = [...container.querySelectorAll(".tool-card")].reverse().find(card => card.dataset.toolCallId === toolCallId);
     if (matched) {
+      if (matched.__historicalTool) return attachHistoricalToolResult(matched, isError, text, subagents, nested, record);
       if (subagents) matched.__subagentRecord = subagents;
       // A codemode script's subagent calls: the Host finds the runs they started.
       const summary = matched.querySelector(".tool-head");
@@ -9910,6 +10137,11 @@ function attachToolResult(toolName, isError, text, container = el.messages, tool
   }
   const cards = container.querySelectorAll(".tool-card");
   for (let i = cards.length - 1; i >= 0; i--) {
+    const historical = cards[i].__historicalTool;
+    if (historical) {
+      if (!historical.received) return attachHistoricalToolResult(cards[i], isError, text, subagents, nested, record);
+      continue;
+    }
     const body = cards[i].querySelector(".tool-output");
     if (body && body.textContent === "（執行中…）") {
       setToolCardState(cards[i], { running: false, isError: !!isError, text });
@@ -10969,7 +11201,8 @@ function relabelWorkLog() {
     const meta = card.__tool || {};
     const title = card.querySelector(".tool-name");
     if (!title) continue;
-    setWorkLabel(title, toolLabel(meta.name, meta.args, card.classList.contains("running")));
+    if (card.__historicalTool) labelHistoricalTool(card);
+    else setWorkLabel(title, toolLabel(meta.name, meta.args, card.classList.contains("running")));
     title.removeAttribute("title");
     title.setAttribute("aria-label", toolTitle(meta.name, meta.args, false, { compact: false }));
   }
@@ -11850,7 +12083,7 @@ function attachLiveToolResult(m) {
       return;
     }
   }
-  attachToolResult(m.toolName, m.isError, txt);
+  attachToolResult(m.toolName, m.isError, txt, el.messages, m.toolCallId, m.subagents, m.nestedSubagents, { record: m });
 }
 // The header says where a session runs: its computer and project, e.g.
 // "OneStep-MacMini · Stepsemble". The full folder stays in the tooltip, and
@@ -20682,9 +20915,14 @@ const TOOL_PLACEHOLDERS = new Set(["（執行中…）", "（無輸出）", "（
 function revealSubagentCard(card) {
   const open = card?.querySelector(".tool-subagent-open");
   if (!open || !subagentTracker) return;
-  const id = subagentCardTool(card), output = card.querySelector(".tool-output")?.textContent || "";
-  if (id && !card.classList.contains("running") && output !== "（執行中…）" && !subagentTracker.byTool(id).length)
-    subagentTracker.remember({ toolId: id, name: card.__tool?.name, args: card.__tool?.args, result: TOOL_PLACEHOLDERS.has(output) ? "" : output,
+  const historical = card.__historicalTool;
+  if (historical && !historicalToolCurrent(card)) return;
+  const id = subagentCardTool(card), output = historical
+    ? historical.results.map(result => result.text).join("\n")
+    : card.querySelector(".tool-output")?.textContent || "";
+  const received = historical ? historical.received : output !== "（執行中…）";
+  if (id && !card.classList.contains("running") && received && !subagentTracker.byTool(id).length)
+    subagentTracker.remember({ toolId: id, name: card.__tool?.name, args: card.__tool?.args, result: historical ? output : TOOL_PLACEHOLDERS.has(output) ? "" : output,
       isError: card.classList.contains("err"), record: card.__subagentRecord || null, nested: card.__nestedSubagents || null, harness: conversationAgentId() });
   open.hidden = !subagentTracker.byTool(id).length;
   // A saved background run's children are read as they stand now.

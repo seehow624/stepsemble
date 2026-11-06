@@ -352,8 +352,12 @@ function codexTurns() {
 
 // Every fixture task is already in the Workspace, as if created there.
 function workspaceEntries() {
-  return tasks.map((task, index) => ({ key: "00000000-0000-4000-8000-" + String(index + 1).padStart(12, "0"),
+  const entries = tasks.map((task, index) => ({ key: "00000000-0000-4000-8000-" + String(index + 1).padStart(12, "0"),
     origin: "created", addedAt: startedAt, record: { ...task } }));
+  if (state.piHistoryEnabled) entries.push({ key: "00000000-0000-4000-8000-000000000004",
+    origin: "adopted", addedAt: startedAt, record: { agentId: "pi", file: "owned-readable.jsonl",
+      name: "Owned readable Pi", cwd: "/tmp/stepsemble-native-composer", status: "history" } });
+  return entries;
 }
 
 function staticMime(file) {
@@ -387,13 +391,15 @@ async function serveAsset(req, res, pathname, origin) {
   }
 }
 
-export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false, agentSpeed = false, codexHistory = null } = {}) {
+export async function createNativeComposerPreview({ port = 0, workflows = null, codexFailure = false, richContent = false, projectReview = null, composerQueue = false, agentSpeed = false, codexHistory = null, piHistory = null } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("native_composer_preview_port_invalid");
   let origin = "";
   let closing = null;
   // Optional owned pages for readable-history UI cases; never an adapter or
   // a native process. Keep request receipts separate from synthetic sends.
   state.codexHistoryReads = [];
+  state.piHistoryReads = [];
+  state.piHistoryEnabled = !!piHistory;
   state.codexFailure = codexFailure;
   state.richContent = richContent;
   state.projectReview = projectReview;
@@ -469,6 +475,34 @@ export async function createNativeComposerPreview({ port = 0, workflows = null, 
       if (pathname === "/api/protocol/handshake" && req.method === "POST") {
         return json(res, 200, { protocolVersion: 1, schemaVersion: "1.0.0", hostVersion: "native-composer-preview", mode: "legacy-compatible", capabilities: ["legacy.http", "pi.native-rpc", "agent.terminal-v1"], disabledCapabilities: [], limits: { handshakeBytes: 16384 } });
       }
+      // Opt-in Pi history viewer only. All records/pages and the held SSE
+      // belong to this preview; no installed RPC/provider/session fallback.
+      if (piHistory && pathname === "/api/session" && req.method === "GET") {
+        const before = requestUrl.searchParams.get("before");
+        state.piHistoryReads.push({ file: requestUrl.searchParams.get("file"), limit: requestUrl.searchParams.get("limit"), before });
+        if (requestUrl.searchParams.get("file") !== "owned-readable.jsonl") return json(res, 404, { error: "fixture_file_invalid" });
+        if (piHistory.failBefore === before) return json(res, 503, { error: "fixture_history_unavailable" });
+        if (piHistory.waitBefore === before && piHistory.waitForPage) await piHistory.waitForPage;
+        const result = piHistory.pages[before === null ? "latest" : before];
+        return result ? json(res, 200, result) : json(res, 400, { error: "fixture_history_cursor_invalid" });
+      }
+      if (piHistory && pathname === "/api/open" && req.method === "POST") {
+        const body = await parseJsonBody(req);
+        return body.file === "owned-readable.jsonl" ? json(res, 200, { sid: "owned-readable-rpc", reused: true, isStreaming: false, replayAfter: 0 })
+          : json(res, 400, { error: "fixture_file_invalid" });
+      }
+      if (piHistory && pathname === "/api/stream" && req.method === "GET") {
+        if (requestUrl.searchParams.get("sid") !== "owned-readable-rpc") return json(res, 400, { error: "fixture_rpc_invalid" });
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
+        res.write(`event: connected\ndata: ${JSON.stringify({ type: "connected", sid: "owned-readable-rpc", isStreaming: false })}\n\n`);
+        return; // server.closeAllConnections owns cleanup, including this SSE.
+      }
+      if (piHistory && pathname === "/api/rpc-cmd" && req.method === "POST") {
+        const body = await parseJsonBody(req), type = body.command?.type;
+        if (body.sid !== "owned-readable-rpc" || !["get_state", "get_commands", "get_session_stats"].includes(type)) return json(res, 400, { error: "fixture_rpc_read_only" });
+        return json(res, 200, { success: true, data: type === "get_commands" ? { commands: [] } : { isStreaming: false } });
+      }
+      if (piHistory && ["/api/send", "/api/abort"].includes(pathname)) return json(res, 403, { error: "fixture_history_read_only" });
       if (pathname === "/api/machines" && req.method === "GET") return json(res, 200, { current: MACHINE_ID, self: MACHINE_ID, machines: [{ id: MACHINE_ID, name: hostName, host: "127.0.0.1", self: true, local: true, managed: true, authMode: "local" }] });
       if (pathname === "/api/sessions" && req.method === "GET") return json(res, 200, { sessions: [], temporarySessionCount: 0 });
       if (pathname === "/api/agents" && req.method === "GET") return json(res, 200, { connectors: workflows ? [...connectors,{id:"pi",label:"Pi Agent",installed:true,kind:"native"}] : connectors });

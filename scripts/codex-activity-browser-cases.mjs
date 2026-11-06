@@ -226,6 +226,11 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
   const toolPage = index => Array.from({ length: 50 }, (_, n) => ({ turnId: "fixture-turn-0", item: {
     id: `history-work-${index}-${n}`, type: "commandExecution", command: "synthetic only", status: "completed", aggregatedOutput: "ok",
   } }));
+  // Real typed command output exercises the byte-admission short boundary:
+  // each row is far below the native 4MiB row/8MiB frame limits. No inert
+  // padding and no reduced test waits; the original short geometry remains.
+  const report = Array.from({ length: 1000 }, (_, n) => `ok ${n} - owned synthetic parser case\n`).join("");
+  const reportTools = index => toolPage(index).map(row => ({ ...row, item: { ...row.item, aggregatedOutput: report } }));
   const messages = (prefix, count) => Array.from({ length: count }, (_, n) => ({ turnId: "fixture-turn-0", item: {
     id: `${prefix}-${n}`, type: "agentMessage", text: `${prefix} ${n}`,
   } }));
@@ -250,15 +255,21 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
     // On a phone the sidebar is hidden while the conversation fills the screen.
     const modes = ["readable", "short", "anchor", "burst", "manual"];
     if (viewport.width > 760) modes.push("manual-blur");
+    // Keep every original cell and add normal40 scrollable intent/focus cells,
+    // separate from the genuinely short byte-stopped boundary above.
+    modes.push("burst-40", "manual-40");
+    if (viewport.width > 760) modes.push("manual-blur-40");
     for (const reduced of [false, true]) for (const mode of modes) {
+      const fullBatch = mode.endsWith("-40"), action = fullBatch ? mode.slice(0, -3) : mode;
       const history = { pages: mode === "readable" ? [
         { data: [...messages("Newest readable", 1), ...toolPage(0).slice(0, 49)], nextCursor: "fixture-page-1" },
-        { data: messages("Earlier readable", 7), nextCursor: null },
+        { data: messages("Earlier readable", 39), nextCursor: null },
       ] : mode === "anchor" ? [
-        { data: messages("Retained anchor", 8).map(row => ({ ...row, item: { ...row.item,
+        { data: messages("Retained anchor", 40).map(row => ({ ...row, item: { ...row.item,
           text: row.item.text + "\n\n" + "Owned synthetic reading tail, with no provider or native process.\n\n".repeat(12) } })), nextCursor: "fixture-page-1" },
-        { data: messages("Prepended anchor", 8), nextCursor: null },
-      ] : Array.from({ length: 5 }, (_, index) => ({ data: toolPage(index), nextCursor: `fixture-page-${index + 1}` })) };
+        { data: messages("Prepended anchor", 40), nextCursor: null },
+      ] : fullBatch ? [{ data: messages("Retained40", 40), nextCursor: "fixture-page-1" }]
+        : Array.from({ length: 5 }, (_, index) => ({ data: reportTools(index), nextCursor: `fixture-page-${index + 1}` })) };
       const preview = await createNativeComposerPreview({ codexHistory: history });
       let context, releasePage = null;
       try {
@@ -283,6 +294,7 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           await pane.getByText("Earlier readable 6", { exact: true }).waitFor();
           assert.equal(await pane.locator("#messages .history-load-button").count(), 0);
           assert.equal(preview.state.codexHistoryReads.length, 2);
+          assert.equal(await pane.evaluate(() => codexNativeReadableKeys(rpc.nativeTranscriptState).size), 40);
           assert.equal(await pane.locator("#messages .tool-output:visible").count(), 0, "work stays collapsed");
         } else if (mode === "anchor") {
           const button = pane.locator("#messages .history-load-button");
@@ -298,14 +310,15 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           assert.equal(preview.state.codexHistoryReads.length, 2);
           assert.equal(preview.state.codexHistoryReads.at(-1).cursor, "fixture-page-1");
           assert.equal(await pane.locator("#messages .history-load-button").count(), 0);
-        } else if (mode === "burst" || mode === "manual" || mode === "manual-blur") {
+        } else if (action === "burst" || action === "manual" || action === "manual-blur") {
           const button = pane.locator("#messages .history-load-button");
           await button.waitFor(); await pane.waitForFunction(() => !document.querySelector(".history-load-button").disabled);
-          assert.equal(await pane.evaluate(() => { const m = document.querySelector("#messages"); return m.scrollHeight <= m.clientHeight + 1; }), true);
+          assert.equal(await pane.evaluate(() => { const m = document.querySelector("#messages"); return m.scrollHeight <= m.clientHeight + 1; }), !fullBatch);
           const initialReads = preview.state.codexHistoryReads.length, cursor = `fixture-page-${initialReads}`;
-          history.pages[initialReads] = { data: messages("Burst earlier", 8).map(row => ({ ...row,
-            item: { ...row.item, text: row.item.text + "\n\nOwned burst continuation." } })), nextCursor: `fixture-page-${initialReads + 1}` };
-          history.pages[initialReads + 1] = { data: messages("Unwanted cascade", 8), nextCursor: null };
+          const earlier = messages("Burst earlier", fullBatch ? 40 : 8).map(row => ({ ...row,
+            item: { ...row.item, text: row.item.text + "\n\nOwned burst continuation." } }));
+          history.pages[initialReads] = { data: fullBatch ? earlier : [...earlier, ...reportTools(5).slice(0, 42)], nextCursor: `fixture-page-${initialReads + 1}` };
+          history.pages[initialReads + 1] = { data: messages("Unwanted cascade", fullBatch ? 40 : 8), nextCursor: null };
           history.waitForCursor = cursor;
           history.waitForPage = new Promise(resolve => { releasePage = resolve; });
           await pane.locator("#input").fill("Preserve burst draft");
@@ -315,6 +328,15 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
               if (window.historyWheelTimes.length < 2) window.historyWheelTimes.push(performance.now());
             }, { passive: true });
           });
+          let normalAnchor = null, normalBefore = null;
+          if (fullBatch) {
+            // Position and paint before targeting native input, not beneath a
+            // pointer whose previous hit target belonged to the retained tail.
+            await pane.evaluate(() => { document.querySelector("#messages").scrollTop = 100; });
+            await pane.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            assert.equal(await pane.evaluate(() => document.querySelector("#messages").scrollTop), 100);
+            normalAnchor = await pane.locator("#messages .msg").first().elementHandle();
+          }
           const box = await pane.locator("#messages").boundingBox();
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           const pending = page.waitForRequest(request => {
@@ -322,15 +344,17 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
             return url.origin === preview.origin && url.pathname === "/api/codex/items" && url.searchParams.get("cursor") === cursor;
           });
           let times = [];
-          if (mode === "burst") {
+          if (action === "burst") {
             await page.mouse.wheel(0, -120); await pending;
+            if (fullBatch) normalBefore = await normalAnchor.evaluate(geometry);
             await page.mouse.wheel(0, -120);
             await pane.waitForFunction(() => window.historyWheelTimes.length === 2);
             times = await pane.evaluate(() => window.historyWheelTimes);
             assert.equal(times.length, 2); assert.ok(times[1] - times[0] < 250, "both trusted wheel events belong to the same burst");
           } else {
             await button.focus(); await page.keyboard.press("Enter"); await pending;
-            if (mode === "manual-blur") {
+            if (fullBatch) normalBefore = await normalAnchor.evaluate(geometry);
+            if (action === "manual-blur") {
               const workspaceSearch = page.locator("#workspace-search");
               assert.equal(await workspaceSearch.isVisible(), true, "the other focus owner must be available");
               await workspaceSearch.focus();
@@ -342,15 +366,19 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           await pane.waitForFunction(() => !rpc.nativeTranscriptState.loading && !rpc.nativeRefreshInFlight);
           await pane.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
           const range = await pane.evaluate(() => { const m = document.querySelector("#messages"); return { top: m.scrollTop, max: m.scrollHeight - m.clientHeight }; });
-          assert.ok(range.top > 0 && range.top <= 600, `native compensation is inside the shared earlier-history edge: ${JSON.stringify(range)}`);
+          if (fullBatch) {
+            anchorEvidence = checkAnchor(normalBefore, await normalAnchor.evaluate(geometry), true);
+            assert.equal(await pane.evaluate(() => codexNativeReadableKeys(rpc.nativeTranscriptState).size), 80);
+            assert.equal(await pane.evaluate(() => userScrollIntentUntil), 0, "normal40 prepend never rearms the consumed intent");
+          } else assert.ok(range.top > 0 && range.top <= 600, `native compensation is inside the shared earlier-history edge: ${JSON.stringify(range)}`);
           assert.equal(preview.state.codexHistoryReads.length, initialReads + 1, "one admitted action cannot start another batch through native scroll");
           assert.equal(await button.isEnabled(), true, "an older page remains available without being auto-loaded");
           assert.equal(await pane.getByText("Unwanted cascade 7", { exact: true }).count(), 0);
           assert.equal(await pane.locator("#input").inputValue(), "Preserve burst draft");
-          if (mode === "burst") assert.equal(await pane.evaluate(() => document.activeElement.id), "input");
-          else if (mode === "manual-blur") assert.equal(await page.locator("#workspace-search").evaluate(node => document.activeElement === node), true, "the old pane never steals workspace focus");
+          if (action === "burst") assert.equal(await pane.evaluate(() => document.activeElement.id), "input");
+          else if (action === "manual-blur") assert.equal(await page.locator("#workspace-search").evaluate(node => document.activeElement === node), true, "the old pane never steals workspace focus");
           else assert.equal(await button.evaluate(node => document.activeElement === node), true, "explicit keyboard retry keeps its button focus");
-          burstEvidence = { wheelGap: mode === "burst" ? times[1] - times[0] : null, initialReads, range };
+          burstEvidence = { wheelGap: action === "burst" ? times[1] - times[0] : null, initialReads, range, fullBatch };
         } else {
           const button = pane.locator("#messages .history-load-button");
           await button.waitFor(); await pane.waitForFunction(() => !document.querySelector(".history-load-button").disabled);
