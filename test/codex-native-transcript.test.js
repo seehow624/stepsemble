@@ -572,3 +572,108 @@ test("readable history manual partial failure pauses through polling and explici
   assert.equal(h.state.entries.length, 130); assert.equal(h.state.error, null); assert.equal(h.state.hasMore, false);
   assert.equal(echo.parentNode, h.messages);
 });
+
+// The implicit disabled-button fallback is a mocked DOM boundary. Run the actual
+// controller, captured focusin listener, render and finally for both root nodes.
+for (const boundary of ["body", "html"]) {
+  for (const activity of ["untouched", "explicit-input", "pointer", "key", "windowblur", "staleRPC", "generation", "base", "detached", "replaced", "alreadybutton", "disabledbutton"]) {
+    test(`Codex actual older root-focus lease ${boundary}/${activity}`, async () => {
+      let release, requested;
+      const pending = new Promise(resolve => { release = resolve; });
+      const arrived = new Promise(resolve => { requested = resolve; });
+      const h = harness(async url => {
+        const kind = url.pathname.split("/").at(-1), cursor = url.searchParams.get("cursor");
+        if (kind === "thread") return { thread: { id: "thread-a", status: { type: "idle" } } };
+        if (kind === "turns") return page([]);
+        if (cursor) { requested(); await pending; }
+        return page(Array.from({ length: 40 }, (_, n) => entry("turn-a", `${cursor ? "older" : "latest"}-${n}`)), cursor ? "older-two" : "older-one");
+      });
+      const doc = h.ctx.document;
+      doc.documentElement = new Node("html");
+      const root = boundary === "body" ? doc.body : doc.documentElement;
+      await h.ctx.refreshCodexNativeSnapshot(h.connection, { initial: true });
+      assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, 40);
+      assert.equal(h.state.entries.length, 40);
+      assert.equal(h.state.itemsCursor, "older-one");
+      assert.equal(h.state.turnsCursor, null);
+      const button = h.ctx.codexNativeHistoryButton;
+      let disabled = !!button.disabled, restored = 0, implicitFocusEvents = 0;
+      Object.defineProperty(button, "disabled", { configurable: true, get: () => disabled, set: value => {
+        disabled = value;
+        if (value && doc.activeElement === button) {
+          doc.activeElement = root;
+          implicitFocusEvents++;
+          h.documentInput("focusin", root);
+        }
+      } });
+      button.focus = options => {
+        assert.deepEqual(plain(options), { preventScroll: true });
+        restored++;
+        doc.activeElement = button;
+      };
+      doc.activeElement = button;
+      const loading = h.ctx.loadOlderCodexNativeHistory();
+      await arrived;
+      assert.equal(implicitFocusEvents, 1, "disabled fallback dispatches to the captured real focusin listener");
+      assert.equal(doc.activeElement, root);
+      assert.equal(button.disabled, true);
+      assert.equal(h.state.loading, true);
+      assert.ok(h.connection.nativeHistoryRequest);
+      assert.deepEqual(Object.fromEntries([...h.documentEvents].map(([type, listeners]) => [type, listeners.size])),
+        { pointerdown: 1, keydown: 1, focusin: 1, "window:blur": 1 });
+      let input;
+      if (activity === "explicit-input") {
+        input = new Node("input"); doc.activeElement = input; h.documentInput("focusin", input);
+      }
+      if (activity === "pointer") h.documentInput("pointerdown", root);
+      if (activity === "key") h.documentInput("keydown", root);
+      if (activity === "windowblur") h.windowInput("blur");
+      if (activity === "staleRPC") h.ctx.rpc = { nativeCodex: true, nativeTranscriptState: h.ctx.createCodexNativeTranscriptState() };
+      if (activity === "generation") h.ctx.viewGeneration++;
+      if (activity === "base") h.ctx.apiBase = "/r/another-owned-view";
+      // Mutate the external owner only after the actual final re-enable. Do not
+      // replace the controller's render/finally or any focus/ownership predicate.
+      let ownerMutations = 0, replacement;
+      if (["detached", "replaced", "alreadybutton", "disabledbutton"].includes(activity)) {
+        const show = h.ctx.showCodexNativeHistoryButton;
+        h.ctx.showCodexNativeHistoryButton = (...args) => {
+          const result = show(...args);
+          if (!h.state.loading) {
+            ownerMutations++;
+            if (activity === "detached") button.remove();
+            if (activity === "replaced") {
+              replacement = new Node("button"); replacement.disabled = false;
+              button.replaceWith(replacement); h.ctx.codexNativeHistoryButton = replacement;
+            }
+            if (activity === "alreadybutton") { doc.activeElement = button; h.documentInput("focusin", button); }
+            if (activity === "disabledbutton") button.disabled = true;
+          }
+          return result;
+        };
+      }
+      release();
+      await loading;
+      const stale = ["staleRPC", "generation", "base"].includes(activity);
+      assert.equal(restored, activity === "untouched" ? 1 : 0, "only an untouched implicit root lease restores focus");
+      assert.equal(doc.activeElement, activity === "untouched" || activity === "alreadybutton" ? button : input || root,
+        "cleanup never steals focus from an input or foreign/revoked owner");
+      assert.equal(h.ctx.codexNativeReadableKeys(h.state).size, stale ? 40 : 80);
+      assert.equal(h.state.entries.length, stale ? 40 : 80);
+      assert.equal(h.state.itemsCursor, stale ? "older-one" : "older-two");
+      assert.equal(h.state.turnsCursor, null);
+      assert.equal(h.state.loading, false);
+      assert.equal(h.connection.nativeHistoryRequest, null);
+      assert.equal([...h.documentEvents.values()].reduce((sum, listeners) => sum + listeners.size, 0), 0);
+      const itemCalls = h.calls.filter(call => call.url.includes("/items?"));
+      assert.equal(itemCalls.length, 2, "no cascade beyond the one admitted batch");
+      assert.deepEqual(itemCalls.map(call => new URL(call.url, "http://owned").searchParams.get("cursor")), [null, "older-one"]);
+      assert.equal(h.calls.length, 4);
+      assert.deepEqual(h.notices, []);
+      assert.ok(!h.state.error);
+      assert.equal(ownerMutations, ["detached", "replaced", "alreadybutton", "disabledbutton"].includes(activity) ? 1 : 0);
+      if (activity === "detached") assert.equal(button.parentNode, null);
+      if (activity === "replaced") { assert.equal(button.parentNode, null); assert.equal(h.ctx.codexNativeHistoryButton, replacement); assert.equal(replacement.parentNode, h.messages); }
+      if (activity === "disabledbutton") assert.equal(button.disabled, true);
+    });
+  }
+}

@@ -6669,7 +6669,8 @@ async function loadOlderCodexNativeHistory() {
       showCodexNativeHistoryButton();
       // Disabled buttons blur natively; restore only our untouched focus lease.
       if (restoreFocus && focusButton === codexNativeHistoryButton && focusButton.parentNode === el.messages
-        && !focusButton.disabled && document.activeElement === document.body) focusButton.focus({ preventScroll: true });
+        && !focusButton.disabled && (document.activeElement === document.body
+          || document.activeElement === document.documentElement)) focusButton.focus({ preventScroll: true });
     }
   }
 }

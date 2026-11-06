@@ -38,7 +38,8 @@ export function browserWorkerJobs(runtimeDirectory, historyHelper) {
   // UX plus queue teardown otherwise exhausts five minutes on macOS CI.
   return ["core", "conversation-ux", "agent-speed", "workspace", ...(historyHelper ? ["sources", "codex"] : [])].map(suite => ({
     suite, args: [path.join(root, "scripts/rolling-browser-worker.mjs"), runtimeDirectory, suite,
-      ...(historyHelper && ["core", "sources", "codex"].includes(suite) ? [historyHelper] : [])],
+      // Conversation UX uses this explicit mode signal to avoid duplicate helper6 coverage.
+      ...(historyHelper && ["core", "conversation-ux", "sources", "codex"].includes(suite) ? [historyHelper] : [])],
   }));
 }
 export function run(command, args, cwd, env, timeout = 300000, spawnProcess = spawn) {

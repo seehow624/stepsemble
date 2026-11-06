@@ -712,6 +712,32 @@ async function piToolDomControls() {
   return { ...helpers, fixture, observation, verify };
 }
 
+function extractActualServerHistorySlice(server) {
+  const normalized = server.replace(/\r\n/g, "\n");
+  const start = "  const requestedLimit = Number(options.limit);", end = "\n}\n\nfunction safeSessionPath";
+  const from = normalized.indexOf(start), to = normalized.indexOf(end);
+  assert.ok(from >= 0 && to > from && normalized.lastIndexOf(start) === from && normalized.lastIndexOf(end) === to,
+    "unique ordered actual server history slice boundaries");
+  return vm.runInNewContext(`(function(allMessages, options) { const header = {}, name = null, firstMessage = null; ${normalized.slice(from, to)} })`);
+}
+
+test("actual server history slice extractor accepts LF/CRLF and fails closed on invalid boundaries", async t => {
+  const server = fs.readFileSync(require.resolve("../server.js"), "utf8").replace(/\r\n/g, "\n");
+  const start = "  const requestedLimit = Number(options.limit);", end = "\n}\n\nfunction safeSessionPath";
+  for (const [ending, source] of [["LF", server], ["CRLF", server.replace(/\n/g, "\r\n")]]) await t.test(ending, () => {
+    const slice = extractActualServerHistorySlice(source);
+    const actual = JSON.parse(JSON.stringify(slice([text(0), text(1), text(2)], { before: 2, limit: 1 })));
+    assert.deepEqual(actual.messages, [text(1)]);
+    assert.equal(actual.nextBefore, 1);
+    assert.equal(actual.hasMore, true);
+    assert.equal(actual.totalMessages, 3);
+  });
+  for (const [label, source] of [
+    ["missing start", server.replace(start, "")], ["missing end", server.replace(end, "")],
+    ["reversed", end + start], ["ambiguous start", server + start], ["ambiguous end", server + end],
+  ]) await t.test(label, () => assert.throws(() => extractActualServerHistorySlice(source), /unique ordered actual server history slice boundaries/));
+});
+
 test("Pi DOM fixture canonical2440 matches actual server raw300 slices and real policy", async () => {
   const { fixture } = await piToolDomControls();
   assert.equal(fixture.records.length, 2440);
@@ -724,9 +750,7 @@ test("Pi DOM fixture canonical2440 matches actual server raw300 slices and real 
   assert.equal(h.ctx.piHistoryReadableCount(fixture.records), 40);
   assert.deepEqual(fixture.keys, ["latest", "2140", "1840", "1540", "1240", "940", "640", "340", "40"]);
   const server = fs.readFileSync(require.resolve("../server.js"), "utf8");
-  const from = server.indexOf("  const requestedLimit = Number(options.limit);"), to = server.indexOf("\n}\n\nfunction safeSessionPath", from);
-  assert.ok(from >= 0 && to > from);
-  const slice = vm.runInNewContext(`(function(allMessages, options) { const header = {}, name = null, firstMessage = null; ${server.slice(from, to)} })`);
+  const slice = extractActualServerHistorySlice(server);
   for (const key of fixture.keys) {
     const response = fixture.pages[key], before = key === "latest" ? null : Number(key);
     h.ctx.validatePiHistoryPage(response, before);
