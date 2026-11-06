@@ -2,6 +2,35 @@
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path");
 const manifest = require("../scripts/browser-test-runtime/package.json"), lock = require("../scripts/browser-test-runtime/package-lock.json");
 const { compileFunction, createContext } = require("node:vm");
+// Reviewed complete workflow snapshots: runner migration must not alter any
+// other topology, command, tool/artifact pin, asset/digest association or budget.
+const runnerPolicies = [
+  ["ci", "matrix", ["macos-15", "ubuntu-24.04", "windows-2025"], "c27a2f667906eb0693a717f2392447919746c537dce42600e0173f5fd4f3df34"],
+  ["rolling-clients", "matrix", ["macos-15", "ubuntu-24.04"], "49d82ca2fe04d5a47d40bceb80ca5783f3a62c608305fff0935e3a9a106febe4"],
+  ["native-history-reader", "matrix", ["macos-15", "ubuntu-24.04", "windows-2025"], "03529f3859f5e9e7340bd468280b8826b24ce81311520afaa4ad05aa6db3036a"],
+  ["native-codex-composer", "include", ["macos-15", "ubuntu-24.04", "windows-2025"], "f232a1f4ea3ba39e4207e478833f660d9fe1d7b7ebfc599bca58be4d97b96e42"],
+  ["release", "single", ["macos-15"], "f35a692b693296630c44abc536c8e9b38563be5894fdedb3060cde6a7901bbbc"],
+];
+function workflowText(name) { return fs.readFileSync(path.resolve(`.github/workflows/${name}.yml`), "utf8").replace(/\r\n/g, "\n"); }
+for (const [name, kind, systems, digest] of runnerPolicies) test(`supported macOS runner policy preserves reviewed ${name} workflow`, () => {
+  const source = workflowText(name);
+  const actual = kind === "matrix" ? source.match(/os: \[([^\]]+)\]/)?.[1].split(/,\s*/)
+    : kind === "include" ? [...source.matchAll(/- os: ([^\n]+)/g)].map(match => match[1])
+    : [source.match(/runs-on: ([^\n]+)/)?.[1]];
+  assert.deepEqual(actual, systems, "exact supported runner labels and unchanged OS families");
+  assert.equal(require("node:crypto").createHash("sha256").update(source).digest("hex"), digest, "all reviewed workflow bytes except the authorized label are fixed");
+});
+test("supported runner policy retains all13 required jobs and separate release", () => {
+  const expanded = runnerPolicies.filter(([name]) => name !== "release").map(([name, kind]) => {
+    const source = workflowText(name);
+    const matrix = kind === "include" ? [...source.matchAll(/- os: /g)].length : source.match(/os: \[([^\]]+)\]/)[1].split(",").length;
+    const jobs = [...source.split("\njobs:\n")[1].matchAll(/^  [\w-]+:\n/gm)].length;
+    return matrix + jobs - 1;
+  });
+  assert.deepEqual(expanded, [3, 3, 4, 3]);
+  assert.equal(expanded.reduce((sum, cells) => sum + cells, 0), 13);
+  assert.equal([...workflowText("release").split("\njobs:\n")[1].matchAll(/^  [\w-]+:\n/gm)].length, 1);
+});
 test("browser runtime lock pins reviewed public packages and rejects changed sources or hashes", async () => {
   const { validateBrowserLock } = await import("../scripts/check-rolling-clients.mjs");
   assert.equal(validateBrowserLock(manifest, lock), true);

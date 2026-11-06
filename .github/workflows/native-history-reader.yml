@@ -149,7 +149,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-24.04, windows-2025]
+        os: [macos-15, ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: never

@@ -1,10 +1,21 @@
 "use strict";
-const test = require("node:test");
+const nodeTest = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const source = fs.readFileSync(require.resolve("../public/app.js"), "utf8");
-const extract = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+function historicalSourceExtractor(input) {
+  // Normalize only test input: multiline source boundaries must work in CRLF checkouts.
+  const normalized = input.replace(/\r\n/g, "\n");
+  return (start, end) => {
+    const startAt = normalized.indexOf(start);
+    assert.ok(startAt >= 0, `missing historical source start: ${start}`);
+    const endAt = normalized.indexOf(end, startAt);
+    assert.ok(endAt >= 0, normalized.includes(end) ? `reversed historical source bounds: ${end}` : `missing historical source end: ${end}`);
+    assert.ok(endAt > startAt, `reversed historical source bounds: ${end}`);
+    return normalized.slice(startAt, endAt);
+  };
+}
 class Element {
   constructor(tag) { this.tagName = tag; this.children = []; this.dataset = {}; this.attributes = {}; this.listeners = {}; this._text = ""; this.className = ""; this.nodeType = 1;
     this.classList = { contains: c => this.className.split(" ").includes(c), add: (...cs) => { for (const c of cs) if (!this.classList.contains(c)) this.className += ` ${c}`; }, remove: (...cs) => { this.className = this.className.split(" ").filter(c => !cs.includes(c)).join(" "); }, toggle: (c, on) => { on ??= !this.classList.contains(c); on ? this.classList.add(c) : this.classList.remove(c); } }; }
@@ -23,7 +34,8 @@ class Element {
   setAttribute(k,v) { this.attributes[k] = v; } removeAttribute(k) { delete this.attributes[k]; }
   addEventListener(t,f) { (this.listeners[t] ||= []).push(f); } removeEventListener() {} dispatch(t) { for (const f of this.listeners[t] || []) f({ target: this }); }
 }
-function harness() {
+function historicalHarness(input) {
+  const extract = historicalSourceExtractor(input);
   const messages = new Element("div"); messages.root = true;
   const copies = [], microtasks = [], remembered = [];
   const ctx = vm.createContext({ document: { createElement: tag => new Element(tag) }, Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 }, el: { messages }, viewGeneration: 1, apiBase: "/owned", historyState: {}, SUBAGENT_TOOL_NAMES: new Set(["subagent"]),
@@ -49,6 +61,31 @@ function harness() {
 const call = (id, name = "bash", args = { command: "owned", extra: "all fields" }) => ({ role: "assistant", toolCalls: [{ id, name, args }] });
 const result = (id, text = "complete output", isError = false) => ({ role: "toolResult", toolCallId: id, toolName: "bash", text, isError });
 const open = card => { card.open = true; card.dispatch("toggle"); };
+
+nodeTest("historical extraction normalizes LF/CRLF and fails closed for absent/reversed bounds", () => {
+  const lf = source.replace(/\r\n/g, "\n"), crlf = lf.replace(/\n/g, "\r\n");
+  const start = "function makeSubagentOpen(", end = "// ===========================================================================\n// Work log:";
+  assert.equal(crlf.indexOf(end), -1, "raw old multiline boundary really misses CRLF");
+  const unchecked = crlf.slice(crlf.indexOf(start), crlf.indexOf(end, crlf.indexOf(start)));
+  assert.ok(unchecked.includes("el.extensionUiCancel.addEventListener"), "old unchecked extraction reaches unrelated UI initialization");
+  const extracted = historicalSourceExtractor(lf)(start, end);
+  assert.equal(historicalSourceExtractor(crlf)(start, end), extracted);
+  assert.ok(!extracted.includes("el.extensionUiCancel.addEventListener"));
+  for (const input of [lf, crlf]) {
+    const extract = historicalSourceExtractor(input);
+    assert.throws(() => extract("absent historical start", end), /missing historical source start/);
+    assert.throws(() => extract(start, "absent historical end"), /missing historical source end/);
+    assert.throws(() => extract(end, start), /reversed historical source bounds/);
+    assert.throws(() => extract(start, start), /reversed historical source bounds/);
+  }
+});
+
+// Run the SAME 21 actual-function contracts for both checkout newline forms.
+for (const ending of ["LF", "CRLF"]) {
+const lf = source.replace(/\r\n/g, "\n");
+const input = ending === "LF" ? lf : lf.replace(/\n/g, "\r\n");
+const harness = () => historicalHarness(input);
+const test = (name, body) => nodeTest(`${ending}: ${name}`, body);
 
 test("actual object-returning toolLabel keeps meaningful inert compact summary text", () => {
   const h = harness(); const command = "owned <script>inert</script> 🌍";
@@ -176,3 +213,4 @@ test("non-tool thinking/prose/errors/usage/images/actions and eager live updates
   const live = h.ctx.makeToolCard("bash", { command: "live" }, null, false, true); h.messages.appendChild(live); h.ctx.setToolCardState(live, { text: "live output", isError: true });
   assert.equal(live.querySelector(".tool-output").textContent, "live output"); assert.ok(live.querySelector("svg"));
 });
+}

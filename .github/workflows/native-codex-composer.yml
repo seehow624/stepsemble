@@ -45,7 +45,7 @@ jobs:
         # openai/codex rust-v0.154.0 release API.  Keep the archive hash
         # check before extracting its one fixed binary member.
         include:
-          - os: macos-14
+          - os: macos-15
             asset: codex-aarch64-apple-darwin.tar.gz
             binary: codex-aarch64-apple-darwin
             sha256: 344310a0a591c1b192e04feff304321a69907c9498baaac331ca7e16ebcef9d7

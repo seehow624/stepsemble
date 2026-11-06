@@ -125,7 +125,7 @@ jobs:
       # Historical Hosts use Unix native launch; Windows is not silently skipped
       # or claimed by these results. The regular and native Pi matrices cover it.
       matrix:
-        os: [macos-14, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

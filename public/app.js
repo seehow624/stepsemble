@@ -4283,6 +4283,7 @@ async function openExisting(s) {
   removeHistoryLoadButton();
   historyState = { file: s.file, before: null, hasMore: false, loading: false, seen: new Set() };
   const state = historyState;
+  const initialAttach = state.initialAttach = { state, generation, base, file: s.file, active: true, attachment: null };
   autoScrollPinned = true;
   el.messages.innerHTML = "";
   resetSessionUsage(s);
@@ -4338,7 +4339,7 @@ async function openExisting(s) {
     void refreshProjectChanges({ background: true });
   }
   if (generation !== viewGeneration || base !== apiBase || historyState !== state) return;
-  await connectRpc({ file: s.file }, generation);
+  await connectRpc({ file: s.file }, generation, null, base, null, initialAttach);
   // Attach first: the composer and live RPC must not wait for backfill. A
   // changed reader/draft/live view relinquishes automatic initial ownership.
   if (firstPage && generation === viewGeneration && base === apiBase && historyState === state
@@ -4851,14 +4852,31 @@ function validatePiHistoryPage(detail, before = null) {
     || before !== null && detail.nextBefore >= before) throw new Error("pi_history_page_invalid");
 }
 
+function piHistoryInitialAttachMatches(capability, state, generation, base, file) {
+  return !!capability && capability.state === state && state.initialAttach === capability
+    && capability.generation === generation && capability.base === base && capability.file === file && state.file === file;
+}
+
+function recordPiHistoryInitialAttach(capability, file, generation, base, priorConnection, connection) {
+  if (!capability?.active || capability.attachment || priorConnection !== null
+    || generation !== viewGeneration || base !== apiBase
+    || !piHistoryInitialAttachMatches(capability, historyState, generation, base, file)) return;
+  // Record before EventSource can advance the cursor. Revocation ends issuance,
+  // not the immutable assignment already leased by an admitted history read.
+  capability.attachment = Object.freeze({ connection, eventId: connection.lastEventId });
+}
+
 async function loadOlderHistory(button, { firstPage = null, startedAt = Date.now() } = {}) {
-  const state = historyState, connection = rpc;
+  const state = historyState;
+  let connection = rpc;
   if (!state || state.loading || !state.hasMore || connection?.streaming || connection?.connectionLost) return;
   const policy = readableHistoryPolicy();
   let pages = firstPage ? 1 : 0, size = firstPage ? JSON.stringify(firstPage).length : 0;
   let readable = firstPage ? piHistoryReadableCount(firstPage.messages) : 0;
   if (readable >= policy.target || size >= policy.size || Date.now() - startedAt >= policy.ms) return;
-  const generation = viewGeneration, base = apiBase, eventId = connection?.lastEventId;
+  const generation = viewGeneration, base = apiBase, file = state.file;
+  const initialAttach = connection === null ? state.initialAttach : null;
+  let eventId = connection?.lastEventId;
   const draft = el.input.value, draftKey = activeDraftKey;
   let interacting = false;
   const interaction = () => { interacting = true; };
@@ -4870,7 +4888,16 @@ async function loadOlderHistory(button, { firstPage = null, startedAt = Date.now
       && event.target !== document.documentElement) restoreFocus = false;
     if (firstPage) interaction();
   };
-  const ownsView = () => generation === viewGeneration && base === apiBase && historyState === state && rpc === connection;
+  const ownsView = () => {
+    if (generation !== viewGeneration || base !== apiBase || historyState !== state || state.file !== file) return false;
+    if (connection === null && rpc !== null
+      && piHistoryInitialAttachMatches(initialAttach, state, generation, base, file)
+      && initialAttach.attachment?.connection === rpc) {
+      connection = initialAttach.attachment.connection;
+      eventId = initialAttach.attachment.eventId;
+    }
+    return rpc === connection;
+  };
   const isCurrent = () => ownsView() && !connection?.streaming && !connection?.connectionLost
     && connection?.lastEventId === eventId && draft === el.input.value && draftKey === activeDraftKey
     && (!firstPage || !interacting);
@@ -4920,7 +4947,7 @@ async function loadOlderHistory(button, { firstPage = null, startedAt = Date.now
       state.hasMore = detail.hasMore;
       showHistoryLoadButton();
       const anchor = anchors.find(row => row.node.parentNode === el.messages);
-      el.messages.scrollTop = anchor ? oldTop + anchor.node.getBoundingClientRect().top - anchor.top
+      el.messages.scrollTop = anchor ? el.messages.scrollTop + anchor.node.getBoundingClientRect().top - anchor.top
         : el.messages.scrollHeight - oldHeight + oldTop;
       updateScrollBottomButton();
       readable += piHistoryReadableCount(detail.messages);
@@ -4992,7 +5019,7 @@ function resetGenericReplayNotice() {
   el.taskReplayNote.classList.add("hidden");
 }
 
-async function connectRpc(opts, generation = viewGeneration, openedResult = null, openedBase = apiBase, signal = null) {
+async function connectRpc(opts, generation = viewGeneration, openedResult = null, openedBase = apiBase, signal = null, initialAttach = null) {
   const baseAtStart = openedResult === null ? apiBase : openedBase;
   resetGenericReplayNotice();
   // A new connection does not finish the previous one's run.
@@ -5028,6 +5055,7 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
       void refreshProjectChanges({ background: true });
     }
     const replayAfter = Number.isFinite(Number(r.replayAfter)) ? Number(r.replayAfter) : -1;
+    const priorConnection = rpc;
     rpc = {
       sid, es: null, streaming: !!r.isStreaming, connectionLost: false,
       streamEnded: false, streamReady: false, readyTimer: null,
@@ -5035,6 +5063,7 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
       lastEventId: replayAfter, activityLabel: "thinking", lastEventAt: Date.now(),
     };
     const connection = rpc;
+    if (initialAttach) recordPiHistoryInitialAttach(initialAttach, opts.file, generation, baseAtStart, priorConnection, connection);
     const isCurrent = () => rpc === connection && generation === viewGeneration && baseAtStart === apiBase && !connection.streamEnded;
     // Reusing a live RPC hands back the run's real start time, so the timer
     // continues from the actual elapsed time rather than this page load.
@@ -5158,6 +5187,8 @@ async function connectRpc(opts, generation = viewGeneration, openedResult = null
     toast(tKey("runtime.openChatFailed", { detail: e.message }), true);
     showList();
     return;
+  } finally {
+    if (initialAttach) initialAttach.active = false;
   }
   void refreshCommands(rpc?.sid);
   void syncComposerState(rpc?.sid);
