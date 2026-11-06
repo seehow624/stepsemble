@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.10.10
+
+- Remove the Cline, Kilo Code and Oh My Pi agents: their connectors, ACP bridges, sign-in commands, model settings, OpenCodex integration for Oh My Pi, harness update and compatibility entries, release checks, usage-history readers, logos and documentation. Grok Build and Google Antigravity keep the shared Agent Client Protocol bridge; the OpenCodex gateway remains available to Codex and Claude Code.
+- Keep existing conversations, usage records and background Goals or schedules that referenced these agents readable: saved rows stay in storage and are shown with a generic agent badge, while new runs for them are refused, as for the retired Hermes assistant.
+- Release process: once a candidate has passed every required check on its pull request and is integrated by fast-forward, the same commit is tagged without a second post-integration run; a hosted runner that is never assigned is recorded as infrastructure, not as a failed check.
+
 ## 3.10.9
 
 - Open Pi and Codex sessions with substantially more readable conversation, targeting 40 readable message units initially and 40 new units for each earlier-history action. Folded tools, reasoning and metadata do not count as conversation.
