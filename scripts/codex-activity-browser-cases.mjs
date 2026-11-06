@@ -507,12 +507,21 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
             assert.equal(await pane.evaluate(() => userScrollIntentUntil), 0, "normal40 prepend never rearms the consumed intent");
           } else assert.ok(range.top > 0 && range.top <= 600, `native compensation is inside the shared earlier-history edge: ${JSON.stringify(range)}`);
           assert.equal(preview.state.codexHistoryReads.length, initialReads + 1, "one admitted action cannot start another batch through native scroll");
-          assert.equal(await button.isEnabled(), true, "an older page remains available without being auto-loaded");
+          // The active thread polls every 2.5s and briefly disables the button
+          // while an ordinary refresh runs; judge the idle state, not an instant.
+          assert.equal(await pane.waitForFunction(() => {
+            const node = document.querySelector("#messages .history-load-button");
+            return !!node && !rpc.nativeTranscriptState.loading && !rpc.nativeRefreshInFlight && !node.disabled;
+          }).then(() => true, () => false), true, "an older page remains available without being auto-loaded");
           assert.equal(await pane.getByText("Unwanted cascade 7", { exact: true }).count(), 0);
           assert.equal(await pane.locator("#input").inputValue(), "Preserve burst draft");
           if (action === "burst") assert.equal(await pane.evaluate(() => document.activeElement.id), "input");
           else if (action === "manual-blur") assert.equal(await page.locator("#workspace-search").evaluate(node => document.activeElement === node), true, "the old pane never steals workspace focus");
-          else assert.equal(await button.evaluate(node => { window.__codexReadableFocusDiagnostic?.checkpoint("selected", node); return document.activeElement === node; }), true, "explicit keyboard retry keeps its button focus");
+          else assert.equal(await pane.waitForFunction(() => {
+            const node = document.querySelector("#messages .history-load-button");
+            window.__codexReadableFocusDiagnostic?.checkpoint("selected", node);
+            return !!node && !rpc.nativeTranscriptState.loading && !rpc.nativeRefreshInFlight && !node.disabled && document.activeElement === node;
+          }).then(() => true, () => false), true, "explicit keyboard retry keeps its button focus");
           burstEvidence = { wheelGap: action === "burst" ? times[1] - times[0] : null, initialReads, range, fullBatch };
         } else {
           const button = pane.locator("#messages .history-load-button");

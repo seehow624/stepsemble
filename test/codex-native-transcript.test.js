@@ -682,7 +682,8 @@ for (const boundary of ["body", "html"]) {
 
 // MOCKED diagnostic contracts: execute the actual owned fixture callbacks, not
 // copies of recorder logic. These tests do not establish browser chronology.
-const focusDiagnosticSource = fs.readFileSync(require.resolve("../scripts/codex-activity-browser-cases.mjs"), "utf8");
+// A Windows checkout may hold CRLF; the markers below span lines, so compare LF.
+const focusDiagnosticSource = fs.readFileSync(require.resolve("../scripts/codex-activity-browser-cases.mjs"), "utf8").replace(/\r\n/g, "\n");
 function diagnosticRegion(start, end) {
   assert.equal(focusDiagnosticSource.split(start).length, 2, `unique start: ${start}`);
   assert.equal(focusDiagnosticSource.split(end).length, 2, `unique end: ${end}`);
@@ -692,7 +693,7 @@ function diagnosticRegion(start, end) {
 }
 const diagnosticHelpers = diagnosticRegion("// BEGIN Codex readable diagnostic helpers", "// END Codex readable diagnostic helpers");
 const diagnosticInstallCallback = "manual => {" + diagnosticRegion("await pane.evaluate(manual => {", "}, !!diagnosticRequests);") + "}";
-const diagnosticSelectedCallback = diagnosticRegion("else assert.equal(await button.evaluate(", "), true, \"explicit keyboard retry keeps its button focus\");");
+const diagnosticSelectedCallback = diagnosticRegion("else assert.equal(await pane.waitForFunction(", ").then(() => true, () => false), true, \"explicit keyboard retry keeps its button focus\");");
 const diagnosticRangeCallback = diagnosticRegion("const range = await pane.evaluate(", ");\n          if (fullBatch)");
 const diagnosticFailureBoundary = "catch (error) {" + diagnosticRegion("      } catch (error) {\n        if (diagnosticRequests)", "\n    }\n  }\n}").replace(/^/, "\n        if (diagnosticRequests)");
 
@@ -716,6 +717,7 @@ function diagnosticHarness({ unavailableParent = false, listenerFailure = false 
   function doc() {
     const d = target(), nodes = { ".history-load-button": target("BUTTON"), "#input": target("TEXTAREA"),
       "#workspace-search": target("INPUT"), "#messages": target("DIV") };
+    nodes["#messages .history-load-button"] = nodes[".history-load-button"];
     d.body = target("BODY"); d.documentElement = target("HTML"); d.activeElement = d.body;
     d.hasFocus = () => true; d.visibilityState = "visible";
     d.querySelector = selector => { assert.ok(Object.hasOwn(nodes, selector)); return nodes[selector]; };
@@ -866,6 +868,13 @@ test("Codex readable focus diagnostic: actual settlement/selected callbacks keep
   const selected = h.compile(diagnosticSelectedCallback);
   assert.equal(selected(button), false);
   h.pane.d.activeElement = button; assert.equal(selected(button), true);
+  // Idle contract: a focused button is not settled while an ordinary refresh or
+  // an older read is in flight, or while it is disabled.
+  const idle = h.ctx.rpc;
+  h.ctx.rpc = { nativeTranscriptState: { loading: false }, nativeRefreshInFlight: true, nativeHistoryRequest: {} }; assert.equal(selected(button), false);
+  h.ctx.rpc = { nativeTranscriptState: { loading: true }, nativeRefreshInFlight: false, nativeHistoryRequest: {} }; assert.equal(selected(button), false);
+  h.ctx.rpc = idle; button.disabled = true; assert.equal(selected(button), false);
+  button.disabled = false; assert.equal(selected(button), true);
   const trace = plain(h.recorder.read());
   assert.equal(trace.checkpoints.selected.snapshot.selected.id, trace.checkpoints.selected.snapshot.button.owner.id);
   assert.equal(trace.checkpoints.selected.snapshot.selected.id, trace.checkpoints.selected.snapshot.pane.active.id);
