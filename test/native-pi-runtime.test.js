@@ -20,12 +20,12 @@ test("native runtime lock rejects changed version/source/hash or local links", a
 });
 test("native runtime keeps reviewed security patch versions without ranges or missing overrides", async () => {
   const { validateLock } = await import("../scripts/check-native-pi-runtime.mjs");
-  for (const [name, version] of [["brace-expansion", "5.0.11"], ["undici", "8.10.1"]]) {
+  for (const [name, version] of [["brace-expansion", "5.0.11"], ["undici", "8.12.3"]]) {
     const broken = structuredClone(lock);
     broken.packages["node_modules/@earendil-works/pi-coding-agent/node_modules/" + name].version = version;
     assert.throws(() => validateLock(manifest, broken));
   }
-  for (const overrides of [undefined, {}, { "brace-expansion": "5.0.12", undici: "^8.10.2" }]) {
+  for (const overrides of [undefined, {}, { "brace-expansion": "5.0.12", undici: "^8.12.4" }]) {
     assert.throws(() => validateLock({ ...manifest, overrides }, lock));
   }
 });

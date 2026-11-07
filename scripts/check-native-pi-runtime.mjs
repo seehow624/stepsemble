@@ -11,7 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runtime = path.join(root, "scripts/native-pi-runtime");
 export function validateLock(manifest, lock) {
   const dependency = "@earendil-works/pi-coding-agent", expected = { [dependency]: "0.84.2" };
-  const overrides = { "brace-expansion": "5.0.12", undici: "8.10.2" };
+  const overrides = { "brace-expansion": "5.0.12", undici: "8.12.4" };
   if (manifest.private !== true || JSON.stringify(manifest.dependencies) !== JSON.stringify(expected)
     || JSON.stringify(manifest.overrides) !== JSON.stringify(overrides)
     || lock.lockfileVersion !== 3 || JSON.stringify(lock.packages?.[""]?.dependencies) !== JSON.stringify(expected)
