@@ -1240,23 +1240,40 @@
   // The Host updates itself in the background, and a Workspace left open kept
   // the page it was loaded with: its list, strip and Limits went on showing the
   // new Host's answers with the old code. When the Host serving this page
-  // answers with another version, once it is back or the page is shown again,
-  // the Workspace loads again; while a conversation works, once none does.
-  // Each pane does the same for itself (app.js checkForClientUpdate).
+  // answers with another version, the Workspace loads again: at once when the
+  // window is shown again, otherwise once nobody is using it, no conversation
+  // in a pane works and no dialog or Settings is open. It is asked when the
+  // Host is back, when the window is shown, when the service worker updates and
+  // every two minutes. Each pane does the same for itself (app.js).
   const RELOAD_ATTEMPT = "stepsemble.workspaceReloadAttempt";
   let versionCheck = null, updateWaiting = false;
-  function anyWorking() { return [snapshot, ...hostSnapshots.values()].some(data => (data?.entries || []).some(entryWorking)); }
-  function checkPageVersion() {
+  // A conversation a pane shows that is working, on a Host that answers: a
+  // computer that went to sleep mid-turn does not hold the Workspace back.
+  function paneWorking() {
+    return [...frames.values()].some(item => !pageTab(item.ref) && !item.frame.hidden
+      && (item.ref.host === host || machineStatus.get(item.ref.host)?.online !== false)
+      && (hostSnapshots.get(item.ref.host)?.entries || []).some(entry => entry.key === item.ref.key && entryWorking(entry)));
+  }
+  function reloadHeld(shown) { return paneWorking() || $("workspace-dialog").open || !!settingsLayer || !shown && document.hasFocus(); }
+  // Whether this page loads again for the Host's version. It does so once per
+  // version: a page that still comes back old is not loaded over and over.
+  function pageReload(page, current, held, attempted) {
+    if (!page || !current) return "unknown";
+    if (current === page) return "same";
+    if (attempted === current) return "skip";
+    return held ? "wait" : "reload";
+  }
+  function checkPageVersion(shown = false) {
     if (!PAGE_VERSION || versionCheck) return;
     versionCheck = fetch("/api/version", { credentials: "same-origin", cache: "no-store" }).then(response => response.ok ? response.json() : null).then(data => {
       const current = String(data?.appVersion || "").trim().replace(/^v/, "");
-      if (!current || current === PAGE_VERSION) { updateWaiting = false; try { sessionStorage.removeItem(RELOAD_ATTEMPT); } catch {} return; }
-      updateWaiting = anyWorking();
-      if (updateWaiting) return;
-      // A page that still comes back old is not reloaded over and over.
-      let last = 0; try { last = Number(sessionStorage.getItem(RELOAD_ATTEMPT)) || 0; } catch {}
-      if (Date.now() - last < 15_000) return;
-      try { sessionStorage.setItem(RELOAD_ATTEMPT, String(Date.now())); } catch {}
+      let attempted = ""; try { attempted = sessionStorage.getItem(RELOAD_ATTEMPT) || ""; } catch {}
+      const decision = pageReload(PAGE_VERSION, current, reloadHeld(shown), attempted);
+      // A version that could not be read leaves any wait as it was.
+      if (decision !== "unknown") updateWaiting = decision === "wait";
+      if (decision === "same") try { sessionStorage.removeItem(RELOAD_ATTEMPT); } catch {}
+      if (decision !== "reload") return;
+      try { sessionStorage.setItem(RELOAD_ATTEMPT, current); } catch {}
       location.reload();
     }).catch(() => {}).finally(() => { versionCheck = null; });
   }
@@ -1272,7 +1289,7 @@
     if (status.textContent !== message) status.textContent = message;
     if (!online && message !== connectionNotice) toast(message);
     connectionNotice = online ? "" : message;
-    if (back || online && updateWaiting && !anyWorking()) checkPageVersion();
+    if (back || online && updateWaiting && !reloadHeld(false)) checkPageVersion();
   }
   // Another computer's list that has not come in 15 seconds counts as
   // unreachable, and the next read starts afresh.
@@ -2091,10 +2108,10 @@
   window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
   // Coming back to the Workspace (another app, a locked phone) shows current
   // allowances, not the ones from before it was left.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); checkPageVersion(); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); checkPageVersion(true); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
   window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
   setInterval(() => { if (!document.hidden && host) void refresh(); }, 3000);
-  setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 120000);
+  setInterval(() => { if (!document.hidden && host) { void refreshUsage(); if (booted) checkPageVersion(); } }, 120000);
   setInterval(() => { if (!document.hidden && host) void refreshAutomations(); }, 60000);
   // A Workspace opened while its host cannot be reached keeps trying, so it
   // connects by itself once the host answers instead of needing a reload.
@@ -2188,6 +2205,8 @@
     void navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
     navigator.serviceWorker.addEventListener("message", async event => {
       const data = event.data || {};
+      // A new service worker took over: the Host may have been updated.
+      if (["STEPSEMBLE_UPDATED", "PI_HARBOR_UPDATED"].includes(data.type)) { if (booted) checkPageVersion(); return; }
       if (data.type === "STEPSEMBLE_NOTIFICATION_PRESENCE_REQUEST") { notificationPresence(event.source, data.requestId); return; }
       if (data.type === "STEPSEMBLE_OPEN_NOTIFICATION") { void openNotification(data.notice); return; }
       if (!["STEPSEMBLE_OPEN_AGENT_TASK", "PI_HARBOR_OPEN_AGENT_TASK", "STEPSEMBLE_OPEN_SESSION", "PI_HARBOR_OPEN_SESSION"].includes(data.type)) return;

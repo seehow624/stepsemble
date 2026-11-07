@@ -15694,7 +15694,9 @@ function quotaListedWindows(windows) {
   // The shortest first, as the Limits cards order them.
   const all = Array.isArray(windows) ? windows : [], shared = w => w?.scope === "model" || w?.scope === "pool";
   const stopping = all.filter(w => !shared(w)).sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
-  const tightest = list => list.sort((a, b) => quotaWindowRemaining(a) - quotaWindowRemaining(b));
+  // Unrounded, as usage-data.js orders them; a window with no share reads last.
+  const left = w => Number.isFinite(w?.remainingPercent) ? w.remainingPercent : Number.isFinite(w?.usedPercent) ? 100 - w.usedPercent : 101;
+  const tightest = list => list.sort((a, b) => left(a) - left(b));
   const pools = tightest(all.filter(w => w?.scope === "pool")), models = tightest(all.filter(w => w?.scope === "model")), side = [...pools, ...models];
   let inline;
   if (stopping.length) inline = side.length <= 2 ? side : [];

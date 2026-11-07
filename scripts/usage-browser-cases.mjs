@@ -526,17 +526,24 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     assert.equal(await full.locator(".usage-quota-card").nth(1).locator(".usage-quota-models").evaluate(el => el.open), true, "an opened list stays open across a new reading");
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-model-window-and-balance.png") });
     // A Workspace left open while its Host updated itself loads again when it
-    // is shown, and the same version is not loaded twice.
+    // is shown, once per version; the same version is not loaded again.
     await full.bringToFront();
-    await full.evaluate(() => { window.stepsembleOldPage = true; document.dispatchEvent(new Event("visibilitychange")); });
-    await full.waitForTimeout(600);
+    const shown = async () => {
+      const asked = full.waitForResponse(response => new URL(response.url()).pathname === "/api/version");
+      await full.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); await asked;
+      await full.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
+    };
+    await full.evaluate(() => { window.stepsembleOldPage = true; }); await shown();
     assert.equal(await full.evaluate(() => window.stepsembleOldPage), true, "the same version stays");
     fixture.setVersion("99.0.0");
     const reloaded = full.waitForEvent("load");
     await full.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await reloaded; fixture.setVersion(null);
+    await reloaded;
     assert.equal(await full.evaluate(() => window.stepsembleOldPage === true), false, "a Host with another version loads the Workspace again");
     await full.locator("#workspace-usage .workspace-limits-strip[data-state]").waitFor({ state: "attached" });
+    await full.evaluate(() => { window.stepsembleOldPage = true; }); await shown();
+    assert.equal(await full.evaluate(() => window.stepsembleOldPage), true, "a page that comes back old again is not loaded over and over");
+    fixture.setVersion(null);
     // The new native reader owns activity polling; an older native shell still
     // gets its existing JS heartbeat so rolling updates stay compatible.
     await page.evaluate(() => { window.webkit = { messageHandlers: { stepsemble: { postMessage(body) { window.lastSummary = body; } } } }; window.StepsembleMenubarNativePolling = true; });
