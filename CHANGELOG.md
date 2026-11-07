@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.10.11
+
+### Limits
+
+- Every allowance Magpie knows now has its own card: each subscription account it is signed in to, each plan bought with a key and each key's balance (or a subscription's prepaid wallet). The Host reads the gateway's `GET /v1/magpie/quotas` (the same answer as `magpie quota --json`, run when the gateway is not up; an older Magpie still answers `magpie accounts --json`).
+- As in Magpie's own menu bar, an account's own windows and a pool's ("Gemini · 7 days") are what stop it. A window for one model ("Fable · 7d") shows beside them, and many of them (Antigravity's) fold under **Per-model limits**; they no longer decide the sidebar's alert or the order of cards unless the account has no other.
+- A service another source reads through its own sign-in shows Magpie's other accounts next to it; the same account is never shown twice. Preferring Magpie for a service in Settings → Quota sources shows every account of it.
+- Cards, the sidebar's hover tip, the menu bar panel and Settings → Quota sources name an account by its plan or its name in Magpie, and show a key's plan or balance as such. Settings marks exactly the readings Limits shows.
+
 ## 3.10.10
 
 - Remove the Cline, Kilo Code and Oh My Pi agents: their connectors, ACP bridges, sign-in commands, model settings, OpenCodex integration for Oh My Pi, harness update and compatibility entries, release checks, usage-history readers, logos and documentation. Grok Build and Google Antigravity keep the shared Agent Client Protocol bridge; the OpenCodex gateway remains available to Codex and Claude Code.
