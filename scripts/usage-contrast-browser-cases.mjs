@@ -10,7 +10,7 @@ export async function runUsageContrastBrowserCases(browser) {
       .map(file => fs.readFile(new URL(`../public/${file}`, import.meta.url), "utf8")));
     const keys = ["cacheWrite", "cacheRead", "input", "output"];
     const quotas = [false, true].map(cached => `<div class="usage-quota-card" data-cached="${cached}">${["ok", "low", "critical"].map(level =>
-      `<div class="usage-quota-window" data-level="${level}"><div class="usage-quota-line"><span>Remaining</span><strong>20%</strong></div><div class="usage-quota-bar"><span style="width:20%"></span></div></div>`).join("")}</div>`).join("");
+      `<div class="usage-quota-row" data-level="${level}"><span class="usage-quota-label">Weekly</span><div class="usage-quota-bar"><span style="width:20%"></span></div><strong>20%</strong><small class="usage-quota-when">in 1d 2h</small></div>`).join("")}</div>`).join("");
     await page.setContent(`<style>${css.join("\n")}</style><aside id="workspace-sidebar"><span class="workspace-session-goal" data-state="attention"></span><span class="workspace-session-status" data-state="attention"></span><div class="usage-sheet" data-state="open"><div class="usage-body">
       <div class="usage-components">${keys.map(key => `<div data-token="${key}"><span>${key}</span><strong>10</strong></div>`).join("")}</div>
       <div class="usage-chart"><div class="usage-chart-column" tabindex="0"><div class="usage-chart-base"><div class="usage-chart-stack" style="height:100%">${keys.map((key, i) => `<span data-token="${key}" style="flex-grow:${4 - i}"></span>`).join("")}</div></div></div></div>
@@ -51,7 +51,7 @@ export async function runUsageContrastBrowserCases(browser) {
             legendRatios: surfaces.map(bg => contrast(legend, bg)), edge: style(node).backgroundImage, height: node.getBoundingClientRect().height,
             edgeRatios: surfaces.map(bg => contrast(over(fill, bg, opacity), over(token("--milk"), bg, opacity))) };
         });
-        const quotas = [...document.querySelectorAll(".usage-quota-window")].map(node => {
+        const quotas = [...document.querySelectorAll(".usage-quota-row")].map(node => {
           const bar = node.querySelector(".usage-quota-bar > span"), text = node.querySelector("strong"), fill = rgb(style(bar).backgroundColor), bg = background(bar.parentElement);
           return { level: node.dataset.level, cached: node.closest(".usage-quota-card").dataset.cached === "true", fill,
             opacity: Number(style(bar).opacity), ratio: contrast(over(fill, bg, Number(style(bar).opacity)), bg),

@@ -133,7 +133,7 @@ const {
 // 配置
 // ---------------------------------------------------------------------------
 
-const APP_VERSION = "3.10.14";
+const APP_VERSION = "3.10.15";
 const PUBLIC_DIR = path.join(__dirname, "public");
 function expandHome(value) {
   if (!value) return value;
@@ -341,7 +341,7 @@ const workspaceUsage = workspaceUsageModule.createWorkspaceUsage({
   readSignIn: readSignInForUsage,
   readConfig: () => readQuotaConfig(CONFIG_DIR),
   readCodexBar: () => codexBarReader.read(),
-  readMagpie: () => magpieGateway.quotaReports(),
+  readMagpie: options => magpieGateway.quotaReports(options),
   // Deferred until reads begin: desktopClaude is declared with task services below.
   readDesktopClaudeQuota: async () => desktopClaude ? desktopClaude.quota() : undefined,
 });

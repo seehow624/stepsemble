@@ -83,7 +83,14 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
         "the plan is beside the service's name " + JSON.stringify({ nameBox, planBox }));
       assert.equal(await claudeCard.locator(".usage-quota-identity small").count(), 0);
       assert.doesNotMatch(await sheet.locator(".usage-quota-grid").innerText(), /Mac Mini|MacBook Pro|This Mac/, "no card names a computer");
-      assert.deepEqual(await claudeCard.locator(".usage-quota-line > span").allInnerTexts(), ["7d", "Fable · 7d"]);
+      // One row per window, the week first, then the model Claude limits apart.
+      assert.deepEqual(await claudeCard.locator(".usage-quota-label").allInnerTexts(), [mobile ? "每週" : "Weekly", "Fable"]);
+      // Every row's bar and share sit in the same columns on every card.
+      const columns = await sheet.locator(".usage-quota-row").evaluateAll(rows => [...new Set(rows.map(row => {
+        const bar = row.querySelector(".usage-quota-bar").getBoundingClientRect(), share = row.querySelector("strong").getBoundingClientRect();
+        return Math.round(bar.left) + ":" + Math.round(bar.right) + ":" + Math.round(share.right);
+      }))]);
+      assert.equal(columns.length, 1, "rows line up from card to card " + JSON.stringify(columns));
       const [sheetBox, capsuleBox, sidebarBox, listBox] = await Promise.all([sheet, page.locator("#workspace-usage"), page.locator("#workspace-sidebar"), page.locator("#workspace-projects")].map(item => item.boundingBox()));
       assert.ok(Math.abs(sheetBox.y + sheetBox.height - capsuleBox.y - capsuleBox.height) <= 1 && sheetBox.x >= sidebarBox.x && sheetBox.x + sheetBox.width <= sidebarBox.x + sidebarBox.width
         && sheetBox.y >= listBox.y && sheetBox.height > capsuleBox.height, "it rises from the capsule and stays over the list " + JSON.stringify({ sheetBox, capsuleBox, listBox }));
@@ -522,16 +529,19 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.locator("[data-overview-tab=limits]").click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 3);
     const limitCards = await full.locator(".usage-quota-card").allInnerTexts();
-    assert.match(limitCards[0], /Claude\s*Max[\s\S]*Fable · 7d/); assert.match(limitCards[2], /DeepSeek\s*Key balance[\s\S]*\$12\.50 left/);
+    assert.match(limitCards[0], /Claude\s*Max[\s\S]*Weekly[\s\S]*Fable/); assert.match(limitCards[2], /DeepSeek\s*Key balance[\s\S]*\$12\.50 left/);
     assert.match(limitCards[1], /Antigravity\s*Antigravity Starter Quota/); assert.doesNotMatch(limitCards.join("\n"), /Mac Mini|MacBook Pro/);
-    assert.match(limitCards[1], /Antigravity[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h[\s\S]*More limits \(5\)/); assert.doesNotMatch(limitCards[1], /Claude Opus|Argon|Gemini · 7d/);
-    assert.equal(await full.locator(".usage-quota-card").nth(1).locator(":scope > .usage-quota-windows > .usage-quota-window").count(), 2, "two pools on the card; the rest are folded");
-    const models = full.locator(".usage-quota-card").nth(1).locator(".usage-quota-models");
-    await models.locator("summary").click();
-    assert.match(await models.innerText(), /Gemini · 7d[\s\S]*Gemini 4 Argon · 7d[\s\S]*Claude Opus 5\.5 \(High\)[\s\S]*GPT-OSS 120B \(Medium\)/);
+    // Antigravity's windows group by pool, shortest first; a model that reads
+    // apart from its pool keeps its own row there, under its pool's name.
+    const agy = full.locator(".usage-quota-card").nth(1);
+    assert.deepEqual(await agy.locator(".usage-quota-pool-name > span").allInnerTexts(), ["Gemini", "Claude & GPT", "Gemini 4 Argon"]);
+    assert.deepEqual(await agy.locator(".usage-quota-pool").nth(0).locator(".usage-quota-label").allInnerTexts(), ["5 hours", "Weekly"]);
+    assert.deepEqual(await agy.locator(".usage-quota-pool").nth(1).locator(".usage-quota-label").allInnerTexts(), ["Weekly", "Opus 5.5", "Sonnet 5.5", "GPT-OSS 120B"]);
+    assert.equal(await agy.locator(".usage-quota-row[data-level=out]").count(), 3, "a used-up model is marked so");
+    assert.equal(await agy.locator(".usage-quota-pool").nth(2).locator(".usage-quota-when").innerText(), "Not used");
+    assert.equal(await agy.locator(".usage-quota-models").count(), 0, "nothing of Antigravity's is folded away");
     await full.locator(".usage-sheet").getByRole("button", { name: "Refresh", exact: true }).click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 3);
-    assert.equal(await full.locator(".usage-quota-card").nth(1).locator(".usage-quota-models").evaluate(el => el.open), true, "an opened list stays open across a new reading");
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-model-window-and-balance.png") });
     // A Workspace left open while its Host updated itself loads again when it
     // is shown, once per version; the same version is not loaded again.

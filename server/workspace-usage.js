@@ -13,6 +13,9 @@ const OPENCODEX_PORT = 10100;
 // How long a live reading of the allowances is kept, and how recent one must
 // be to answer a request for a fresh reading (Refresh).
 const USAGE_TTL_MS = 2 * 60 * 1000;
+// Magpie reads its accounts every few minutes (its tray's own cadence); a
+// reading of that age is current. One older than this is a previous reading.
+const MAGPIE_CURRENT_MS = 10 * 60 * 1000;
 const FRESH_FLOOR_MS = 15 * 1000;
 const OPENCODEX_WINDOWS = Object.freeze([["fiveHour", 300], ["weekly", 10080], ["monthly", 43200]]);
 const OPENCODEX_NAMES = Object.freeze({ "opencode-go": "OpenCode Go", "opencode-free": "OpenCode Zen", "minimax": "MiniMax", "minimax-cn": "MiniMax (China)" });
@@ -404,7 +407,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   }
   // `full` reads every source that is on, for Settings to compare them; the
   // limits strip stops at the first source that answers.
-  async function collect(full) {
+  async function collect(full, fresh = false) {
     let config;
     try { config = normalizeQuotaConfig(await readConfig()); } catch { config = normalizeQuotaConfig(null); }
     const on = id => config.sources[id] !== false;
@@ -414,7 +417,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       on("pi") ? Promise.resolve().then(readProviderQuotas) : [],
       on("opencodex") ? Promise.resolve().then(readOpenCodex) : [],
       on("codexbar") ? Promise.resolve().then(readCodexBar) : null,
-      on("magpie") ? Promise.resolve().then(readMagpie) : [],
+      on("magpie") ? Promise.resolve().then(() => readMagpie({ fresh })) : [],
     ]);
     // Magpie reads every subscription account, key plan and key balance it
     // knows, and says when. A service's accounts stay apart; the one Magpie
@@ -424,13 +427,14 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       const service = typeof report?.service === "string" ? report.service : "";
       const windows = currentWindows((report?.windows || []).map(w => {
         const row = windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, w.label ?? null, w.windowDurationMins ?? null, w.bucket ?? null);
-        return row && (w.scope === "model" || w.scope === "pool") ? { ...row, scope: w.scope } : row;
+        return row && (w.scope === "model" || w.scope === "pool")
+          ? { ...row, scope: w.scope, ...(w.scope === "model" && typeof w.pool === "string" && w.pool ? { pool: w.pool.slice(0, 80) } : {}) } : row;
       }).filter(Boolean), now());
       const balance = typeof report?.balance === "string" && report.balance ? report.balance : null;
       if (!service || (!windows.length && !balance)) continue;
       const readAt = Number.isFinite(report.readAt) ? report.readAt : null;
       const detail = key => typeof report[key] === "string" && report[key] ? report[key] : null;
-      const row = { windows, balance, observedAt: readAt !== null && now() - readAt > USAGE_TTL_MS ? readAt : null, sampledAt: readAt ?? now(),
+      const row = { windows, balance, observedAt: readAt !== null && now() - readAt > MAGPIE_CURRENT_MS ? readAt : null, sampledAt: readAt ?? now(),
         source: "magpie", accountKey: report.accountKey || null, plan: detail("plan"), alias: detail("alias"), kind: detail("kind"), last: report.last === true };
       if (!magpieRows.has(service)) magpieRows.set(service, []);
       magpieRows.get(service).push(row);
@@ -517,6 +521,12 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       const mine = service === "claude" && !!local?.accountKey && local.accountKey === reading.accountKey;
       const plan = reading.plan || (mine ? local.plan : null) || twin?.plan || null;
       let windows = reading.windows || [];
+      // Claude leaves out a five-hour window that has not started (nothing
+      // used in the last five hours): it is all there, as Claude Code and
+      // Magpie count it.
+      if (service === "claude" && windows.some(w => !w.scope && w.windowDurationMins === 10080) && !windows.some(w => !w.scope && w.windowDurationMins === 300)) {
+        windows = [{ label: "5 hours", windowDurationMins: 300, bucket: null, usedPercent: 0, remainingPercent: 100, resetsAt: null }, ...windows];
+      }
       if (!modelsOf(windows).length) {
         const models = modelsOf(twin?.windows).length ? modelsOf(twin.windows)
           : mine && Number.isFinite(local.modelsObservedAt) && now() - local.modelsObservedAt <= CLAUDE_LOCAL_MODELS_MS ? currentWindows(local.models, now()) : [];
@@ -569,18 +579,18 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     return result;
   }
   let cachedFull = null, expiresFull = 0;
-  const flights = { fast: null, full: null };
+  const flights = {};
   return {
     read(options = {}) {
-      const full = options?.full === true, key = full ? "full" : "fast";
+      const full = options?.full === true;
       // Refresh asks for a new reading; one taken moments ago still answers,
       // so repeated clicks or several devices do not reach the providers again.
-      const fresh = options?.fresh === true;
+      const fresh = options?.fresh === true, key = (full ? "full" : "fast") + (fresh ? ":fresh" : "");
       const recent = reading => reading && now() - reading.updatedAt < FRESH_FLOOR_MS;
       if (!full && cached && now() < expires && (!fresh || recent(cached))) return Promise.resolve(cached);
       if (full && fresh && recent(cachedFull)) return Promise.resolve(cachedFull);
       if (full && !fresh && cachedFull && now() < expiresFull) return Promise.resolve(cachedFull);
-      if (!flights[key]) flights[key] = collect(full).finally(() => { flights[key] = null; });
+      if (!flights[key]) flights[key] = collect(full, fresh).finally(() => { flights[key] = null; });
       return flights[key];
     },
     // A changed source or preference applies to the next read.

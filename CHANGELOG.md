@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.10.15
+
+### Limits
+
+- Every allowance window is one row (its name, a bar, the share and when it renews), and the rows line up from card to card. Claude's card lists its five hours, its week and the week of each model Claude limits apart ("Fable"); a five-hour window not yet started reads as all there, as in Claude Code and Magpie.
+- An account that draws on shared pools (Antigravity) lists each pool (Gemini, Claude & GPT, Gemini 4 Argon) with its own five-hour and weekly rows, and names beside each pool the models that draw on it instead of a bar for every model and variant; a model whose allowance differs from its pool keeps a row of its own there. A used-up window shows a striped track and the day and time it comes back; an unused one says so.
+- Magpie reads its accounts every few minutes, so its readings now count as current until they are ten minutes old; before, a reading older than two minutes was marked as a previous reading about half the time. Refresh asks Magpie's command to read the accounts again now (the gateway's last reading answers when it is slow), and the status line reads "Live" when every allowance shown is current.
+
 ## 3.10.14
 
 ### Limits

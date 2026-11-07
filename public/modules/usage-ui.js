@@ -9,6 +9,12 @@
   Object.assign(strings.en, { more: "Show {count} more", overview: "Limits & usage", limitsTab: "Limits", loadingLimits: "Reading limits…", retryLimits: "Could not read limits. Try again.", cachedLimits: "Previous reading", resetsIn: "Resets in {time}", awaitingReset: "Waiting for a new reading", sources: "Manage sources", keyPlan: "Key plan", keyBalance: "Key balance", balanceLeft: "{amount} left", balance: "Balance", otherLimits: "More limits ({count})", moreLimits: "{count} more limits" });
   Object.assign(strings["zh-Hant"], { more: "再顯示 {count} 筆", overview: "額度與用量", limitsTab: "額度", loadingLimits: "正在讀取額度…", retryLimits: "暫時無法讀取額度，請重試。", cachedLimits: "先前讀取的額度", resetsIn: "{time} 後重置", awaitingReset: "等待更新額度", sources: "管理額度來源", keyPlan: "金鑰方案", keyBalance: "金鑰餘額", balanceLeft: "剩 {amount}", balance: "餘額", otherLimits: "其他額度（{count}）", moreLimits: "另有 {count} 個額度" });
   Object.assign(strings.zh, { more: "再显示 {count} 条", overview: "额度与用量", limitsTab: "额度", loadingLimits: "正在读取额度…", retryLimits: "暂时无法读取额度，请重试。", cachedLimits: "先前读取的额度", resetsIn: "{time} 后重置", awaitingReset: "等待更新额度", sources: "管理额度来源", keyPlan: "密钥方案", keyBalance: "密钥余额", balanceLeft: "剩 {amount}", balance: "余额", otherLimits: "其他额度（{count}）", moreLimits: "另有 {count} 个额度" });
+  Object.assign(strings.en, { fiveHours: "5 hours", weekly: "Weekly", monthly: "Monthly", daily: "Daily", unused: "Not used", inTime: "in {time}",
+    daysHours: "{d}d {h}h", hoursMinutes: "{h}h {m}m", minutesOnly: "{m}m", liveLimits: "Live · updated {time}" });
+  Object.assign(strings["zh-Hant"], { fiveHours: "5 小時", weekly: "每週", monthly: "每月", daily: "每天", unused: "未使用", inTime: "{time}後",
+    daysHours: "{d} 天 {h} 時", hoursMinutes: "{h} 時 {m} 分", minutesOnly: "{m} 分", liveLimits: "即時 · {time} 更新" });
+  Object.assign(strings.zh, { fiveHours: "5 小时", weekly: "每周", monthly: "每月", daily: "每天", unused: "未使用", inTime: "{time}后",
+    daysHours: "{d} 天 {h} 时", hoursMinutes: "{h} 时 {m} 分", minutesOnly: "{m} 分", liveLimits: "实时 · {time} 更新" });
   Object.assign(strings.en, { historyCoverage: "Histories read: {covered} · all dates", historyMissing: "Histories that could not be read: {count}", issueDetails: "View history issues ({count})", issueScope: "This check covers all saved history, independently of the selected dates and filters.", issueMore: "{count} more issues are not listed.", issue_missing_file: "History file not found", issue_permission_denied: "Permission denied", issue_unsupported_format: "Unsupported history format", issue_identity_mismatch: "History identity does not match", issue_incomplete_records: "Some usage records are incomplete", issue_malformed_records: "Some records contain invalid JSON", issue_record_too_large: "A record exceeds the reading limit", issue_truncated: "The child transcript was truncated", issue_file_limit: "The file exceeds the reading limit", issue_unsafe_file: "History is outside the allowed location or ownership", issue_source_changed: "The file changed while being read; refresh to retry", issue_read_failed: "History could not be read" });
   Object.assign(strings["zh-Hant"], { historyCoverage: "已讀取 {covered} 份歷史紀錄 · 所有日期", historyMissing: "{count} 份歷史紀錄無法讀取", issueDetails: "查看歷史紀錄問題（{count}）", issueScope: "此檢查涵蓋整個歷史庫，不受所選日期與篩選條件限制。", issueMore: "另有 {count} 筆問題未列出。", issue_missing_file: "找不到歷史檔", issue_permission_denied: "沒有讀取權限", issue_unsupported_format: "尚未支援的歷史格式", issue_identity_mismatch: "歷史檔身分與預期不符", issue_incomplete_records: "部分用量紀錄不完整", issue_malformed_records: "部分紀錄的 JSON 格式損壞", issue_record_too_large: "單筆紀錄超過讀取上限", issue_truncated: "子 Agent 匯出紀錄已被截斷", issue_file_limit: "檔案超過讀取上限", issue_unsafe_file: "歷史檔位置或擁有者不符合讀取範圍", issue_source_changed: "讀取時檔案已變更，請重新整理", issue_read_failed: "無法讀取歷史檔" });
   Object.assign(strings.zh, { historyCoverage: "已读取 {covered} 份历史记录 · 所有日期", historyMissing: "{count} 份历史记录无法读取", issueDetails: "查看历史记录问题（{count}）", issueScope: "此检查涵盖整个历史库，不受所选日期与筛选条件限制。", issueMore: "另有 {count} 条问题未列出。", issue_missing_file: "找不到历史文件", issue_permission_denied: "没有读取权限", issue_unsupported_format: "尚未支持的历史格式", issue_identity_mismatch: "历史文件身份与预期不符", issue_incomplete_records: "部分用量记录不完整", issue_malformed_records: "部分记录的 JSON 格式损坏", issue_record_too_large: "单条记录超过读取上限", issue_truncated: "子 Agent 导出记录已被截断", issue_file_limit: "文件超过读取上限", issue_unsafe_file: "历史文件位置或所有者不符合读取范围", issue_source_changed: "读取时文件已变更，请刷新", issue_read_failed: "无法读取历史文件" });
@@ -261,8 +267,10 @@
         quotas = results.map(result => result.quota ? result : { ...result, quota: quotas.find(old => old.host === result.host)?.quota, unavailable: true });
         renderLimits();
         for (const result of results) if (result.quota) onQuotaUpdated(result.host, result.quota);
-        const succeeded = results.some(item => item.quota);
-        status(succeeded ? label("updated", { time: new Date().toLocaleTimeString(localeOf(), { hour: "2-digit", minute: "2-digit" }) }) : label("retryLimits"), succeeded ? "" : "error");
+        const succeeded = results.some(item => item.quota), time = new Date().toLocaleTimeString(localeOf(), { hour: "2-digit", minute: "2-digit" });
+        // Live: every Host answered and no allowance shown is a previous reading.
+        const live = succeeded && quotas.every(item => !item.unavailable && (item.quota?.providers || []).every(provider => provider.status !== "cached"));
+        status(!succeeded ? label("retryLimits") : label(live ? "liveLimits" : "updated", { time }), !succeeded ? "error" : live ? "live" : "");
         return;
       }
       const succeeded = results.some(item => item.report);
@@ -498,43 +506,72 @@
         heading.append(providerLogo(provider.provider), identity);
         if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
         card.append(heading);
-        const readings = node("div", "", "usage-quota-windows");
-        const groups = root.StepsembleUsageData.windowGroups(provider.windows);
-        const windows = [...groups.stopping.sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity)), ...groups.inline];
-        readings.style.setProperty("--quota-columns", String(Math.min(3, Math.max(2, windows.length))));
-        if (!windows.length && !provider.balance) readings.append(node("p", label("quotaUnknown"), "usage-quota-unknown usage-muted"));
-        const windowRow = window => {
-          const remaining = quotaRemaining(window), percent = quotaPercent(window);
-          const row = node("div", "", "usage-quota-window"); row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining <= 10 ? "critical" : "low";
-          const minutes = window.windowDurationMins, period = Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || "";
-          const bucket = window.bucket && ![provider.provider, provider.service].some(name => String(name || "").toLowerCase() === String(window.bucket).toLowerCase()) ? window.bucket : "";
-          const name = [bucket, period].filter(Boolean).join(" · ") || label("limitsTab"), value = quotaLabel(window);
-          const line = node("div", "", "usage-quota-line"), amount = node("strong", percent === null ? "—" : percent + "%");
-          amount.setAttribute("aria-label", value); amount.title = value;
-          line.append(node("span", name), amount);
+        // Every window is one row: its name, a bar, the share and when it
+        // renews, so rows line up from card to card. An account that draws
+        // on shared pools (Antigravity) lists each pool with its windows and,
+        // beside the pool's name, the models that draw on it (quotaLayout).
+        const readings = node("div", "", "usage-quota-rows");
+        const layout = root.StepsembleUsageData.quotaLayout(provider.windows);
+        const spanName = window => {
+          const minutes = window.windowDurationMins;
+          return minutes === 300 ? label("fiveHours") : minutes === 10080 ? label("weekly") : minutes === 43200 ? label("monthly") : minutes === 1440 ? label("daily")
+            : Number.isFinite(minutes) && minutes > 0 ? duration(minutes) : window.label || label("limitsTab");
+        };
+        const fromNow = minutes => {
+          const days = Math.floor(minutes / 1440), hours = Math.floor(minutes % 1440 / 60);
+          return days ? label("daysHours", { d: days, h: hours }) : hours ? label("hoursMinutes", { h: hours, m: minutes % 60 }) : label("minutesOnly", { m: minutes });
+        };
+        const quotaRow = (name, window) => {
+          const remaining = quotaRemaining(window), percent = quotaPercent(window), value = quotaLabel(window);
+          const row = node("div", "", "usage-quota-row");
+          row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining === 0 ? "out" : remaining <= 10 ? "critical" : "low";
+          const title = node("span", name, "usage-quota-label"); title.title = name;
           const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + value);
           bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (percent !== null) { bar.setAttribute("aria-valuenow", String(percent)); bar.setAttribute("aria-valuetext", value); }
-          const fill = node("span"); fill.style.width = (percent ?? 0) + "%"; bar.append(fill); row.append(line, bar);
-          if (window.resetsAt) {
-            const left = Math.max(0, Math.ceil((window.resetsAt - Date.now()) / 60000)), days = Math.floor(left / 1440), hours = Math.floor(left % 1440 / 60);
-            const reset = node("small", left ? label("resetsIn", { time: days ? `${days}d ${hours}h` : hours ? `${hours}h ${left % 60}m` : `${left}m` }) : label("awaitingReset"));
-            reset.title = label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf()) }); row.append(reset);
+          const fill = node("span"); fill.style.width = (percent ?? 0) + "%"; bar.append(fill);
+          const amount = node("strong", percent === null ? "—" : percent + "%"); amount.setAttribute("aria-label", value); amount.title = value;
+          // When it renews: an unused window has nothing to renew; a used-up
+          // one names the day and time it comes back, any other how long from now.
+          const used = remaining === null ? null : 100 - remaining;
+          let when = "";
+          if (used === 0) when = label("unused");
+          else if (window.resetsAt) {
+            const left = Math.ceil((window.resetsAt - Date.now()) / 60000);
+            when = left <= 0 ? label("awaitingReset") : remaining === 0 && left > 1440
+              ? new Date(window.resetsAt).toLocaleString(localeOf(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+              : label("inTime", { time: fromNow(left) });
           }
+          const renew = node("small", when, "usage-quota-when");
+          if (window.resetsAt) renew.title = label("resetAt", { time: new Date(window.resetsAt).toLocaleString(localeOf()) });
+          row.append(title, bar, amount, renew);
           return row;
         };
-        for (const window of windows) readings.append(windowRow(window));
-        // Many windows for one pool or one model each (Antigravity's) fold away
-        // under the account's own, and stay open across new readings once opened.
-        if (groups.folded.length) {
+        // A few models of their own show; more fold away, and stay open across
+        // new readings once opened.
+        const MODEL_ROWS = 4;
+        for (const window of layout.own) readings.append(quotaRow(spanName(window), window));
+        for (const model of layout.models.slice(0, MODEL_ROWS)) readings.append(quotaRow(model.name, model.window));
+        for (const pool of layout.pools) {
+          const group = node("div", "", "usage-quota-pool"), head = node("div", "", "usage-quota-pool-name");
+          head.append(node("span", pool.name));
+          if (pool.models.length) { const names = node("small", pool.models.join(" · ")); names.title = names.textContent; head.append(names); }
+          group.append(head);
+          for (const window of pool.windows) group.append(quotaRow(spanName(window), window));
+          for (const model of pool.apart) group.append(quotaRow(model.name, model.window));
+          readings.append(group);
+        }
+        const folded = layout.models.slice(MODEL_ROWS);
+        if (folded.length) {
           // An account without an identity stays one card per Host, so its Hosts tell it apart.
           const key = JSON.stringify([provider.service, provider.accountKey || (provider.hosts || []).map(host => host.id).join(","), provider.alias, provider.plan, provider.kind]);
-          const more = node("details", "", "usage-quota-models"), list = node("div", "", "usage-quota-windows"); more.open = modelsOpen.has(key);
-          const summary = node("summary", label("otherLimits", { count: groups.folded.length })); summary.dataset.quotaModels = key;
+          const more = node("details", "", "usage-quota-models"), list = node("div", "", "usage-quota-rows"); more.open = modelsOpen.has(key);
+          const summary = node("summary", label("otherLimits", { count: folded.length })); summary.dataset.quotaModels = key;
           more.append(summary, list);
-          for (const window of groups.folded) list.append(windowRow(window));
+          for (const model of folded) list.append(quotaRow(model.name, model.window));
           more.ontoggle = () => { if (more.isConnected) { if (more.open) modelsOpen.add(key); else modelsOpen.delete(key); } };
           readings.append(more);
         }
+        if (!readings.children.length && !provider.balance) readings.append(node("p", label("quotaUnknown"), "usage-quota-unknown usage-muted"));
         // A prepaid key's money, as its vendor words it.
         if (provider.balance) readings.append(node("p", label("balanceLeft", { amount: provider.balance }), "usage-quota-unknown usage-quota-balance"));
         if (cached && provider.observedAt) readings.append(node("small", label("updated", { time: new Date(provider.observedAt).toLocaleString(localeOf()) }), "usage-quota-observed usage-muted"));

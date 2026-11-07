@@ -13,9 +13,12 @@ Host every time it opens. Switch Hosts in the view, or choose
 mobile use the same authenticated Host endpoint; no additional account is
 needed. The macOS App uses this same view.
 
-Limits groups providers into compact rows, with small service logos and
-allowance windows side by side. On phones the service identity sits above
-two columns of windows. By default, percentages show remaining allowance; progress-bar
+Limits shows one card per account, with its service logo and plan. Each
+allowance window is one row (its name, a bar, the share and when it renews),
+and the rows line up from card to card on desktop and phone. An account that
+draws on shared pools (Antigravity) lists each pool with its windows and the
+models that draw on it. The status line reads **Live** when every allowance
+shown is current. By default, percentages show remaining allowance; progress-bar
 labels retain the full accessible description. **Remaining / Used** switches
 the percentages and bars between remaining allowance and consumed allowance.
 The sidebar percentages and hover details follow the same choice, stored on

@@ -146,7 +146,9 @@ test("Magpie's quota entries become allowances: every account, plan and balance,
   assert.deepEqual(quotaWindow({ name: "Gemini · 7 days", pool: "Gemini", used: 1.24, remaining: 98.76, resetsAt: "2026-11-13T23:55:55Z" }),
     { label: "Gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", scope: "pool", usedPercent: 1.24, resetsAt: Date.parse("2026-11-13T23:55:55Z") });
   assert.deepEqual(quotaWindow({ name: "Claude & GPT · 7 days", pool: "Claude & GPT", used: 100 }), { label: "Claude & GPT · 7 days", windowDurationMins: 10080, bucket: "Claude & GPT", scope: "pool", usedPercent: 100, resetsAt: null });
-  assert.deepEqual(quotaWindow({ name: "Gemini 4 Argon (High)", pool: "Gemini 4 Argon", used: 0 }), { label: "Gemini 4 Argon (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 0, resetsAt: null });
+  // A model's window keeps the pool it draws on, so Limits can name it under that pool.
+  assert.deepEqual(quotaWindow({ name: "Gemini 4 Argon (High)", pool: "Gemini 4 Argon", used: 0 }), { label: "Gemini 4 Argon (High)", windowDurationMins: null, bucket: null, scope: "model", pool: "Gemini 4 Argon", usedPercent: 0, resetsAt: null });
+  assert.equal(quotaWindow({ name: "Claude Opus 5.5 (High)", used: 100 }).pool, undefined, "no pool is said when Magpie says none");
   // A pool is told by its whole name, whatever its case or length; only what is shown is shortened.
   assert.deepEqual(quotaWindow({ name: "gemini · 7 days", pool: "Gemini", used: 5 }), { label: "gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", scope: "pool", usedPercent: 5, resetsAt: null });
   const long = "Claude, GPT and every other model this vendor groups into one shared allowance pool";

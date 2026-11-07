@@ -215,6 +215,71 @@
     } else inline = models.slice(0, 2);
     return { stopping, inline, folded: side.filter(w => !inline.includes(w)) };
   }
+  // How a Limits card lists an account's windows, one aligned row each: its
+  // own windows first, shortest first; then the week of each model it limits
+  // apart (Claude's "Fable"); then, for an account that draws on shared pools
+  // (Antigravity), each pool with its own windows and, beside its name, the
+  // models that draw on it. A model whose allowance stands where its pool's
+  // does is only named; one that differs keeps a row of its own in the pool.
+  // Variants of one model ("(High)", "(Low)") that read alike are one.
+  const VARIANT = /\s*\((?:minimal|low|medium|high|xhigh|max)\)\s*$/i;
+  const wordsOf = value => String(value || "").toLowerCase().split(/[^a-z0-9.]+/).filter(Boolean);
+  function quotaLayout(windows) {
+    const all = Array.isArray(windows) ? windows.filter(w => w && typeof w === "object") : [];
+    const span = w => Number.isFinite(w.windowDurationMins) ? w.windowDurationMins : Infinity;
+    const leftOf = w => Number.isFinite(w.remainingPercent) ? w.remainingPercent : Number.isFinite(w.usedPercent) ? 100 - w.usedPercent : null;
+    const own = all.filter(w => !shared(w)).sort((a, b) => span(a) - span(b));
+    const pools = [];
+    for (const w of all.filter(w => w.scope === "pool")) {
+      const name = String(w.bucket || w.label || "").trim();
+      let pool = pools.find(item => item.name.toLowerCase() === name.toLowerCase());
+      if (!pool) pools.push(pool = { name, windows: [], models: [], apart: [] });
+      pool.windows.push(w);
+    }
+    for (const pool of pools) pool.windows.sort((a, b) => span(a) - span(b));
+    // One entry per model: its variants folded together when they read alike.
+    const byName = new Map();
+    for (const w of all.filter(w => w.scope === "model")) {
+      const full = String(w.bucket || w.label || "").trim(), name = full.replace(VARIANT, "").trim() || full;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push({ full, window: w });
+    }
+    const models = [];
+    for (const [name, variants] of byName) {
+      const alike = variants.every(item => Math.round(leftOf(item.window) ?? -1) === Math.round(leftOf(variants[0].window) ?? -1));
+      if (alike) models.push({ name, window: variants.map(item => item.window).sort((a, b) => (leftOf(a) ?? 101) - (leftOf(b) ?? 101))[0] });
+      else for (const item of variants) models.push({ name: item.full, window: item.window });
+    }
+    const poolOf = model => {
+      if (!pools.length) return null;
+      const named = typeof model.window.pool === "string" && pools.find(pool => pool.name.toLowerCase() === model.window.pool.toLowerCase());
+      if (named) return named;
+      const lower = model.name.toLowerCase();
+      const prefixed = pools.filter(pool => lower === pool.name.toLowerCase() || lower.startsWith(pool.name.toLowerCase() + " ")).sort((a, b) => b.name.length - a.name.length)[0];
+      if (prefixed) return prefixed;
+      const first = wordsOf(model.name)[0];
+      return first ? pools.find(pool => wordsOf(pool.name).includes(first)) || null : null;
+    };
+    // A model named within its pool without what the pool's name already says.
+    const within = (name, pool) => {
+      const lower = name.toLowerCase(), poolName = pool.name.toLowerCase();
+      if (lower === poolName) return "";
+      if (lower.startsWith(poolName + " ")) return name.slice(pool.name.length + 1);
+      const [first, ...rest] = name.split(" ");
+      return rest.length && wordsOf(pool.name).includes(first.toLowerCase()) ? rest.join(" ") : name;
+    };
+    const apart = [];
+    for (const model of models) {
+      const pool = poolOf(model);
+      if (!pool) { apart.push(model); continue; }
+      const tightest = Math.min(101, ...pool.windows.map(w => leftOf(w) ?? 101)), left = leftOf(model.window);
+      const short = within(model.name, pool);
+      if (left !== null && tightest <= 100 && Math.abs(left - tightest) <= 1) { if (short) pool.models.push(short); }
+      else pool.apart.push({ name: short || model.name, window: model.window });
+    }
+    apart.sort((a, b) => (leftOf(a.window) ?? 101) - (leftOf(b.window) ?? 101));
+    return { own, models: apart, pools };
+  }
   // The name an account's plan goes by beside its service: a vendor's own
   // display name as it comes ("Ultra", "Google AI Pro"), a plan's id in words
   // ("prolite" is Pro Lite, Claude's "claude_max" is Max). Nothing for one
@@ -233,5 +298,5 @@
     if (!/^[a-z][a-z0-9_-]*$/.test(text)) return text;
     return PLAN_IDS[id] || id.split(/[_-]+/).filter(Boolean).map(word => PLAN_WORDS[word] || word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
   }
-  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel };
+  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel };
 });

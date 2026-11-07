@@ -134,7 +134,8 @@ function quotaWindow(window) {
     return { label, windowDurationMins: minutes, bucket: minutes && !windowMinutes(pool) ? pool.slice(0, 80) : null, scope: "pool", usedPercent: used, resetsAt };
   }
   const minutes = windowMinutes(head), model = minutes ? tail : name;
-  return { label, windowDurationMins: minutes, bucket: minutes && model ? model.slice(0, 80) : null, ...(model ? { scope: "model" } : {}), usedPercent: used, resetsAt };
+  // A model's window keeps the pool Magpie says it draws on, when it says.
+  return { label, windowDurationMins: minutes, bucket: minutes && model ? model.slice(0, 80) : null, ...(model ? { scope: "model", ...(pool ? { pool: pool.slice(0, 80) } : {}) } : {}), usedPercent: used, resetsAt };
 }
 
 // A prepaid wallet's reading in its unit, "6,291 points", as Magpie tells it
@@ -220,6 +221,8 @@ function createMagpieGatewayService({
   env = process.env,
   probeTimeoutMs = 4000,
   accountsTtlMs = 2 * 60 * 1000,
+  freshQuotaMs = 15 * 1000,
+  freshCommandMs = 20 * 1000,
   now = Date.now,
 } = {}) {
   const appHome = home || os.homedir();
@@ -458,34 +461,48 @@ function createMagpieGatewayService({
   }
 
   // Allowances of every subscription account, key plan and key balance Magpie
-  // knows, asked of the gateway (GET /v1/magpie/quotas, its own reading of
-  // the last minute), else of its command; kept a couple of minutes. An
+  // knows, asked of the gateway (GET /v1/magpie/quotas: Magpie's own last
+  // reading, taken every few minutes), else of its command; kept a couple of
+  // minutes. A fresh reading (Refresh) asks Magpie's command, which asks the
+  // vendors now, and falls back to the gateway when it is slow or fails. An
   // older Magpie without `quota` still answers `accounts`.
-  function quotaReports() {
-    if (accountsCache && now() - accountsCache.at < accountsTtlMs) return Promise.resolve(accountsCache.reports);
-    if (accountsRequest) return accountsRequest;
-    accountsRequest = (async () => {
-      let reports = null;
+  function quotaReports({ fresh = false } = {}) {
+    const age = accountsCache ? now() - accountsCache.at : Infinity;
+    if (accountsCache && age < (fresh ? freshQuotaMs : accountsTtlMs)) return Promise.resolve(accountsCache.reports);
+    if (accountsRequest && (accountsRequest.fresh || !fresh)) return accountsRequest;
+    const fromCommand = async args => {
       try {
-        if (typeof fetchImpl !== "function") throw new Error("no fetch");
+        const result = await run(args);
+        if (result.code !== 0) return null;
+        const value = JSON.parse(result.stdout.trim() || "null");
+        return Array.isArray(value) ? quotaEntries(value) : null;
+      } catch { return null; }
+    };
+    const fromGateway = async () => {
+      try {
+        if (typeof fetchImpl !== "function") return null;
         const response = await fetchImpl(origin + "/v1/magpie/quotas", { signal: AbortSignal.timeout(Math.max(probeTimeoutMs, 15000)), redirect: "error", headers: { accept: "application/json" } });
-        if (response.ok) {
-          const value = await boundedJson(response);
-          if (Array.isArray(value?.data)) reports = quotaEntries(value.data);
-        }
-      } catch {}
-      for (const args of reports ? [] : [["quota", "--json"], ["accounts", "--json"]]) {
-        try {
-          const result = await run(args);
-          if (result.code !== 0) continue;
-          const value = JSON.parse(result.stdout.trim() || "null");
-          if (Array.isArray(value)) { reports = quotaEntries(value); break; }
-        } catch {}
+        if (!response.ok) return null;
+        const value = await boundedJson(response);
+        return Array.isArray(value?.data) ? quotaEntries(value.data) : null;
+      } catch { return null; }
+    };
+    const request = (async () => {
+      let reports = null;
+      if (fresh) {
+        let timer;
+        const slow = new Promise(resolve => { timer = setTimeout(() => resolve(null), freshCommandMs); timer?.unref?.(); });
+        reports = await Promise.race([fromCommand(["quota", "--json"]), slow]).finally(() => clearTimeout(timer));
       }
+      reports ||= await fromGateway();
+      if (!reports && !fresh) reports = await fromCommand(["quota", "--json"]);
+      reports ||= await fromCommand(["accounts", "--json"]);
       accountsCache = { at: now(), reports: reports?.length ? withKeyIdentities(reports, await readKeyFingerprints()) : reports || [] };
       return accountsCache.reports;
-    })().finally(() => { accountsRequest = null; });
-    return accountsRequest;
+    })().finally(() => { if (accountsRequest === request) accountsRequest = null; });
+    request.fresh = fresh;
+    accountsRequest = request;
+    return request;
   }
 
   // Settings → Quota sources: whether Magpie is here and answering. A source

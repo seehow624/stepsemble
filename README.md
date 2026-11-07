@@ -265,11 +265,16 @@ such as "Ultra"; ChatGPT's "Pro Lite"; "Google AI Pro" for Antigravity), with
 the name given to it in Magpie under it; a key's plan or balance without a
 plan's name says so. Cards do not name the computers that read them: one
 account, or one key used on two computers, is one card under **All Hosts**.
-As in Magpie's menu bar, an account's own windows are what stop it, and a
-window for one model stays beside them: Claude's card shows the week of each
-model Claude limits apart ("Fable · 7d"). An account with none of its own (Antigravity) shows its
-two pools closest to running out ("Claude & GPT · 7d", "Gemini · 5h"); its
-other pool and model windows fold under **More limits**. A service that another source
+Every window is one row (its name, a bar, the share and when it renews), and
+the rows line up from card to card. As in Magpie's menu bar, an account's own
+windows are what stop it, and a window for one model follows them: Claude's
+card shows the week of each model Claude limits apart ("Fable"). An account
+that draws on shared pools (Antigravity) lists each pool with its five-hour and
+weekly rows and, beside the pool's name, the models that draw on it; a model
+whose allowance differs from its pool keeps a row of its own there, and a
+used-up window says when it comes back. Magpie reads its accounts every few
+minutes, so a reading counts as live until it is ten minutes old, and Refresh
+asks Magpie's command to read them again. A service that another source
 already reads through its own sign-in shows Magpie's other accounts next to it,
 never the same account twice. A route belongs to the
 gateway it points at: OpenCodex never claims a
