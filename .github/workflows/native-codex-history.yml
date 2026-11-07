@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             asset: codex-aarch64-apple-darwin.tar.gz
             binary: codex-aarch64-apple-darwin
             sha256: 8cf911ea676523bfb2121ec561848d2aba564890ad536db4d8a3353f2b9850b1
