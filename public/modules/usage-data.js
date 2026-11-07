@@ -145,10 +145,11 @@
   function combineQuotas(results) {
     const groups = new Map(), aliases = new Map();
     const validIdentity = value => typeof value === "string" && /^v1:[a-f0-9]{64}$/.test(value);
-    // Only a native Claude profile reading can attest an opaque email alias
-    // for its official UUID. Conflicting UUID claimants remain ambiguous.
+    // Only an account's own sign-in (the agent's, or Pi's) can attest an
+    // opaque email alias for its official account id, the key Magpie's
+    // reading of the same account carries. Conflicting claimants remain ambiguous.
     for (const result of results || []) for (const provider of result.quota?.providers || []) {
-      if (provider.service !== "claude" || provider.source !== "native" || !validIdentity(provider.accountKey)
+      if (!["native", "signin"].includes(provider.source) || !validIdentity(provider.accountKey)
         || !["ready", "cached"].includes(provider.status) || !provider.windows?.length
         || !Array.isArray(provider.accountAliases) || provider.accountAliases.length !== 1) continue;
       const alias = provider.accountAliases[0];
@@ -160,7 +161,7 @@
     for (const result of results || []) for (const [index, provider] of (result.quota?.providers || []).entries()) {
       const service = provider.service || provider.provider || provider.id;
       let identity = validIdentity(provider.accountKey) ? provider.accountKey : null;
-      const claims = service === "claude" && provider.source === "magpie" && identity ? aliases.get(JSON.stringify([service, identity])) : null;
+      const claims = provider.source === "magpie" && identity ? aliases.get(JSON.stringify([service, identity])) : null;
       if (claims?.size === 1) identity = claims.values().next().value;
       const reading = identity && identity !== provider.accountKey ? { ...provider, accountKey: identity } : provider;
       const key = JSON.stringify(identity ? [service, identity] : [result.host, service, index]);

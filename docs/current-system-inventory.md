@@ -284,7 +284,7 @@ Generic connector 的「可啟動、可串流、server restart 可重新 attach�
 | `POST /api/agent-auth/input` | Web | B/P | runId + data ≤8192 字元或 key；secret 旗標 | 寫入 run 的 stdin；secret 在輸出中遮蔽 | Unit + synthetic browser |
 | `POST /api/agent-auth/cancel` | Web | B/P | runId | 停止 run，不是登出 | Unit |
 | `GET /api/quota-sources` | Web | B/P | 無 | 3.3.0：讀取本機 OpenCodex 的額度；admin token 不回傳 | Unit |
-| `POST /api/quota-sources` | Web | B/P | sources 開關／prefer 各服務來源；browser 需 Origin | 3.4.0：寫 `quota-sources.json`（0600），清掉額度快取；GET 同時列出各 Agent 登入、Pi、OpenCodex、CodexBar 讀到的額度 | Unit + synthetic browser |
+| `POST /api/quota-sources` | Web | B/P | sources 開關／prefer 各服務來源；browser 需 Origin | 3.4.0：寫 `quota-sources.json`（0600），清掉額度快取；GET 同時列出各 Agent 登入、Pi、Magpie、OpenCodex、CodexBar 讀到的額度；3.10.11 起 Magpie 列出每個訂閱帳號／金鑰方案／金鑰餘額各一列（讀 gateway `GET /v1/magpie/quotas`，不在時改 `magpie quota --json`） | Unit + synthetic browser |
 | `GET /api/agent-models?agentId` | Web | B/P | agentId | 3.4.0：Claude Code、Antigravity 上次對話提供的模型（只有 id／名稱）；Kilo、Cline 已在 3.10.10 移除 | Unit + synthetic browser |
 | `GET /api/model-providers` | Web | B/P | 無 | sanitized `models.json` provider list | Static security/UI |
 | `POST /api/model-providers` | Web | B/P | upsert/delete validated provider | atomic write `models.json` | Static security/UI |

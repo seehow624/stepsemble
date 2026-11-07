@@ -384,7 +384,8 @@ async function quotaSourcesPayload({ fresh = false } = {}) {
   const byService = new Map();
   for (const source of sources) for (const row of source.services) {
     if (!byService.has(row.service)) byService.set(row.service, { id: row.service, label: row.label, sources: [] });
-    byService.get(row.service).sources.push(source.id);
+    // A source with several accounts of one service is still one source.
+    if (!byService.get(row.service).sources.includes(source.id)) byService.get(row.service).sources.push(source.id);
   }
   const active = new Map((usage?.providers || []).map(row => [row.service, row.sourceId]));
   return { sources, updatedAt: usage?.updatedAt || Date.now(),

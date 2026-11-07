@@ -104,39 +104,57 @@ function modelRow(row) {
   };
 }
 
-// "5 hours", "7 days": an allowance window as minutes. A window scoped to one
-// model ("7 days · Fable") is not the account's own and is left out.
+// "5 hours", "7 days": an allowance window as minutes.
 function windowMinutes(name) {
   const match = /^(\d{1,4})\s*(minute|hour|day|week|month)s?$/i.exec(String(name || "").trim());
   return match ? Number(match[1]) * WINDOW_UNITS[match[2].toLowerCase()] : null;
 }
 
-// `magpie accounts --json`: one row per signed-in subscription, with each
-// window's used percentage and reset time.
-function accountReports(payload) {
-  const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.accounts) ? payload.accounts : [];
-  const chosen = new Map();
-  for (const row of rows.slice(0, 64)) {
-    const service = typeof row?.agent === "string" ? row.agent.toLowerCase() : "";
-    if (!SERVICE_ID.test(service) || row.on === false) continue;
-    // An agent with several accounts uses its active one.
-    if (chosen.has(service) && !(row.active === true && chosen.get(service).active !== true)) continue;
-    chosen.set(service, row);
-  }
+const clean = (value, max) => typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max) : "";
+
+// One of Magpie's windows as a share used. "7 days · Fable" is the account's
+// weekly window for one model and keeps that model as its bucket; a window
+// with no span of its own ("Claude Opus 5.5 (High)") keeps its name. A window
+// that is only a text, a wallet balance or unlimited has no share to show.
+function quotaWindow(window) {
+  if (!window || typeof window !== "object" || window.text === true || window.unlimited === true || window.balance != null) return null;
+  const used = Number(window.used);
+  if (!Number.isFinite(used) || used < 0 || used > 100) return null;
+  const name = clean(window.name, 80), dot = name.indexOf(" · ");
+  const minutes = windowMinutes(dot >= 0 ? name.slice(0, dot) : name);
+  const bucket = minutes && dot >= 0 ? name.slice(dot + 3).trim() : "";
+  const reset = typeof window.resetsAt === "string" ? Date.parse(window.resetsAt) : NaN;
+  return { label: name || null, windowDurationMins: minutes, bucket: bucket || null, usedPercent: used, resetsAt: Number.isFinite(reset) ? reset : null };
+}
+
+const QUOTA_KINDS = new Set(["subscription", "plan", "balance"]);
+
+// `magpie quota --json` and GET /v1/magpie/quotas (Magpie's provider.Quota):
+// one entry per signed-in subscription account, per plan bought with a key
+// and per key's balance, each with its windows' used percentages and reset
+// times. Every account of a service is kept, apart. An entry of a remote
+// Magpie (`from`) is that computer's, not this one's. The older
+// `magpie accounts --json` rows name the service by `agent`. Login
+// identifiers never leave: an account is told apart by an opaque key.
+function quotaEntries(payload) {
+  const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.accounts) ? payload.accounts : [];
   const reports = [];
-  for (const [service, row] of chosen) {
-    const windows = [];
-    for (const window of (Array.isArray(row.windows) ? row.windows : []).slice(0, 8)) {
-      const minutes = windowMinutes(window?.name), used = Number(window?.used);
-      if (!minutes || !Number.isFinite(used) || used < 0 || used > 100) continue;
-      const reset = typeof window.resetsAt === "string" ? Date.parse(window.resetsAt) : NaN;
-      windows.push({ windowDurationMins: minutes, usedPercent: used, resetsAt: Number.isFinite(reset) ? reset : null });
-    }
-    if (!windows.length) continue;
+  for (const row of rows.slice(0, 64)) {
+    const service = typeof row?.provider === "string" ? row.provider.toLowerCase() : typeof row?.agent === "string" ? row.agent.toLowerCase() : "";
+    if (!SERVICE_ID.test(service) || row.on === false || clean(row.from, 80)) continue;
+    const windows = (Array.isArray(row.windows) ? row.windows : []).slice(0, 32).map(quotaWindow).filter(Boolean);
+    const balance = clean(row.balance, 40);
+    if (!windows.length && !balance) continue;
+    const user = clean(row.user, 320).toLowerCase();
     const readAt = typeof row.readAt === "string" ? Date.parse(row.readAt) : NaN;
-    const user = typeof row.user === "string" ? row.user.trim().toLowerCase() : "";
-    reports.push({ service, label: SERVICE_LABELS[service] || service.charAt(0).toUpperCase() + service.slice(1), windows,
-      readAt: Number.isFinite(readAt) ? readAt : null, accountKey: user ? accountKey(service, user, "email") : null });
+    const served = typeof row.lastServedAt === "string" ? Date.parse(row.lastServedAt) : NaN;
+    reports.push({ service, kind: QUOTA_KINDS.has(row.kind) ? row.kind : "subscription",
+      label: SERVICE_LABELS[service] || clean(row.name, 80) || service.charAt(0).toUpperCase() + service.slice(1),
+      plan: clean(row.plan, 80) || null, alias: clean(row.alias, 80) || null, windows, balance: balance || null,
+      readAt: Number.isFinite(readAt) ? readAt : null, lastServedAt: Number.isFinite(served) ? served : null,
+      // `last` answered through the gateway most recently; `active` is the
+      // account the agent itself is signed in to (accounts rows).
+      last: row.last === true || row.active === true, accountKey: user ? accountKey(service, user, "email") : null });
   }
   return reports;
 }
@@ -377,17 +395,34 @@ function createMagpieGatewayService({
     return { source: "magpie", checkedAt: snapshot.checkedAt, stale: snapshot.stale, catalogCount: models.length };
   }
 
-  // Allowances of the subscriptions Magpie is signed in to, read with its CLI
-  // and kept a couple of minutes.
+  // Allowances of every subscription account, key plan and key balance Magpie
+  // knows, asked of the gateway (GET /v1/magpie/quotas, its own reading of
+  // the last minute), else of its command; kept a couple of minutes. An
+  // older Magpie without `quota` still answers `accounts`.
   function quotaReports() {
     if (accountsCache && now() - accountsCache.at < accountsTtlMs) return Promise.resolve(accountsCache.reports);
     if (accountsRequest) return accountsRequest;
-    accountsRequest = run(["accounts", "--json"]).then(result => {
-      let reports = [];
-      try { reports = accountReports(JSON.parse(result.stdout.trim() || "[]")); } catch {}
-      accountsCache = { at: now(), reports };
-      return reports;
-    }).finally(() => { accountsRequest = null; });
+    accountsRequest = (async () => {
+      let reports = null;
+      try {
+        if (typeof fetchImpl !== "function") throw new Error("no fetch");
+        const response = await fetchImpl(origin + "/v1/magpie/quotas", { signal: AbortSignal.timeout(Math.max(probeTimeoutMs, 15000)), redirect: "error", headers: { accept: "application/json" } });
+        if (response.ok) {
+          const value = await boundedJson(response);
+          if (Array.isArray(value?.data)) reports = quotaEntries(value.data);
+        }
+      } catch {}
+      for (const args of reports ? [] : [["quota", "--json"], ["accounts", "--json"]]) {
+        try {
+          const result = await run(args);
+          if (result.code !== 0) continue;
+          const value = JSON.parse(result.stdout.trim() || "null");
+          if (Array.isArray(value)) { reports = quotaEntries(value); break; }
+        } catch {}
+      }
+      accountsCache = { at: now(), reports: reports || [] };
+      return accountsCache.reports;
+    })().finally(() => { accountsRequest = null; });
     return accountsRequest;
   }
 
@@ -421,4 +456,4 @@ function createMagpieGatewayService({
   };
 }
 
-module.exports = { createMagpieGatewayService, MagpieGatewayError, findMagpieBinary, accountReports, windowMinutes, DEFAULT_PORT };
+module.exports = { createMagpieGatewayService, MagpieGatewayError, findMagpieBinary, quotaEntries, quotaWindow, windowMinutes, DEFAULT_PORT };

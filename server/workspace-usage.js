@@ -1,6 +1,6 @@
 "use strict";
 const { normalizeQuotaConfig } = require("./quota-sources");
-const { accountKey, boundAnthropicKey, createClaudeIdentityReader } = require("./quota-identity");
+const { accountKey, boundAnthropicKey, createClaudeProfileReader, chatgptAliases } = require("./quota-identity");
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { windowUsage, currentWindows, claudeWindows } = require("./quota-windows");
 const { claudeToken, sanitizeClaudeQuota } = require("./claude-quota");
@@ -294,7 +294,9 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null,
   readMagpie = async () => [], now = Date.now }) {
   let cached = null, expires = 0;
-  const readClaudeIdentity = createClaudeIdentityReader({ fetchImpl, now });
+  const readClaudeProfile = createClaudeProfileReader({ fetchImpl, now });
+  // A reading's own account, and the aliases it is known by elsewhere.
+  const identified = (reading, key, aliases) => ({ ...reading, accountKey: key, ...(aliases?.length ? { accountAliases: aliases } : {}) });
   function providerRow(provider, settled) {
     const value = settled.status === "fulfilled" ? settled.value : null;
     const windows = value?.windows || [];
@@ -328,12 +330,20 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
   async function chatgptReading(read, source) {
     const credential = await signIn(read);
     if (!liveToken(credential, now())) return null;
-    try { const windows = await chatgptUsage(credential); return windows.length ? { windows, observedAt: null, source, accountKey: accountKey("codex", credential.accountId || chatgptAccountId(credential.secret)) } : null; } catch { return null; }
+    try {
+      const windows = await chatgptUsage(credential);
+      return windows.length ? identified({ windows, observedAt: null, source }, accountKey("codex", credential.accountId || chatgptAccountId(credential.secret)), chatgptAliases(jwtPayload(credential.secret))) : null;
+    } catch { return null; }
   }
   async function claudeTokenReading(read, source) {
     const credential = await signIn(read);
     if (!liveToken(credential, now())) return null;
-    try { const windows = await claudeUsage(credential.secret); return windows.length ? { windows, observedAt: null, source, accountKey: await readClaudeIdentity(credential.secret) } : null; } catch { return null; }
+    try {
+      const windows = await claudeUsage(credential.secret);
+      if (!windows.length) return null;
+      const profile = await readClaudeProfile(credential.secret);
+      return identified({ windows, observedAt: null, source }, profile.accountKey, profile.accountAliases);
+    } catch { return null; }
   }
   // Codex: its own app-server when this release has reviewed the installed
   // CLI's schema, otherwise ChatGPT with the account the Codex CLI is signed in
@@ -346,9 +356,9 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
         const before = await signIn(readCodexSignIn);
         const windows = codexWindows(await codex());
         const after = await signIn(readCodexSignIn);
-        const identity = before?.secret && before.secret === after?.secret
-          ? accountKey("codex", before.accountId || chatgptAccountId(before.secret)) : null;
-        if (windows.length) return { windows, observedAt: null, source: "native", accountKey: identity };
+        const same = before?.secret && before.secret === after?.secret;
+        const identity = same ? accountKey("codex", before.accountId || chatgptAccountId(before.secret)) : null;
+        if (windows.length) return identified({ windows, observedAt: null, source: "native" }, identity, same ? chatgptAliases(jwtPayload(before.secret)) : []);
       } catch {}
       return chatgptReading(readCodexSignIn, "account");
     }
@@ -378,17 +388,28 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       on("codexbar") ? Promise.resolve().then(readCodexBar) : null,
       on("magpie") ? Promise.resolve().then(readMagpie) : [],
     ]);
-    // Magpie reads the subscriptions it is signed in to, and says when.
+    // Magpie reads every subscription account, key plan and key balance it
+    // knows, and says when. A service's accounts stay apart; the one Magpie
+    // served last stands for the service where sources are compared.
+    const magpieRows = new Map();
     for (const report of magpie.status === "fulfilled" && Array.isArray(magpie.value) ? magpie.value : []) {
       const service = typeof report?.service === "string" ? report.service : "";
       const windows = currentWindows((report?.windows || [])
-        .map(w => windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, null, w.windowDurationMins, null))
+        .map(w => windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, w.label ?? null, w.windowDurationMins ?? null, w.bucket ?? null))
         .filter(Boolean), now());
-      if (!service || !windows.length) continue;
+      const balance = typeof report?.balance === "string" && report.balance ? report.balance : null;
+      if (!service || (!windows.length && !balance)) continue;
       const readAt = Number.isFinite(report.readAt) ? report.readAt : null;
-      readings.magpie.set(service, { windows, observedAt: readAt !== null && now() - readAt > USAGE_TTL_MS ? readAt : null,
-        sampledAt: readAt ?? now(), source: "magpie", accountKey: report.accountKey || null });
+      const detail = key => typeof report[key] === "string" && report[key] ? report[key] : null;
+      const row = { windows, balance, observedAt: readAt !== null && now() - readAt > USAGE_TTL_MS ? readAt : null, sampledAt: readAt ?? now(),
+        source: "magpie", accountKey: report.accountKey || null, plan: detail("plan"), alias: detail("alias"), kind: detail("kind"), last: report.last === true };
+      if (!magpieRows.has(service)) magpieRows.set(service, []);
+      magpieRows.get(service).push(row);
       if (!labels.has(service)) labels.set(service, report.label || service);
+    }
+    for (const [service, rows] of magpieRows) {
+      rows.sort((a, b) => Number(b.last) - Number(a.last));
+      readings.magpie.set(service, rows[0]);
     }
     for (const row of probed.status === "fulfilled" && Array.isArray(probed.value) ? probed.value : []) {
       const service = Array.isArray(row?.ids) && typeof row.ids[0] === "string" ? row.ids[0] : null;
@@ -442,22 +463,37 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     const label = service => SERVICE_LABELS[service] || labels.get(service) || service;
     const services = ["codex", "claude"];
     for (const id of DEFAULT_ORDER) for (const service of readings[id].keys()) if (!services.includes(service)) services.push(service);
+    // What a Magpie account is besides its windows: a wallet balance, and the
+    // plan, the user's own name or the kind that tells one account from another.
+    const details = reading => Object.fromEntries(["plan", "alias", "kind", "balance"].filter(key => reading?.[key]).map(key => [key, reading[key]]));
     const providers = [];
+    const push = (service, sourceId, reading) => {
+      const windows = reading?.windows || [], has = windows.length > 0 || !!reading?.balance;
+      const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
+      providers.push({ provider: label(service), service, sourceId, status: !has ? "unavailable" : reading?.cached || observed !== null ? "cached" : "ready",
+        observedAt: has ? observed : null, source: has ? reading.source || null : null,
+        accountKey: has ? reading.accountKey || null : null,
+        ...(has && reading.accountAliases ? { accountAliases: reading.accountAliases } : {}), ...(has ? details(reading) : {}),
+        sampledAt: reading?.sampledAt ?? observed ?? now(), windows });
+    };
     for (const service of services) {
       const sourceId = sourceOrder(service, config).find(id => on(id) && readings[id].has(service)) || null;
       const reading = sourceId ? readings[sourceId].get(service) : null;
       if (!reading && service !== "codex" && service !== "claude") continue;
-      const windows = reading?.windows || [];
-      const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
-      providers.push({ provider: label(service), service, sourceId, status: !windows.length ? "unavailable" : reading?.cached || observed !== null ? "cached" : "ready",
-        observedAt: windows.length ? observed : null, source: windows.length ? reading.source || null : null,
-        accountKey: windows.length ? reading.accountKey || null : null,
-        ...(windows.length && reading.accountAliases ? { accountAliases: reading.accountAliases } : {}), sampledAt: reading?.sampledAt ?? observed ?? now(), windows });
+      push(service, sourceId, reading);
+      // Magpie's other accounts of the service: every one when Magpie is the
+      // service's source, else those provably not the account shown already.
+      // One the shown reading cannot be told from is left out, not shown twice.
+      const known = new Set([reading?.accountKey, ...(reading?.accountAliases || [])].filter(Boolean));
+      for (const row of on("magpie") ? (magpieRows.get(service) || []).filter(row => row !== reading) : []) {
+        if (sourceId === "magpie" || (row.accountKey && known.size && !known.has(row.accountKey))) push(service, "magpie", row);
+      }
     }
     const sources = {};
     for (const id of DEFAULT_ORDER) {
-      sources[id] = { enabled: on(id), services: [...readings[id].entries()].map(([service, reading]) => ({ service, label: label(service),
-        windows: reading.windows, observedAt: reading.observedAt ?? null })) };
+      const rowsOf = service => id === "magpie" ? magpieRows.get(service) || [] : [readings[id].get(service)];
+      sources[id] = { enabled: on(id), services: [...readings[id].keys()].flatMap(service => rowsOf(service).map(reading => ({ service, label: label(service),
+        windows: reading.windows, observedAt: reading.observedAt ?? null, ...details(reading) }))) };
     }
     if (codexbar) sources.codexbar.reason = codexbar.reason || null;
     const result = { updatedAt: now(), providers, sources, prefer: config.prefer };

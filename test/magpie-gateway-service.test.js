@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createMagpieGatewayService, accountReports, windowMinutes } = require("../server/magpie-gateway-service");
+const { createMagpieGatewayService, quotaEntries, quotaWindow, windowMinutes } = require("../server/magpie-gateway-service");
+const { accountKey } = require("../server/quota-identity");
 const { createOpenCodexGatewayService } = require("../server/opencodex-gateway-service");
 const { createWorkspaceUsage } = require("../server/workspace-usage");
 const { gatewayModelOptions } = require("../server/claude-code-structured-adapter");
@@ -24,23 +25,29 @@ function fixture(t, { online = true } = {}) {
   const binary = path.join(home, ".local/bin", process.platform === "win32" ? "magpie.exe" : "magpie");
   fs.writeFileSync(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const runs = [];
-  let up = online, fetches = 0, accounts = "[]";
+  // The gateway's quotas (null: an older gateway without them), `magpie quota
+  // --json` (null: an older command that does not know it) and `magpie accounts --json`.
+  let up = online, fetches = 0, quotas = null, quotaJson = null, accounts = "[]";
   const service = createMagpieGatewayService({ home, env: { PATH: "" }, now: () => 1000,
     fetchImpl: async (url, options) => {
       fetches++;
-      assert.equal(url, "http://127.0.0.1:3425/v1/models"); assert.equal(options.redirect, "error");
+      assert.equal(options.redirect, "error");
       if (!up) throw new Error("connection refused");
+      if (url === "http://127.0.0.1:3425/v1/magpie/quotas") return quotas === null ? new Response("not found", { status: 404 }) : new Response(JSON.stringify({ object: "list", data: quotas }), { status: 200 });
+      assert.equal(url, "http://127.0.0.1:3425/v1/models");
       return new Response(JSON.stringify({ object: "list", data: MODELS }), { status: 200 });
     },
     execFileImpl: (file, args, options, callback) => {
       assert.equal(file, binary); assert.equal(options.env.HOME, home);
       runs.push(args);
+      if (args[0] === "quota") return quotaJson === null ? callback(Object.assign(new Error("exit 1"), { code: 1 }), "", "unknown command") : callback(null, quotaJson, "");
       callback(null, args[0] === "accounts" ? accounts : "", "");
     },
   });
   const write = (file, text) => fs.writeFileSync(path.join(home, file), text);
   const read = file => JSON.parse(fs.readFileSync(path.join(home, file), "utf8"));
-  return { home, service, runs, write, read, fetches: () => fetches, online: value => { up = value; }, accounts: value => { accounts = value; } };
+  return { home, service, runs, write, read, fetches: () => fetches, online: value => { up = value; }, accounts: value => { accounts = value; },
+    quotas: value => { quotas = value; }, quotaJson: value => { quotaJson = value; } };
 }
 
 test("status tells which agents go through Magpie and which go elsewhere", async t => {
@@ -125,32 +132,67 @@ test("Codex routing goes through Magpie's own command and keeps Codex's model", 
   await assert.rejects(f.service.setCodexRouting(true), { code: "magpie_offline" });
 });
 
-test("Magpie's account windows become allowances; a window for one model is left out", () => {
+test("Magpie's quota entries become allowances: every account, plan and balance, a window for one model kept under it", () => {
   assert.equal(windowMinutes("5 hours"), 300); assert.equal(windowMinutes("7 days"), 10080); assert.equal(windowMinutes("7 days · Fable"), null);
-  const reports = accountReports([
-    { agent: "claude", user: "Person@Example.com", active: false, on: true, windows: [{ name: "5 hours", used: 90 }] },
-    { agent: "claude", user: "person@example.com", active: true, on: true, readAt: "2026-10-20T13:50:58+08:00",
-      windows: [{ name: "5 hours", used: 15, resetsAt: "2026-10-20T15:29:00+08:00" }, { name: "7 days", used: 23 }, { name: "7 days · Fable", used: 0 }] },
-    { agent: "codex", on: false, windows: [{ name: "7 days", used: 33 }] },
-    { agent: "copilot", windows: [{ name: "1 month", used: 101 }, { name: "1 month", used: 40 }] },
-    { agent: "../bad", windows: [{ name: "5 hours", used: 1 }] },
-  ]);
-  assert.deepEqual(reports.map(row => [row.service, row.label, row.windows.map(w => [w.windowDurationMins, w.usedPercent])]),
-    [["claude", "Claude", [[300, 15], [10080, 23]]], ["copilot", "GitHub Copilot", [[43200, 40]]]]);
+  assert.deepEqual(quotaWindow({ name: "7 days · Fable", used: 32, remaining: 68, resetsAt: "2026-11-09T10:00:00+08:00" }),
+    { label: "7 days · Fable", windowDurationMins: 10080, bucket: "Fable", usedPercent: 32, resetsAt: Date.parse("2026-11-09T10:00:00+08:00") });
+  assert.deepEqual(quotaWindow({ name: "Claude Opus 5.5 (High)", used: 100, remaining: 0 }), { label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, usedPercent: 100, resetsAt: null });
+  for (const window of [{ name: "5 hours", used: 101 }, { name: "5 hours", used: "x" }, { name: "credits", display: "1.2k / 3k", text: true, used: 0 },
+    { name: "5 hours", unlimited: true, used: 0 }, { name: "wallet", balance: 12.5, unit: "USD", used: 0 }, null]) assert.equal(quotaWindow(window), null, JSON.stringify(window));
+  const reports = quotaEntries({ object: "list", data: [
+    { provider: "claude", name: "Claude Code", kind: "subscription", plan: "max", user: "Person@Example.com", readAt: "2026-10-20T13:50:58+08:00", last: true,
+      windows: [{ name: "5 hours", used: 15, resetsAt: "2026-10-20T15:29:00+08:00" }, { name: "7 days", used: 23 }, { name: "7 days · Fable", used: 2 }] },
+    { provider: "claude", name: "Claude Code", kind: "subscription", plan: "pro", user: "second@example.com", alias: "Work", windows: [{ name: "5 hours", used: 90 }] },
+    { provider: "claude", name: "Claude Code", kind: "subscription", user: "third@example.com", windows: [], error: "Claude Code's /usage told no allowance" },
+    { provider: "antigravity", name: "Antigravity", kind: "subscription", plan: "Antigravity Starter Quota", user: "person@example.com",
+      windows: [{ name: "Claude Opus 5.5 (High)", used: 100 }, { name: "Gemini 3.8 Pro", used: 40, resetsAt: "2026-11-11T20:19:42Z" }] },
+    { provider: "minimax", name: "MiniMax", kind: "plan", windows: [{ name: "5 hours", used: 0, resetsAt: "2026-11-07T13:00:00+08:00" }], lastServedAt: "2026-11-04T08:53:57Z" },
+    { provider: "deepseek", name: "DeepSeek", kind: "balance", balance: "$12.50", windows: [] },
+    { provider: "codex", name: "Codex", kind: "subscription", user: "far@example.com", from: "studio", windows: [{ name: "7 days", used: 33 }] },
+    { provider: "../bad", windows: [{ name: "5 hours", used: 1 }] },
+  ] });
+  assert.deepEqual(reports.map(row => [row.service, row.kind, row.label, row.plan, row.alias, row.balance, row.windows.map(w => [w.windowDurationMins, w.bucket, w.usedPercent])]), [
+    ["claude", "subscription", "Claude", "max", null, null, [[300, null, 15], [10080, null, 23], [10080, "Fable", 2]]],
+    ["claude", "subscription", "Claude", "pro", "Work", null, [[300, null, 90]]],
+    ["antigravity", "subscription", "Antigravity", "Antigravity Starter Quota", null, null, [[null, null, 100], [null, null, 40]]],
+    ["minimax", "plan", "MiniMax", null, null, null, [[300, null, 0]]],
+    ["deepseek", "balance", "DeepSeek", null, null, "$12.50", []],
+  ], "an account without a reading, a remote Magpie's account and a bad id are left out");
   assert.equal(reports[0].windows[0].resetsAt, Date.parse("2026-10-20T15:29:00+08:00"));
-  assert.equal(reports[0].readAt, Date.parse("2026-10-20T13:50:58+08:00"));
-  assert.match(reports[0].accountKey, /^v1:/); assert.ok(!JSON.stringify(reports).includes("example.com"));
+  assert.equal(reports[0].readAt, Date.parse("2026-10-20T13:50:58+08:00")); assert.equal(reports[0].last, true); assert.equal(reports[1].last, false);
+  assert.equal(reports[2].windows[0].label, "Claude Opus 5.5 (High)"); assert.equal(reports[2].windows[1].resetsAt, Date.parse("2026-11-11T20:19:42Z"));
+  assert.equal(reports[3].lastServedAt, Date.parse("2026-11-04T08:53:57Z")); assert.equal(reports[3].accountKey, null); assert.equal(reports[4].accountKey, null);
+  assert.equal(reports[0].accountKey, accountKey("claude", "person@example.com", "email"), "the same person, case apart");
+  assert.notEqual(reports[0].accountKey, reports[1].accountKey); assert.notEqual(reports[0].accountKey, reports[2].accountKey, "an identity is the service's own");
+  assert.ok(!JSON.stringify(reports).includes("example.com"));
+  // The older accounts list names the service by agent, and the agent's own account as active.
+  const legacy = quotaEntries([{ agent: "codex", user: "a@b.c", active: true, on: true, windows: [{ name: "7 days", used: 33 }] },
+    { agent: "codex", user: "d@e.f", on: false, windows: [{ name: "7 days", used: 1 }] }, { agent: "copilot", windows: [{ name: "1 month", used: 101 }, { name: "1 month", used: 40 }] }]);
+  assert.deepEqual(legacy.map(row => [row.service, row.label, row.kind, row.last, row.windows.map(w => [w.windowDurationMins, w.usedPercent])]),
+    [["codex", "Codex", "subscription", true, [[10080, 33]]], ["copilot", "GitHub Copilot", "subscription", false, [[43200, 40]]]]);
 });
 
-test("allowances are read with Magpie's CLI once per couple of minutes", async t => {
+test("allowances come from the gateway, else from Magpie's command, once per couple of minutes", async t => {
   const f = fixture(t);
-  f.accounts(JSON.stringify([{ agent: "codex", user: "a@b.c", active: true, windows: [{ name: "7 days", used: 33 }] }]));
+  f.quotas([{ provider: "codex", kind: "subscription", user: "a@b.c", windows: [{ name: "7 days", used: 33 }] }]);
   const [a, b] = await Promise.all([f.service.quotaReports(), f.service.quotaReports()]);
   assert.deepEqual(a, b); assert.equal(a[0].service, "codex");
   await f.service.quotaReports();
-  assert.deepEqual(f.runs, [["accounts", "--json"]]);
+  assert.deepEqual(f.runs, [], "the gateway answered; the command is not run");
   assert.deepEqual(await f.service.quotaSource({ probe: false }).then(row => [row.installed, row.reason]), [true, "off"]);
   assert.equal((await f.service.quotaSource()).running, true);
+  // Without the gateway, `magpie quota --json`; an older Magpie that does not know it still answers `accounts`.
+  const g = fixture(t); g.online(false);
+  g.quotaJson(JSON.stringify([{ provider: "minimax", kind: "plan", windows: [{ name: "5 hours", used: 5 }] }]));
+  assert.deepEqual((await g.service.quotaReports()).map(row => [row.service, row.kind]), [["minimax", "plan"]]);
+  assert.deepEqual(g.runs, [["quota", "--json"]]);
+  const h = fixture(t); h.online(false);
+  h.accounts(JSON.stringify([{ agent: "codex", user: "a@b.c", active: true, windows: [{ name: "7 days", used: 33 }] }]));
+  assert.deepEqual((await h.service.quotaReports()).map(row => [row.service, row.last]), [["codex", true]]);
+  assert.deepEqual(h.runs, [["quota", "--json"], ["accounts", "--json"]]);
+  // An older gateway without quotas, and a command that answers nothing: no allowance, not an error.
+  const i = fixture(t);
+  assert.deepEqual(await i.service.quotaReports(), []); assert.deepEqual(i.runs, [["quota", "--json"], ["accounts", "--json"]]);
 });
 
 test("Magpie is one more quota source, after the agents' own sign-ins", async () => {
@@ -170,6 +212,44 @@ test("Magpie is one more quota source, after the agents' own sign-ins", async ()
     codex: async () => { throw new Error("none"); }, readClaudeToken: async () => null, readCodexSignIn: async () => null,
     readProviderQuotas: async () => [], readOpenCodex: async () => [], readMagpie: async () => { throw new Error("must not run"); } });
   assert.equal((await off.read()).sources.magpie.enabled, false);
+});
+
+test("every Magpie account shows: all of a service's when Magpie is its source, else those provably not the account already shown", async () => {
+  const jwt = claims => `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+  const token = jwt({ exp: 4102444800, "https://api.openai.com/auth": { chatgpt_account_id: "acct-native" }, "https://api.openai.com/profile": { email: "Me@Example.com" } });
+  const mine = accountKey("codex", "me@example.com", "email"), other = accountKey("codex", "other@example.com", "email");
+  const magpie = [
+    { service: "codex", kind: "subscription", label: "Codex", plan: "pro", windows: [{ windowDurationMins: 10080, usedPercent: 46, resetsAt: null }], readAt: 1000, accountKey: mine, last: true },
+    { service: "codex", kind: "subscription", label: "Codex", plan: "plus", alias: "Spare", windows: [{ windowDurationMins: 10080, usedPercent: 80, resetsAt: null }], readAt: 1000, accountKey: other },
+    { service: "antigravity", kind: "subscription", label: "Antigravity", plan: "Antigravity Starter Quota", windows: [{ label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, usedPercent: 100, resetsAt: null }], readAt: 1000, accountKey: "v1:" + "a".repeat(64) },
+    { service: "minimax", kind: "plan", label: "MiniMax", windows: [{ label: "5 hours", windowDurationMins: 300, bucket: null, usedPercent: 0, resetsAt: null }], readAt: null, accountKey: null },
+    { service: "deepseek", kind: "balance", label: "DeepSeek", windows: [], balance: "$12.50", readAt: null, accountKey: null },
+  ];
+  const make = (options = {}) => createWorkspaceUsage({ home: "/synthetic", now: () => 1000,
+    codex: async () => { throw new Error("no app-server"); }, readClaudeToken: async () => null,
+    readCodexSignIn: async () => ({ type: "oauth", secret: token, accountId: "acct-native", expiresAt: null }),
+    fetchImpl: async () => ({ ok: true, json: async () => ({ rate_limit: { primary_window: { used_percent: 12, limit_window_seconds: 604800 } } }) }),
+    readProviderQuotas: async () => [], readOpenCodex: async () => [], readMagpie: async () => magpie, ...options });
+  const result = await make().read({ full: true });
+  const codex = result.providers.filter(row => row.service === "codex");
+  assert.deepEqual(codex.map(row => [row.sourceId, row.plan ?? null, row.alias ?? null, row.windows[0].usedPercent]), [["agents", null, null, 12], ["magpie", "plus", "Spare", 80]],
+    "the account Codex itself is signed in to is read once, through that sign-in; Magpie's other account follows");
+  assert.deepEqual(codex[0].accountAliases, [mine]);
+  assert.deepEqual(result.providers.filter(row => !["codex", "claude"].includes(row.service)).map(row => [row.service, row.sourceId, row.status, row.kind, row.balance ?? null, row.windows.map(w => w.windowDurationMins ?? w.label)]),
+    [["antigravity", "magpie", "ready", "subscription", null, ["Claude Opus 5.5 (High)"]], ["minimax", "magpie", "ready", "plan", null, [300]], ["deepseek", "magpie", "ready", "balance", "$12.50", []]]);
+  assert.deepEqual(result.providers.find(row => row.service === "antigravity").windows[0].label, "Claude Opus 5.5 (High)");
+  assert.deepEqual(result.sources.magpie.services.map(row => [row.service, row.plan ?? row.kind]),
+    [["codex", "pro"], ["codex", "plus"], ["antigravity", "Antigravity Starter Quota"], ["minimax", "plan"], ["deepseek", "balance"]]);
+  assert.ok(!JSON.stringify(result).includes("example.com"));
+  // Preferred for the service, Magpie shows every account of it, the one it served last first.
+  const preferred = await make({ readConfig: async () => ({ prefer: { codex: "magpie" } }) }).read({ full: true });
+  assert.deepEqual(preferred.providers.filter(row => row.service === "codex").map(row => [row.sourceId, row.plan]), [["magpie", "pro"], ["magpie", "plus"]]);
+  // A sign-in whose account cannot be told (no email in its token) never shows a Magpie account twice.
+  const anonymous = await make({ readCodexSignIn: async () => ({ type: "oauth", secret: jwt({ exp: 4102444800 }), accountId: null, expiresAt: null }) }).read({ full: true });
+  assert.deepEqual(anonymous.providers.filter(row => row.service === "codex").map(row => row.sourceId), ["agents"]);
+  // Magpie off: its accounts, plans and balances are gone, the sign-in stays.
+  const off = await make({ readConfig: async () => ({ sources: { magpie: false } }) }).read({ full: true });
+  assert.deepEqual(off.providers.map(row => row.service), ["codex", "claude"]);
 });
 
 test("OpenCodex no longer claims Codex or Claude routes that go to Magpie", async t => {

@@ -74,6 +74,10 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(analyticsRequests.length, 0, "opening limits does not scan usage histories");
       assert.equal(await sheet.locator(".usage-quota-card").count(), 2);
       assert.equal(await sheet.locator(".usage-quota-card").filter({ hasText: "Codex" }).getByRole("progressbar").getAttribute("aria-valuenow"), "72");
+      // An account's plan names it under the service; a window for one model names the model.
+      const claudeCard = sheet.locator(".usage-quota-card").filter({ hasText: "Claude" });
+      assert.match(await claudeCard.locator(".usage-quota-identity small").innerText(), /^max · /, "the plan comes before the Host's name");
+      assert.deepEqual(await claudeCard.locator(".usage-quota-line > span").allInnerTexts(), ["7d", "Fable · 7d"]);
       const [sheetBox, capsuleBox, sidebarBox, listBox] = await Promise.all([sheet, page.locator("#workspace-usage"), page.locator("#workspace-sidebar"), page.locator("#workspace-projects")].map(item => item.boundingBox()));
       assert.ok(Math.abs(sheetBox.y + sheetBox.height - capsuleBox.y - capsuleBox.height) <= 1 && sheetBox.x >= sidebarBox.x && sheetBox.x + sheetBox.width <= sidebarBox.x + sidebarBox.width
         && sheetBox.y >= listBox.y && sheetBox.height > capsuleBox.height, "it rises from the capsule and stays over the list " + JSON.stringify({ sheetBox, capsuleBox, listBox }));

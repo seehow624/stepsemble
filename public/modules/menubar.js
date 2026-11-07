@@ -88,7 +88,8 @@
   function render() {
     $("limits").replaceChildren();
     for (const provider of quotas) {
-      const row=node("div","","quota"), name=node("span",provider.label || provider.provider || provider.id,"quota-name"), windows=node("div","","windows"); const heading=node("div","","quota-heading");heading.append(name);row.append(heading,windows);
+      const title=provider.label || provider.provider || provider.id, detail=provider.alias || provider.plan || "";
+      const row=node("div","","quota"), name=node("span",detail ? title+" · "+detail : title,"quota-name"), windows=node("div","","windows"); const heading=node("div","","quota-heading");heading.append(name);row.append(heading,windows);
       if (quotas.some(p=>p.hosts?.length>1) || !selected) {
         const hosts=provider.hosts || [], label=hosts.length>1 ? hosts.length+" "+t("hostCount") : hosts[0]?.name || "";
         const badge=node("span",label,"quota-hosts");badge.title=hosts.map(h=>h.name).join(" · ");badge.setAttribute("aria-label",badge.title);heading.append(badge);
@@ -97,7 +98,9 @@
       const visible=available.slice(0,2);
       for (const w of visible) {
         const container=node("div","","window"), title=node("div","","window-top"), pct=D.percent(w,mode), minutes=w.windowDurationMins;
-        const period=!Number.isFinite(minutes)?w.label || "—":minutes===10080?"7"+t("days"):minutes===43200?"30"+t("days"):minutes%60===0?minutes/60+t("hours"):minutes+t("minutes");
+        const span=!Number.isFinite(minutes)?w.label || "—":minutes===10080?"7"+t("days"):minutes===43200?"30"+t("days"):minutes%60===0?minutes/60+t("hours"):minutes+t("minutes");
+        const bucket=w.bucket && ![provider.provider,provider.service].some(v=>String(v||"").toLowerCase()===String(w.bucket).toLowerCase()) ? w.bucket : "";
+        const period=bucket ? bucket+" · "+span : span;
         title.append(node("span",period),node("span",resetLabel(w.resetsAt),"reset"),node("strong",pct+"%"));
         const bar=node("div","","bar"+(D.percent(w)<=10?" low":"")), fill=node("span");fill.style.width=pct+"%";bar.append(fill);
         container.title=[provider.label || provider.provider || provider.id,period,pct+"% "+t(mode),resetLabel(w.resetsAt)].join(" · ");

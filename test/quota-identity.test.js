@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test"), assert = require("node:assert/strict"), crypto = require("node:crypto");
 const fs = require("node:fs/promises"), os = require("node:os"), path = require("node:path");
-const { accountKey, boundAnthropicKey, createClaudeIdentityReader } = require("../server/quota-identity");
+const { accountKey, boundAnthropicKey, createClaudeIdentityReader, createClaudeProfileReader, chatgptAliases } = require("../server/quota-identity");
 const { createWorkspaceUsage, opencodexQuotas, claudeCache, claudeWindows } = require("../server/workspace-usage");
 const { combineQuotas } = require("../public/modules/usage-data");
 test("quota comparison keys hide identities and isolate providers and credential kinds", () => {
@@ -24,6 +24,27 @@ test("Claude profile identity follows the exact bearer and is cached without exp
   const proof = { v: 1, accountUuid: "a", bearerSha256: crypto.createHash("sha256").update("old").digest("hex") };
   assert.equal(boundAnthropicKey({ access: "old", anthropicIdentity: proof }), a);
   assert.equal(boundAnthropicKey({ access: "new", anthropicIdentity: proof }), null);
+});
+test("the Claude profile also names the account's email alias opaquely, never the email or UUID", async () => {
+  const read = createClaudeProfileReader({ fetchImpl: async () => ({ ok: true, json: async () => ({ account: { uuid: "a", email: " Person@Example.com " } }) }) });
+  const value = await read("token");
+  assert.equal(value.accountKey, accountKey("claude", "a")); assert.deepEqual(value.accountAliases, [accountKey("claude", "person@example.com", "email")]);
+  assert.ok(!JSON.stringify(value).includes("example.com"));
+  assert.deepEqual((await createClaudeProfileReader({ fetchImpl: async () => ({ ok: true, json: async () => ({ account: { uuid: "a" } }) }) })("t")).accountAliases, []);
+  assert.deepEqual(await createClaudeProfileReader({ fetchImpl: async () => { throw Error("offline"); } })("t"), { accountKey: null, accountAliases: [] });
+  assert.deepEqual(await read(""), { accountKey: null, accountAliases: [] });
+});
+test("a ChatGPT sign-in's email alias merges Magpie's reading of the same Codex account; an alias binds within its service only", () => {
+  const [alias] = chatgptAliases({ "https://api.openai.com/profile": { email: " Me@Example.com " } });
+  assert.equal(alias, accountKey("codex", "me@example.com", "email"));
+  assert.deepEqual(chatgptAliases({ "https://api.openai.com/profile": { email: "not-an-email" } }), []); assert.deepEqual(chatgptAliases(null), []);
+  const codex = (id, key, extra) => ({ host: id, name: id, quota: { updatedAt: 1, providers: [{ service: "codex", provider: "Codex", accountKey: key, status: "ready", windows: [{ usedPercent: 10, windowDurationMins: 10080 }], ...extra }] } });
+  const native = codex("mini", accountKey("codex", "acct"), { source: "native", accountAliases: [alias], sampledAt: 5 });
+  const magpie = codex("mbp", alias, { source: "magpie", sampledAt: 6 });
+  assert.equal(combineQuotas([native, magpie]).length, 1); assert.equal(combineQuotas([native, magpie])[0].accountKey, accountKey("codex", "acct"));
+  const claude = { ...magpie, quota: { updatedAt: 1, providers: [{ ...magpie.quota.providers[0], service: "claude", provider: "Claude" }] } };
+  assert.equal(combineQuotas([native, claude]).length, 2);
+  assert.ok(!JSON.stringify([native, magpie]).includes("example.com"));
 });
 const host = (id, identity, used, at = 1, extra = {}) => ({ host: id, name: id, quota: { updatedAt: at, providers: [{
   service: "claude", provider: "Claude", accountKey: identity, status: "ready", windows: [{ usedPercent: used }], ...extra,
@@ -149,10 +170,12 @@ test("conflicting UUID aliases, unverified claims and unknown CLI identities nev
   const conflicting = host("other", b, 20, 8, { source: "native", accountAliases: [alias], status: "cached" });
   assert.equal(combineQuotas([native(), conflicting, magpie]).length, 3, "two UUID claimants make the alias ambiguous");
   assert.equal(combineQuotas([native(), host("same-uuid", a, 20, 8, { source: "native", accountAliases: [alias] }), magpie]).length, 1);
-  for (const extra of [{ accountKey: null }, { source: "magpie" }, { source: "signin" }, { accountAliases: ["invalid"] },
+  for (const extra of [{ accountKey: null }, { source: "magpie" }, { source: "opencodex" }, { accountAliases: ["invalid"] },
     { accountAliases: [alias, "v1:" + "c".repeat(64)] }, { windows: [] }, { status: "unavailable" }]) {
     assert.equal(combineQuotas([native(extra), magpie]).length, 2);
   }
+  // The account's own sign-in through Pi reads the same official profile and attests the same alias.
+  assert.equal(combineQuotas([native({ source: "signin" }), magpie]).length, 1);
   const anonymous = host("cli-cache", null, 20, 1, { source: "native", status: "cached", accountAliases: [alias] });
   assert.equal(combineQuotas([native(), magpie, anonymous]).length, 2, "anonymous cache remains unbound even alongside verified evidence");
 });

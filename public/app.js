@@ -15777,7 +15777,9 @@ function renderQuotaSources() {
         const line = document.createElement("div");
         line.className = "quota-source-provider";
         const label = document.createElement("span");
-        label.textContent = row.label; label.dataset.i18nIgnore = "";
+        // Which account of the service: its own name, its plan, or a key's plan or balance.
+        const detail = row.alias || row.plan || (row.kind === "plan" ? tKey("quotaSources.keyPlan") : row.kind === "balance" ? tKey("quotaSources.keyBalance") : "");
+        label.textContent = detail ? row.label + " · " + detail : row.label; label.dataset.i18nIgnore = "";
         if (active.get(row.id) === source.id) {
           const tag = document.createElement("em");
           tag.className = "quota-source-inuse";
@@ -15786,7 +15788,10 @@ function renderQuotaSources() {
         }
         const windows = document.createElement("span");
         windows.className = "quota-source-windows";
-        const parts = (row.windows || []).map(window => (quotaWindowLabel(window) + " " + tKey("quotaSources.left", { percent: quotaWindowRemaining(window) })).trim());
+        // A window for one model names it; a bucket that is the service itself is not repeated.
+        const own = name => [row.id, row.label].some(value => String(value || "").toLowerCase() === String(name).toLowerCase());
+        const parts = (row.windows || []).map(window => ([window.bucket && !own(window.bucket) ? window.bucket : "", quotaWindowLabel(window), tKey("quotaSources.left", { percent: quotaWindowRemaining(window) })].filter(Boolean).join(" ")).trim());
+        if (row.balance) parts.push(tKey("quotaSources.balanceLeft", { amount: row.balance }));
         windows.textContent = parts.length ? parts.join(" · ") : tKey("quotaSources.noReading");
         line.append(label, windows);
         card.appendChild(line);
