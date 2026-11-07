@@ -30,7 +30,8 @@ launchd 服務與自動更新。若沒有 Pi Agent，會先詢問是否透過 Pi
 選擇略過也能正常使用其他已安裝的 agent connector。
 
 安裝程式會用這台 Mac 自己產生的憑證簽章 Stepsemble.app，放進 `~/Applications`。
-在這台 Mac 上打開它就是 Workspace，會自動登入，也有 Mac 的選單、視窗和快捷鍵；
+在這台 Mac 上打開它就是 Workspace，會自動登入，也有 Mac 的選單、視窗和快捷鍵
+（「Stepsemble」選單裡的「設定⋯」會在 Workspace 上打開設定，快捷鍵是 ⌘,）；
 視窗和瀏覽器一樣沒有標題列，分頁列就在最上方、紅黃綠按鈕旁邊，拖動分頁列的空白處
 就能移動視窗。手機和其他電腦照樣用瀏覽器。App 也負責啟動 Stepsemble，所以 macOS 只會針對
 Stepsemble 詢問一次能否使用文件、桌面、下載項目、iCloud 雲碟和其他磁碟，之後
@@ -108,6 +109,8 @@ cat ~/.config/stepsemble/token
 OpenCodex 連接了 Pi 時，主機每 5 分鐘、以及每次打開模型選單時，會比對 OpenCodex 提供的模型和 Pi `models.json` 裡 OpenCodex 那一段。兩邊不一樣，就執行 OpenCodex 自己的 `opencodex integration client enable --client pi`，只重寫那一段（OpenCodex 會先存快照）。所以 OpenCodex 新加的模型不必等它重開，就會出現在 Pi 的選單。Stepsemble 不會自己改那一段，也不讀 OpenCodex 的憑證。
 
 主機裝有 [Magpie](https://usemagpie.ai)（gateway 在 127.0.0.1:3425）時，Codex 和 Claude Code 的頁面會顯示各自是否經由它。Codex 的切換會執行 Magpie 自己的 `magpie codex` 指令；Claude Code 的切換會讓 Stepsemble 開始的對話經由 Magpie，就能選用 Magpie 的所有模型，Claude 自己的模型仍走訂閱。作為額度來源時，主機每隔幾分鐘讀一次 gateway 的 `GET /v1/magpie/quotas`（gateway 沒開時改跑 `magpie quota --json`）：Magpie 登入的每個訂閱帳號、用金鑰買的方案和金鑰餘額各一張卡。每張卡在服務名稱旁邊寫出帳號的方案（Claude 自己的名稱如「Ultra」、ChatGPT 的「Pro Lite」、Antigravity 的「Google AI Pro」），在 Magpie 取的名字寫在下面；卡片不寫是哪台電腦讀的，同一個帳號、或兩台電腦用的同一把金鑰，在「所有 Host」裡只有一張。每個額度一列（名稱、長條、百分比、何時重置），所有卡片的列上下對齊；Claude 的卡片也會列出它另外限制的模型週額度（「Fable」）。Antigravity 依額度池分組，每個池子列出 5 小時與每週，池子旁寫出用這個池子的模型；已用完的額度寫出幾時恢復。Magpie 每幾分鐘讀一次帳號，十分鐘內的讀數都算即時；按「重新整理」會請 Magpie 立刻重讀。轉送屬於它指向的那個 gateway：OpenCodex 不會把指向 Magpie 的轉送當成自己的；OpenCodex 關掉且沒有 Agent 經由它時，它的卡片也不會出現。
+
+⌘,（Linux、Windows 是 Ctrl+,）在 Workspace 任何地方都能打開設定，對話裡也可以；前面有對話框時不動作。
 
 **Settings → Notifications** 為目前這台設備開啟推播。Agent 完成、失敗或被停止，而該對話沒有在任何畫面開著時，就會收到通知。**Settings → About** 顯示 Stepsemble 版本；各 Agent 的版本在 **Settings → Updates**。暫存資料夾裡的 Sub Agent 對話預設隱藏，可在「其他 App 的歷史」打開顯示。
 

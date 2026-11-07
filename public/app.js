@@ -1,7 +1,7 @@
-/* stepsemble v3.10.15 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.10.16 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.10.15";
+const CLIENT_APP_VERSION = "3.10.16";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -20545,6 +20545,14 @@ function closeTopmostLayer() {
 }
 
 document.addEventListener("keydown", (event) => {
+  // ⌘, (Ctrl+, elsewhere) opens Settings: a conversation asks its Workspace
+  // to open them over the panes. In Settings, and on the sign-in page before
+  // there are any, the keys do nothing, not the browser's own settings.
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && !event.isComposing && event.key === ",") {
+    event.preventDefault();
+    if (WORKSPACE_PANE && PAGE_EMBEDDED) parent.postMessage({ type: "workspace-open-settings" }, location.origin);
+    return;
+  }
   if (openFocusedHostFile(event)) return;
   // Single-key shortcuts, Gmail-style: they only fire from the list view with
   // no text field, palette, guide, or dialog in front.

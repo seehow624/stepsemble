@@ -72,7 +72,8 @@ The installer:
 - creates a local Web token at `~/.config/stepsemble/token`, a launchd service, and an hourly stable-release updater;
 - signs Stepsemble.app for this Mac and installs it in `~/Applications`. The app
   is the Workspace on this Mac: open it and it signs in by itself, with the
-  usual Mac menus, windows and shortcuts. Like a browser, its window has no
+  usual Mac menus, windows and shortcuts (**Stepsemble → Settings…** opens
+  Settings over the Workspace; its shortcut is ⌘,). Like a browser, its window has no
   title bar: the tab strips reach the top, beside the window's buttons, and
   their empty space moves the window. It also starts the Host, so macOS
   asks once whether Stepsemble may use Documents, Desktop, Downloads, iCloud
@@ -280,6 +281,9 @@ never the same account twice. A route belongs to the
 gateway it points at: OpenCodex never claims a
 route that goes to Magpie, and its cards step aside while it is off and nothing
 goes through it.
+
+⌘, (Ctrl+, on Linux and Windows) opens Settings from anywhere in the
+Workspace, a conversation included; a dialog in front keeps the keys.
 
 **Settings → Notifications** turns on push alerts for the device you are using.
 An alert arrives when an agent finishes, fails or is stopped while that

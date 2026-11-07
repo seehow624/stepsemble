@@ -105,6 +105,36 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       const settingsFrame = page.locator("iframe.workspace-settings-frame"); await settingsFrame.waitFor();
       assert.equal(new URL(await settingsFrame.getAttribute("src")).searchParams.get("section"), null, "Settings open at their start");
       await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settingsFrame.waitFor({ state: "detached" });
+      stage = "⌘, and the Mac app's Settings… open Settings in place of the sheet";
+      await openLimits(); await page.keyboard.press("ControlOrMeta+Comma"); await sheetGone(); await settingsFrame.waitFor();
+      const shownSettings = page.frameLocator("iframe.workspace-settings-frame").locator("#view-settings"); await shownSettings.waitFor();
+      // In Settings the keys do nothing more: one layer, and the browser's own settings stay shut.
+      assert.equal(await shownSettings.evaluate(view => { const event = new KeyboardEvent("keydown", { key: ",", metaKey: true, bubbles: true, cancelable: true }); view.dispatchEvent(event); return event.defaultPrevented; }), true);
+      await shownSettings.press("ControlOrMeta+Comma"); await settled();
+      assert.equal(await settingsFrame.count(), 1); assert.equal(new URL(page.url()).pathname, "/workspace.html");
+      await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settingsFrame.waitFor({ state: "detached" });
+      await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-open-settings"))); await settingsFrame.waitFor();
+      await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settingsFrame.waitFor({ state: "detached" });
+      // A dialog in front keeps the keys, as it does for switching tabs.
+      await page.evaluate(() => document.getElementById("workspace-dialog").showModal());
+      await page.keyboard.press("ControlOrMeta+Comma"); await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-open-settings"))); await settled();
+      assert.equal(await settingsFrame.count(), 0, "no Settings beneath a dialog");
+      await page.evaluate(() => document.getElementById("workspace-dialog").close());
+      // Asked for before the Workspace knows its Host (the app's new window), Settings open once it does.
+      {
+        const early = await context.newPage(), earlyErrors = [];
+        early.on("pageerror", error => earlyErrors.push(error.message));
+        let asked = false;
+        await early.route("**/api/machines", async route => {
+          if (!asked) { asked = true; await early.evaluate(() => window.dispatchEvent(new Event("stepsemble-open-settings"))); }
+          await route.continue();
+        });
+        await early.goto(fixture.origin + "/workspace.html?host=mini");
+        await early.locator("iframe.workspace-settings-frame").waitFor();
+        assert.equal(asked, true); assert.equal(await early.locator("iframe.workspace-settings-frame").count(), 1);
+        assert.deepEqual(earlyErrors, []);
+        await early.close();
+      }
       await openLimits();
       stage = "the sheet goes when left";
       await page.mouse.click(sidebarBox.x + 4, sidebarBox.y + 4); await sheetGone();

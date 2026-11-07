@@ -1857,6 +1857,17 @@ export async function runConversationUxBrowserCases(browser, options = {}) {
       assert.equal(page.url().includes("/workspace.html"), true);
       assert.equal(await page.evaluate(() => document.querySelector("#workspace-main").inert), false);
       assert.equal(await ui.evaluate(() => window.__paneKept === true), true, "the conversation pane was not reloaded");
+      if (!viewport.mobile) {
+        stage = "⌘, in a conversation opens Settings over the Workspace";
+        const draft = await ui.locator("#input").inputValue();
+        await ui.locator("#input").press("ControlOrMeta+Comma");
+        await page.waitForSelector(".workspace-settings-layer iframe", { timeout: 5000 });
+        assert.equal(await ui.locator("#input").inputValue(), draft, "the keys type nothing");
+        assert.equal(context.pages().length, pagesBefore, "no second window");
+        await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab")));
+        await page.waitForFunction(() => !document.querySelector(".workspace-settings-layer"), null, { timeout: 5000 });
+        assert.equal(await ui.evaluate(() => window.__paneKept === true), true, "the conversation pane was not reloaded");
+      }
       out.settings = "same window";
 
       stage = "The Mac app's window keeps every control clear of its buttons and of the strip that moves it";
