@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.10.12
+
+### Limits
+
+- Antigravity's card is compact: it shows its two pools closest to running out, one figure each ("Claude & GPT · 7d", "Gemini · 5h"), and folds its other pool windows and its models' own under **More limits** (formerly Per-model limits). Settings → Quota sources lists the same two and counts the rest. An account with only per-model windows shows its two tightest.
+
+### Workspace
+
+- After the Host updates itself in the background, an open Workspace loads again when the Host is back or the window is shown again, so its list, sidebar strip and Limits use the new version instead of the page loaded before the update. While a conversation is working it waits until none is. Before, only the conversation panes reloaded.
+
 ## 3.10.11
 
 ### Limits
