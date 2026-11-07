@@ -253,8 +253,8 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
     readProviderQuotas: async () => [], readOpenCodex: async () => [], readMagpie: async () => magpie, ...options });
   const result = await make().read({ full: true });
   const codex = result.providers.filter(row => row.service === "codex");
-  assert.deepEqual(codex.map(row => [row.sourceId, row.plan ?? null, row.alias ?? null, row.windows[0].usedPercent]), [["agents", null, null, 12], ["magpie", "plus", "Spare", 80]],
-    "the account Codex itself is signed in to is read once, through that sign-in; Magpie's other account follows");
+  assert.deepEqual(codex.map(row => [row.sourceId, row.plan ?? null, row.alias ?? null, row.windows[0].usedPercent]), [["agents", "Pro", null, 12], ["magpie", "Plus", "Spare", 80]],
+    "the account Codex itself is signed in to is read once, through that sign-in, with the plan Magpie names it by; Magpie's other account follows");
   assert.deepEqual(codex[0].accountAliases, [mine]);
   assert.deepEqual(result.providers.filter(row => !["codex", "claude"].includes(row.service)).map(row => [row.service, row.sourceId, row.status, row.kind, row.balance ?? null, row.windows.map(w => w.windowDurationMins ?? w.label)]),
     [["antigravity", "magpie", "ready", "subscription", null, [10080, "Claude Opus 5.5 (High)"]], ["minimax", "magpie", "ready", "plan", null, [300]], ["deepseek", "magpie", "ready", "balance", "$12.50", []]]);
@@ -262,16 +262,17 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
     "a pool's window and a window for one model stay marked so");
   // Settings tells which readings Limits shows: Magpie's reading of the account Codex is signed in to is not.
   assert.deepEqual(result.sources.magpie.services.map(row => [row.service, row.plan ?? row.kind, row.inUse]),
-    [["codex", "pro", false], ["codex", "plus", true], ["antigravity", "Antigravity Starter Quota", true], ["minimax", "plan", true], ["deepseek", "balance", true]]);
+    [["codex", "Pro", false], ["codex", "Plus", true], ["antigravity", "Antigravity Starter Quota", true], ["minimax", "plan", true], ["deepseek", "balance", true]]);
   assert.deepEqual(result.sources.agents.services.map(row => [row.service, row.inUse]), [["codex", true]]);
   assert.ok(!JSON.stringify(result).includes("example.com"));
   // Preferred for the service, Magpie shows every account of it, the one it served last first.
   const preferred = await make({ readConfig: async () => ({ prefer: { codex: "magpie" } }) }).read({ full: true });
-  assert.deepEqual(preferred.providers.filter(row => row.service === "codex").map(row => [row.sourceId, row.plan]), [["magpie", "pro"], ["magpie", "plus"]]);
+  assert.deepEqual(preferred.providers.filter(row => row.service === "codex").map(row => [row.sourceId, row.plan]), [["magpie", "Pro"], ["magpie", "Plus"]]);
   // A sign-in whose account cannot be told never shows a Magpie account twice: neither an
   // anonymous one, nor one with its own account id but no email to compare with Magpie's.
   const anonymous = await make({ readCodexSignIn: async () => ({ type: "oauth", secret: jwt({ exp: 4102444800 }), accountId: null, expiresAt: null }) }).read({ full: true });
-  assert.deepEqual(anonymous.providers.filter(row => row.service === "codex").map(row => row.sourceId), ["agents"]);
+  assert.deepEqual(anonymous.providers.filter(row => row.service === "codex").map(row => [row.sourceId, row.plan ?? null]), [["agents", null]],
+    "an account that cannot be told apart takes nothing from Magpie's readings either");
   const unaliased = await make({ readCodexSignIn: async () => ({ type: "oauth", secret: jwt({ exp: 4102444800 }), accountId: "acct-native", expiresAt: null }) }).read({ full: true });
   const unaliasedCodex = unaliased.providers.filter(row => row.service === "codex");
   assert.deepEqual(unaliasedCodex.map(row => row.sourceId), ["agents"]); assert.match(unaliasedCodex[0].accountKey, /^v1:/); assert.equal(unaliasedCodex[0].accountAliases, undefined);

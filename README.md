@@ -259,10 +259,15 @@ choose every Magpie model while Claude's own models stay on the subscription.
 As a quota source, the Host reads the gateway's `GET /v1/magpie/quotas` (the
 same answer as `magpie quota --json`, which it runs when the gateway is not up)
 every couple of minutes: every subscription account Magpie is signed in to, every
-plan bought with a key and every key's balance, each as its own card, named by
-its plan or the name given to it in Magpie. As in Magpie's menu bar, an
-account's own windows are what stop it, and a window for one model stays beside
-them ("Fable · 7d"). An account with none of its own (Antigravity) shows its
+plan bought with a key and every key's balance, each as its own card. Every
+card names the account's plan beside its service (Claude's own name for it,
+such as "Ultra"; ChatGPT's "Pro Lite"; "Google AI Pro" for Antigravity), with
+the name given to it in Magpie under it; a key's plan or balance without a
+plan's name says so. Cards do not name the computers that read them: one
+account, or one key used on two computers, is one card under **All Hosts**.
+As in Magpie's menu bar, an account's own windows are what stop it, and a
+window for one model stays beside them: Claude's card shows the week of each
+model Claude limits apart ("Fable · 7d"). An account with none of its own (Antigravity) shows its
 two pools closest to running out ("Claude & GPT · 7d", "Gemini · 5h"); its
 other pool and model windows fold under **More limits**. A service that another source
 already reads through its own sign-in shows Magpie's other accounts next to it,

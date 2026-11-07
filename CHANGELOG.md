@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.10.14
+
+### Limits
+
+- Every card names the account's plan beside its service, as its vendor names it: Claude's own name for the plan (such as "Ultra", from Claude's profile or Claude Code's record of the account it is signed in to), ChatGPT's plan as Codex reports it ("Pro Lite"), and Magpie's for its accounts ("Google AI Pro" for Antigravity, from Magpie 0.1.3233). A key's plan or balance without a plan's name says so. An account's own name in Magpie, when it has one, sits under it. The menu bar panel, the sidebar's hover tip and Settings → Quota sources name accounts the same way.
+- Cards and the menu bar panel no longer name the computers that read an account. Under All Hosts one account is one card, and so is a key used on two computers: a plan or balance bought with a key is told apart by the fingerprint Magpie keeps for that key (never the key itself), so the same MiniMax key read on two Macs is one card instead of two.
+- Claude's card shows the week of each model Claude limits apart ("Fable · 7d"), as Claude's usage reports it. On a Mac whose desktop helper predates this, it comes from Magpie's reading of the same account, else from Claude Code's own reading of the last half hour.
+
 ## 3.10.13
 
 ### Agent updates

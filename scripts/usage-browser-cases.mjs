@@ -74,9 +74,15 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(analyticsRequests.length, 0, "opening limits does not scan usage histories");
       assert.equal(await sheet.locator(".usage-quota-card").count(), 2);
       assert.equal(await sheet.locator(".usage-quota-card").filter({ hasText: "Codex" }).getByRole("progressbar").getAttribute("aria-valuenow"), "72");
-      // An account's plan names it under the service; a window for one model names the model.
+      // An account's plan sits beside the service, in words; a window for one
+      // model names the model. Which computer read it is not shown.
       const claudeCard = sheet.locator(".usage-quota-card").filter({ hasText: "Claude" });
-      assert.match(await claudeCard.locator(".usage-quota-identity small").innerText(), /^max · /, "the plan comes before the Host's name");
+      assert.equal(await claudeCard.locator(".usage-quota-plan").innerText(), "Max");
+      const [nameBox, planBox] = await Promise.all([claudeCard.locator(".usage-quota-title strong").boundingBox(), claudeCard.locator(".usage-quota-plan").boundingBox()]);
+      assert.ok(planBox.x >= nameBox.x + nameBox.width && Math.abs(planBox.y + planBox.height / 2 - (nameBox.y + nameBox.height / 2)) < 6,
+        "the plan is beside the service's name " + JSON.stringify({ nameBox, planBox }));
+      assert.equal(await claudeCard.locator(".usage-quota-identity small").count(), 0);
+      assert.doesNotMatch(await sheet.locator(".usage-quota-grid").innerText(), /Mac Mini|MacBook Pro|This Mac/, "no card names a computer");
       assert.deepEqual(await claudeCard.locator(".usage-quota-line > span").allInnerTexts(), ["7d", "Fable · 7d"]);
       const [sheetBox, capsuleBox, sidebarBox, listBox] = await Promise.all([sheet, page.locator("#workspace-usage"), page.locator("#workspace-sidebar"), page.locator("#workspace-projects")].map(item => item.boundingBox()));
       assert.ok(Math.abs(sheetBox.y + sheetBox.height - capsuleBox.y - capsuleBox.height) <= 1 && sheetBox.x >= sidebarBox.x && sheetBox.x + sheetBox.width <= sidebarBox.x + sidebarBox.width
@@ -441,7 +447,8 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     fixture.setQuotas({ mini: { updatedAt: 1, providers: [provider(20, 1)] }, mbp: { updatedAt: 2, providers: [provider(22, 2)] } });
     await page.locator("#refresh").click(); await ready();
     assert.equal(await page.locator(".quota").count(), 1, "one shared account");
-    assert.equal(await page.locator(".quota-hosts").getAttribute("title"), "Mac Mini · MacBook Pro");
+    assert.equal(await page.locator(".quota-hosts").count(), 0, "which computers read an account is not shown");
+    assert.doesNotMatch(await page.locator("#limits").innerText(), /Mac Mini|MacBook Pro/);
     assert.match(await page.locator("#limits").innerText(), /22%/);
     assert.equal(await page.locator("#data-details").isVisible(), true);
     assert.equal(await page.locator("#data-details-text").isVisible(), false);
@@ -459,7 +466,7 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     assert.equal(await full.locator(".usage-sheet select[data-filter=host]").inputValue(), "");
     await full.locator("[data-overview-tab=limits]").click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 1);
-    assert.match(await full.locator(".usage-quota-card").innerText(), /Mac Mini · MacBook Pro/);
+    assert.doesNotMatch(await full.locator(".usage-quota-card").innerText(), /Mac Mini|MacBook Pro/, "one account is one card, without its computers");
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-shared-account.png") });
     // Claude's native UUID and Magpie's email key merge only through the
     // official profile's verified opaque alias, never matching percentages.
@@ -475,7 +482,7 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.locator(".usage-sheet").getByRole("button", { name: "Refresh", exact: true }).click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true");
     assert.equal(await full.locator(".usage-quota-card").count(), 1);
-    assert.match(await full.locator(".usage-quota-card").innerText(), /Claude[\s\S]*Mac Mini · MacBook Pro/);
+    assert.match(await full.locator(".usage-quota-card").innerText(), /Claude/); assert.doesNotMatch(await full.locator(".usage-quota-card").innerText(), /Mac Mini|MacBook Pro/);
     assert.match(await full.locator(".usage-quota-card").innerText(), /24%/);
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-claude-verified-account.png") });
     fixture.setQuotas({ mini: { updatedAt: sampled, providers: [claude(uuid, "native", 24, sampled, [email]),
@@ -502,7 +509,7 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
       mbp: { updatedAt: sampled, providers: [] } });
     await page.locator("#refresh").click(); await ready();
     const menuLimits = await page.locator("#limits").innerText();
-    assert.match(menuLimits, /Claude · max/); assert.match(menuLimits, /DeepSeek · Key balance[\s\S]*\$12\.50 left/);
+    assert.match(menuLimits, /Claude · Max/); assert.match(menuLimits, /DeepSeek · Key balance[\s\S]*\$12\.50 left/);
     assert.match(menuLimits, /Antigravity · Antigravity Starter Quota[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h/);
     assert.doesNotMatch(menuLimits, /Fable|Claude Opus|Argon/, "the menu bar shows the accounts' own windows, and Antigravity's two tightest pools");
     await full.reload();
@@ -515,7 +522,8 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.locator("[data-overview-tab=limits]").click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 3);
     const limitCards = await full.locator(".usage-quota-card").allInnerTexts();
-    assert.match(limitCards[0], /Claude[\s\S]*max · Mac Mini[\s\S]*Fable · 7d/); assert.match(limitCards[2], /DeepSeek[\s\S]*Key balance · Mac Mini[\s\S]*\$12\.50 left/);
+    assert.match(limitCards[0], /Claude\s*Max[\s\S]*Fable · 7d/); assert.match(limitCards[2], /DeepSeek\s*Key balance[\s\S]*\$12\.50 left/);
+    assert.match(limitCards[1], /Antigravity\s*Antigravity Starter Quota/); assert.doesNotMatch(limitCards.join("\n"), /Mac Mini|MacBook Pro/);
     assert.match(limitCards[1], /Antigravity[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h[\s\S]*More limits \(5\)/); assert.doesNotMatch(limitCards[1], /Claude Opus|Argon|Gemini · 7d/);
     assert.equal(await full.locator(".usage-quota-card").nth(1).locator(":scope > .usage-quota-windows > .usage-quota-window").count(), 2, "two pools on the card; the rest are folded");
     const models = full.locator(".usage-quota-card").nth(1).locator(".usage-quota-models");

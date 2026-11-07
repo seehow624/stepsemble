@@ -31,8 +31,8 @@ test("the Claude profile also names the account's email alias opaquely, never th
   assert.equal(value.accountKey, accountKey("claude", "a")); assert.deepEqual(value.accountAliases, [accountKey("claude", "person@example.com", "email")]);
   assert.ok(!JSON.stringify(value).includes("example.com"));
   assert.deepEqual((await createClaudeProfileReader({ fetchImpl: async () => ({ ok: true, json: async () => ({ account: { uuid: "a" } }) }) })("t")).accountAliases, []);
-  assert.deepEqual(await createClaudeProfileReader({ fetchImpl: async () => { throw Error("offline"); } })("t"), { accountKey: null, accountAliases: [] });
-  assert.deepEqual(await read(""), { accountKey: null, accountAliases: [] });
+  assert.deepEqual(await createClaudeProfileReader({ fetchImpl: async () => { throw Error("offline"); } })("t"), { accountKey: null, accountAliases: [], plan: null });
+  assert.deepEqual(await read(""), { accountKey: null, accountAliases: [], plan: null });
 });
 test("a ChatGPT sign-in's email alias merges Magpie's reading of the same Codex account; an alias binds within its service only", () => {
   const [alias] = chatgptAliases({ "https://api.openai.com/profile": { email: " Me@Example.com " } });

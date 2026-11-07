@@ -1,6 +1,7 @@
 "use strict";
 const { normalizeQuotaConfig } = require("./quota-sources");
-const { accountKey, boundAnthropicKey, createClaudeProfileReader, chatgptAliases } = require("./quota-identity");
+const { accountKey, boundAnthropicKey, createClaudeProfileReader, chatgptAliases, chatgptPlan, validClaudePlan } = require("./quota-identity");
+const { planLabel } = require("../public/modules/usage-data");
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { windowUsage, currentWindows, claudeWindows } = require("./quota-windows");
 const { claudeToken, sanitizeClaudeQuota } = require("./claude-quota");
@@ -140,6 +141,11 @@ function codexWindows(data) {
   return buckets.flatMap(([name, b]) => [b?.primary, b?.secondary].map(w => windowUsage(w?.usedPercent, w?.resetsAt,
     `${name} · ${w?.windowDurationMins || "?"} minutes`, w?.windowDurationMins ?? null, name))).filter(Boolean);
 }
+// The plan the app-server names the account's limits by ("prolite").
+function codexPlan(data) {
+  const snapshots = [data?.rateLimits, ...Object.values(data?.rateLimitsByLimitId || {}).slice(0, 32)];
+  return snapshots.map(snapshot => snapshot?.planType).find(plan => typeof plan === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(plan) && plan !== "unknown") || null;
+}
 function jwtPayload(token) {
   const part = typeof token === "string" ? token.split(".")[1] : "";
   if (!part) return null;
@@ -225,6 +231,25 @@ async function claudeCache(home, now) {
     return { windows, observedAt, accountKey: claudeCacheAccount(data?.oauthAccount, observedAt) };
   } catch { return null; }
 }
+// The same file names the plan of the account Claude Code is signed in to
+// ("Ultra", as Claude Code shows it) and keeps that account's last usage,
+// the weeks of the models Claude limits apart ("Fable") among it. A reading
+// of that account from elsewhere takes its plan from here, and the models'
+// weeks while they are recent, when it carries neither itself: a desktop
+// helper installed before 3.10.14 sends only the five hours and the week.
+const CLAUDE_LOCAL_MODELS_MS = 30 * 60 * 1000;
+async function claudeLocal(home) {
+  if (!home) return null;
+  try {
+    const data = JSON.parse(await fs.readFile(path.join(home, ".claude.json"), "utf8"));
+    const account = data?.oauthAccount, uuid = account?.accountUuid;
+    if (typeof uuid !== "string" || !CLAUDE_ACCOUNT_UUID.test(uuid)) return null;
+    const cache = data?.cachedUsageUtilization, observedAt = typeof cache?.fetchedAtMs === "number" ? cache.fetchedAtMs : null;
+    const same = typeof cache?.accountUuid === "string" && cache.accountUuid.toLowerCase() === uuid.toLowerCase();
+    return { accountKey: accountKey("claude", uuid.toLowerCase()), plan: [account.planDisplayName, account.organizationType].find(validClaudePlan) || null,
+      models: same && observedAt !== null ? claudeWindows(cache.utilization).filter(w => w.scope === "model") : [], modelsObservedAt: same ? observedAt : null };
+  } catch { return null; }
+}
 // The management API needs the admin token and the port the service actually
 // bound, both of which live beside the user's opencodex configuration.
 async function opencodexQuotas({ home, fetchImpl = fetch, osHome = os.homedir(), env = process.env } = {}) {
@@ -288,7 +313,7 @@ function asSecondsValue(value) { return typeof value === "number" && Number.isFi
 // `readSignIn(providerId)` returns a Settings sign-in. The server passes one
 // that renews an expiring OAuth token through Pi; the default only reads.
 function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fetchImpl = fetch, readClaudeToken = () => claudeToken(home, allowKeychain),
-  readClaudeCache = () => claudeCache(home, now()), readDesktopClaudeQuota = async () => undefined, readCodexSignIn = () => codexSignIn(home, env),
+  readClaudeCache = () => claudeCache(home, now()), readClaudeLocal = () => claudeLocal(home), readDesktopClaudeQuota = async () => undefined, readCodexSignIn = () => codexSignIn(home, env),
   readSignIn = providerId => storedSignIn(home, providerId),
   readProviderQuotas = () => configuredProviderQuotas({ home, fetchImpl, readSignIn }),
   readOpenCodex = () => opencodexQuotas({ home, fetchImpl }), readConfig = async () => null, readCodexBar = async () => null,
@@ -332,7 +357,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     if (!liveToken(credential, now())) return null;
     try {
       const windows = await chatgptUsage(credential);
-      return windows.length ? identified({ windows, observedAt: null, source }, accountKey("codex", credential.accountId || chatgptAccountId(credential.secret)), chatgptAliases(jwtPayload(credential.secret))) : null;
+      const payload = jwtPayload(credential.secret);
+      return windows.length ? identified({ windows, observedAt: null, source, plan: chatgptPlan(payload) }, accountKey("codex", credential.accountId || chatgptAccountId(credential.secret)), chatgptAliases(payload)) : null;
     } catch { return null; }
   }
   async function claudeTokenReading(read, source) {
@@ -342,7 +368,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       const windows = await claudeUsage(credential.secret);
       if (!windows.length) return null;
       const profile = await readClaudeProfile(credential.secret);
-      return identified({ windows, observedAt: null, source }, profile.accountKey, profile.accountAliases);
+      return identified({ windows, observedAt: null, source, plan: profile.plan || null }, profile.accountKey, profile.accountAliases);
     } catch { return null; }
   }
   // Codex: its own app-server when this release has reviewed the installed
@@ -354,11 +380,12 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       if (sourceId === "pi") return chatgptReading(() => readSignIn("openai-codex"), "signin");
       try {
         const before = await signIn(readCodexSignIn);
-        const windows = codexWindows(await codex());
+        const data = await codex(), windows = codexWindows(data);
         const after = await signIn(readCodexSignIn);
         const same = before?.secret && before.secret === after?.secret;
         const identity = same ? accountKey("codex", before.accountId || chatgptAccountId(before.secret)) : null;
-        if (windows.length) return identified({ windows, observedAt: null, source: "native" }, identity, same ? chatgptAliases(jwtPayload(before.secret)) : []);
+        const payload = same ? jwtPayload(before.secret) : null;
+        if (windows.length) return identified({ windows, observedAt: null, source: "native", plan: codexPlan(data) || chatgptPlan(payload) }, identity, payload ? chatgptAliases(payload) : []);
       } catch {}
       return chatgptReading(readCodexSignIn, "account");
     }
@@ -370,7 +397,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     if (desktop !== undefined) {
       const reading = sanitizeClaudeQuota(desktop);
       return reading?.windows.length ? { windows: reading.windows, observedAt: reading.status === "cached" ? reading.sampledAt : null,
-        sampledAt: reading.sampledAt, accountKey: reading.accountKey, ...(reading.accountAliases ? { accountAliases: reading.accountAliases } : {}), source: "native" } : null;
+        sampledAt: reading.sampledAt, accountKey: reading.accountKey, ...(reading.accountAliases ? { accountAliases: reading.accountAliases } : {}),
+        ...(reading.plan ? { plan: reading.plan } : {}), source: "native" } : null;
     }
     return claudeTokenReading(async () => ({ type: "oauth", secret: await readClaudeToken(), expiresAt: null }), "native");
   }
@@ -464,12 +492,43 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     const label = service => SERVICE_LABELS[service] || labels.get(service) || service;
     const services = ["codex", "claude"];
     for (const id of DEFAULT_ORDER) for (const service of readings[id].keys()) if (!services.includes(service)) services.push(service);
-    // What a Magpie account is besides its windows: a wallet balance, and the
-    // plan, the user's own name or the kind that tells one account from another.
-    const details = reading => Object.fromEntries(["plan", "alias", "kind", "balance"].filter(key => reading?.[key]).map(key => [key, reading[key]]));
+    // What an account is besides its windows: its plan, in words; and for a
+    // Magpie account a wallet balance, the user's own name or the kind that
+    // tells one account from another.
+    const details = reading => {
+      const value = {}, plan = planLabel(reading?.plan);
+      if (plan) value.plan = plan;
+      for (const key of ["alias", "kind", "balance"]) if (reading?.[key]) value[key] = reading[key];
+      return value;
+    };
+    // An account shown from its own sign-in takes what that reading lacks
+    // from another reading of the same account: its plan, and the weeks of
+    // the models it limits apart. Claude Code's file names the account it is
+    // signed in to; Magpie's reading is the same account when the sign-in
+    // attests its email's key (accountAliases). A missing window is only
+    // added, never put in place of one the reading has.
+    let local = null;
+    if (readings.agents.has("claude") || readings.pi.has("claude")) { try { local = await readClaudeLocal(); } catch { local = null; } }
+    const modelsOf = windows => (windows || []).filter(w => w?.scope === "model");
+    function enrich(service, sourceId, reading) {
+      if (!reading || sourceId === "magpie") return reading;
+      const aliases = Array.isArray(reading.accountAliases) ? reading.accountAliases : [];
+      const twin = aliases.length ? (magpieRows.get(service) || []).find(row => row.accountKey && aliases.includes(row.accountKey)) || null : null;
+      const mine = service === "claude" && !!local?.accountKey && local.accountKey === reading.accountKey;
+      const plan = reading.plan || (mine ? local.plan : null) || twin?.plan || null;
+      let windows = reading.windows || [];
+      if (!modelsOf(windows).length) {
+        const models = modelsOf(twin?.windows).length ? modelsOf(twin.windows)
+          : mine && Number.isFinite(local.modelsObservedAt) && now() - local.modelsObservedAt <= CLAUDE_LOCAL_MODELS_MS ? currentWindows(local.models, now()) : [];
+        if (models.length) windows = [...windows, ...models];
+      }
+      return plan === (reading.plan || null) && windows === reading.windows ? reading : { ...reading, plan, windows };
+    }
     const providers = [], shown = new Set();
-    const push = (service, sourceId, reading) => {
-      if (reading) shown.add(reading);
+    const push = (service, sourceId, original) => {
+      // Settings marks the reading itself; the card shows it with what it took.
+      const reading = enrich(service, sourceId, original);
+      if (original) shown.add(original);
       const windows = reading?.windows || [], has = windows.length > 0 || !!reading?.balance;
       const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
       providers.push({ provider: label(service), service, sourceId, status: !has ? "unavailable" : reading?.cached || observed !== null ? "cached" : "ready",
@@ -528,5 +587,5 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     invalidate() { cached = null; cachedFull = null; expires = 0; expiresFull = 0; },
   };
 }
-module.exports = { createWorkspaceUsage, windowUsage, codexWindows, chatgptWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas, claudeCache,
+module.exports = { createWorkspaceUsage, windowUsage, codexWindows, codexPlan, chatgptWindows, claudeWindows, currentWindows, keychainHome, opencodexProviders, opencodexQuotas, claudeCache, claudeLocal,
   configuredProviderQuotas, providerCredentials, storedSignIn, codexSignIn, QUOTA_PROBES };

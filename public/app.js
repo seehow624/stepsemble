@@ -1,7 +1,7 @@
-/* stepsemble v3.10.13 — project changes, resilient drafts, and mobile polish */
+/* stepsemble v3.10.14 — project changes, resilient drafts, and mobile polish */
 "use strict";
 
-const CLIENT_APP_VERSION = "3.10.13";
+const CLIENT_APP_VERSION = "3.10.14";
 const WORKSPACE_PANE = new URLSearchParams(location.search).get("pane") === "1";
 // index.html is a Workspace pane, the Settings window, or the sign-in page the
 // Workspace sends to. Opened any other way (a typed address, an old bookmark
@@ -15803,8 +15803,9 @@ function renderQuotaSources() {
         const line = document.createElement("div");
         line.className = "quota-source-provider";
         const label = document.createElement("span");
-        // Which account of the service: its own name, its plan, or a key's plan or balance.
-        const detail = row.alias || row.plan || (row.kind === "plan" ? tKey("quotaSources.keyPlan") : row.kind === "balance" ? tKey("quotaSources.keyBalance") : "");
+        // Which account of the service: its plan (or a key's plan or balance) and its own name.
+        const plan = row.plan || (row.kind === "plan" ? tKey("quotaSources.keyPlan") : row.kind === "balance" ? tKey("quotaSources.keyBalance") : "");
+        const detail = [plan, row.alias && row.alias !== plan ? row.alias : ""].filter(Boolean).join(" · ");
         label.textContent = detail ? row.label + " · " + detail : row.label; label.dataset.i18nIgnore = "";
         // An older Host tells only which source each service uses.
         if (typeof row.inUse === "boolean" ? row.inUse : active.get(row.id) === source.id) {

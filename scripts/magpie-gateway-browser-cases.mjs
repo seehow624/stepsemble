@@ -114,7 +114,7 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
       assert.deepEqual(magpieRows, [
         ["GitHub Copilot in use", "30d 60% left"],
         ["Codex · pro", "7d 88% left"],
-        ["Codex · Spare in use", "7d 20% left"],
+        ["Codex · plus · Spare in use", "7d 20% left"],
         ["Claude · max in use", "7d 62% left · Fable 7d 98% left"],
         ["Antigravity · Antigravity Starter Quota in use", "Claude & GPT 7d 0% left · Gemini 5h 96% left · 5 more limits"],
         ["MiniMax · key plan in use", "5h 100% left"],

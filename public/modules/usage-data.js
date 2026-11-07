@@ -215,5 +215,23 @@
     } else inline = models.slice(0, 2);
     return { stopping, inline, folded: side.filter(w => !inline.includes(w)) };
   }
-  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, modelIdentity, canonicalProvider, modelGroup, readReport };
+  // The name an account's plan goes by beside its service: a vendor's own
+  // display name as it comes ("Ultra", "Google AI Pro"), a plan's id in words
+  // ("prolite" is Pro Lite, Claude's "claude_max" is Max). Nothing for one
+  // that names no plan.
+  const PLAN_WORDS = { free: "Free", go: "Go", plus: "Plus", pro: "Pro", prolite: "Pro Lite", promax: "Pro Max", max: "Max", ultra: "Ultra",
+    team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu", sci: "Sci", starter: "Starter", lite: "Lite", basic: "Basic" };
+  const PLAN_IDS = { claude_max: "Max", claude_pro: "Pro", claude_team: "Team", claude_enterprise: "Enterprise", claude_free: "Free",
+    self_serve_business_prolite: "Business Pro Lite", self_serve_business_usage_based: "Business", ent26: "Enterprise",
+    enterprise_cbp_automation: "Enterprise", enterprise_cbp_usage_based: "Enterprise" };
+  function planLabel(value) {
+    if (typeof value !== "string") return null;
+    const text = value.trim().replace(/\s+/g, " ");
+    if (!text || text.length > 48 || /[\u0000-\u001f\u007f<>]/.test(text)) return null;
+    const id = text.toLowerCase();
+    if (["unknown", "none", "null", "default"].includes(id)) return null;
+    if (!/^[a-z][a-z0-9_-]*$/.test(text)) return text;
+    return PLAN_IDS[id] || id.split(/[_-]+/).filter(Boolean).map(word => PLAN_WORDS[word] || word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+  }
+  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel };
 });

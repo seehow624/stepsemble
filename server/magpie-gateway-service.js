@@ -177,6 +177,41 @@ function quotaEntries(payload) {
   return reports;
 }
 
+// Magpie keeps its last reading of every account in quotas.json, under
+// "<provider>/<who>": a subscription by its sign-in, a plan or a balance
+// bought with a key by a short fingerprint of that key ("plan
+// 90986bc45d18f16c"), the same on every computer that holds the key. The
+// fingerprint, never the key, tells one key's reading from another's, so a
+// key used on two computers is one account in All Hosts, not two. A reading
+// is matched to its entry by the time it was read, else by being the only one.
+const MAX_QUOTA_CACHE_BYTES = 4 * 1024 * 1024;
+function keyFingerprints(text) {
+  let value;
+  try { value = JSON.parse(text); } catch { return []; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const rows = [];
+  for (const [name, entry] of Object.entries(value).slice(0, 256)) {
+    const match = /^([a-z0-9][a-z0-9._-]{0,63})\/([a-z]{1,16}) ([a-f0-9]{8,64})$/.exec(name);
+    if (!match) continue;
+    const readAt = typeof entry?.quota?.readAt === "string" ? Date.parse(entry.quota.readAt) : NaN;
+    rows.push({ service: match[1], kind: match[2], id: match[3], readAt: Number.isFinite(readAt) ? readAt : null });
+  }
+  return rows;
+}
+const KEY_KINDS = new Set(["plan", "balance"]);
+function withKeyIdentities(reports, fingerprints) {
+  if (!fingerprints.length) return reports;
+  const unnamed = report => !report.accountKey && KEY_KINDS.has(report.kind);
+  return reports.map(report => {
+    if (!unnamed(report)) return report;
+    const mine = fingerprints.filter(row => row.service === report.service && (row.kind === report.kind || !KEY_KINDS.has(row.kind)));
+    const read = mine.filter(row => row.readAt !== null && row.readAt === report.readAt);
+    const only = mine.length === 1 && reports.filter(other => other.service === report.service && unnamed(other)).length === 1 ? mine : [];
+    const match = read.length === 1 ? read[0] : !read.length && only.length === 1 ? only[0] : null;
+    return match ? { ...report, accountKey: accountKey(report.service, report.kind + " " + match.id, "magpie-key") } : report;
+  });
+}
+
 function createMagpieGatewayService({
   home = null,
   port = DEFAULT_PORT,
@@ -413,6 +448,15 @@ function createMagpieGatewayService({
     return { source: "magpie", checkedAt: snapshot.checkedAt, stale: snapshot.stale, catalogCount: models.length };
   }
 
+  async function readKeyFingerprints() {
+    const file = path.join(appHome, ".config", "magpie", "quotas.json");
+    try {
+      const stat = await fs.promises.stat(file);
+      if (!stat.isFile() || stat.size > MAX_QUOTA_CACHE_BYTES) return [];
+      return keyFingerprints(await fs.promises.readFile(file, "utf8"));
+    } catch { return []; }
+  }
+
   // Allowances of every subscription account, key plan and key balance Magpie
   // knows, asked of the gateway (GET /v1/magpie/quotas, its own reading of
   // the last minute), else of its command; kept a couple of minutes. An
@@ -438,7 +482,7 @@ function createMagpieGatewayService({
           if (Array.isArray(value)) { reports = quotaEntries(value); break; }
         } catch {}
       }
-      accountsCache = { at: now(), reports: reports || [] };
+      accountsCache = { at: now(), reports: reports?.length ? withKeyIdentities(reports, await readKeyFingerprints()) : reports || [] };
       return accountsCache.reports;
     })().finally(() => { accountsRequest = null; });
     return accountsRequest;
@@ -474,4 +518,4 @@ function createMagpieGatewayService({
   };
 }
 
-module.exports = { createMagpieGatewayService, MagpieGatewayError, findMagpieBinary, quotaEntries, quotaWindow, windowMinutes, DEFAULT_PORT };
+module.exports = { createMagpieGatewayService, MagpieGatewayError, findMagpieBinary, quotaEntries, quotaWindow, windowMinutes, keyFingerprints, withKeyIdentities, DEFAULT_PORT };

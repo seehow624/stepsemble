@@ -43,8 +43,11 @@
     if (!state) return;
     state.textContent = state.dataset.state === "online" ? t("connected") : state.dataset.state === "offline" ? t("hostUnavailable") : t("connecting");
   }
-  // A provider and which of its accounts: its own name in Magpie, or its plan.
-  const accountName = provider => [provider.provider, provider.alias || provider.plan].filter(Boolean).join(" · ");
+  // A provider, its plan and the account's own name in Magpie.
+  const accountName = provider => {
+    const usageData = window.StepsembleUsageData, plan = usageData?.planLabel ? usageData.planLabel(provider.plan) : provider.plan;
+    return [provider.provider, plan, provider.alias && provider.alias !== plan ? provider.alias : ""].filter(Boolean).join(" · ");
+  };
   // A bucket that only repeats the provider's name ("codex" under Codex) is
   // left out of the label.
   function usageLabel(w, provider = null) {

@@ -485,10 +485,17 @@
         const cached = provider.cached;
         const card = node("article", "", "usage-quota-card"); card.dataset.cached = String(!!cached);
         const heading = node("header", "", "usage-quota-heading"), identity = node("div", "", "usage-quota-identity");
-        // Which account this is, when the service has several: its own name,
-        // its plan, or that it is a key's plan or balance rather than a sign-in.
-        const detail = provider.alias || provider.plan || (provider.kind === "plan" ? label("keyPlan") : provider.kind === "balance" ? label("keyBalance") : "");
-        identity.append(node("strong", provider.provider), node("small", [detail, provider.hosts.map(host => host.name).join(" · ")].filter(Boolean).join(" · "))); heading.append(providerLogo(provider.provider), identity);
+        // Which account this is: its plan beside the service's name (a key's
+        // plan or balance without a plan's name says so in its place), and
+        // under it the account's own name in Magpie when it has one. Which
+        // computers read it is not shown: one account is one card.
+        const usageData = root.StepsembleUsageData, plan = (usageData.planLabel ? usageData.planLabel(provider.plan) : provider.plan)
+          || (provider.kind === "plan" ? label("keyPlan") : provider.kind === "balance" ? label("keyBalance") : "");
+        const title = node("div", "", "usage-quota-title"); title.append(node("strong", provider.provider));
+        if (plan) title.append(node("span", plan, "usage-quota-plan"));
+        identity.append(title);
+        if (provider.alias && provider.alias !== plan) identity.append(node("small", provider.alias));
+        heading.append(providerLogo(provider.provider), identity);
         if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
         card.append(heading);
         const readings = node("div", "", "usage-quota-windows");

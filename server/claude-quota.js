@@ -3,8 +3,8 @@
 const fs = require("node:fs/promises"), path = require("node:path");
 const { execFile } = require("node:child_process");
 const { createHash } = require("node:crypto");
-const { accountKey } = require("./quota-identity");
-const { claudeWindows, currentWindows } = require("./quota-windows");
+const { accountKey, claudePlan, validClaudePlan } = require("./quota-identity");
+const { claudeWindows, currentWindows, CLAUDE_MODEL_NAME, MAX_CLAUDE_MODEL_WINDOWS } = require("./quota-windows");
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const ACCOUNT_KEY = /^v1:[a-f0-9]{64}$/;
 const QUOTA_VERSION = 1;
@@ -34,26 +34,39 @@ async function claudeToken(home, allowKeychain, { desktopKeychainOnly = false, p
 }
 
 // Strict allowlist at both IPC boundaries: no raw profile, email, URL or token.
+// Besides the account's five hours and week, a reading may hold the week of
+// each model Claude limits apart ("Fable") and the plan's name; a helper
+// from before either sends neither, and its readings stay as they were.
 function sanitizeClaudeQuota(value, now = Date.now()) {
   if (value?.quotaVersion !== QUOTA_VERSION) return null;
   if (value.status === "unavailable") return unavailable();
   if (!["ready", "cached"].includes(value.status) || typeof value.accountKey !== "string" || !ACCOUNT_KEY.test(value.accountKey)
     || !Number.isSafeInteger(value.sampledAt) || value.sampledAt <= 0 || value.sampledAt > now + 5000
-    || !Array.isArray(value.windows) || !value.windows.length || value.windows.length > 2) return null;
+    || !Array.isArray(value.windows) || !value.windows.length || value.windows.length > 2 + MAX_CLAUDE_MODEL_WINDOWS
+    || value.plan != null && !validClaudePlan(value.plan)) return null;
   if (value.accountAliases !== undefined && (!Array.isArray(value.accountAliases) || value.accountAliases.length > 1
     || value.accountAliases.some(alias => typeof alias !== "string" || !ACCOUNT_KEY.test(alias) || alias === value.accountKey))) return null;
   const accountAliases = value.accountAliases?.slice() || [];
-  const windows = [], durations = new Set();
+  const windows = [], durations = new Set(), models = new Set();
   for (const w of value.windows) {
-    if (![300, 10080].includes(w?.windowDurationMins) || durations.has(w.windowDurationMins)
-      || typeof w.usedPercent !== "number" || !Number.isFinite(w.usedPercent) || w.usedPercent < 0 || w.usedPercent > 100
+    if (typeof w?.usedPercent !== "number" || !Number.isFinite(w.usedPercent) || w.usedPercent < 0 || w.usedPercent > 100
       || !(w.resetsAt === null || Number.isSafeInteger(w.resetsAt) && w.resetsAt > 0)) return null;
+    if (w.scope === "model") {
+      const name = w.bucket;
+      if (w.windowDurationMins !== 10080 || typeof name !== "string" || !CLAUDE_MODEL_NAME.test(name) || models.has(name.toLowerCase())
+        || models.size >= MAX_CLAUDE_MODEL_WINDOWS) return null;
+      models.add(name.toLowerCase());
+      windows.push({ label: name, windowDurationMins: 10080, bucket: name, scope: "model", usedPercent: w.usedPercent, remainingPercent: 100 - w.usedPercent, resetsAt: w.resetsAt });
+      continue;
+    }
+    if (![300, 10080].includes(w.windowDurationMins) || durations.has(w.windowDurationMins)) return null;
     durations.add(w.windowDurationMins);
     windows.push({ label: w.windowDurationMins === 300 ? "5 hours" : "Weekly", windowDurationMins: w.windowDurationMins,
       bucket: null, usedPercent: w.usedPercent, remainingPercent: 100 - w.usedPercent, resetsAt: w.resetsAt });
   }
   const current = currentWindows(windows, now);
-  return current.length ? { quotaVersion: QUOTA_VERSION, status: value.status, sampledAt: value.sampledAt, accountKey: value.accountKey, ...(accountAliases.length ? { accountAliases } : {}), windows: current } : unavailable();
+  return current.length ? { quotaVersion: QUOTA_VERSION, status: value.status, sampledAt: value.sampledAt, accountKey: value.accountKey,
+    ...(accountAliases.length ? { accountAliases } : {}), ...(value.plan ? { plan: value.plan } : {}), windows: current } : unavailable();
 }
 
 // Only these fixed official metadata endpoints receive the bearer. Streaming
@@ -110,8 +123,9 @@ function createDesktopQuotaReader({ home, readToken = () => claudeToken(home, tr
         // an email alias. The email itself never crosses the IPC boundary.
         const email = typeof profile.account.email === "string" ? profile.account.email.trim().toLowerCase() : "";
         const alias = email.length <= 320 && /^[^\s@]+@[^\s@]+$/.test(email) ? accountKey("claude", email, "email") : null;
+        const plan = claudePlan(profile);
         reading = sanitizeClaudeQuota({ quotaVersion: QUOTA_VERSION, status: "ready", sampledAt: now(),
-          accountKey: accountKey("claude", uuid.toLowerCase()), ...(alias ? { accountAliases: [alias] } : {}), windows: claudeWindows(usage) }, now());
+          accountKey: accountKey("claude", uuid.toLowerCase()), ...(alias ? { accountAliases: [alias] } : {}), ...(plan ? { plan } : {}), windows: claudeWindows(usage) }, now());
       }
     } catch { /* No native allowance is not zero usage. */ }
     // Binding is to the bearer actually used, not whichever profile is current

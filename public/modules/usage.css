@@ -150,6 +150,9 @@ html[data-theme="dark"] .usage-sheet {
 .usage-quota-heading .workspace-provider-logo { width: 20px; height: 20px; flex-basis: 20px; }
 .usage-quota-identity { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .usage-quota-identity strong { font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
+/* The plan, beside the service's name. */
+.usage-quota-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; min-width: 0; }
+.usage-quota-plan { max-width: 100%; padding: 1px 7px; overflow: hidden; border: .5px solid var(--glass-rim); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--milk) 60%, transparent); color: var(--pine-soft); font-size: var(--text-2xs); font-weight: 500; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .usage-quota-identity small, .usage-quota-window small { color: var(--pine-soft); font-size: var(--text-2xs); line-height: 1.45; }
 .usage-quota-cached { grid-column: 2; color: var(--pine-soft); font-size: var(--text-2xs); }
 /* One window takes the card's width; two or three share it. */
