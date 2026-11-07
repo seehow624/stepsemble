@@ -34,6 +34,8 @@ capabilities during `initialize`. Stepsemble uses both signals.
 | Codex `0.161.0` | native | native | reviewed native mutation |
 | Codex `0.163.0` | native | native | reviewed native mutation |
 | Codex `0.164.0` | native | native | reviewed native mutation |
+| Codex `0.166.0` | native | native | reviewed native mutation |
+| Codex `0.167.0` | native | native | reviewed native mutation |
 | Future version with a reviewed fingerprint (`schema-identical`) | native | native | native mutation |
 | Future version that only adds to the latest reviewed contract (`additive`) | native | native | native mutation |
 | Any other schema, or a pre-release | bounded fallback | bounded fallback | disabled |
@@ -360,6 +362,70 @@ Before moving the baseline, 0.163.0 was fully reviewed and pinned with the
 same four oracles. Its exact fingerprint, and every earlier reviewed
 profile, remain native-capable independently of comparison with the newer
 baseline; installed 0.163.0 does not fall back after this review.
+
+### 0.166.0 review record
+
+Reviewed with `scripts/review-codex-release.mjs` against the `0.164.0`
+baseline, from the official npm artifact
+(`@openai/codex@0.166.0-darwin-arm64`, archive SHA-256
+`181d2eda8addbeca0b689c996df207293947928bdd9c88a097837ae1c7e69ca5`). 26 of the
+36 contract files are identical; the others are `ClientRequest.json`,
+`ServerNotification.json`, `v2/ThreadListResponse.json`,
+`v2/ThreadReadResponse.json`, `v2/ThreadTurnsListResponse.json`,
+`v2/ThreadItemsListResponse.json`, `v2/ThreadResumeResponse.json`,
+`v2/ThreadStartResponse.json`, `v2/ThreadForkResponse.json`,
+`v2/TurnStartResponse.json`. None of the changes removes or alters anything
+Stepsemble sends or reads. The composer, parallel-pool, approval and branch
+oracles passed against that artifact with a local model. `0.166.0-schema.json`
+records the baseline.
+
+### 0.167.0 review record
+
+Reviewed with `scripts/review-codex-release.mjs` against the `0.166.0`
+baseline, from the official npm artifact
+(`@openai/codex@0.167.0-darwin-arm64`, archive SHA-256
+`6989512a93d5fc74cb221dd348c972bf3cd83592e471bfd9557bccb45eb6fffc`). 22 of the
+36 contract files are identical; the others are `ClientRequest.json`,
+`ServerRequest.json`, `ServerNotification.json`, `v1/InitializeParams.json`,
+`v2/ThreadListResponse.json`, `v2/ThreadReadResponse.json`,
+`v2/ThreadTurnsListResponse.json`, `v2/ThreadItemsListResponse.json`,
+`v2/ThreadResumeParams.json`, `v2/ThreadResumeResponse.json`,
+`v2/ThreadStartResponse.json`, `CommandExecutionRequestApprovalParams.json`,
+`v2/ThreadForkResponse.json`, `v2/TurnStartResponse.json`. The composer,
+parallel-pool, approval and branch oracles passed against that artifact with a
+local model. `0.167.0-schema.json` records the fingerprint; the contract
+baseline is now 0.167.0.
+
+What changed and why this release is explicitly reviewed (`--adapted`):
+
+- `AudioUserInput` no longer requires `url`: it is now `anyOf` a string `url`
+  or a string `fileId`. The conservative comparison reports this in every
+  document holding `UserInput` (22 of the 24 changes). Stepsemble never sends
+  audio: the composer bridge admits only text and data-url images and refuses
+  any other input before it is written (`normalizeTurnInput`). History and
+  presentation read only text, skill, mention and image parts of a user
+  message; an audio part, in either form, is neither text nor a picture.
+- `CommandExecutionApprovalKind` adds `humanCommand`, a managed checkpoint
+  needing a one-time human decision (only `accept`, `decline`, `cancel`).
+  Codex sends it only to a client that declares the new
+  `requiredHumanApproval` initialize capability (which itself requires
+  `experimentalApi`). Stepsemble declares neither it nor any other new
+  capability, and its command answers include `acceptForSession`, so it does
+  not take part. A request with any kind other than `command` or `writeStdin`
+  still fails closed (`native_approval_invalid`), and a sub-agent's is
+  answered with an error instead of being shown.
+- The comparison itself is unchanged: this review does not permit removed
+  fields or relax unknown contracts. No adapter change is needed. Regression
+  tests cover both audio forms in the composer and in history, the
+  `humanCommand` request, and that `initialize` never declares
+  `requiredHumanApproval` (`test/codex-app-server-transport.test.js`,
+  `test/codex-compatibility.test.js`, `test/message-images.test.js`).
+
+Before moving the baseline, 0.166.0 (installed on both Hosts when 0.167.0 was
+published) was fully reviewed and pinned with the same four oracles. Its
+exact fingerprint, and every earlier reviewed profile, remain native-capable
+independently of comparison with the newer baseline; installed 0.166.0 does
+not fall back after this review.
 
 ## Automatic Codex upgrades
 

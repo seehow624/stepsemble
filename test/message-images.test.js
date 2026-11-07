@@ -49,6 +49,12 @@ test("Codex, OpenCode and replayed agent messages carry the pictures they hold",
   assert.deepEqual(codex.imageAttachments.map(item => item.src), ["data:image/png;base64," + png]);
   assert.equal(presentation.codexItem({ type: "userMessage", content: [{ type: "image", url: "https://example.com/a.png" }] }).imageAttachments.length, 0,
     "only pictures held in the record are shown");
+  // Codex 0.167 keeps audio as a url or, new, a fileId alone; neither is
+  // text or a picture, and a message holding one still reads as before.
+  for (const audio of [{ type: "audio", url: "https://example.com/a.wav" }, { type: "audio", fileId: "file_fixture" }]) {
+    const withAudio = presentation.codexItem({ type: "userMessage", content: [{ type: "text", text: "hello" }, audio] });
+    assert.deepEqual([withAudio.text, withAudio.images, withAudio.imageAttachments.length], ["hello", 0, 0]);
+  }
   const opencode = presentation.openCodeMessage({ role: "user", parts: [{ type: "text", text: "x" }, { type: "file", mime: "image/jpeg", url: "data:image/jpeg;base64," + png }] });
   assert.equal(opencode.images, 1);
   assert.equal(opencode.imageAttachments[0].src, "data:image/jpeg;base64," + png);

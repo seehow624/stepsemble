@@ -720,6 +720,55 @@ test("Codex native approval validator rejects a command array instead of coercin
   assert.equal(transport.state().failure, "native_approval_invalid");
 });
 
+test("Codex 0.167's humanCommand checkpoint is never answered as a command approval", async t => {
+  // Codex 0.167 added CommandExecutionApprovalKind "humanCommand": a one-time
+  // human decision (accept, decline or cancel only) that Codex sends only to
+  // a client declaring the requiredHumanApproval capability. Stepsemble does
+  // not declare it, and its command answers include acceptForSession, so one
+  // that arrives anyway fails closed instead of being shown or answered.
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  let request;
+  const initializing = transport.initialize(); request = await writes.next();
+  assert.equal(request.params.capabilities?.requiredHumanApproval, undefined);
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.167.0" } });
+  await initializing; await writes.next();
+  const threadStarting = transport.startThread({ cwd: "/owned/project" }); request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-human" } } }); await threadStarting;
+  const turnStarting = transport.startTurn([{ type: "text", text: "fixture" }]); request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { turn: { id: "turn-human", status: "inProgress", items: [] } } }); await turnStarting;
+  frame(child, { jsonrpc: "2.0", method: "item/commandExecution/requestApproval", id: "human-checkpoint", params: {
+    kind: "humanCommand", threadId: "thread-human", turnId: "turn-human", itemId: "item-human", startedAtMs: now,
+    command: "deploy production",
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(transport.state().failure, "native_approval_invalid");
+  assert.deepEqual(transport.pendingApprovals(), []);
+});
+
+test("Codex audio input is never sent, in either the url form or Codex 0.167's fileId form", async t => {
+  // Codex 0.167 made AudioUserInput's url optional beside a new fileId. The
+  // composer bridge sends only text and data-url images, so neither form
+  // reaches Codex and the thread stays usable.
+  const child = new FakeNativeProcess();
+  const writes = readFrames(child);
+  const transport = createCodexAppServerTransport({ child, authorizeNative: async () => proof() });
+  t.after(() => transport.close());
+  let request;
+  const initializing = transport.initialize(); request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { codexHome: "/owned", platformFamily: "unix", platformOs: "macos", userAgent: "codex-cli/0.167.0" } });
+  await initializing; await writes.next();
+  const threadStarting = transport.startThread({ cwd: "/owned/project" }); request = await writes.next();
+  frame(child, { jsonrpc: "2.0", id: request.id, result: { thread: { id: "thread-audio" } } }); await threadStarting;
+  for (const audio of [{ type: "audio", url: "https://example.com/a.wav" }, { type: "audio", fileId: "file_fixture" }]) {
+    assert.deepEqual(await transport.startTurn([{ type: "text", text: "listen" }, audio]), { kind: "reject", code: "invalid_turn_input" });
+  }
+  assert.equal(transport.state().failure, null);
+  assert.equal(transport.state().state, "thread_started");
+});
+
 test("Codex permission approval accepts Windows absolute cwd and maps run only to native turn", async t => {
   const child = new FakeNativeProcess();
   const writes = readFrames(child);

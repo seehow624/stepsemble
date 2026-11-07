@@ -46,9 +46,10 @@ function writeRecord(version, entry) {
 
 let version = requested;
 try {
-  // Claude Code's stable channel, which Anthropic tags stable; latest and
-  // next come first and are left out.
-  if (!version) version = JSON.parse((await run("npm", ["view", "@anthropic-ai/claude-code", "dist-tags", "--json"], { timeout: 60000 })).stdout).stable;
+  // Claude Code's newest full release, which npm tags latest (the Host checks
+  // the same tag). Anthropic's stable tag trails it by about a week, and a
+  // preview never counts: the version must be three numbers alone.
+  if (!version) version = JSON.parse((await run("npm", ["view", "@anthropic-ai/claude-code", "dist-tags", "--json"], { timeout: 60000 })).stdout).latest;
 } catch (error) { finish(1, { action: "wait", state: "npm_unavailable", error: String(error.message || error).slice(0, 200) }); }
 if (!/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(version))) finish(1, { action: "wait", state: "version_unrecognized", version });
 let installed = null;

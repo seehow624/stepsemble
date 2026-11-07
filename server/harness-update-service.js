@@ -360,6 +360,32 @@ function brewOutdated(result, packageName) {
   return { state: "unknown", latestVersion: null, error: resultError(result, "brew_check_failed") };
 }
 
+// `npm outdated --global --json <package>` names the package only when a
+// newer release is published (exit 1), and prints {} with exit 0 when the
+// installed one is the newest. Anything else did not answer: an error reply
+// ({"error": ...} when the registry could not be asked), output that is not
+// JSON, or a failure without the package. That is unknown, never up to date.
+function npmOutdated(result, packageName, currentVersion = null) {
+  let parsed = null;
+  try { parsed = JSON.parse(String(result?.stdout || "") || "{}"); } catch {}
+  const valid = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) && !Object.hasOwn(parsed, "error");
+  const row = valid ? parsed[packageName] || parsed[packageName.replace(/^@[^/]+\//, "")] || null : null;
+  if (row && typeof row === "object") {
+    const latestVersion = row.latest || row.wanted || null;
+    return { state: isNewer(latestVersion, row.current || currentVersion) ? "available" : "up-to-date", latestVersion };
+  }
+  if (valid && result?.code === 0) return { state: "up-to-date", latestVersion: currentVersion || null };
+  return { state: "unknown", latestVersion: null, error: resultError(result, "npm_check_failed") };
+}
+
+function applyOutdated(observed, outdated) {
+  observed.latestVersion = outdated.latestVersion;
+  observed.updateAvailable = outdated.state === "available" ? true : outdated.state === "up-to-date" ? false : "unknown";
+  observed.status = outdated.state;
+  observed.error = outdated.error || null;
+  return observed;
+}
+
 // Reads the page a vendor publishes its newest release on (a "web-version"
 // check). Bounded in time and size; no credentials are sent.
 async function fetchReleaseText(url, { timeout = CHECK_TIMEOUT_MS, maxBytes = 64 * 1024 } = {}) {
@@ -639,14 +665,7 @@ function createHarnessUpdateService({
         const checked = await runner(source.manager, ["outdated", "--global", "--json", source.npmPackage], {
           shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
         });
-        let parsed = null;
-        try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
-        const row = parsed?.[source.npmPackage] || parsed?.[source.npmPackage.replace(/^@[^/]+\//, "")] || null;
-        observed.latestVersion = row?.latest || row?.wanted || null;
-        observed.updateAvailable = Boolean(row && isNewer(row.latest || row.wanted, row.current || observed.currentVersion));
-        observed.status = observed.updateAvailable ? "available" : checked.code === 0 ? "up-to-date" : parsed ? "up-to-date" : "unknown";
-        observed.error = parsed || checked.code === 0 ? null : resultError(checked, "npm_check_failed");
-        return observed;
+        return applyOutdated(observed, npmOutdated(checked, source.npmPackage, observed.currentVersion));
       }
       // An npm project folder of its own: the version published to npm is
       // the one an update there installs.
@@ -718,14 +737,7 @@ function createHarnessUpdateService({
       const checked = await runner(npm, ["outdated", "--global", "--json", definition.package], {
         shell: false, cwd: home, env: cleanEnvironment(env), timeout: CHECK_TIMEOUT_MS, maxBuffer: 128 * 1024,
       });
-      let parsed = null;
-      try { parsed = JSON.parse(checked.stdout || "{}"); } catch {}
-      const row = parsed?.[definition.package] || parsed?.[definition.package.replace(/^@[^/]+\//, "")] || null;
-      observed.latestVersion = row?.latest || row?.wanted || null;
-      observed.updateAvailable = Boolean(row && isNewer(row.latest || row.wanted, row.current || observed.currentVersion));
-      observed.status = observed.updateAvailable ? "available" : checked.code === 0 ? "up-to-date" : parsed ? "up-to-date" : "unknown";
-      observed.error = parsed || checked.code === 0 ? null : resultError(checked, "npm_check_failed");
-      return observed;
+      return applyOutdated(observed, npmOutdated(checked, definition.package, observed.currentVersion));
     }
     if (check.kind === "brew-or-official") {
       const brew = resolve("brew", env);

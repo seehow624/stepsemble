@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.10.13
+
+### Agent updates
+
+- Support Codex 0.167.0, so a Host upgrades to it by itself again. It changes two parts of the app-server contract that Stepsemble does not use: audio input may be a file ID instead of a URL (Stepsemble never sends audio and does not show it), and a new `humanCommand` approval that Codex sends only to a client declaring `requiredHumanApproval` (Stepsemble does not, and still refuses any approval kind it does not know). 0.166.0 was reviewed and pinned first, so a Host still on it keeps working. Both passed the composer, parallel, approval and branch checks against the official release with a local model.
+- Claude Code is updated to its newest full release (npm `latest`) instead of the `stable` tag, which trails it by about a week and kept showing an older release as up to date. A preview release is still never installed, and each release is still checked on the Host before it is installed.
+- Pi's update check reads the newest release published to npm and compares it with `pi --version`. Before, it asked `npm outdated`, which read as up to date when npm could not reach the registry or Pi was installed under another npm. An `npm outdated` reply that is an error, is not JSON, or fails without naming the package is now unknown rather than up to date (it still serves Codex installed with npm).
+
 ## 3.10.12
 
 ### Limits

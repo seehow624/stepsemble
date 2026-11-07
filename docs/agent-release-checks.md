@@ -8,7 +8,7 @@ adapter for that agent. No account is used and no paid model request is made.
 
 | Agent | Command | Stable release read from | Candidate | What is checked |
 | --- | --- | --- | --- | --- |
-| Claude Code | `npm run -s check:claude-release` | npm tag `stable` | the official platform package | a full conversation with a local fake model (`docs/claude-code-release-checks.md`) |
+| Claude Code | `npm run -s check:claude-release` | npm tag `latest` | the official platform package | a full conversation with a local fake model (`docs/claude-code-release-checks.md`) |
 | Grok Build | `npm run -s check:grok-release` | `https://x.ai/cli/stable` | xAI's build for this platform | a full conversation with a local fake model (`docs/grok-build-release-checks.md`) |
 | Pi | `npm run -s check:pi-release` | npm tag `latest` | the npm package | a full conversation with a local fake model (`docs/pi-release-checks.md`) |
 | OpenCode | `npm run -s check:opencode-release` | npm tag `latest` of `opencode-ai` | the platform build from npm | the Host's managed `opencode serve` and client: health and version; a conversation created, listed, named and read; a message answered by a local fake model (the anthropic provider pointed at it); status; a branch |

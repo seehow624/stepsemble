@@ -163,6 +163,36 @@
         "mutations": true,
         "approvals": true
       }
+    },
+    {
+      "profileId": "codex-app-server-v2-0.166.0",
+      "version": "0.166.0",
+      "channel": "stable",
+      "schemaFingerprint": "fcd15af1598c44c673cee5a9d405d86e0a65a6cd0334b4e50f8c1796ba41dcb3",
+      "verification": "reviewed",
+      "capabilities": {
+        "historyRead": true,
+        "historyPages": true,
+        "sessionResume": true,
+        "turns": true,
+        "mutations": true,
+        "approvals": true
+      }
+    },
+    {
+      "profileId": "codex-app-server-v2-0.167.0",
+      "version": "0.167.0",
+      "channel": "stable",
+      "schemaFingerprint": "470f6f8b1997c584308fe6288f068043ea179fcbaf483923849a80ac85346391",
+      "verification": "reviewed",
+      "capabilities": {
+        "historyRead": true,
+        "historyPages": true,
+        "sessionResume": true,
+        "turns": true,
+        "mutations": true,
+        "approvals": true
+      }
     }
   ]
 }

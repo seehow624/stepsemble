@@ -102,6 +102,10 @@ test("every reviewed Codex release matches its recorded schema and is accepted w
     assert.equal(result.verification, "reviewed");
     assert.equal(result.capabilities.mutations, true, profile.nativeVersion);
     assert.equal(result.capabilities.approvals, true, profile.nativeVersion);
+    // Only experimentalApi is declared: no opt-in such as Codex 0.167's
+    // requiredHumanApproval, whose humanCommand checkpoints Stepsemble
+    // does not answer.
+    assert.deepEqual(Object.keys(result.initializeParams.capabilities), ["experimentalApi"], profile.nativeVersion);
   }
 });
 

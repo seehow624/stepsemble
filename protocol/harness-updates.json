@@ -16,9 +16,9 @@
       "label": "Claude Code",
       "commands": ["claude"],
       "executableEnv": "STEPSEMBLE_CLAUDE_CODE_BIN",
-      "check": { "kind": "registry-version", "package": "@anthropic-ai/claude-code", "distTag": "stable" },
+      "check": { "kind": "registry-version", "package": "@anthropic-ai/claude-code", "distTag": "latest" },
       "update": { "kind": "command", "args": ["install", "{version}"], "verify": true },
-      "note": "Claude Code's stable channel: the check reads the release npm tags stable, without touching the installation, and an upgrade installs exactly that release with Claude Code's own installer (claude install <version>)."
+      "note": "Claude Code's newest release: the check reads the release npm tags latest (a full release, not a preview; Anthropic's stable tag trails it by about a week), without touching the installation, and an upgrade installs exactly that release with Claude Code's own installer (claude install <version>)."
     },
     {
       "id": "opencode",
@@ -34,7 +34,7 @@
       "commands": ["pi"],
       "executableEnv": "STEPSEMBLE_PI_BIN",
       "package": "@earendil-works/pi-coding-agent",
-      "check": { "kind": "npm-outdated" },
+      "check": { "kind": "registry-version", "package": "@earendil-works/pi-coding-agent" },
       "update": { "kind": "npm-global", "verify": true }
     },
     {

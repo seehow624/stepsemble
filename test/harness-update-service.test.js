@@ -949,20 +949,21 @@ test("an agent is upgraded to exactly the stable release its check passed, with 
       if (command === "/fake/claude" && args[0] === "--version") return { code: 0, stdout: installed + " (Claude Code)", stderr: "" };
       if (command === "/fake/claude" && args[0] === "install") { installed = args[1]; return { code: 0, stdout: "installed", stderr: "" }; }
       if (command === "/fake/pi") return { code: 0, stdout: "1.1.0", stderr: "" };
-      // Claude Code's stable channel, not latest.
-      if (command === "/fake/npm" && args[0] === "view") return { code: 0, stdout: args[2] === "dist-tags.stable" ? "2.1.286\n" : "2.1.295\n", stderr: "" };
-      if (command === "/fake/npm" && args[0] === "outdated") return { code: 1, stdout: JSON.stringify({ "@earendil-works/pi-coding-agent": { current: "1.1.0", wanted: "1.2.0", latest: "1.2.0" } }), stderr: "" };
+      // Claude Code's newest full release (latest), not the stable tag a
+      // week behind it; Pi's newest published release.
+      if (command === "/fake/npm" && args[0] === "view" && args[1] === "@anthropic-ai/claude-code") return { code: 0, stdout: args[2] === "dist-tags.latest" ? "2.1.295\n" : "2.1.286\n", stderr: "" };
+      if (command === "/fake/npm" && args[0] === "view" && args[1] === "@earendil-works/pi-coding-agent" && args[2] === "version") return { code: 0, stdout: "1.2.0\n", stderr: "" };
       if (command === "/fake/npm" && args[0] === "install") return { code: 0, stdout: "", stderr: "" };
       return { code: 1, stdout: "", stderr: "unexpected" };
     },
     busy: () => false,
   });
   const row = (await service.check({ id: "claude-code" })).harnesses[0];
-  assert.deepEqual([row.latestVersion, row.compatibility.state], ["2.1.286", "supported"]);
+  assert.deepEqual([row.latestVersion, row.compatibility.state], ["2.1.295", "supported"]);
   const result = await service.update({ id: "claude-code", confirm: true });
   const install = calls.find(call => call.args[0] === "install");
-  assert.deepEqual(install.args, ["install", "2.1.286"]);
-  assert.equal(result.updated.versionAfter, "2.1.286");
+  assert.deepEqual(install.args, ["install", "2.1.295"]);
+  assert.equal(result.updated.versionAfter, "2.1.295");
   for (const name of ["DISABLE_AUTOUPDATER", "AGY_CLI_DISABLE_AUTO_UPDATE", "OPENCODE_DISABLE_AUTOUPDATE"]) assert.equal(install.env[name], undefined, name);
   // Pi through npm, pinned to the release that was checked.
   await service.update({ id: "pi", confirm: true });
