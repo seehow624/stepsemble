@@ -26,7 +26,11 @@
     if (metric === "hidden") return "";
     if (metric === "tokens") return unavailable ? "—" : compact(reports?.total?.tokens, locale);
     if (metric === "cost") return unavailable ? "—" : cost(reports?.total, locale);
-    const windows = (quotas || []).flatMap(p => p.windows || []).filter(w => percent(w) !== null);
+    // A window for one model counts only for an account that has no other.
+    const windows = (quotas || []).flatMap(p => {
+      const all = (p.windows || []).filter(w => percent(w) !== null), own = all.filter(w => w.scope !== "model");
+      return own.length ? own : all;
+    });
     if (!windows.length) return "—";
     const tightest = windows.reduce((a, b) => percent(a) < percent(b) ? a : b);
     return percent(tightest, mode) + "%";

@@ -128,6 +128,21 @@ function normalizeQuotaConfig(value) {
   return { version: 1, sources, prefer };
 }
 
+// Settings → Quota sources: each service a source reads, the sources that
+// read it, the one preferred and the one in use. The source in use is that of
+// the service's first row; another source's accounts of it (Magpie's) follow.
+function quotaServices(sources, providers, prefer = {}) {
+  const byService = new Map();
+  for (const source of sources || []) for (const row of source.services || []) {
+    if (!byService.has(row.service)) byService.set(row.service, { id: row.service, label: row.label, sources: [] });
+    // A source with several accounts of one service is still one source.
+    if (!byService.get(row.service).sources.includes(source.id)) byService.get(row.service).sources.push(source.id);
+  }
+  const active = new Map();
+  for (const row of providers || []) if (!active.has(row.service)) active.set(row.service, row.sourceId);
+  return [...byService.values()].map(row => ({ ...row, preferred: prefer?.[row.id] || null, active: active.get(row.id) || null }));
+}
+
 async function readQuotaConfig(configDir) {
   try { return normalizeQuotaConfig(JSON.parse(await readText(path.join(configDir, QUOTA_CONFIG_FILE), 64 * 1024))); }
   catch { return normalizeQuotaConfig(null); }
@@ -231,5 +246,5 @@ function createCodexBarReader({ env = process.env, osHome = os.homedir(), now = 
   return { read, reset() { cached = null; } };
 }
 
-module.exports = { listQuotaSources, opencodexSource, providerRow, QUOTA_SOURCE_IDS, normalizeQuotaConfig, readQuotaConfig, writeQuotaConfig,
+module.exports = { listQuotaSources, opencodexSource, providerRow, QUOTA_SOURCE_IDS, normalizeQuotaConfig, readQuotaConfig, writeQuotaConfig, quotaServices,
   findCodexBar, codexbarReports, runCodexBar, createCodexBarReader };

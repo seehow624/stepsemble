@@ -174,8 +174,11 @@ test("conflicting UUID aliases, unverified claims and unknown CLI identities nev
     { accountAliases: [alias, "v1:" + "c".repeat(64)] }, { windows: [] }, { status: "unavailable" }]) {
     assert.equal(combineQuotas([native(extra), magpie]).length, 2);
   }
-  // The account's own sign-in through Pi reads the same official profile and attests the same alias.
+  // The account's own sign-in, read with its token ("account") or through Pi ("signin"),
+  // carries the same official identity and attests the same alias.
   assert.equal(combineQuotas([native({ source: "signin" }), magpie]).length, 1);
+  assert.equal(combineQuotas([native({ source: "account" }), magpie]).length, 1);
+  assert.equal(combineQuotas([native({ source: "codexbar" }), magpie]).length, 2);
   const anonymous = host("cli-cache", null, 20, 1, { source: "native", status: "cached", accountAliases: [alias] });
   assert.equal(combineQuotas([native(), magpie, anonymous]).length, 2, "anonymous cache remains unbound even alongside verified evidence");
 });

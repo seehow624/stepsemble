@@ -8,9 +8,9 @@
     "zh-Hant": { details:"資料詳情", limits:"額度", remaining:"剩餘", used:"已用", today:"今天", tokens:"Token 用量", cost:"估算費用", refresh:"重新整理", all:"所有 Host", rate:"輸出 tok/s", burn:"用量 tok/min", hidden:"只顯示圖示", animate:"貓咪動畫", live:"即時輸出", average:"本輪模型平均", history:"輸出 · 過去 60 秒", waiting:"等待模型輸出", unknownActivity:"暫無活動資料", historyNote:"過去一分鐘保存的輸出量，並非模型生成速度。", burnNote:"每分鐘用量包含輸入、輸出與快取。", partialActivity:"部分 Host 或歷史不可用。", menu:"選單列", open:"開啟用量 ↗", estimate:"USD 估算 · 非實際帳單", loading:"正在讀取額度…", unknown:"暫無額度資料", offline:"無法讀取此 Host，請重試或開啟 Stepsemble。", partial:"部分歷史或單價不可用，目前顯示可取得的總數。", aggregate:"部分用量為對話總數，按對話開始日期歸檔。", updated:"更新於", expires:"重置", days:"天", hours:"小時", minutes:"分", indexing:"正在建立歷史索引…", retry:"重試" },
     zh: { details:"数据详情", limits:"额度", remaining:"剩余", used:"已用", today:"今天", tokens:"Token 用量", cost:"估算费用", refresh:"刷新", all:"所有 Host", rate:"输出 tok/s", burn:"用量 tok/min", hidden:"只显示图标", animate:"猫咪动画", live:"实时输出", average:"本轮模型平均", history:"输出 · 过去 60 秒", waiting:"等待模型输出", unknownActivity:"暂无活动数据", historyNote:"过去一分钟保存的输出量，并非模型生成速度。", burnNote:"每分钟用量包含输入、输出与缓存。", partialActivity:"部分 Host 或历史不可用。", menu:"菜单栏", open:"打开用量 ↗", estimate:"USD 估算 · 非实际账单", loading:"正在读取额度…", unknown:"暂无额度数据", offline:"无法读取此 Host，请重试或打开 Stepsemble。", partial:"部分历史或价格不可用，当前显示可取得的总数。", aggregate:"部分用量为对话总数，按对话开始日期归档。", updated:"更新于", expires:"重置", days:"天", hours:"小时", minutes:"分", indexing:"正在建立历史索引…", retry:"重试" },
   };
-  Object.assign(copy.en, { settings:"Appearance", back:"Back", preferences:"Menu bar appearance", preferencesNote:"Choose what appears beside the cat.", menu:"Beside the cat", tokens:"Today’s tokens", hidden:"Cat only", whole:"Whole computer", wholeAll:"All computers", recent:"Recent activity", idle:"Idle", recording:"Reading…", usageNote:"Input, output & cache · last 60s", agents:"Usage by agent", hostCount:"Hosts", scopeNote:"Includes supported agents running outside Stepsemble. Select a Host to follow that computer.", animateNote:"Faster with more total usage. A slow turn when idle.", motionNote:"macOS Reduce Motion is on. The cat stays still.", mixed:"Observed output", activityLabel:"Token activity", quotaDisplay:"Quota display" });
-  Object.assign(copy["zh-Hant"], { settings:"外觀設定", back:"返回", preferences:"選單列外觀", preferencesNote:"選擇貓咪旁邊要顯示的數據。", menu:"貓咪旁顯示", tokens:"今日 Token", hidden:"只顯示貓咪", whole:"整台電腦", wholeAll:"所有電腦", recent:"最近有活動", idle:"閒置", recording:"讀取中…", usageNote:"輸入、輸出與快取 · 過去 60 秒", agents:"各 Agent 用量", hostCount:"台電腦", scopeNote:"包含在 Stepsemble 以外執行的支援 Agent。選擇 Host 即可追蹤該台電腦。", animateNote:"總用量越多，轉得越快；閒置時慢慢轉。", motionNote:"macOS 已開啟「減少動態效果」，貓咪會保持靜止。", mixed:"觀測輸出", activityLabel:"Token 活動", quotaDisplay:"額度顯示方式" });
-  Object.assign(copy.zh, { settings:"外观设置", back:"返回", preferences:"菜单栏外观", preferencesNote:"选择猫咪旁边要显示的数据。", menu:"猫咪旁显示", tokens:"今日 Token", hidden:"只显示猫咪", whole:"整台电脑", wholeAll:"所有电脑", recent:"最近有活动", idle:"闲置", recording:"读取中…", usageNote:"输入、输出与缓存 · 过去 60 秒", agents:"各 Agent 用量", hostCount:"台电脑", scopeNote:"包含在 Stepsemble 以外运行的支持 Agent。选择 Host 即可追踪该台电脑。", animateNote:"总用量越多，转得越快；闲置时慢慢转。", motionNote:"macOS 已开启「减少动态效果」，猫咪会保持静止。", mixed:"观测输出", activityLabel:"Token 活动", quotaDisplay:"额度显示方式" });
+  Object.assign(copy.en, { settings:"Appearance", back:"Back", preferences:"Menu bar appearance", preferencesNote:"Choose what appears beside the cat.", menu:"Beside the cat", tokens:"Today’s tokens", hidden:"Cat only", whole:"Whole computer", wholeAll:"All computers", recent:"Recent activity", idle:"Idle", recording:"Reading…", usageNote:"Input, output & cache · last 60s", agents:"Usage by agent", hostCount:"Hosts", scopeNote:"Includes supported agents running outside Stepsemble. Select a Host to follow that computer.", animateNote:"Faster with more total usage. A slow turn when idle.", motionNote:"macOS Reduce Motion is on. The cat stays still.", mixed:"Observed output", activityLabel:"Token activity", quotaDisplay:"Quota display", keyPlan:"Key plan", keyBalance:"Key balance", balanceLeft:"{amount} left" });
+  Object.assign(copy["zh-Hant"], { settings:"外觀設定", back:"返回", preferences:"選單列外觀", preferencesNote:"選擇貓咪旁邊要顯示的數據。", menu:"貓咪旁顯示", tokens:"今日 Token", hidden:"只顯示貓咪", whole:"整台電腦", wholeAll:"所有電腦", recent:"最近有活動", idle:"閒置", recording:"讀取中…", usageNote:"輸入、輸出與快取 · 過去 60 秒", agents:"各 Agent 用量", hostCount:"台電腦", scopeNote:"包含在 Stepsemble 以外執行的支援 Agent。選擇 Host 即可追蹤該台電腦。", animateNote:"總用量越多，轉得越快；閒置時慢慢轉。", motionNote:"macOS 已開啟「減少動態效果」，貓咪會保持靜止。", mixed:"觀測輸出", activityLabel:"Token 活動", quotaDisplay:"額度顯示方式", keyPlan:"金鑰方案", keyBalance:"金鑰餘額", balanceLeft:"剩 {amount}" });
+  Object.assign(copy.zh, { settings:"外观设置", back:"返回", preferences:"菜单栏外观", preferencesNote:"选择猫咪旁边要显示的数据。", menu:"猫咪旁显示", tokens:"今日 Token", hidden:"只显示猫咪", whole:"整台电脑", wholeAll:"所有电脑", recent:"最近有活动", idle:"闲置", recording:"读取中…", usageNote:"输入、输出与缓存 · 过去 60 秒", agents:"各 Agent 用量", hostCount:"台电脑", scopeNote:"包含在 Stepsemble 以外运行的支持 Agent。选择 Host 即可追踪该台电脑。", animateNote:"总用量越多，转得越快；闲置时慢慢转。", motionNote:"macOS 已开启「减少动态效果」，猫咪会保持静止。", mixed:"观测输出", activityLabel:"Token 活动", quotaDisplay:"额度显示方式", keyPlan:"密钥方案", keyBalance:"密钥余额", balanceLeft:"剩 {amount}" });
   const get = key => { try { return localStorage.getItem(key); } catch { return null; } };
   const save = (key, value) => { try { localStorage.setItem(key,value); } catch {} };
   let storage; try { storage = localStorage; } catch {}
@@ -88,14 +88,15 @@
   function render() {
     $("limits").replaceChildren();
     for (const provider of quotas) {
-      const title=provider.label || provider.provider || provider.id, detail=provider.alias || provider.plan || "";
+      const title=provider.label || provider.provider || provider.id, detail=provider.alias || provider.plan || (provider.kind==="plan"?t("keyPlan"):provider.kind==="balance"?t("keyBalance"):"");
       const row=node("div","","quota"), name=node("span",detail ? title+" · "+detail : title,"quota-name"), windows=node("div","","windows"); const heading=node("div","","quota-heading");heading.append(name);row.append(heading,windows);
       if (quotas.some(p=>p.hosts?.length>1) || !selected) {
         const hosts=provider.hosts || [], label=hosts.length>1 ? hosts.length+" "+t("hostCount") : hosts[0]?.name || "";
         const badge=node("span",label,"quota-hosts");badge.title=hosts.map(h=>h.name).join(" · ");badge.setAttribute("aria-label",badge.title);heading.append(badge);
       }
-      const available=(provider.windows||[]).filter(w=>D.percent(w)!==null);
-      const visible=available.slice(0,2);
+      // The account's own windows; the tightest models' only in their place, as Magpie's menu bar shows them.
+      const groups=U.windowGroups((provider.windows||[]).filter(w=>D.percent(w)!==null));
+      const visible=(groups.stopping.length ? groups.stopping : groups.inline).slice(0,2);
       for (const w of visible) {
         const container=node("div","","window"), title=node("div","","window-top"), pct=D.percent(w,mode), minutes=w.windowDurationMins;
         const span=!Number.isFinite(minutes)?w.label || "—":minutes===10080?"7"+t("days"):minutes===43200?"30"+t("days"):minutes%60===0?minutes/60+t("hours"):minutes+t("minutes");
@@ -106,7 +107,7 @@
         container.title=[provider.label || provider.provider || provider.id,period,pct+"% "+t(mode),resetLabel(w.resetsAt)].join(" · ");
         container.append(title,bar);windows.append(container);
       }
-      if (!visible.length) windows.append(node("span",t("unknown"),"empty"));
+      if (!visible.length) windows.append(node("span",provider.balance ? t("balanceLeft").replace("{amount}",provider.balance) : t("unknown"),"empty"));
       $("limits").append(row);
     }
     if (!quotas.length) $("limits").append(node("p",t(loading?"loading":unavailable?"offline":"unknown"),"empty"));

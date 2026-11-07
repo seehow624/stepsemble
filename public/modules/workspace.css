@@ -447,6 +447,7 @@ html[data-theme="light"] .workspace-limit-alert[data-level="critical"] { --level
 .workspace-provider-logo[data-logo="opencode"] { --workspace-provider-mark: url("/agent-logos/v2/opencode.svg"); }
 .workspace-provider-logo[data-logo="grok"] { --workspace-provider-mark: url("/agent-logos/v2/grok.svg"); }
 .workspace-provider-logo[data-logo="minimax"] { --workspace-provider-mark: url("/agent-logos/v2/minimax.png"); }
+.workspace-provider-logo[data-logo="antigravity"] { --workspace-provider-mark: url("/agent-logos/v2/antigravity.svg"); }
 .workspace-provider-logo[data-logo="unknown"]::before { display: none; }
 /* Hovering a provider answers the follow-up questions in place: which window,
    how long until it resets, and the exact local time that happens. */

@@ -29,17 +29,31 @@ function gatewayStatus(codexMode) {
   };
 }
 
+const week = (used, extra = {}) => ({ windowDurationMins: 10080, usedPercent: used, remainingPercent: 100 - used, ...extra });
 const QUOTA_SOURCES = {
   updatedAt: Date.now(),
   sources: [
-    { id: "agents", builtin: true, installed: true, enabled: true, services: [] },
+    { id: "agents", builtin: true, installed: true, enabled: true, services: [{ service: "codex", label: "Codex", windows: [week(12)], observedAt: null, inUse: true }] },
     { id: "pi", builtin: true, installed: true, enabled: true, services: [] },
+    // Every account, key plan and key balance Magpie knows. Its reading of the
+    // account Codex itself is signed in to is not what Limits shows.
     { id: "magpie", installed: true, running: true, port: 3425, dashboardUrl: null, enabled: true, reason: null, providers: [],
-      services: [{ service: "copilot", label: "GitHub Copilot", windows: [{ windowDurationMins: 43200, usedPercent: 40, remainingPercent: 60 }], observedAt: null }] },
+      services: [
+        { service: "copilot", label: "GitHub Copilot", windows: [{ windowDurationMins: 43200, usedPercent: 40, remainingPercent: 60 }], observedAt: null, inUse: true },
+        { service: "codex", label: "Codex", kind: "subscription", plan: "pro", windows: [week(12)], observedAt: null, inUse: false },
+        { service: "codex", label: "Codex", kind: "subscription", plan: "plus", alias: "Spare", windows: [week(80)], observedAt: null, inUse: true },
+        { service: "claude", label: "Claude", kind: "subscription", plan: "max", windows: [week(38), week(2, { bucket: "Fable", scope: "model" })], observedAt: null, inUse: true },
+        { service: "antigravity", label: "Antigravity", kind: "subscription", plan: "Antigravity Starter Quota", observedAt: null, inUse: true, windows: [
+          { windowDurationMins: 10080, bucket: "Claude & GPT", usedPercent: 100, remainingPercent: 0 },
+          ...["Claude Opus 5.5 (High)", "Claude Sonnet 5.5 (High)", "GPT-OSS 120B (Medium)"].map(label => ({ label, windowDurationMins: null, scope: "model", usedPercent: 100, remainingPercent: 0 }))] },
+        { service: "minimax", label: "MiniMax", kind: "plan", windows: [{ windowDurationMins: 300, usedPercent: 0, remainingPercent: 100 }], observedAt: null, inUse: true },
+        { service: "deepseek", label: "DeepSeek", kind: "balance", balance: "$12.50", windows: [], observedAt: null, inUse: true },
+      ] },
     { id: "opencodex", installed: true, running: false, port: 10100, dashboardUrl: "http://localhost:10100", enabled: true, reason: "not_running", providers: [], services: [] },
     { id: "codexbar", installed: false, enabled: false, reason: "not_installed", services: [] },
   ],
-  services: [{ id: "copilot", label: "GitHub Copilot", sources: ["magpie"], preferred: null, active: "magpie" }],
+  services: [{ id: "codex", label: "Codex", sources: ["agents", "magpie"], preferred: null, active: "agents" },
+    { id: "copilot", label: "GitHub Copilot", sources: ["magpie"], preferred: null, active: "magpie" }],
 };
 
 // Settings shows Magpie beside OpenCodex: its own cards for Codex and Claude
@@ -92,6 +106,18 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
       assert.equal(await magpieSource.locator("strong").textContent(), "Magpie");
       assert.match(await magpieSource.textContent(), /Running on port 3425/);
       assert.match(await magpieSource.textContent(), /GitHub Copilot/);
+      // Each account says which it is, and only the readings Limits shows are in use.
+      const magpieRows = await magpieSource.locator(".quota-source-provider").evaluateAll(rows => rows.map(row => [row.firstElementChild.textContent.replace(/\s+/g, " ").trim(), row.lastElementChild.textContent]));
+      assert.deepEqual(magpieRows, [
+        ["GitHub Copilot in use", "30d 60% left"],
+        ["Codex · pro", "7d 88% left"],
+        ["Codex · Spare in use", "7d 20% left"],
+        ["Claude · max in use", "7d 62% left · Fable 7d 98% left"],
+        ["Antigravity · Antigravity Starter Quota in use", "Claude & GPT 7d 0% left · 3 more per-model limits"],
+        ["MiniMax · key plan in use", "5h 100% left"],
+        ["DeepSeek · key balance in use", "$12.50 left"],
+      ]);
+      assert.match(await page.locator('#quota-sources-list [data-quota-source="agents"] .quota-source-provider').textContent(), /^Codex in use/);
 
       await page.locator("#model-settings-open").click();
       await page.locator('#model-agent-list [data-model-agent="codex"]').click();

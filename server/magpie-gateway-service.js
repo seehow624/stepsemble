@@ -112,19 +112,33 @@ function windowMinutes(name) {
 
 const clean = (value, max) => typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max) : "";
 
-// One of Magpie's windows as a share used. "7 days · Fable" is the account's
-// weekly window for one model and keeps that model as its bucket; a window
-// with no span of its own ("Claude Opus 5.5 (High)") keeps its name. A window
-// that is only a text, a wallet balance or unlimited has no share to show.
+// One of Magpie's windows as a share used. A pool's own window, shared by the
+// models drawing on it, is named after the pool ("Gemini · 7 days") and keeps
+// it as its bucket. Otherwise the account's own window ("7 days"), its window
+// for one model ("7 days · Fable", the model its bucket) or one model's own
+// window with no span of its own ("Claude Opus 5.5 (High)"). A window for one
+// model is marked so: it stops that model, not the account. A window that is
+// only a text, a wallet balance or unlimited has no share to show.
 function quotaWindow(window) {
   if (!window || typeof window !== "object" || window.text === true || window.unlimited === true || window.balance != null) return null;
   const used = Number(window.used);
   if (!Number.isFinite(used) || used < 0 || used > 100) return null;
-  const name = clean(window.name, 80), dot = name.indexOf(" · ");
-  const minutes = windowMinutes(dot >= 0 ? name.slice(0, dot) : name);
-  const bucket = minutes && dot >= 0 ? name.slice(dot + 3).trim() : "";
-  const reset = typeof window.resetsAt === "string" ? Date.parse(window.resetsAt) : NaN;
-  return { label: name || null, windowDurationMins: minutes, bucket: bucket || null, usedPercent: used, resetsAt: Number.isFinite(reset) ? reset : null };
+  const name = clean(window.name, 80), pool = clean(window.pool, 40), at = name.indexOf(" · ");
+  const head = at >= 0 ? name.slice(0, at).trim() : name, tail = at >= 0 ? name.slice(at + 3).trim() : "";
+  const reset = typeof window.resetsAt === "string" ? Date.parse(window.resetsAt) : NaN, resetsAt = Number.isFinite(reset) ? reset : null;
+  if (pool && (head === pool || (!tail && windowMinutes(name)))) {
+    const minutes = windowMinutes(head === pool ? tail : name);
+    return { label: name || null, windowDurationMins: minutes, bucket: minutes ? pool : null, usedPercent: used, resetsAt };
+  }
+  const minutes = windowMinutes(head), model = minutes ? tail : name;
+  return { label: name || null, windowDurationMins: minutes, bucket: minutes && model ? model : null, ...(model ? { scope: "model" } : {}), usedPercent: used, resetsAt };
+}
+
+// A prepaid wallet's reading in its unit, "6,291 points", as Magpie tells it
+// before "left" (provider.BalanceText).
+function walletText(window) {
+  const amount = window?.balance == null ? NaN : Number(window.balance);
+  return Number.isFinite(amount) ? (new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(amount) + " " + clean(window.unit, 20)).trim() : "";
 }
 
 const QUOTA_KINDS = new Set(["subscription", "plan", "balance"]);
@@ -142,8 +156,9 @@ function quotaEntries(payload) {
   for (const row of rows.slice(0, 64)) {
     const service = typeof row?.provider === "string" ? row.provider.toLowerCase() : typeof row?.agent === "string" ? row.agent.toLowerCase() : "";
     if (!SERVICE_ID.test(service) || row.on === false || clean(row.from, 80)) continue;
-    const windows = (Array.isArray(row.windows) ? row.windows : []).slice(0, 32).map(quotaWindow).filter(Boolean);
-    const balance = clean(row.balance, 40);
+    const raw = (Array.isArray(row.windows) ? row.windows : []).slice(0, 32), windows = raw.map(quotaWindow).filter(Boolean);
+    // A key's balance, else a subscription's prepaid wallet.
+    const balance = clean(row.balance, 40) || clean(raw.map(walletText).find(Boolean), 40);
     if (!windows.length && !balance) continue;
     const user = clean(row.user, 320).toLowerCase();
     const readAt = typeof row.readAt === "string" ? Date.parse(row.readAt) : NaN;

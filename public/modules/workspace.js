@@ -43,9 +43,13 @@
     if (!state) return;
     state.textContent = state.dataset.state === "online" ? t("connected") : state.dataset.state === "offline" ? t("hostUnavailable") : t("connecting");
   }
+  // A provider and which of its accounts: its own name in Magpie, or its plan.
+  const accountName = provider => [provider.provider, provider.alias || provider.plan].filter(Boolean).join(" · ");
   // A bucket that only repeats the provider's name ("codex" under Codex) is
   // left out of the label.
   function usageLabel(w, provider = null) {
+    // A window with no span of its own (one model's) goes by its name.
+    if (!w.windowDurationMins && w.label) return w.label;
     const period = w.windowDurationMins === 300 ? t("fiveHours") : w.windowDurationMins === 10080 ? t("weekly")
       : w.windowDurationMins === 43200 ? t("monthly") : t("minutes", { minutes: w.windowDurationMins || "?" });
     const same = value => String(value || "").toLowerCase() === String(w.bucket || "").toLowerCase();
@@ -1335,6 +1339,7 @@
       : value.includes("claude") ? "claude"
       : value.includes("opencode") ? "opencode"
       : value.includes("minimax") ? "minimax"
+      : value.includes("antigravity") ? "antigravity"
       : value.includes("grok") ? "grok" : "unknown";
     if (logo.dataset.logo === "unknown") logo.textContent = String(name || "?").trim().slice(0, 2).toUpperCase();
     logo.setAttribute("aria-hidden", "true");
@@ -1346,23 +1351,35 @@
     const days = Math.floor(total / 1440), hours = Math.floor((total % 1440) / 60);
     return days ? `${days}d ${hours}h` : hours ? `${hours}h ${total % 60}m` : `${total}m`;
   }
-  const windowShape = w => shortWindow(w.windowDurationMins) || w.label;
+  // With its provider, a window for one model also names the model ("Fable · 7d").
+  const windowShape = (w, provider = null) => {
+    const span = shortWindow(w.windowDurationMins), same = value => String(value || "").toLowerCase() === String(w.bucket || "").toLowerCase();
+    return span && provider && w.bucket && !same(provider.provider) && !same(provider.service) ? w.bucket + " · " + span : span || w.label;
+  };
   // Hovering a provider explains its allowances without leaving the sidebar.
   let usageTip = null;
   function closeUsageTip() { usageTip?.remove(); usageTip = null; }
   function showUsageTip(anchor, provider) {
     closeUsageTip();
     const tip = node("div", "", "workspace-tip");
-    tip.append(node("strong", provider.provider, "workspace-tip-title"));
-    for (const w of provider.windows) {
+    tip.append(node("strong", accountName(provider), "workspace-tip-title"));
+    // The account's own windows, and a couple for one model; more of those are counted.
+    const groups = window.StepsembleUsageData.windowGroups(provider.windows);
+    for (const w of [...groups.stopping, ...groups.inline]) {
       const line = node("span", "", "workspace-tip-row");
-      line.append(node("span", windowShape(w), "workspace-tip-key"),
+      line.append(node("span", windowShape(w, provider), "workspace-tip-key"),
         node("span", window.StepsembleUsageUI.quotaLabel(w), "workspace-tip-value"));
       tip.append(line);
       if (w.resetsAt) {
         tip.append(node("span", t("resetsIn", { duration: shortDuration(w.resetsAt - Date.now()) }), "workspace-tip-note"));
         tip.append(node("span", date(w.resetsAt), "workspace-tip-note workspace-tip-exact"));
       }
+    }
+    if (groups.folded.length) tip.append(node("span", window.StepsembleUsageUI.label("moreModels", { count: groups.folded.length }), "workspace-tip-note"));
+    if (provider.balance) {
+      const line = node("span", "", "workspace-tip-row");
+      line.append(node("span", window.StepsembleUsageUI.label("balance"), "workspace-tip-key"), node("span", provider.balance, "workspace-tip-value"));
+      tip.append(line);
     }
     if (provider.status === "cached" && provider.observedAt) tip.append(node("span", t("checked", { date: date(provider.observedAt) }), "workspace-tip-note"));
     document.body.append(tip);
@@ -1413,18 +1430,21 @@
     const rows = data.providers.map(provider => {
       const windows = [...(provider.windows || [])].sort((a, b) =>
         (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity) || a.remainingPercent - b.remainingPercent);
-      // The window with the least left is the one that stops work first.
-      const tightest = windows.filter(w => Number.isFinite(w.remainingPercent))
+      // The window with the least left is the one that stops work first; a
+      // window for one model counts only for an account that has no other.
+      const tightest = window.StepsembleUsageData.accountWindows(windows).filter(w => Number.isFinite(w.remainingPercent))
         .sort((a, b) => a.remainingPercent - b.remainingPercent)[0] || null;
-      return { provider, windows, tightest, level: tightest ? remainingLevel(tightest.remainingPercent) : null };
+      // A key's balance is known too, though it is not a share of a window.
+      return { provider, windows, tightest, known: !!tightest || !!provider.balance, level: tightest ? remainingLevel(tightest.remainingPercent) : null };
     });
     const hover = (anchor, row) => {
-      if (row.tightest) anchor.addEventListener("pointerenter", () => { if (!usageUI.isOpen()) showUsageTip(anchor, { ...row.provider, windows: row.windows }); });
+      if (row.known) anchor.addEventListener("pointerenter", () => { if (!usageUI.isOpen()) showUsageTip(anchor, { ...row.provider, windows: row.windows }); });
       anchor.addEventListener("pointerleave", closeUsageTip);
     };
     const spoken = rows.map(row => {
-      const summary = row.tightest ? `${usageLabel(row.tightest, row.provider)} · ${window.StepsembleUsageUI.quotaLabel(row.tightest)}` : t("quotaUnavailable");
-      return `${row.provider.provider} · ${summary}` + (row.provider.status === "cached" && row.provider.observedAt ? ` · ${t("checked", { date: date(row.provider.observedAt) })}` : "");
+      const summary = row.tightest ? `${usageLabel(row.tightest, row.provider)} · ${window.StepsembleUsageUI.quotaLabel(row.tightest)}`
+        : row.provider.balance ? window.StepsembleUsageUI.label("balanceLeft", { amount: row.provider.balance }) : t("quotaUnavailable");
+      return `${accountName(row.provider)} · ${summary}` + (row.provider.status === "cached" && row.provider.observedAt ? ` · ${t("checked", { date: date(row.provider.observedAt) })}` : "");
     });
     const label = `${window.StepsembleUsageUI.label("overview")} · ${spoken.join(" · ")}`;
     const strip = button("", () => toggleLimitsSheet(strip), label, "workspace-limits-strip");
@@ -1446,7 +1466,7 @@
       }
     } else {
       strip.dataset.state = "ok";
-      const known = rows.every(row => row.tightest);
+      const known = rows.every(row => row.known);
       lead.append(node("span", "", "workspace-limits-dot"), node("span", t(known ? "quotaAllGood" : "quotaKnownGood"), "workspace-limits-summary"));
     }
     const marks = node("span", "", "workspace-limits-marks");
@@ -1454,7 +1474,7 @@
       if (alerts.includes(row)) continue;
       const mark = node("span", "", "workspace-limit-mark");
       mark.append(providerLogo(row.provider.provider));
-      if (!row.tightest) mark.dataset.unknown = "true";
+      if (!row.known) mark.dataset.unknown = "true";
       if (row.provider.status === "cached") mark.dataset.stale = "true";
       hover(mark, row);
       marks.append(mark);

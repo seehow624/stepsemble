@@ -155,6 +155,14 @@ html[data-theme="dark"] .usage-sheet {
 /* One window takes the card's width; two or three share it. */
 .usage-quota-windows { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px 14px; min-width: 0; }
 .usage-quota-unknown, .usage-quota-observed { grid-column: 1 / -1; margin: 0; }
+/* Windows for one model each, folded under the account's own. */
+.usage-quota-models { grid-column: 1 / -1; min-width: 0; }
+.usage-quota-models summary { min-height: 44px; display: flex; align-items: center; gap: 9px; list-style: none; cursor: pointer; color: var(--pine-soft); font-size: var(--text-2xs); }
+.usage-quota-models summary::-webkit-details-marker { display: none; }
+.usage-quota-models summary::before { content: ""; flex: none; width: 6px; height: 6px; margin: 0 2px; border-right: 1.5px solid var(--pine-soft); border-bottom: 1.5px solid var(--pine-soft); transform: rotate(-45deg); transition: transform .15s ease; }
+.usage-quota-models[open] summary::before { transform: rotate(45deg); }
+.usage-quota-models summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.usage-quota-models > .usage-quota-windows { padding-bottom: 4px; }
 .usage-quota-window { --level: var(--usage-input); display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .usage-quota-window[data-level=low] { --level: var(--usage-low); }
 .usage-quota-window[data-level=critical] { --level: var(--usage-critical); }

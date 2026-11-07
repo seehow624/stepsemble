@@ -394,9 +394,10 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     const magpieRows = new Map();
     for (const report of magpie.status === "fulfilled" && Array.isArray(magpie.value) ? magpie.value : []) {
       const service = typeof report?.service === "string" ? report.service : "";
-      const windows = currentWindows((report?.windows || [])
-        .map(w => windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, w.label ?? null, w.windowDurationMins ?? null, w.bucket ?? null))
-        .filter(Boolean), now());
+      const windows = currentWindows((report?.windows || []).map(w => {
+        const row = windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, w.label ?? null, w.windowDurationMins ?? null, w.bucket ?? null);
+        return row && w.scope === "model" ? { ...row, scope: "model" } : row;
+      }).filter(Boolean), now());
       const balance = typeof report?.balance === "string" && report.balance ? report.balance : null;
       if (!service || (!windows.length && !balance)) continue;
       const readAt = Number.isFinite(report.readAt) ? report.readAt : null;
@@ -466,8 +467,9 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     // What a Magpie account is besides its windows: a wallet balance, and the
     // plan, the user's own name or the kind that tells one account from another.
     const details = reading => Object.fromEntries(["plan", "alias", "kind", "balance"].filter(key => reading?.[key]).map(key => [key, reading[key]]));
-    const providers = [];
+    const providers = [], shown = new Set();
     const push = (service, sourceId, reading) => {
+      if (reading) shown.add(reading);
       const windows = reading?.windows || [], has = windows.length > 0 || !!reading?.balance;
       const observed = typeof reading?.observedAt === "number" ? reading.observedAt : null;
       providers.push({ provider: label(service), service, sourceId, status: !has ? "unavailable" : reading?.cached || observed !== null ? "cached" : "ready",
@@ -483,17 +485,20 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       push(service, sourceId, reading);
       // Magpie's other accounts of the service: every one when Magpie is the
       // service's source, else those provably not the account shown already.
-      // One the shown reading cannot be told from is left out, not shown twice.
-      const known = new Set([reading?.accountKey, ...(reading?.accountAliases || [])].filter(Boolean));
+      // Magpie knows an account by its email's opaque key, which only the shown
+      // reading's own sign-in attests (accountAliases). Without that the two
+      // cannot be told apart, and Magpie's accounts are left out, not shown twice.
+      const aliases = reading?.accountAliases || [];
       for (const row of on("magpie") ? (magpieRows.get(service) || []).filter(row => row !== reading) : []) {
-        if (sourceId === "magpie" || (row.accountKey && known.size && !known.has(row.accountKey))) push(service, "magpie", row);
+        if (sourceId === "magpie" || (row.accountKey && aliases.length && !aliases.includes(row.accountKey))) push(service, "magpie", row);
       }
     }
     const sources = {};
     for (const id of DEFAULT_ORDER) {
       const rowsOf = service => id === "magpie" ? magpieRows.get(service) || [] : [readings[id].get(service)];
+      // inUse: Limits shows this reading.
       sources[id] = { enabled: on(id), services: [...readings[id].keys()].flatMap(service => rowsOf(service).map(reading => ({ service, label: label(service),
-        windows: reading.windows, observedAt: reading.observedAt ?? null, ...details(reading) }))) };
+        windows: reading.windows, observedAt: reading.observedAt ?? null, inUse: shown.has(reading), ...details(reading) }))) };
     }
     if (codexbar) sources.codexbar.reason = codexbar.reason || null;
     const result = { updatedAt: now(), providers, sources, prefer: config.prefer };

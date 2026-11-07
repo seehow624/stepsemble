@@ -74,7 +74,7 @@ const { createAgentAuthService } = require("./server/agent-auth");
 const { createLaunchDiagnostics } = require("./server/agent-launch-diagnostics");
 const { firstRunStatus, trustAntigravityFolder } = require("./server/agent-first-run");
 const { windowsLaunch } = require("./server/windows-launch");
-const { opencodexSource, readQuotaConfig, writeQuotaConfig, findCodexBar, createCodexBarReader } = require("./server/quota-sources");
+const { opencodexSource, readQuotaConfig, writeQuotaConfig, findCodexBar, createCodexBarReader, quotaServices } = require("./server/quota-sources");
 const { createAgentModelCache, acpModelChoices } = require("./server/agent-model-cache");
 const { CONTRACT_VERSION: AGENT_CAPABILITY_CONTRACT_VERSION } = require("./server/agent-capability-contract");
 const { createOpenCodeNativeAdapter } = require("./server/opencode-native-adapter");
@@ -381,15 +381,7 @@ async function quotaSourcesPayload({ fresh = false } = {}) {
     { id: "codexbar", installed: !!codexbar, enabled: config.sources.codexbar,
       reason: codexbar ? usage?.sources?.codexbar?.reason || null : "not_installed", services: services("codexbar") },
   ];
-  const byService = new Map();
-  for (const source of sources) for (const row of source.services) {
-    if (!byService.has(row.service)) byService.set(row.service, { id: row.service, label: row.label, sources: [] });
-    // A source with several accounts of one service is still one source.
-    if (!byService.get(row.service).sources.includes(source.id)) byService.get(row.service).sources.push(source.id);
-  }
-  const active = new Map((usage?.providers || []).map(row => [row.service, row.sourceId]));
-  return { sources, updatedAt: usage?.updatedAt || Date.now(),
-    services: [...byService.values()].map(row => ({ ...row, preferred: config.prefer[row.id] || null, active: active.get(row.id) || null })) };
+  return { sources, updatedAt: usage?.updatedAt || Date.now(), services: quotaServices(sources, usage?.providers, config.prefer) };
 }
 
 // Allowances can also come from the ChatGPT and Claude accounts signed in under

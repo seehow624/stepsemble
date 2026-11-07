@@ -145,11 +145,12 @@
   function combineQuotas(results) {
     const groups = new Map(), aliases = new Map();
     const validIdentity = value => typeof value === "string" && /^v1:[a-f0-9]{64}$/.test(value);
-    // Only an account's own sign-in (the agent's, or Pi's) can attest an
-    // opaque email alias for its official account id, the key Magpie's
-    // reading of the same account carries. Conflicting claimants remain ambiguous.
+    // Only an account's own sign-in (the agent's, read natively or with its
+    // account token, or Pi's) can attest an opaque email alias for its official
+    // account id, the key Magpie's reading of the same account carries.
+    // Conflicting claimants remain ambiguous.
     for (const result of results || []) for (const provider of result.quota?.providers || []) {
-      if (!["native", "signin"].includes(provider.source) || !validIdentity(provider.accountKey)
+      if (!["native", "account", "signin"].includes(provider.source) || !validIdentity(provider.accountKey)
         || !["ready", "cached"].includes(provider.status) || !provider.windows?.length
         || !Array.isArray(provider.accountAliases) || provider.accountAliases.length !== 1) continue;
       const alias = provider.accountAliases[0];
@@ -183,5 +184,21 @@
     }
     return [...groups.values()];
   }
-  return { empty, add, addCall, combine, combineQuotas, modelIdentity, canonicalProvider, modelGroup, readReport };
+  // The windows that stop an account, as Magpie's own menu bar counts them:
+  // a window for one model counts only for an account that has no other.
+  function accountWindows(windows) {
+    const all = Array.isArray(windows) ? windows : [], own = all.filter(w => w?.scope !== "model");
+    return own.length ? own : all;
+  }
+  // How an account's windows are shown: those that stop it, then a couple of
+  // windows for one model beside them; more of those fold away, the most used
+  // first. An account with no other shows its four tightest models' windows.
+  function windowGroups(windows) {
+    const all = Array.isArray(windows) ? windows : [];
+    const left = w => Number.isFinite(w?.remainingPercent) ? w.remainingPercent : Number.isFinite(w?.usedPercent) ? 100 - w.usedPercent : 101;
+    const stopping = all.filter(w => w?.scope !== "model"), models = all.filter(w => w?.scope === "model").sort((a, b) => left(a) - left(b));
+    const inline = stopping.length ? (models.length <= 2 ? models : []) : models.slice(0, 4);
+    return { stopping, inline, folded: models.filter(w => !inline.includes(w)) };
+  }
+  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, modelIdentity, canonicalProvider, modelGroup, readReport };
 });

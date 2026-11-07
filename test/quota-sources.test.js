@@ -3,10 +3,23 @@
 // tests use a temporary directory and a fake fetch; no service is contacted.
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
-const { opencodexSource, providerRow } = require("../server/quota-sources");
+const { opencodexSource, providerRow, quotaServices } = require("../server/quota-sources");
 
 function home() { return fs.mkdtempSync(path.join(os.tmpdir(), "stepsemble-quota-sources-")); }
 function response(status, body) { return { ok: status >= 200 && status < 300, status, json: async () => body }; }
+
+test("the source in use for a service is its first row's, though another source's accounts of it follow", () => {
+  const sources = [
+    { id: "agents", services: [{ service: "codex", label: "Codex" }] },
+    { id: "magpie", services: [{ service: "codex", label: "Codex", plan: "pro" }, { service: "codex", label: "Codex", plan: "plus" }, { service: "minimax", label: "MiniMax" }] },
+  ];
+  const providers = [{ service: "codex", sourceId: "agents" }, { service: "codex", sourceId: "magpie" }, { service: "claude", sourceId: null }, { service: "minimax", sourceId: "magpie" }];
+  assert.deepEqual(quotaServices(sources, providers, { minimax: "magpie" }), [
+    { id: "codex", label: "Codex", sources: ["agents", "magpie"], preferred: null, active: "agents" },
+    { id: "minimax", label: "MiniMax", sources: ["magpie"], preferred: "magpie", active: "magpie" },
+  ], "a source with two accounts of a service is listed once, and Magpie's second Codex account does not take Codex over");
+  assert.deepEqual(quotaServices([], undefined), []);
+});
 
 test("a missing OpenCodex is reported as not installed without any request", async () => {
   const dir = home();

@@ -15687,6 +15687,15 @@ function quotaWindowLabel(window) {
   return window.label || "";
 }
 
+// The windows that stop an account, then a couple for one model each; more of
+// those are counted, as the Limits cards fold them (usage-data.js windowGroups).
+function quotaListedWindows(windows) {
+  const all = Array.isArray(windows) ? windows : [], stopping = all.filter(w => w?.scope !== "model");
+  const models = all.filter(w => w?.scope === "model").sort((a, b) => quotaWindowRemaining(a) - quotaWindowRemaining(b));
+  const inline = stopping.length ? (models.length <= 2 ? models : []) : models.slice(0, 4);
+  return { listed: [...stopping, ...inline], more: models.length - inline.length };
+}
+
 function quotaWindowRemaining(window) {
   const value = Number.isFinite(window.remainingPercent) ? window.remainingPercent : 100 - Number(window.usedPercent);
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -15767,10 +15776,12 @@ function renderQuotaSources() {
     toggle.append(input, track);
     head.append(copy, toggle);
     card.appendChild(head);
-    // OpenCodex's own rows keep its extra windows; the others use what was read.
+    // OpenCodex's own rows keep its extra windows; the others use what was read,
+    // with which account of the service each is and whether Limits shows it.
     const rows = source.id === "opencodex" && source.providers?.length
       ? source.providers.map(row => ({ id: row.id === "anthropic" ? "claude" : row.id === "openai" ? "codex" : row.id, label: row.label, windows: row.windows }))
-      : (source.services || []).map(row => ({ id: row.service, label: row.label, windows: row.windows }));
+      : (source.services || []).map(row => ({ id: row.service, label: row.label, windows: row.windows,
+        alias: row.alias, plan: row.plan, kind: row.kind, balance: row.balance, inUse: row.inUse }));
     if (source.enabled && source.installed) {
       if (!rows.length && source.id !== "codexbar") note(tKey("quotaSources.nothing"), card);
       for (const row of rows) {
@@ -15780,7 +15791,8 @@ function renderQuotaSources() {
         // Which account of the service: its own name, its plan, or a key's plan or balance.
         const detail = row.alias || row.plan || (row.kind === "plan" ? tKey("quotaSources.keyPlan") : row.kind === "balance" ? tKey("quotaSources.keyBalance") : "");
         label.textContent = detail ? row.label + " · " + detail : row.label; label.dataset.i18nIgnore = "";
-        if (active.get(row.id) === source.id) {
+        // An older Host tells only which source each service uses.
+        if (typeof row.inUse === "boolean" ? row.inUse : active.get(row.id) === source.id) {
           const tag = document.createElement("em");
           tag.className = "quota-source-inuse";
           tag.textContent = tKey("quotaSources.inUse");
@@ -15790,7 +15802,9 @@ function renderQuotaSources() {
         windows.className = "quota-source-windows";
         // A window for one model names it; a bucket that is the service itself is not repeated.
         const own = name => [row.id, row.label].some(value => String(value || "").toLowerCase() === String(name).toLowerCase());
-        const parts = (row.windows || []).map(window => ([window.bucket && !own(window.bucket) ? window.bucket : "", quotaWindowLabel(window), tKey("quotaSources.left", { percent: quotaWindowRemaining(window) })].filter(Boolean).join(" ")).trim());
+        const shown = quotaListedWindows(row.windows);
+        const parts = shown.listed.map(window => ([window.bucket && !own(window.bucket) ? window.bucket : "", quotaWindowLabel(window), tKey("quotaSources.left", { percent: quotaWindowRemaining(window) })].filter(Boolean).join(" ")).trim());
+        if (shown.more) parts.push(tKey("quotaSources.moreModels", { count: shown.more }));
         if (row.balance) parts.push(tKey("quotaSources.balanceLeft", { amount: row.balance }));
         windows.textContent = parts.length ? parts.join(" · ") : tKey("quotaSources.noReading");
         line.append(label, windows);

@@ -259,10 +259,13 @@ choose every Magpie model while Claude's own models stay on the subscription.
 As a quota source, the Host reads the gateway's `GET /v1/magpie/quotas` (the
 same answer as `magpie quota --json`, which it runs when the gateway is not up)
 every couple of minutes: every subscription account Magpie is signed in to, every
-plan bought with a key and every key's balance, each as its own card, including
-windows for one model and an account's second subscription. A service that
-another source already reads through its own sign-in shows Magpie's other
-accounts next to it, never the same account twice. A route belongs to the
+plan bought with a key and every key's balance, each as its own card, named by
+its plan or the name given to it in Magpie. As in Magpie's menu bar, an
+account's own windows and a pool's ("Gemini · 7 days") are what stop it; a
+window for one model stays beside them ("Fable · 7d"), and many of those
+(Antigravity's) fold under **Per-model limits**. A service that another source
+already reads through its own sign-in shows Magpie's other accounts next to it,
+never the same account twice. A route belongs to the
 gateway it points at: OpenCodex never claims a
 route that goes to Magpie, and its cards step aside while it is off and nothing
 goes through it.

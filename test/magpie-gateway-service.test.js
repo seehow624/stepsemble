@@ -135,8 +135,18 @@ test("Codex routing goes through Magpie's own command and keeps Codex's model", 
 test("Magpie's quota entries become allowances: every account, plan and balance, a window for one model kept under it", () => {
   assert.equal(windowMinutes("5 hours"), 300); assert.equal(windowMinutes("7 days"), 10080); assert.equal(windowMinutes("7 days · Fable"), null);
   assert.deepEqual(quotaWindow({ name: "7 days · Fable", used: 32, remaining: 68, resetsAt: "2026-11-09T10:00:00+08:00" }),
-    { label: "7 days · Fable", windowDurationMins: 10080, bucket: "Fable", usedPercent: 32, resetsAt: Date.parse("2026-11-09T10:00:00+08:00") });
-  assert.deepEqual(quotaWindow({ name: "Claude Opus 5.5 (High)", used: 100, remaining: 0 }), { label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, usedPercent: 100, resetsAt: null });
+    { label: "7 days · Fable", windowDurationMins: 10080, bucket: "Fable", scope: "model", usedPercent: 32, resetsAt: Date.parse("2026-11-09T10:00:00+08:00") });
+  assert.deepEqual(quotaWindow({ name: "Claude Opus 5.5 (High)", used: 100, remaining: 0 }), { label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 100, resetsAt: null });
+  // The account's own window, and a pool several models draw on, are not one model's.
+  assert.deepEqual(quotaWindow({ name: "7 days", used: 59 }), { label: "7 days", windowDurationMins: 10080, bucket: null, usedPercent: 59, resetsAt: null });
+  assert.deepEqual(quotaWindow({ name: "5 hours", pool: "Gemini", used: 10 }), { label: "5 hours", windowDurationMins: 300, bucket: "Gemini", usedPercent: 10, resetsAt: null });
+  assert.deepEqual(quotaWindow({ name: "Gemini", pool: "Gemini", used: 20 }), { label: "Gemini", windowDurationMins: null, bucket: null, usedPercent: 20, resetsAt: null });
+  // Antigravity as Magpie 0.1.1672 reads it: a pool's own window is named after the pool; a model's
+  // window drawing on a pool is still that model's.
+  assert.deepEqual(quotaWindow({ name: "Gemini · 7 days", pool: "Gemini", used: 1.24, remaining: 98.76, resetsAt: "2026-11-13T23:55:55Z" }),
+    { label: "Gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", usedPercent: 1.24, resetsAt: Date.parse("2026-11-13T23:55:55Z") });
+  assert.deepEqual(quotaWindow({ name: "Claude & GPT · 7 days", pool: "Claude & GPT", used: 100 }), { label: "Claude & GPT · 7 days", windowDurationMins: 10080, bucket: "Claude & GPT", usedPercent: 100, resetsAt: null });
+  assert.deepEqual(quotaWindow({ name: "Gemini 4 Argon (High)", pool: "Gemini 4 Argon", used: 0 }), { label: "Gemini 4 Argon (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 0, resetsAt: null });
   for (const window of [{ name: "5 hours", used: 101 }, { name: "5 hours", used: "x" }, { name: "credits", display: "1.2k / 3k", text: true, used: 0 },
     { name: "5 hours", unlimited: true, used: 0 }, { name: "wallet", balance: 12.5, unit: "USD", used: 0 }, null]) assert.equal(quotaWindow(window), null, JSON.stringify(window));
   const reports = quotaEntries({ object: "list", data: [
@@ -148,6 +158,8 @@ test("Magpie's quota entries become allowances: every account, plan and balance,
       windows: [{ name: "Claude Opus 5.5 (High)", used: 100 }, { name: "Gemini 3.8 Pro", used: 40, resetsAt: "2026-11-11T20:19:42Z" }] },
     { provider: "minimax", name: "MiniMax", kind: "plan", windows: [{ name: "5 hours", used: 0, resetsAt: "2026-11-07T13:00:00+08:00" }], lastServedAt: "2026-11-04T08:53:57Z" },
     { provider: "deepseek", name: "DeepSeek", kind: "balance", balance: "$12.50", windows: [] },
+    { provider: "workbuddy", name: "WorkBuddy", kind: "subscription", user: "wb@example.com", windows: [{ name: "credits", balance: 6291, unit: "points", used: 0, remaining: 0 }] },
+    { provider: "factory", name: "Factory", kind: "subscription", user: "f@example.com", windows: [{ name: "extra usage", display: "$3.20", text: true, used: 0 }] },
     { provider: "codex", name: "Codex", kind: "subscription", user: "far@example.com", from: "studio", windows: [{ name: "7 days", used: 33 }] },
     { provider: "../bad", windows: [{ name: "5 hours", used: 1 }] },
   ] });
@@ -157,7 +169,8 @@ test("Magpie's quota entries become allowances: every account, plan and balance,
     ["antigravity", "subscription", "Antigravity", "Antigravity Starter Quota", null, null, [[null, null, 100], [null, null, 40]]],
     ["minimax", "plan", "MiniMax", null, null, null, [[300, null, 0]]],
     ["deepseek", "balance", "DeepSeek", null, null, "$12.50", []],
-  ], "an account without a reading, a remote Magpie's account and a bad id are left out");
+    ["workbuddy", "subscription", "WorkBuddy", null, null, "6,291 points", []],
+  ], "an account without a reading (an error, a text alone), a remote Magpie's account and a bad id are left out; a wallet is a balance");
   assert.equal(reports[0].windows[0].resetsAt, Date.parse("2026-10-20T15:29:00+08:00"));
   assert.equal(reports[0].readAt, Date.parse("2026-10-20T13:50:58+08:00")); assert.equal(reports[0].last, true); assert.equal(reports[1].last, false);
   assert.equal(reports[2].windows[0].label, "Claude Opus 5.5 (High)"); assert.equal(reports[2].windows[1].resetsAt, Date.parse("2026-11-11T20:19:42Z"));
@@ -221,7 +234,7 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
   const magpie = [
     { service: "codex", kind: "subscription", label: "Codex", plan: "pro", windows: [{ windowDurationMins: 10080, usedPercent: 46, resetsAt: null }], readAt: 1000, accountKey: mine, last: true },
     { service: "codex", kind: "subscription", label: "Codex", plan: "plus", alias: "Spare", windows: [{ windowDurationMins: 10080, usedPercent: 80, resetsAt: null }], readAt: 1000, accountKey: other },
-    { service: "antigravity", kind: "subscription", label: "Antigravity", plan: "Antigravity Starter Quota", windows: [{ label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, usedPercent: 100, resetsAt: null }], readAt: 1000, accountKey: "v1:" + "a".repeat(64) },
+    { service: "antigravity", kind: "subscription", label: "Antigravity", plan: "Antigravity Starter Quota", windows: [{ label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 100, resetsAt: null }], readAt: 1000, accountKey: "v1:" + "a".repeat(64) },
     { service: "minimax", kind: "plan", label: "MiniMax", windows: [{ label: "5 hours", windowDurationMins: 300, bucket: null, usedPercent: 0, resetsAt: null }], readAt: null, accountKey: null },
     { service: "deepseek", kind: "balance", label: "DeepSeek", windows: [], balance: "$12.50", readAt: null, accountKey: null },
   ];
@@ -237,16 +250,23 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
   assert.deepEqual(codex[0].accountAliases, [mine]);
   assert.deepEqual(result.providers.filter(row => !["codex", "claude"].includes(row.service)).map(row => [row.service, row.sourceId, row.status, row.kind, row.balance ?? null, row.windows.map(w => w.windowDurationMins ?? w.label)]),
     [["antigravity", "magpie", "ready", "subscription", null, ["Claude Opus 5.5 (High)"]], ["minimax", "magpie", "ready", "plan", null, [300]], ["deepseek", "magpie", "ready", "balance", "$12.50", []]]);
-  assert.deepEqual(result.providers.find(row => row.service === "antigravity").windows[0].label, "Claude Opus 5.5 (High)");
-  assert.deepEqual(result.sources.magpie.services.map(row => [row.service, row.plan ?? row.kind]),
-    [["codex", "pro"], ["codex", "plus"], ["antigravity", "Antigravity Starter Quota"], ["minimax", "plan"], ["deepseek", "balance"]]);
+  assert.deepEqual(result.providers.find(row => row.service === "antigravity").windows.map(w => [w.label, w.scope]), [["Claude Opus 5.5 (High)", "model"]], "a window for one model stays marked so");
+  // Settings tells which readings Limits shows: Magpie's reading of the account Codex is signed in to is not.
+  assert.deepEqual(result.sources.magpie.services.map(row => [row.service, row.plan ?? row.kind, row.inUse]),
+    [["codex", "pro", false], ["codex", "plus", true], ["antigravity", "Antigravity Starter Quota", true], ["minimax", "plan", true], ["deepseek", "balance", true]]);
+  assert.deepEqual(result.sources.agents.services.map(row => [row.service, row.inUse]), [["codex", true]]);
   assert.ok(!JSON.stringify(result).includes("example.com"));
   // Preferred for the service, Magpie shows every account of it, the one it served last first.
   const preferred = await make({ readConfig: async () => ({ prefer: { codex: "magpie" } }) }).read({ full: true });
   assert.deepEqual(preferred.providers.filter(row => row.service === "codex").map(row => [row.sourceId, row.plan]), [["magpie", "pro"], ["magpie", "plus"]]);
-  // A sign-in whose account cannot be told (no email in its token) never shows a Magpie account twice.
+  // A sign-in whose account cannot be told never shows a Magpie account twice: neither an
+  // anonymous one, nor one with its own account id but no email to compare with Magpie's.
   const anonymous = await make({ readCodexSignIn: async () => ({ type: "oauth", secret: jwt({ exp: 4102444800 }), accountId: null, expiresAt: null }) }).read({ full: true });
   assert.deepEqual(anonymous.providers.filter(row => row.service === "codex").map(row => row.sourceId), ["agents"]);
+  const unaliased = await make({ readCodexSignIn: async () => ({ type: "oauth", secret: jwt({ exp: 4102444800 }), accountId: "acct-native", expiresAt: null }) }).read({ full: true });
+  const unaliasedCodex = unaliased.providers.filter(row => row.service === "codex");
+  assert.deepEqual(unaliasedCodex.map(row => row.sourceId), ["agents"]); assert.match(unaliasedCodex[0].accountKey, /^v1:/); assert.equal(unaliasedCodex[0].accountAliases, undefined);
+  assert.deepEqual(unaliased.sources.magpie.services.filter(row => row.service === "codex").map(row => row.inUse), [false, false]);
   // Magpie off: its accounts, plans and balances are gone, the sign-in stays.
   const off = await make({ readConfig: async () => ({ sources: { magpie: false } }) }).read({ full: true });
   assert.deepEqual(off.providers.map(row => row.service), ["codex", "claude"]);
