@@ -7,7 +7,7 @@ const source = fs.readFileSync(require.resolve("../public/modules/workspace.js")
 // One function of the IIFE, up to the next declaration at the same depth.
 function fn(name) {
   const start = source.indexOf(`\n  function ${name}(`); assert.ok(start >= 0, name);
-  const ends = ["\n  function ", "\n  const ", "\n  let "].map(marker => source.indexOf(marker, start + 1)).filter(at => at > start);
+  const ends = ["\n  function ", "\n  async function ", "\n  const ", "\n  let "].map(marker => source.indexOf(marker, start + 1)).filter(at => at > start);
   return source.slice(start, Math.min(...ends));
 }
 

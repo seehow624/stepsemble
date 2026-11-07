@@ -1246,7 +1246,7 @@
   // Host is back, when the window is shown, when the service worker updates and
   // every two minutes. Each pane does the same for itself (app.js).
   const RELOAD_ATTEMPT = "stepsemble.workspaceReloadAttempt";
-  let versionCheck = null, updateWaiting = false;
+  let versionCheck = null, updateWaiting = false, shownCheck = false;
   // A conversation a pane shows that is working, on a Host that answers: a
   // computer that went to sleep mid-turn does not hold the Workspace back.
   function paneWorking() {
@@ -1264,11 +1264,14 @@
     return held ? "wait" : "reload";
   }
   function checkPageVersion(shown = false) {
+    // A window just shown is decided as such, even when a check started by
+    // its own refresh (the Host back) is already under way.
+    if (shown) shownCheck = true;
     if (!PAGE_VERSION || versionCheck) return;
     versionCheck = fetch("/api/version", { credentials: "same-origin", cache: "no-store" }).then(response => response.ok ? response.json() : null).then(data => {
       const current = String(data?.appVersion || "").trim().replace(/^v/, "");
       let attempted = ""; try { attempted = sessionStorage.getItem(RELOAD_ATTEMPT) || ""; } catch {}
-      const decision = pageReload(PAGE_VERSION, current, reloadHeld(shown), attempted);
+      const decision = pageReload(PAGE_VERSION, current, reloadHeld(shownCheck), attempted);
       // A version that could not be read leaves any wait as it was.
       if (decision !== "unknown") updateWaiting = decision === "wait";
       if (decision === "same") try { sessionStorage.removeItem(RELOAD_ATTEMPT); } catch {}
@@ -1276,7 +1279,7 @@
       // Without a record of the try, no automatic reload: it could not stop.
       try { sessionStorage.setItem(RELOAD_ATTEMPT, current); } catch { return; }
       location.reload();
-    }).catch(() => {}).finally(() => { versionCheck = null; });
+    }).catch(() => {}).finally(() => { versionCheck = null; shownCheck = false; });
   }
   function setConnection(online, message) {
     message = readable(message, "loadFailed");
