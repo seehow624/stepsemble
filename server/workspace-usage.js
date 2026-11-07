@@ -398,7 +398,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     let desktop;
     try { desktop = await readDesktopClaudeQuota(); } catch { desktop = null; }
     if (desktop !== undefined) {
-      const reading = sanitizeClaudeQuota(desktop);
+      // Judged on the service's own clock, as every other reading here is.
+      const reading = sanitizeClaudeQuota(desktop, now());
       return reading?.windows.length ? { windows: reading.windows, observedAt: reading.status === "cached" ? reading.sampledAt : null,
         sampledAt: reading.sampledAt, accountKey: reading.accountKey, ...(reading.accountAliases ? { accountAliases: reading.accountAliases } : {}),
         ...(reading.plan ? { plan: reading.plan } : {}), source: "native" } : null;
