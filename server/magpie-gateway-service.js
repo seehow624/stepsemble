@@ -123,15 +123,17 @@ function quotaWindow(window) {
   if (!window || typeof window !== "object" || window.text === true || window.unlimited === true || window.balance != null) return null;
   const used = Number(window.used);
   if (!Number.isFinite(used) || used < 0 || used > 100) return null;
-  const name = clean(window.name, 80), pool = clean(window.pool, 40), at = name.indexOf(" · ");
+  // Told apart in full, before the names are shortened for display.
+  const name = clean(window.name, 400), pool = clean(window.pool, 400), at = name.indexOf(" · ");
   const head = at >= 0 ? name.slice(0, at).trim() : name, tail = at >= 0 ? name.slice(at + 3).trim() : "";
   const reset = typeof window.resetsAt === "string" ? Date.parse(window.resetsAt) : NaN, resetsAt = Number.isFinite(reset) ? reset : null;
-  if (pool && (head === pool || (!tail && windowMinutes(name)))) {
-    const minutes = windowMinutes(head === pool ? tail : name);
-    return { label: name || null, windowDurationMins: minutes, bucket: minutes ? pool : null, usedPercent: used, resetsAt };
+  const label = name.slice(0, 80) || null, ofPool = !!pool && head.toLowerCase() === pool.toLowerCase();
+  if (pool && (ofPool || (!tail && windowMinutes(name)))) {
+    const minutes = windowMinutes(ofPool && tail ? tail : name);
+    return { label, windowDurationMins: minutes, bucket: minutes ? pool.slice(0, 80) : null, usedPercent: used, resetsAt };
   }
   const minutes = windowMinutes(head), model = minutes ? tail : name;
-  return { label: name || null, windowDurationMins: minutes, bucket: minutes && model ? model : null, ...(model ? { scope: "model" } : {}), usedPercent: used, resetsAt };
+  return { label, windowDurationMins: minutes, bucket: minutes && model ? model.slice(0, 80) : null, ...(model ? { scope: "model" } : {}), usedPercent: used, resetsAt };
 }
 
 // A prepaid wallet's reading in its unit, "6,291 points", as Magpie tells it

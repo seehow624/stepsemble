@@ -147,6 +147,13 @@ test("Magpie's quota entries become allowances: every account, plan and balance,
     { label: "Gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", usedPercent: 1.24, resetsAt: Date.parse("2026-11-13T23:55:55Z") });
   assert.deepEqual(quotaWindow({ name: "Claude & GPT · 7 days", pool: "Claude & GPT", used: 100 }), { label: "Claude & GPT · 7 days", windowDurationMins: 10080, bucket: "Claude & GPT", usedPercent: 100, resetsAt: null });
   assert.deepEqual(quotaWindow({ name: "Gemini 4 Argon (High)", pool: "Gemini 4 Argon", used: 0 }), { label: "Gemini 4 Argon (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 0, resetsAt: null });
+  // A pool is told by its whole name, whatever its case or length; only what is shown is shortened.
+  assert.deepEqual(quotaWindow({ name: "gemini · 7 days", pool: "Gemini", used: 5 }), { label: "gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", usedPercent: 5, resetsAt: null });
+  const long = "Claude, GPT and every other model this vendor groups into one shared allowance pool";
+  const pooled = quotaWindow({ name: long + " · 5 hours", pool: long, used: 30 });
+  assert.equal(pooled.windowDurationMins, 300); assert.equal(pooled.scope, undefined, "a long pool's window still stops the account");
+  assert.equal(pooled.bucket, long.slice(0, 80)); assert.equal(pooled.label, (long + " · 5 hours").slice(0, 80));
+  assert.equal(quotaWindow({ name: "7 days", pool: "7 days", used: 1 }).windowDurationMins, 10080);
   for (const window of [{ name: "5 hours", used: 101 }, { name: "5 hours", used: "x" }, { name: "credits", display: "1.2k / 3k", text: true, used: 0 },
     { name: "5 hours", unlimited: true, used: 0 }, { name: "wallet", balance: 12.5, unit: "USD", used: 0 }, null]) assert.equal(quotaWindow(window), null, JSON.stringify(window));
   const reports = quotaEntries({ object: "list", data: [

@@ -519,7 +519,8 @@
         // Many windows for one model each (Antigravity's) fold away under the
         // account's own, and stay open across new readings once opened.
         if (groups.folded.length) {
-          const key = JSON.stringify([provider.service, provider.accountKey, provider.alias, provider.plan, provider.kind]);
+          // An account without an identity stays one card per Host, so its Hosts tell it apart.
+          const key = JSON.stringify([provider.service, provider.accountKey || (provider.hosts || []).map(host => host.id).join(","), provider.alias, provider.plan, provider.kind]);
           const more = node("details", "", "usage-quota-models"), list = node("div", "", "usage-quota-windows"); more.open = modelsOpen.has(key);
           const summary = node("summary", label("modelLimits", { count: groups.folded.length })); summary.dataset.quotaModels = key;
           more.append(summary, list);

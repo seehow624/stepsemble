@@ -48,8 +48,9 @@
   // A bucket that only repeats the provider's name ("codex" under Codex) is
   // left out of the label.
   function usageLabel(w, provider = null) {
-    // A window with no span of its own (one model's) goes by its name.
-    if (!w.windowDurationMins && w.label) return w.label;
+    // A window with no span of its own, one model's or a pool's, goes by its
+    // name; another source's window of unknown length keeps the localized words.
+    if (!w.windowDurationMins && w.label && (w.scope === "model" || !w.bucket)) return w.label;
     const period = w.windowDurationMins === 300 ? t("fiveHours") : w.windowDurationMins === 10080 ? t("weekly")
       : w.windowDurationMins === 43200 ? t("monthly") : t("minutes", { minutes: w.windowDurationMins || "?" });
     const same = value => String(value || "").toLowerCase() === String(w.bucket || "").toLowerCase();
@@ -1460,6 +1461,7 @@
         chip.dataset.level = row.level;
         if (row.provider.status === "cached") chip.dataset.stale = "true";
         chip.append(providerLogo(row.provider.provider), node("span", `${window.StepsembleUsageUI.quotaPercent(row.tightest)}%`, "workspace-limit-percent"),
+          // The span alone fits the strip; its hover tip and spoken label name a pool or model.
           node("span", windowShape(row.tightest) || "", "workspace-limit-period"));
         hover(chip, row);
         lead.append(chip);

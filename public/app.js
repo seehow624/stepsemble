@@ -15690,7 +15690,8 @@ function quotaWindowLabel(window) {
 // The windows that stop an account, then a couple for one model each; more of
 // those are counted, as the Limits cards fold them (usage-data.js windowGroups).
 function quotaListedWindows(windows) {
-  const all = Array.isArray(windows) ? windows : [], stopping = all.filter(w => w?.scope !== "model");
+  // The shortest first, as the Limits cards order them.
+  const all = Array.isArray(windows) ? windows : [], stopping = all.filter(w => w?.scope !== "model").sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
   const models = all.filter(w => w?.scope === "model").sort((a, b) => quotaWindowRemaining(a) - quotaWindowRemaining(b));
   const inline = stopping.length ? (models.length <= 2 ? models : []) : models.slice(0, 4);
   return { listed: [...stopping, ...inline], more: models.length - inline.length };

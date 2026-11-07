@@ -107,7 +107,9 @@
         container.title=[provider.label || provider.provider || provider.id,period,pct+"% "+t(mode),resetLabel(w.resetsAt)].join(" · ");
         container.append(title,bar);windows.append(container);
       }
-      if (!visible.length) windows.append(node("span",provider.balance ? t("balanceLeft").replace("{amount}",provider.balance) : t("unknown"),"empty"));
+      // A balance shows beside the windows, or in their place.
+      if (provider.balance) windows.append(node("span",t("balanceLeft").replace("{amount}",provider.balance),"empty"));
+      else if (!visible.length) windows.append(node("span",t("unknown"),"empty"));
       $("limits").append(row);
     }
     if (!quotas.length) $("limits").append(node("p",t(loading?"loading":unavailable?"offline":"unknown"),"empty"));

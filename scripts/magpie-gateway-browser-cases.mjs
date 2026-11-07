@@ -45,6 +45,7 @@ const QUOTA_SOURCES = {
         { service: "claude", label: "Claude", kind: "subscription", plan: "max", windows: [week(38), week(2, { bucket: "Fable", scope: "model" })], observedAt: null, inUse: true },
         { service: "antigravity", label: "Antigravity", kind: "subscription", plan: "Antigravity Starter Quota", observedAt: null, inUse: true, windows: [
           { windowDurationMins: 10080, bucket: "Claude & GPT", usedPercent: 100, remainingPercent: 0 },
+          { windowDurationMins: 300, bucket: "Gemini", usedPercent: 4, remainingPercent: 96 },
           ...["Claude Opus 5.5 (High)", "Claude Sonnet 5.5 (High)", "GPT-OSS 120B (Medium)"].map(label => ({ label, windowDurationMins: null, scope: "model", usedPercent: 100, remainingPercent: 0 }))] },
         { service: "minimax", label: "MiniMax", kind: "plan", windows: [{ windowDurationMins: 300, usedPercent: 0, remainingPercent: 100 }], observedAt: null, inUse: true },
         { service: "deepseek", label: "DeepSeek", kind: "balance", balance: "$12.50", windows: [], observedAt: null, inUse: true },
@@ -113,7 +114,7 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
         ["Codex · pro", "7d 88% left"],
         ["Codex · Spare in use", "7d 20% left"],
         ["Claude · max in use", "7d 62% left · Fable 7d 98% left"],
-        ["Antigravity · Antigravity Starter Quota in use", "Claude & GPT 7d 0% left · 3 more per-model limits"],
+        ["Antigravity · Antigravity Starter Quota in use", "Gemini 5h 96% left · Claude & GPT 7d 0% left · 3 more per-model limits"],
         ["MiniMax · key plan in use", "5h 100% left"],
         ["DeepSeek · key balance in use", "$12.50 left"],
       ]);
