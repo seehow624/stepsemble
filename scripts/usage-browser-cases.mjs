@@ -528,21 +528,20 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     // A Workspace left open while its Host updated itself loads again when it
     // is shown, once per version; the same version is not loaded again.
     await full.bringToFront();
-    const shown = async () => {
-      const asked = full.waitForResponse(response => new URL(response.url()).pathname === "/api/version");
+    // Shows the window again; true when the Workspace loaded again within `timeout` after asking its Host's version.
+    const shown = async (timeout = 1500) => {
+      const asked = full.waitForResponse(response => response.frame() === full.mainFrame() && new URL(response.url()).pathname === "/api/version");
+      const loaded = full.waitForEvent("load", { timeout }).then(() => true, () => false);
       await full.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))); await asked;
-      await full.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
+      return loaded;
     };
-    await full.evaluate(() => { window.stepsembleOldPage = true; }); await shown();
-    assert.equal(await full.evaluate(() => window.stepsembleOldPage), true, "the same version stays");
+    assert.equal(await shown(), false, "the same version stays");
     fixture.setVersion("99.0.0");
-    const reloaded = full.waitForEvent("load");
-    await full.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await reloaded;
-    assert.equal(await full.evaluate(() => window.stepsembleOldPage === true), false, "a Host with another version loads the Workspace again");
+    await full.evaluate(() => { window.stepsembleOldPage = true; });
+    assert.equal(await shown(15000), true, "a Host with another version loads the Workspace again");
+    assert.equal(await full.evaluate(() => window.stepsembleOldPage === true), false);
     await full.locator("#workspace-usage .workspace-limits-strip[data-state]").waitFor({ state: "attached" });
-    await full.evaluate(() => { window.stepsembleOldPage = true; }); await shown();
-    assert.equal(await full.evaluate(() => window.stepsembleOldPage), true, "a page that comes back old again is not loaded over and over");
+    assert.equal(await shown(), false, "a page that comes back old again is not loaded over and over");
     fixture.setVersion(null);
     // The new native reader owns activity polling; an older native shell still
     // gets its existing JS heartbeat so rolling updates stay compatible.

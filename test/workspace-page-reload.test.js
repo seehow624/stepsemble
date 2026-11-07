@@ -4,12 +4,17 @@
 // and not over a working conversation, a dialog or someone using the window.
 const test = require("node:test"), assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm");
 const source = fs.readFileSync(require.resolve("../public/modules/workspace.js"), "utf8");
-const slice = (from, to) => { const start = source.indexOf(from), end = source.indexOf(to, start); assert.ok(start >= 0 && end > start, from); return source.slice(start, end); };
+// One function of the IIFE, up to the next declaration at the same depth.
+function fn(name) {
+  const start = source.indexOf(`\n  function ${name}(`); assert.ok(start >= 0, name);
+  const ends = ["\n  function ", "\n  const ", "\n  let "].map(marker => source.indexOf(marker, start + 1)).filter(at => at > start);
+  return source.slice(start, Math.min(...ends));
+}
 
 function load(state) {
   const context = vm.createContext({ ...state, $: id => ({ open: id === "workspace-dialog" && !!state.dialogOpen }), pageTab: ref => !!ref.schedules,
     document: { hasFocus: () => !!state.focused } });
-  vm.runInContext(slice("  function entryWorking(entry) {", "  function rememberSnapshot(") + slice("  function paneWorking() {", "  function checkPageVersion("), context);
+  vm.runInContext(["entryWorking", "paneWorking", "reloadHeld", "pageReload"].map(fn).join("\n"), context);
   return context;
 }
 

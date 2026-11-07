@@ -1273,7 +1273,8 @@
       if (decision !== "unknown") updateWaiting = decision === "wait";
       if (decision === "same") try { sessionStorage.removeItem(RELOAD_ATTEMPT); } catch {}
       if (decision !== "reload") return;
-      try { sessionStorage.setItem(RELOAD_ATTEMPT, current); } catch {}
+      // Without a record of the try, no automatic reload: it could not stop.
+      try { sessionStorage.setItem(RELOAD_ATTEMPT, current); } catch { return; }
       location.reload();
     }).catch(() => {}).finally(() => { versionCheck = null; });
   }
@@ -2108,7 +2109,9 @@
   window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
   // Coming back to the Workspace (another app, a locked phone) shows current
   // allowances, not the ones from before it was left.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); checkPageVersion(true); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
+  // The list is read again first: a turn that ended while the window was away
+  // does not hold the new page back.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh().then(() => checkPageVersion(true)); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
   window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
   setInterval(() => { if (!document.hidden && host) void refresh(); }, 3000);
   setInterval(() => { if (!document.hidden && host) { void refreshUsage(); if (booted) checkPageVersion(); } }, 120000);
