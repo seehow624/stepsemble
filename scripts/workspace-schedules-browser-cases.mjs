@@ -76,6 +76,11 @@ export async function runWorkspaceSchedulesBrowserCases(browser) {
         return document.activeElement === pane && pane.contentDocument?.activeElement?.name === "objectivePrompt"; });
       await page.keyboard.type("Check the build");
       assert.equal(await objective.inputValue(), "Check the build", "typing goes to the objective");
+      // ⌘, here asks the Workspace for Settings, as a conversation does, and types nothing.
+      const settings = page.locator("iframe.workspace-settings-frame");
+      await page.keyboard.press("ControlOrMeta+Comma"); await settings.waitFor();
+      assert.equal(await objective.inputValue(), "Check the build", "the keys type nothing");
+      await page.evaluate(() => window.dispatchEvent(new Event("stepsemble-close-tab"))); await settings.waitFor({ state: "detached" });
       await schedules.locator('[data-focus="editor-back"]').click();
       // A run's conversation opens in the Workspace; Schedules stay open.
       await schedules.locator('[data-focus="row:preview-schedule"]').click();

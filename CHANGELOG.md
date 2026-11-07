@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.10.16
+
+### Settings
+
+- ⌘, opens Settings, as in other Mac apps, and the Mac app's Stepsemble menu has **Settings…** under About Stepsemble, translated into the app's eleven languages. Settings open over the front Workspace window's panes, in place of the limits sheet or a menu; with no Workspace window open, a new one opens on them, and while a window waits for its Host the request waits with it.
+- The keys work from anywhere in the Workspace, a conversation or a Schedules tab included (it asks its Workspace), and in the browser too (Ctrl+, on Linux and Windows) instead of opening the browser's own settings. In Settings, and on the sign-in page, they do nothing; a dialog in front keeps them, as it does for switching tabs, and the text being typed is left as it was.
+
 ## 3.10.15
 
 ### Limits

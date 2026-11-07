@@ -39,6 +39,7 @@ enum Text {
             "fullDiskOpened": "Stepsemble is selected in Finder. Drag it into the Full Disk Access list and turn it on.",
             "closeNote": "You can close this window; Stepsemble keeps running.",
             "about": "About Stepsemble",
+            "settings": "Settings…",
             "folderAccess": "Folder Access…",
             "hide": "Hide Stepsemble",
             "hideOthers": "Hide Others",
@@ -89,6 +90,7 @@ enum Text {
             "fullDiskOpened": "Finder 已選好 Stepsemble。把它拖進「完整磁碟取用權限」清單並打開開關。",
             "closeNote": "可以關閉這個視窗，Stepsemble 會繼續運行。",
             "about": "關於 Stepsemble",
+            "settings": "設定⋯",
             "folderAccess": "資料夾取用權限…",
             "hide": "隱藏 Stepsemble",
             "hideOthers": "隱藏其他",
@@ -139,6 +141,7 @@ enum Text {
             "fullDiskOpened": "访达已选中 Stepsemble。把它拖到“完全磁盘访问权限”列表并打开开关。",
             "closeNote": "可以关闭这个窗口，Stepsemble 会继续运行。",
             "about": "关于 Stepsemble",
+            "settings": "设置…",
             "folderAccess": "文件夹访问权限…",
             "hide": "隐藏 Stepsemble",
             "hideOthers": "隐藏其他",
@@ -189,6 +192,7 @@ enum Text {
             "fullDiskOpened": "Finder で Stepsemble を選択しました。フルディスクアクセスの一覧にドラッグしてオンにしてください。",
             "closeNote": "このウインドウは閉じてかまいません。Stepsemble は動作し続けます。",
             "about": "Stepsemble について",
+            "settings": "設定…",
             "folderAccess": "フォルダへのアクセス…",
             "hide": "Stepsemble を隠す",
             "hideOthers": "ほかを隠す",
@@ -239,6 +243,7 @@ enum Text {
             "fullDiskOpened": "Finder에서 Stepsemble이 선택되었습니다. 전체 디스크 접근 권한 목록으로 끌어다 놓고 켜세요.",
             "closeNote": "이 창을 닫아도 Stepsemble은 계속 실행됩니다.",
             "about": "Stepsemble에 관하여",
+            "settings": "설정…",
             "folderAccess": "폴더 접근…",
             "hide": "Stepsemble 가리기",
             "hideOthers": "기타 가리기",
@@ -289,6 +294,7 @@ enum Text {
             "fullDiskOpened": "Stepsemble Finder'da seçildi. Onu Tam Disk Erişimi listesine sürükleyip açın.",
             "closeNote": "Bu pencereyi kapatabilirsiniz; Stepsemble çalışmaya devam eder.",
             "about": "Stepsemble Hakkında",
+            "settings": "Ayarlar…",
             "folderAccess": "Klasör Erişimi…",
             "hide": "Stepsemble'ı Gizle",
             "hideOthers": "Diğerlerini Gizle",
@@ -339,6 +345,7 @@ enum Text {
             "fullDiskOpened": "Stepsemble est sélectionné dans le Finder. Faites-le glisser dans la liste Accès complet au disque et activez-le.",
             "closeNote": "Vous pouvez fermer cette fenêtre ; Stepsemble continue de fonctionner.",
             "about": "À propos de Stepsemble",
+            "settings": "Réglages…",
             "folderAccess": "Accès aux dossiers…",
             "hide": "Masquer Stepsemble",
             "hideOthers": "Masquer les autres",
@@ -389,6 +396,7 @@ enum Text {
             "fullDiskOpened": "Stepsemble ist im Finder ausgewählt. Es in die Liste „Festplattenvollzugriff“ ziehen und einschalten.",
             "closeNote": "Dieses Fenster kann geschlossen werden; Stepsemble läuft weiter.",
             "about": "Über Stepsemble",
+            "settings": "Einstellungen …",
             "folderAccess": "Ordnerzugriff …",
             "hide": "Stepsemble ausblenden",
             "hideOthers": "Andere ausblenden",
@@ -439,6 +447,7 @@ enum Text {
             "fullDiskOpened": "Stepsemble está seleccionado en el Finder. Arrástralo a la lista de Acceso total al disco y actívalo.",
             "closeNote": "Puedes cerrar esta ventana; Stepsemble sigue en ejecución.",
             "about": "Acerca de Stepsemble",
+            "settings": "Ajustes…",
             "folderAccess": "Acceso a carpetas…",
             "hide": "Ocultar Stepsemble",
             "hideOthers": "Ocultar otros",
@@ -489,6 +498,7 @@ enum Text {
             "fullDiskOpened": "O Stepsemble está selecionado no Finder. Arraste-o para a lista de Acesso Total ao Disco e ative-o.",
             "closeNote": "Você pode fechar esta janela; o Stepsemble continua em execução.",
             "about": "Sobre o Stepsemble",
+            "settings": "Ajustes…",
             "folderAccess": "Acesso a Pastas…",
             "hide": "Ocultar Stepsemble",
             "hideOthers": "Ocultar Outros",
@@ -539,6 +549,7 @@ enum Text {
             "fullDiskOpened": "Stepsemble è selezionato nel Finder. Trascinalo nell’elenco Accesso completo al disco e attivalo.",
             "closeNote": "Puoi chiudere questa finestra; Stepsemble continua a funzionare.",
             "about": "Informazioni su Stepsemble",
+            "settings": "Impostazioni…",
             "folderAccess": "Accesso alle cartelle…",
             "hide": "Nascondi Stepsemble",
             "hideOthers": "Nascondi altre",
@@ -1099,6 +1110,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     let isPopup: Bool
     var visibleSessions: Set<String> = []
     private var pendingNotice: [String: String]?
+    private var pendingSettings = false
     private weak var controller: AppController?
     private var port: Int?
     private var path: String
@@ -1304,6 +1316,19 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
         return url.scheme == "http" && (url.host == "127.0.0.1" || url.host == "localhost") && url.port == port
     }
     func trusts(_ frame: WKFrameInfo) -> Bool { frame.request.url.map(isHost) == true }
+    /// Settings… from the app's menu open over this window's Workspace once
+    /// it has loaded; while it waits for the Host, or for signing in, the
+    /// request waits with it.
+    func openSettings() {
+        window.makeKeyAndOrderFront(nil)
+        pendingSettings = true
+        if !webView.isLoading { sendPendingSettings() }
+    }
+    private func sendPendingSettings() {
+        guard pendingSettings, let url = webView.url, isHost(url), url.path == "/workspace.html" else { return }
+        pendingSettings = false
+        webView.evaluateJavaScript("window.dispatchEvent(new Event('stepsemble-open-settings'))", completionHandler: nil)
+    }
     func openNotice(_ notice: [String: String]) {
         if webView.isLoading { pendingNotice = notice; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
         guard let data = try? JSONSerialization.data(withJSONObject: notice), let json = String(data: data, encoding: .utf8) else { return }
@@ -1411,6 +1436,7 @@ final class WorkspaceWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, W
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         sendChrome()
         if let notice = pendingNotice { pendingNotice = nil; openNotice(notice) }
+        sendPendingSettings()
         // The waiting page moves the window from its top, as a title bar would.
         if chromeless, webView.url?.scheme == "about" {
             let height = (chromeGeometry()["titlebar-height"] as? CGFloat) ?? 0
@@ -1580,12 +1606,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         return configuration
     }
 
-    func newWindow(path: String) {
+    @discardableResult func newWindow(path: String) -> WorkspaceWindow {
         let previous = windows.last?.window
         let workspace = WorkspaceWindow(controller: self, configuration: configuration(), path: path, size: nil, isPopup: false)
         windows.append(workspace)
         workspace.show(cascadeFrom: previous)
         workspace.connect()
+        return workspace
     }
 
     func openPopup(configuration: WKWebViewConfiguration, size: NSSize, port: Int?, from opener: NSWindow) -> WorkspaceWindow {
@@ -1667,6 +1694,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    // Settings… (⌘,) open over the front Workspace window's panes, or the
+    // first one's; with no Workspace window left, a new one opens on them.
+    @objc func openSettings(_ sender: Any?) {
+        let showsWorkspace: (WorkspaceWindow) -> Bool = { $0.webView.url?.path == "/workspace.html" }
+        let front = windows.first { $0.window === NSApp.keyWindow && (!$0.isPopup || showsWorkspace($0)) }
+        (front ?? windows.first { !$0.isPopup } ?? windows.first(where: showsWorkspace) ?? newWindow(path: "/workspace.html")).openSettings()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc func showFolderAccess(_ sender: Any?) {
         access.show(ask: false)
     }
@@ -1687,7 +1723,8 @@ final class AppController: NSObject, NSApplicationDelegate {
             return holder
         }
         let main = NSMenu()
-        var appItems = [item(Text.t("about"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp), .separator()]
+        var appItems = [item(Text.t("about"), #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp), .separator(),
+            item(Text.t("settings"), #selector(openSettings(_:)), ",", target: self), .separator()]
         if startsHost { appItems += [item(Text.t("folderAccess"), #selector(showFolderAccess(_:)), target: self), .separator()] }
         appItems += [
             item(Text.t("hide"), #selector(NSApplication.hide(_:)), "h", target: NSApp),

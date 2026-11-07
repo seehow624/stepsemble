@@ -87,6 +87,10 @@
   });
   addEventListener("pointerdown", () => tell({ type: "workspace-focus" }), { passive: true });
   addEventListener("keydown", event => {
+    // ⌘, (Ctrl+, elsewhere) asks the Workspace for Settings, as a conversation does.
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && !event.isComposing && event.key === ",") {
+      event.preventDefault(); tell({ type: "workspace-open-settings" }); return;
+    }
     if (event.isComposing || !event.metaKey || !event.altKey || event.ctrlKey || event.shiftKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     tell({ type: "workspace-select-tab", direction: event.key === "ArrowLeft" ? -1 : 1 });

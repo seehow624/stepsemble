@@ -1976,6 +1976,7 @@
       else showMobileList();
     }
     if (event.data?.type === "workspace-refresh") { void refresh(); channel?.postMessage({ type: "refresh" }); }
+    if (event.data?.type === "workspace-open-settings") openSettingsSoon();
     // A conversation this one made (Branch in new chat), on the same Host,
     // opens in a pane beside it, or in its place when no more panes fit.
     if (event.data?.type === "workspace-open" && typeof event.data.key === "string" && event.data.key && event.data.key.length <= 256) {
@@ -2017,6 +2018,22 @@
   // which on closing loaded a second Workspace.
   let settingsLayer = null;
   let settingsCovered = [];
+  // Settings… in the Mac app's own menu, ⌘, (Ctrl+, elsewhere) on the
+  // Workspace and the same keys in a conversation (its frame asks) open
+  // Settings over the panes, in place of the limits sheet or a menu; before
+  // the Workspace knows its Host they wait for it. A dialog in front keeps
+  // the keys to itself, as it does for switching tabs.
+  let pendingSettings = false;
+  const settingsKeys = event => (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && !event.isComposing && event.key === ",";
+  function openSettingsSoon() {
+    if (!booted) { pendingSettings = true; return; }
+    if (settingsLayer || $("workspace-dialog").open) return;
+    closePaneMenu(); closeAutomationsPanel(); closeUsageTip();
+    if (usageUI.isOpen()) usageUI.close({ restore: false });
+    openSettings();
+  }
+  addEventListener("stepsemble-open-settings", openSettingsSoon);
+  addEventListener("keydown", event => { if (settingsKeys(event)) { event.preventDefault(); openSettingsSoon(); } });
   function openSettings(section = null) {
     if (settingsLayer) return;
     const url = new URL("/index.html", location.origin); url.searchParams.set("settings", "1");
@@ -2154,6 +2171,7 @@
       await refresh(); render(); void refreshUsage(); void refreshAutomations();
       if (!pendingNotice && params.has("host") && params.has("entry")) pendingNotice = { host: params.get("host"), key: params.get("entry") };
       if (pendingNotice) void openNotification(pendingNotice);
+      if (pendingSettings) { pendingSettings = false; openSettingsSoon(); }
       if (pendingUsage) { openUsageIntent(pendingUsage); pendingUsage = null; }
       else if (params.get("usageTab") === "usage") openUsageIntent({ host: params.has("host") ? params.get("host") : host, agent: params.get("usageAgent") });
       if (params.get("ack") && params.get("source")) { save(); channel?.postMessage({ type: "window-ready", source: params.get("source"), target: windowId, token: params.get("ack") }); }
