@@ -15687,14 +15687,26 @@ function quotaWindowLabel(window) {
   return window.label || "";
 }
 
-// The windows that stop an account, then a couple for one model each; more of
-// those are counted, as the Limits cards fold them (usage-data.js windowGroups).
+// The windows that stop an account, then a couple of a pool's or a model's; an
+// account with none of its own lists its two tightest pools (else models). The
+// rest are counted, as the Limits cards fold them (usage-data.js windowGroups).
 function quotaListedWindows(windows) {
   // The shortest first, as the Limits cards order them.
-  const all = Array.isArray(windows) ? windows : [], stopping = all.filter(w => w?.scope !== "model").sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
-  const models = all.filter(w => w?.scope === "model").sort((a, b) => quotaWindowRemaining(a) - quotaWindowRemaining(b));
-  const inline = stopping.length ? (models.length <= 2 ? models : []) : models.slice(0, 4);
-  return { listed: [...stopping, ...inline], more: models.length - inline.length };
+  const all = Array.isArray(windows) ? windows : [], shared = w => w?.scope === "model" || w?.scope === "pool";
+  const stopping = all.filter(w => !shared(w)).sort((a, b) => (a.windowDurationMins ?? Infinity) - (b.windowDurationMins ?? Infinity));
+  const tightest = list => list.sort((a, b) => quotaWindowRemaining(a) - quotaWindowRemaining(b));
+  const pools = tightest(all.filter(w => w?.scope === "pool")), models = tightest(all.filter(w => w?.scope === "model")), side = [...pools, ...models];
+  let inline;
+  if (stopping.length) inline = side.length <= 2 ? side : [];
+  else if (pools.length) {
+    const seen = new Set();
+    inline = pools.filter(w => {
+      const pool = String(w.bucket || w.label || "").toLowerCase();
+      if (seen.has(pool)) return false;
+      seen.add(pool); return true;
+    }).slice(0, 2);
+  } else inline = models.slice(0, 2);
+  return { listed: [...stopping, ...inline], more: side.length - inline.length };
 }
 
 function quotaWindowRemaining(window) {
@@ -15805,7 +15817,7 @@ function renderQuotaSources() {
         const own = name => [row.id, row.label].some(value => String(value || "").toLowerCase() === String(name).toLowerCase());
         const shown = quotaListedWindows(row.windows);
         const parts = shown.listed.map(window => ([window.bucket && !own(window.bucket) ? window.bucket : "", quotaWindowLabel(window), tKey("quotaSources.left", { percent: quotaWindowRemaining(window) })].filter(Boolean).join(" ")).trim());
-        if (shown.more) parts.push(tKey("quotaSources.moreModels", { count: shown.more }));
+        if (shown.more) parts.push(tKey("quotaSources.moreLimits", { count: shown.more }));
         if (row.balance) parts.push(tKey("quotaSources.balanceLeft", { amount: row.balance }));
         windows.textContent = parts.length ? parts.join(" · ") : tKey("quotaSources.noReading");
         line.append(label, windows);

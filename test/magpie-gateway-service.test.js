@@ -137,23 +137,24 @@ test("Magpie's quota entries become allowances: every account, plan and balance,
   assert.deepEqual(quotaWindow({ name: "7 days · Fable", used: 32, remaining: 68, resetsAt: "2026-11-09T10:00:00+08:00" }),
     { label: "7 days · Fable", windowDurationMins: 10080, bucket: "Fable", scope: "model", usedPercent: 32, resetsAt: Date.parse("2026-11-09T10:00:00+08:00") });
   assert.deepEqual(quotaWindow({ name: "Claude Opus 5.5 (High)", used: 100, remaining: 0 }), { label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 100, resetsAt: null });
-  // The account's own window, and a pool several models draw on, are not one model's.
+  // The account's own window is not marked; a pool several models draw on is the pool's, not one model's.
   assert.deepEqual(quotaWindow({ name: "7 days", used: 59 }), { label: "7 days", windowDurationMins: 10080, bucket: null, usedPercent: 59, resetsAt: null });
-  assert.deepEqual(quotaWindow({ name: "5 hours", pool: "Gemini", used: 10 }), { label: "5 hours", windowDurationMins: 300, bucket: "Gemini", usedPercent: 10, resetsAt: null });
-  assert.deepEqual(quotaWindow({ name: "Gemini", pool: "Gemini", used: 20 }), { label: "Gemini", windowDurationMins: null, bucket: null, usedPercent: 20, resetsAt: null });
+  assert.deepEqual(quotaWindow({ name: "5 hours", pool: "Gemini", used: 10 }), { label: "5 hours", windowDurationMins: 300, bucket: "Gemini", scope: "pool", usedPercent: 10, resetsAt: null });
+  assert.deepEqual(quotaWindow({ name: "Gemini", pool: "Gemini", used: 20 }), { label: "Gemini", windowDurationMins: null, bucket: null, scope: "pool", usedPercent: 20, resetsAt: null });
   // Antigravity as Magpie 0.1.1672 reads it: a pool's own window is named after the pool; a model's
   // window drawing on a pool is still that model's.
   assert.deepEqual(quotaWindow({ name: "Gemini · 7 days", pool: "Gemini", used: 1.24, remaining: 98.76, resetsAt: "2026-11-13T23:55:55Z" }),
-    { label: "Gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", usedPercent: 1.24, resetsAt: Date.parse("2026-11-13T23:55:55Z") });
-  assert.deepEqual(quotaWindow({ name: "Claude & GPT · 7 days", pool: "Claude & GPT", used: 100 }), { label: "Claude & GPT · 7 days", windowDurationMins: 10080, bucket: "Claude & GPT", usedPercent: 100, resetsAt: null });
+    { label: "Gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", scope: "pool", usedPercent: 1.24, resetsAt: Date.parse("2026-11-13T23:55:55Z") });
+  assert.deepEqual(quotaWindow({ name: "Claude & GPT · 7 days", pool: "Claude & GPT", used: 100 }), { label: "Claude & GPT · 7 days", windowDurationMins: 10080, bucket: "Claude & GPT", scope: "pool", usedPercent: 100, resetsAt: null });
   assert.deepEqual(quotaWindow({ name: "Gemini 4 Argon (High)", pool: "Gemini 4 Argon", used: 0 }), { label: "Gemini 4 Argon (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 0, resetsAt: null });
   // A pool is told by its whole name, whatever its case or length; only what is shown is shortened.
-  assert.deepEqual(quotaWindow({ name: "gemini · 7 days", pool: "Gemini", used: 5 }), { label: "gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", usedPercent: 5, resetsAt: null });
+  assert.deepEqual(quotaWindow({ name: "gemini · 7 days", pool: "Gemini", used: 5 }), { label: "gemini · 7 days", windowDurationMins: 10080, bucket: "Gemini", scope: "pool", usedPercent: 5, resetsAt: null });
   const long = "Claude, GPT and every other model this vendor groups into one shared allowance pool";
   const pooled = quotaWindow({ name: long + " · 5 hours", pool: long, used: 30 });
-  assert.equal(pooled.windowDurationMins, 300); assert.equal(pooled.scope, undefined, "a long pool's window still stops the account");
+  assert.equal(pooled.windowDurationMins, 300); assert.equal(pooled.scope, "pool", "a long pool's window is still the pool's");
   assert.equal(pooled.bucket, long.slice(0, 80)); assert.equal(pooled.label, (long + " · 5 hours").slice(0, 80));
-  assert.equal(quotaWindow({ name: "7 days", pool: "7 days", used: 1 }).windowDurationMins, 10080);
+  const spanNamed = quotaWindow({ name: "7 days", pool: "7 days", used: 1 });
+  assert.equal(spanNamed.windowDurationMins, 10080); assert.equal(spanNamed.bucket, null, "a pool named like its span is not said twice");
   for (const window of [{ name: "5 hours", used: 101 }, { name: "5 hours", used: "x" }, { name: "credits", display: "1.2k / 3k", text: true, used: 0 },
     { name: "5 hours", unlimited: true, used: 0 }, { name: "wallet", balance: 12.5, unit: "USD", used: 0 }, null]) assert.equal(quotaWindow(window), null, JSON.stringify(window));
   const reports = quotaEntries({ object: "list", data: [
@@ -241,7 +242,7 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
   const magpie = [
     { service: "codex", kind: "subscription", label: "Codex", plan: "pro", windows: [{ windowDurationMins: 10080, usedPercent: 46, resetsAt: null }], readAt: 1000, accountKey: mine, last: true },
     { service: "codex", kind: "subscription", label: "Codex", plan: "plus", alias: "Spare", windows: [{ windowDurationMins: 10080, usedPercent: 80, resetsAt: null }], readAt: 1000, accountKey: other },
-    { service: "antigravity", kind: "subscription", label: "Antigravity", plan: "Antigravity Starter Quota", windows: [{ label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 100, resetsAt: null }], readAt: 1000, accountKey: "v1:" + "a".repeat(64) },
+    { service: "antigravity", kind: "subscription", label: "Antigravity", plan: "Antigravity Starter Quota", windows: [{ label: "Claude & GPT · 7 days", windowDurationMins: 10080, bucket: "Claude & GPT", scope: "pool", usedPercent: 100, resetsAt: null }, { label: "Claude Opus 5.5 (High)", windowDurationMins: null, bucket: null, scope: "model", usedPercent: 100, resetsAt: null }], readAt: 1000, accountKey: "v1:" + "a".repeat(64) },
     { service: "minimax", kind: "plan", label: "MiniMax", windows: [{ label: "5 hours", windowDurationMins: 300, bucket: null, usedPercent: 0, resetsAt: null }], readAt: null, accountKey: null },
     { service: "deepseek", kind: "balance", label: "DeepSeek", windows: [], balance: "$12.50", readAt: null, accountKey: null },
   ];
@@ -256,8 +257,9 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
     "the account Codex itself is signed in to is read once, through that sign-in; Magpie's other account follows");
   assert.deepEqual(codex[0].accountAliases, [mine]);
   assert.deepEqual(result.providers.filter(row => !["codex", "claude"].includes(row.service)).map(row => [row.service, row.sourceId, row.status, row.kind, row.balance ?? null, row.windows.map(w => w.windowDurationMins ?? w.label)]),
-    [["antigravity", "magpie", "ready", "subscription", null, ["Claude Opus 5.5 (High)"]], ["minimax", "magpie", "ready", "plan", null, [300]], ["deepseek", "magpie", "ready", "balance", "$12.50", []]]);
-  assert.deepEqual(result.providers.find(row => row.service === "antigravity").windows.map(w => [w.label, w.scope]), [["Claude Opus 5.5 (High)", "model"]], "a window for one model stays marked so");
+    [["antigravity", "magpie", "ready", "subscription", null, [10080, "Claude Opus 5.5 (High)"]], ["minimax", "magpie", "ready", "plan", null, [300]], ["deepseek", "magpie", "ready", "balance", "$12.50", []]]);
+  assert.deepEqual(result.providers.find(row => row.service === "antigravity").windows.map(w => [w.label, w.bucket, w.scope]), [["Claude & GPT · 7 days", "Claude & GPT", "pool"], ["Claude Opus 5.5 (High)", null, "model"]],
+    "a pool's window and a window for one model stay marked so");
   // Settings tells which readings Limits shows: Magpie's reading of the account Codex is signed in to is not.
   assert.deepEqual(result.sources.magpie.services.map(row => [row.service, row.plan ?? row.kind, row.inUse]),
     [["codex", "pro", false], ["codex", "plus", true], ["antigravity", "Antigravity Starter Quota", true], ["minimax", "plan", true], ["deepseek", "balance", true]]);

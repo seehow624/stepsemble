@@ -62,6 +62,8 @@
   let storageKey = `stepsemble.workspace.layout.v1.${windowId}`;
   let tree = L.pane(), focused = tree.id, maximized = null, machines = [], host = "", self = "";
   let snapshot = { projects: [], entries: [] }, refreshEpoch = 0, toastTimer, dialogEpoch = 0;
+  // The version this page was loaded as, from its own script's address.
+  const PAGE_VERSION = (() => { try { return new URL(document.currentScript.src, location.href).searchParams.get("v") || ""; } catch { return ""; } })();
   let sidebarBusy = false, sidebarDragging = false, sidebarEditEpoch = 0;
   let pendingNotice = null, noticeEpoch = 0;
   const collapsedProjects = new Map();
@@ -1102,8 +1104,7 @@
     const indicator = row.querySelector(".workspace-session-status");
     if (!indicator) return;
     const unread = entry.completion && !entry.completion.read;
-    const state = entry.working === true || entry.working === undefined && ["running", "starting", "reconnecting"].includes(entry.record.status)
-      ? "working" : unread ? entry.completion.kind === "completed" ? "unread" : "attention" : "idle";
+    const state = entryWorking(entry) ? "working" : unread ? entry.completion.kind === "completed" ? "unread" : "attention" : "idle";
     indicator.dataset.state = state;
     const label = state === "working" ? t("sessionWorking") : state === "unread" ? t("sessionUnread")
       : state === "attention" ? t("sessionAttention") : "";
@@ -1138,6 +1139,10 @@
     more.textContent = label; more.title = label; more.setAttribute("aria-label", label);
     more.dataset.attention = attention;
     more.hidden = !expanded && hidden === 0;
+  }
+  // A conversation that is working, as its row shows it.
+  function entryWorking(entry) {
+    return entry.working === true || entry.working === undefined && ["running", "starting", "reconnecting"].includes(entry.record?.status);
   }
   function rememberSnapshot(target, data) {
     for (const entry of data.entries) if (entry.completion && readCompletions.has(`${target}:${entry.key}:${entry.completion.id}`)) entry.completion.read = true;
@@ -1232,8 +1237,32 @@
   // The Host card carries the connection state: its dot and second line. The
   // reason is spoken and shown on hover, and a new failure is raised once
   // instead of on every poll.
+  // The Host updates itself in the background, and a Workspace left open kept
+  // the page it was loaded with: its list, strip and Limits went on showing the
+  // new Host's answers with the old code. When the Host serving this page
+  // answers with another version, once it is back or the page is shown again,
+  // the Workspace loads again; while a conversation works, once none does.
+  // Each pane does the same for itself (app.js checkForClientUpdate).
+  const RELOAD_ATTEMPT = "stepsemble.workspaceReloadAttempt";
+  let versionCheck = null, updateWaiting = false;
+  function anyWorking() { return [snapshot, ...hostSnapshots.values()].some(data => (data?.entries || []).some(entryWorking)); }
+  function checkPageVersion() {
+    if (!PAGE_VERSION || versionCheck) return;
+    versionCheck = fetch("/api/version", { credentials: "same-origin", cache: "no-store" }).then(response => response.ok ? response.json() : null).then(data => {
+      const current = String(data?.appVersion || "").trim().replace(/^v/, "");
+      if (!current || current === PAGE_VERSION) { updateWaiting = false; try { sessionStorage.removeItem(RELOAD_ATTEMPT); } catch {} return; }
+      updateWaiting = anyWorking();
+      if (updateWaiting) return;
+      // A page that still comes back old is not reloaded over and over.
+      let last = 0; try { last = Number(sessionStorage.getItem(RELOAD_ATTEMPT)) || 0; } catch {}
+      if (Date.now() - last < 15_000) return;
+      try { sessionStorage.setItem(RELOAD_ATTEMPT, String(Date.now())); } catch {}
+      location.reload();
+    }).catch(() => {}).finally(() => { versionCheck = null; });
+  }
   function setConnection(online, message) {
     message = readable(message, "loadFailed");
+    const back = online && $("workspace-host-state").dataset.state === "offline";
     const dot = document.querySelector(".workspace-status-dot");
     if (dot) dot.dataset.state = online ? "online" : "offline";
     $("workspace-host").title = message;
@@ -1243,6 +1272,7 @@
     if (status.textContent !== message) status.textContent = message;
     if (!online && message !== connectionNotice) toast(message);
     connectionNotice = online ? "" : message;
+    if (back || online && updateWaiting && !anyWorking()) checkPageVersion();
   }
   // Another computer's list that has not come in 15 seconds counts as
   // unreachable, and the next read starts afresh.
@@ -1376,7 +1406,7 @@
         tip.append(node("span", date(w.resetsAt), "workspace-tip-note workspace-tip-exact"));
       }
     }
-    if (groups.folded.length) tip.append(node("span", window.StepsembleUsageUI.label("moreModels", { count: groups.folded.length }), "workspace-tip-note"));
+    if (groups.folded.length) tip.append(node("span", window.StepsembleUsageUI.label("moreLimits", { count: groups.folded.length }), "workspace-tip-note"));
     if (provider.balance) {
       const line = node("span", "", "workspace-tip-row");
       line.append(node("span", window.StepsembleUsageUI.label("balance"), "workspace-tip-key"), node("span", provider.balance, "workspace-tip-value"));
@@ -2061,7 +2091,7 @@
   window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
   // Coming back to the Workspace (another app, a locked phone) shows current
   // allowances, not the ones from before it was left.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) return; if (booted) { void refresh(); checkPageVersion(); if (Date.now() - usageReadAt > 60000) void refreshUsage(); } else retryBoot(); });
   window.addEventListener("online", () => { if (booted) void refresh(); else retryBoot(); });
   setInterval(() => { if (!document.hidden && host) void refresh(); }, 3000);
   setInterval(() => { if (!document.hidden && host) void refreshUsage(); }, 120000);

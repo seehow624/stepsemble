@@ -185,20 +185,35 @@
     return [...groups.values()];
   }
   // The windows that stop an account, as Magpie's own menu bar counts them:
-  // a window for one model counts only for an account that has no other.
+  // its own; for an account with none, its pools' (each shared by several
+  // models); else its models' own.
+  const shared = w => w?.scope === "model" || w?.scope === "pool";
   function accountWindows(windows) {
-    const all = Array.isArray(windows) ? windows : [], own = all.filter(w => w?.scope !== "model");
-    return own.length ? own : all;
+    const all = Array.isArray(windows) ? windows : [], own = all.filter(w => !shared(w)), pools = all.filter(w => w?.scope === "pool");
+    return own.length ? own : pools.length ? pools : all;
   }
-  // How an account's windows are shown: those that stop it, then a couple of
-  // windows for one model beside them; more of those fold away, the most used
-  // first. An account with no other shows its four tightest models' windows.
+  // How an account's windows are shown: those that stop it, with a couple of
+  // a pool's or a model's beside them. An account with none of its own
+  // (Antigravity) shows its two pools closest to running out, each by its
+  // tightest window, or else its two tightest models' windows. The rest fold
+  // away, pools first, the most used first.
   function windowGroups(windows) {
     const all = Array.isArray(windows) ? windows : [];
     const left = w => Number.isFinite(w?.remainingPercent) ? w.remainingPercent : Number.isFinite(w?.usedPercent) ? 100 - w.usedPercent : 101;
-    const stopping = all.filter(w => w?.scope !== "model"), models = all.filter(w => w?.scope === "model").sort((a, b) => left(a) - left(b));
-    const inline = stopping.length ? (models.length <= 2 ? models : []) : models.slice(0, 4);
-    return { stopping, inline, folded: models.filter(w => !inline.includes(w)) };
+    const tightest = list => list.sort((a, b) => left(a) - left(b));
+    const stopping = all.filter(w => !shared(w));
+    const pools = tightest(all.filter(w => w?.scope === "pool")), models = tightest(all.filter(w => w?.scope === "model")), side = [...pools, ...models];
+    let inline;
+    if (stopping.length) inline = side.length <= 2 ? side : [];
+    else if (pools.length) {
+      const seen = new Set();
+      inline = pools.filter(w => {
+        const pool = String(w.bucket || w.label || "").toLowerCase();
+        if (seen.has(pool)) return false;
+        seen.add(pool); return true;
+      }).slice(0, 2);
+    } else inline = models.slice(0, 2);
+    return { stopping, inline, folded: side.filter(w => !inline.includes(w)) };
   }
   return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, modelIdentity, canonicalProvider, modelGroup, readReport };
 });

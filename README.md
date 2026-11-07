@@ -261,9 +261,10 @@ same answer as `magpie quota --json`, which it runs when the gateway is not up)
 every couple of minutes: every subscription account Magpie is signed in to, every
 plan bought with a key and every key's balance, each as its own card, named by
 its plan or the name given to it in Magpie. As in Magpie's menu bar, an
-account's own windows and a pool's ("Gemini · 7 days") are what stop it; a
-window for one model stays beside them ("Fable · 7d"), and many of those
-(Antigravity's) fold under **Per-model limits**. A service that another source
+account's own windows are what stop it, and a window for one model stays beside
+them ("Fable · 7d"). An account with none of its own (Antigravity) shows its
+two pools closest to running out ("Claude & GPT · 7d", "Gemini · 5h"); its
+other pool and model windows fold under **More limits**. A service that another source
 already reads through its own sign-in shows Magpie's other accounts next to it,
 never the same account twice. A route belongs to the
 gateway it points at: OpenCodex never claims a

@@ -26,10 +26,12 @@
     if (metric === "hidden") return "";
     if (metric === "tokens") return unavailable ? "—" : compact(reports?.total?.tokens, locale);
     if (metric === "cost") return unavailable ? "—" : cost(reports?.total, locale);
-    // A window for one model counts only for an account that has no other.
+    // An account's own windows count; a pool's only for an account with none
+    // of its own, and a model's only for one with neither (usage-data.js).
     const windows = (quotas || []).flatMap(p => {
-      const all = (p.windows || []).filter(w => percent(w) !== null), own = all.filter(w => w.scope !== "model");
-      return own.length ? own : all;
+      const all = (p.windows || []).filter(w => percent(w) !== null);
+      const own = all.filter(w => w.scope !== "model" && w.scope !== "pool"), pools = all.filter(w => w.scope === "pool");
+      return own.length ? own : pools.length ? pools : all;
     });
     if (!windows.length) return "—";
     const tightest = windows.reduce((a, b) => percent(a) < percent(b) ? a : b);

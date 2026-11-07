@@ -77,6 +77,8 @@ test("menu bar distinguishes unavailable usage, partial cost and used versus rem
  // One model's exhausted window does not speak for an account with its own windows; it does for one with no other.
  const models=[{windows:[{usedPercent:40},{usedPercent:100,scope:"model"}]},{windows:[{usedPercent:70,scope:"model"},{usedPercent:20,scope:"model"}]}];
  assert.equal(M.badge("quota",null,models),"30%");assert.equal(M.badge("quota",null,[models[0]]),"60%");
+ // A pool's window speaks for an account with none of its own, before its models' (Antigravity).
+ assert.equal(M.badge("quota",null,[{windows:[{usedPercent:96,scope:"pool"},{usedPercent:100,scope:"model"}]}]),"4%");
  assert.equal(M.cost({unknownPricedRecords:1,knownCost:.12,unknownUnpricedRecords:1}),"≥ $0.12");assert.equal(M.cost({pricedCalls:0,knownCost:0}),"—");
  const r=M.range(new Date(AT));assert.ok(r.from<=AT && r.to>AT);assert.equal(Object.keys(M.AGENT_NAMES).length,9);
 });

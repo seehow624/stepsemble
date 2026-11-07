@@ -485,27 +485,30 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true");
     assert.equal(await full.locator(".usage-quota-card").count(), 3, "conflicting UUID claims never merge an email-only account");
     // A window for one model shows under its account and stops neither the
-    // account nor the strip; a pool's window stops an account that has no
-    // other, and many models' windows fold away; a key's balance is known too.
+    // account nor the strip; an account with no window of its own (Antigravity)
+    // shows its two tightest pools, each by its tightest window, and folds the
+    // rest; a key's balance is known too.
     const exhausted = label => ({ label, usedPercent: 100, remainingPercent: 0, windowDurationMins: null, scope: "model" });
     fixture.setQuotas({ mini: { updatedAt: sampled, providers: [
       { provider: "Claude", service: "claude", source: "magpie", plan: "max", status: "ready", sampledAt: sampled, windows: [
         { usedPercent: 40, remainingPercent: 60, windowDurationMins: 10080 }, { usedPercent: 100, remainingPercent: 0, windowDurationMins: 10080, bucket: "Fable", scope: "model" }] },
       { provider: "Antigravity", service: "antigravity", source: "magpie", plan: "Antigravity Starter Quota", status: "ready", sampledAt: sampled, windows: [
-        { label: "Gemini · 5 hours", usedPercent: 20, remainingPercent: 80, windowDurationMins: 300, bucket: "Gemini" },
-        { label: "Claude & GPT · 7 days", usedPercent: 30, remainingPercent: 70, windowDurationMins: 10080, bucket: "Claude & GPT" },
+        { label: "Gemini · 5 hours", usedPercent: 20, remainingPercent: 80, windowDurationMins: 300, bucket: "Gemini", scope: "pool" },
+        { label: "Gemini · 7 days", usedPercent: 1, remainingPercent: 99, windowDurationMins: 10080, bucket: "Gemini", scope: "pool" },
+        { label: "Claude & GPT · 7 days", usedPercent: 30, remainingPercent: 70, windowDurationMins: 10080, bucket: "Claude & GPT", scope: "pool" },
+        { label: "Gemini 4 Argon · 7 days", usedPercent: 0, remainingPercent: 100, windowDurationMins: 10080, bucket: "Gemini 4 Argon", scope: "pool" },
         ...["Claude Opus 5.5 (High)", "Claude Sonnet 5.5 (High)", "GPT-OSS 120B (Medium)"].map(exhausted)] },
       { provider: "DeepSeek", service: "deepseek", source: "magpie", kind: "balance", balance: "$12.50", status: "ready", sampledAt: sampled, windows: [] }] },
       mbp: { updatedAt: sampled, providers: [] } });
     await page.locator("#refresh").click(); await ready();
     const menuLimits = await page.locator("#limits").innerText();
     assert.match(menuLimits, /Claude · max/); assert.match(menuLimits, /DeepSeek · Key balance[\s\S]*\$12\.50 left/);
-    assert.match(menuLimits, /Antigravity · Antigravity Starter Quota[\s\S]*Gemini · 5h/);
-    assert.doesNotMatch(menuLimits, /Fable|Claude Opus/, "the menu bar shows the accounts' own windows");
+    assert.match(menuLimits, /Antigravity · Antigravity Starter Quota[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h/);
+    assert.doesNotMatch(menuLimits, /Fable|Claude Opus|Argon/, "the menu bar shows the accounts' own windows, and Antigravity's two tightest pools");
     await full.reload();
     await full.locator('.usage-sheet[data-state=open][data-tab="usage"]').waitFor();
     await full.locator("#workspace-usage .workspace-limits-strip[data-state]").waitFor({ state: "attached" });
-    assert.equal(await full.locator("#workspace-usage .workspace-limits-strip").getAttribute("data-state"), "ok", "an exhausted window for one model is not the account's limit");
+    assert.equal(await full.locator("#workspace-usage .workspace-limits-strip").getAttribute("data-state"), "ok", "an exhausted window for one model is not the account's limit; Antigravity's pools are");
     assert.equal(await full.locator("#workspace-usage .workspace-limit-alert").count(), 0);
     assert.equal(await full.locator("#workspace-usage .workspace-limits-summary").textContent(), "Limits are fine", "a balance is a known allowance");
     assert.equal(await full.locator("#workspace-usage .workspace-limit-mark[data-unknown]").count(), 0);
@@ -513,14 +516,27 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 3);
     const limitCards = await full.locator(".usage-quota-card").allInnerTexts();
     assert.match(limitCards[0], /Claude[\s\S]*max · Mac Mini[\s\S]*Fable · 7d/); assert.match(limitCards[2], /DeepSeek[\s\S]*Key balance · Mac Mini[\s\S]*\$12\.50 left/);
-    assert.match(limitCards[1], /Antigravity[\s\S]*Gemini · 5h[\s\S]*Claude & GPT · 7d[\s\S]*Per-model limits \(3\)/); assert.doesNotMatch(limitCards[1], /Claude Opus/);
+    assert.match(limitCards[1], /Antigravity[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h[\s\S]*More limits \(5\)/); assert.doesNotMatch(limitCards[1], /Claude Opus|Argon|Gemini · 7d/);
+    assert.equal(await full.locator(".usage-quota-card").nth(1).locator(":scope > .usage-quota-windows > .usage-quota-window").count(), 2, "two pools on the card; the rest are folded");
     const models = full.locator(".usage-quota-card").nth(1).locator(".usage-quota-models");
     await models.locator("summary").click();
-    assert.match(await models.innerText(), /Claude Opus 5\.5 \(High\)[\s\S]*GPT-OSS 120B \(Medium\)/);
+    assert.match(await models.innerText(), /Gemini · 7d[\s\S]*Gemini 4 Argon · 7d[\s\S]*Claude Opus 5\.5 \(High\)[\s\S]*GPT-OSS 120B \(Medium\)/);
     await full.locator(".usage-sheet").getByRole("button", { name: "Refresh", exact: true }).click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 3);
     assert.equal(await full.locator(".usage-quota-card").nth(1).locator(".usage-quota-models").evaluate(el => el.open), true, "an opened list stays open across a new reading");
     if (screenshotDirectory) await full.screenshot({ path: path.join(screenshotDirectory, "limits-model-window-and-balance.png") });
+    // A Workspace left open while its Host updated itself loads again when it
+    // is shown, and the same version is not loaded twice.
+    await full.bringToFront();
+    await full.evaluate(() => { window.stepsembleOldPage = true; document.dispatchEvent(new Event("visibilitychange")); });
+    await full.waitForTimeout(600);
+    assert.equal(await full.evaluate(() => window.stepsembleOldPage), true, "the same version stays");
+    fixture.setVersion("99.0.0");
+    const reloaded = full.waitForEvent("load");
+    await full.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await reloaded; fixture.setVersion(null);
+    assert.equal(await full.evaluate(() => window.stepsembleOldPage === true), false, "a Host with another version loads the Workspace again");
+    await full.locator("#workspace-usage .workspace-limits-strip[data-state]").waitFor({ state: "attached" });
     // The new native reader owns activity polling; an older native shell still
     // gets its existing JS heartbeat so rolling updates stay compatible.
     await page.evaluate(() => { window.webkit = { messageHandlers: { stepsemble: { postMessage(body) { window.lastSummary = body; } } } }; window.StepsembleMenubarNativePolling = true; });

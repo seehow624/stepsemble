@@ -116,9 +116,9 @@ const clean = (value, max) => typeof value === "string" ? value.replace(/[\u0000
 // models drawing on it, is named after the pool ("Gemini · 7 days") and keeps
 // it as its bucket. Otherwise the account's own window ("7 days"), its window
 // for one model ("7 days · Fable", the model its bucket) or one model's own
-// window with no span of its own ("Claude Opus 5.5 (High)"). A window for one
-// model is marked so: it stops that model, not the account. A window that is
-// only a text, a wallet balance or unlimited has no share to show.
+// window with no span of its own ("Claude Opus 5.5 (High)"). A pool's window
+// and a model's are marked so: they stop those models, not the account. A
+// window that is only a text, a wallet balance or unlimited has no share.
 function quotaWindow(window) {
   if (!window || typeof window !== "object" || window.text === true || window.unlimited === true || window.balance != null) return null;
   const used = Number(window.used);
@@ -130,7 +130,8 @@ function quotaWindow(window) {
   const label = name.slice(0, 80) || null, ofPool = !!pool && head.toLowerCase() === pool.toLowerCase();
   if (pool && (ofPool || (!tail && windowMinutes(name)))) {
     const minutes = windowMinutes(ofPool && tail ? tail : name);
-    return { label, windowDurationMins: minutes, bucket: minutes ? pool.slice(0, 80) : null, usedPercent: used, resetsAt };
+    // A pool named like a span ("7 days") is not said twice ("7 days · 7d").
+    return { label, windowDurationMins: minutes, bucket: minutes && !windowMinutes(pool) ? pool.slice(0, 80) : null, scope: "pool", usedPercent: used, resetsAt };
   }
   const minutes = windowMinutes(head), model = minutes ? tail : name;
   return { label, windowDurationMins: minutes, bucket: minutes && model ? model.slice(0, 80) : null, ...(model ? { scope: "model" } : {}), usedPercent: used, resetsAt };

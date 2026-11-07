@@ -396,7 +396,7 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       const service = typeof report?.service === "string" ? report.service : "";
       const windows = currentWindows((report?.windows || []).map(w => {
         const row = windowUsage(w.usedPercent, Number.isFinite(w.resetsAt) ? Math.floor(w.resetsAt / 1000) : null, w.label ?? null, w.windowDurationMins ?? null, w.bucket ?? null);
-        return row && w.scope === "model" ? { ...row, scope: "model" } : row;
+        return row && (w.scope === "model" || w.scope === "pool") ? { ...row, scope: w.scope } : row;
       }).filter(Boolean), now());
       const balance = typeof report?.balance === "string" && report.balance ? report.balance : null;
       if (!service || (!windows.length && !balance)) continue;
