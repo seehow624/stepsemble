@@ -181,17 +181,26 @@ async function recentCase(browser, fixture, viewport) {
       if (renamed && !other) data.entries[0].record.name += " (renamed)";
       return route.fulfill({ response, json: data });
     });
-    if (!viewport.mobile) await page.mouse.move(viewport.width - 5, viewport.height - 5);
     await page.goto(fixture.origin + "/workspace.html");
     await page.locator('.workspace-machine[data-host="mbp"] .workspace-session').first().waitFor({ timeout: 30_000 });
+    // Recent, which mixes the computers, is drawn again once no pointer rests
+    // on the list. As in the case above, the pointer leaves it once both
+    // computers' lists are in: Chromium on Linux can take a pointer to rest on
+    // the list after the page loads.
     if (viewport.mobile) {
-      // A finger lifted off the list before Recent settles, as in the case above.
+      // A finger lifted off the list.
       const padding = await page.locator("#workspace-sidebar").evaluate(sidebar => { const box = sidebar.getBoundingClientRect(); return { x: box.left + parseFloat(getComputedStyle(sidebar).paddingLeft) / 2, y: box.top + box.height / 2 }; });
       await page.touchscreen.tap(padding.x, padding.y);
+    } else {
+      await page.mouse.move(viewport.width / 2 + 200, viewport.height / 2); await page.mouse.move(viewport.width - 5, viewport.height - 5);
     }
     const recent = page.locator(".workspace-recent"), rows = recent.locator(".workspace-session-row"), more = recent.locator(".workspace-session-more");
     const shown = () => recent.locator(".workspace-session-row:not([hidden])").evaluateAll(list => list.map(row => row.dataset.host + ":" + row.dataset.entry));
-    await page.waitForFunction(() => document.querySelectorAll(".workspace-recent .workspace-session-row").length === 10, null, { timeout: 30_000 });
+    await page.waitForFunction(() => document.querySelectorAll(".workspace-recent .workspace-session-row").length === 10, null, { timeout: 30_000 }).catch(async error => {
+      const seen = await page.evaluate(() => ({ recent: document.querySelectorAll(".workspace-recent .workspace-session-row").length, sidebarHovered: document.getElementById("workspace-sidebar").matches(":hover"),
+        machines: [...document.querySelectorAll(".workspace-machine")].map(node => node.dataset.host + ":" + node.querySelectorAll(".workspace-session-row").length) }));
+      throw new Error(`Recent (${viewport.width}): ${error.message} ${JSON.stringify(seen)}`);
+    });
     // Ten at most, five shown; the rest of each computer's sessions wait.
     const all = await rows.evaluateAll(list => list.map(row => row.dataset.host + ":" + row.dataset.entry));
     assert.equal(all.length, 10, "ten at most"); assert.deepEqual(await shown(), all.slice(0, 5));
