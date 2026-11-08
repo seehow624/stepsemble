@@ -160,7 +160,8 @@ html[data-theme="dark"] .usage-sheet {
 /* One row per window, its name, bar, share and renewal in the same columns
    on every card; a pool's rows follow its name. */
 .usage-quota-rows { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.usage-quota-row { --level: var(--usage-input); display: grid; grid-template-columns: 54px minmax(0, 1fr) 40px 64px; align-items: center; column-gap: 9px; min-height: 22px; min-width: 0; font-size: var(--text-xs); }
+/* The renewal's column holds the longest one in full ("22 時 40 分後"). */
+.usage-quota-row { --level: var(--usage-input); display: grid; grid-template-columns: 54px minmax(0, 1fr) 40px 74px; align-items: center; column-gap: 9px; min-height: 22px; min-width: 0; font-size: var(--text-xs); }
 .usage-quota-row[data-level=low] { --level: var(--usage-low); }
 .usage-quota-row:is([data-level=critical], [data-level=out]) { --level: var(--usage-critical); }
 .usage-quota-label { min-width: 0; overflow: hidden; color: var(--pine-soft); text-overflow: ellipsis; white-space: nowrap; }

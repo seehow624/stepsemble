@@ -16,7 +16,8 @@ test("quota coalesces requests, caches results and never exports credentials", a
     fetchImpl: async (url, options) => {
       assert.equal(url, "https://api.anthropic.com/api/oauth/usage");
       assert.equal(options.headers.Authorization, "Bearer synthetic-secret");
-      return { ok: true, json: async () => ({ five_hour: { utilization: 0 }, seven_day: { utilization: 90 } }) };
+      // Five hours under way (they have a reset time), so they show whatever the plan.
+      return { ok: true, json: async () => ({ five_hour: { utilization: 0, resets_at: "2026-11-08T05:00:00Z" }, seven_day: { utilization: 90 } }) };
     },
   });
   const [a, b] = await Promise.all([service.read(), service.read()]);

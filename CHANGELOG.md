@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.10.17
+
+### Limits
+
+- Claude's five hours show only for a plan that has them. Pro and Max show theirs, all there before they start, as before; Ultra, whose usage names only weeks, shows none. Stepsemble no longer adds five hours to every Claude card, and the five hours Magpie reads for a Claude account before they start (nothing used, no reset time) show only when the account's plan is known to have them, under All Hosts too. Five hours in use show whatever the plan. Settings → Quota sources lists Claude's windows the same way.
+- When a window renews shows in full: in Chinese, "22 時 40 分後" and "5 天 22 時後" were cut short ("22 時 40 …"); the column is a little wider, and the rows still line up from card to card.
+
 ## 3.10.16
 
 ### Settings

@@ -273,7 +273,10 @@ with the plan whichever computer's reading names.
 Every window is one row (its name, a bar, the share and when it renews), and
 the rows line up from card to card. As in Magpie's menu bar, an account's own
 windows are what stop it, and a window for one model follows them: Claude's
-card shows the week of each model Claude limits apart ("Fable"). An account
+card shows the week of each model Claude limits apart ("Fable"). Five hours
+show only for a plan that has them: Claude's Pro and Max (all there before
+they start) but not Ultra, ChatGPT's Plus but not Pro and above; nor do
+Claude's five hours show for an account whose plan is not known. An account
 that draws on shared pools (Antigravity) lists each pool with its five-hour and
 weekly rows and, beside the pool's name, the models that draw on it; a model
 whose allowance differs from its pool keeps a row of its own there, and a

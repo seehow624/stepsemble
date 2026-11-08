@@ -187,6 +187,11 @@
       }
     }
     for (const [key, group] of groups) if (!planLabel(group.plan) && plans.has(key)) groups.set(key, { ...group, plan: plans.get(key).plan });
+    // Claude's five hours only for a plan that has them, whichever computer
+    // read the account (an older Host adds them to every Claude card).
+    for (const [key, group] of groups) if (group.service === "claude" && !claudeHasFiveHours(group.plan) && group.windows?.some(fiveHourPlaceholder)) {
+      groups.set(key, { ...group, windows: group.windows.filter(w => !fiveHourPlaceholder(w)) });
+    }
     return [...groups.values()];
   }
   // The windows that stop an account, as Magpie's own menu bar counts them:
@@ -306,5 +311,11 @@
     if (!/^[a-z][a-z0-9_-]*$/.test(text)) return text;
     return PLAN_IDS[id] || id.split(/[_-]+/).filter(Boolean).map(word => PLAN_WORDS[word] || word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
   }
-  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel };
+  // Claude's five hours belong to a plan that has them: Pro and Max do,
+  // Ultra does not (its usage names only weeks). A plan not known is not
+  // taken to have them. Five hours that have not started, or that the plan
+  // does not have, read as nothing used and no reset time.
+  function claudeHasFiveHours(plan) { const label = planLabel(plan); return !!label && !/\bultra\b/i.test(label); }
+  function fiveHourPlaceholder(w) { return !!w && !w.scope && w.windowDurationMins === 300 && !(Number(w.usedPercent) > 0) && !w.resetsAt; }
+  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel, claudeHasFiveHours, fiveHourPlaceholder };
 });

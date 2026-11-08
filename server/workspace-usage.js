@@ -1,7 +1,7 @@
 "use strict";
 const { normalizeQuotaConfig } = require("./quota-sources");
 const { accountKey, boundAnthropicKey, createClaudeProfileReader, chatgptAliases, chatgptPlan, validClaudePlan } = require("./quota-identity");
-const { planLabel } = require("../public/modules/usage-data");
+const { planLabel, claudeHasFiveHours, fiveHourPlaceholder } = require("../public/modules/usage-data");
 const fs = require("node:fs/promises"), fss = require("node:fs"), os = require("node:os"), path = require("node:path");
 const { windowUsage, currentWindows, claudeWindows } = require("./quota-windows");
 const { claudeToken, sanitizeClaudeQuota } = require("./claude-quota");
@@ -515,19 +515,27 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
     let local = null;
     if (readings.agents.has("claude") || readings.pi.has("claude")) { try { local = await readClaudeLocal(); } catch { local = null; } }
     const modelsOf = windows => (windows || []).filter(w => w?.scope === "model");
+    // Claude's five hours, which Claude leaves out until they start and
+    // Magpie reads as nothing used with no reset time: all there for a plan
+    // that has them (Pro, Max), not shown for one that has none (Ultra) or a
+    // plan not known. Five hours in use, or with a reset time, always show.
+    const claudeFiveHours = (windows, plan) => {
+      if (!claudeHasFiveHours(plan)) return windows.some(fiveHourPlaceholder) ? windows.filter(w => !fiveHourPlaceholder(w)) : windows;
+      const own = minutes => windows.some(w => !w.scope && w.windowDurationMins === minutes);
+      return own(10080) && !own(300) ? [{ label: "5 hours", windowDurationMins: 300, bucket: null, usedPercent: 0, remainingPercent: 100, resetsAt: null }, ...windows] : windows;
+    };
     function enrich(service, sourceId, reading) {
-      if (!reading || sourceId === "magpie") return reading;
+      if (!reading) return reading;
+      if (sourceId === "magpie") {
+        const windows = service === "claude" ? claudeFiveHours(reading.windows || [], reading.plan) : reading.windows;
+        return windows === reading.windows ? reading : { ...reading, windows };
+      }
       const aliases = Array.isArray(reading.accountAliases) ? reading.accountAliases : [];
       const twin = aliases.length ? (magpieRows.get(service) || []).find(row => row.accountKey && aliases.includes(row.accountKey)) || null : null;
       const mine = service === "claude" && !!local?.accountKey && local.accountKey === reading.accountKey;
       const plan = reading.plan || (mine ? local.plan : null) || twin?.plan || null;
       let windows = reading.windows || [];
-      // Claude leaves out a five-hour window that has not started (nothing
-      // used in the last five hours): it is all there, as Claude Code and
-      // Magpie count it.
-      if (service === "claude" && windows.some(w => !w.scope && w.windowDurationMins === 10080) && !windows.some(w => !w.scope && w.windowDurationMins === 300)) {
-        windows = [{ label: "5 hours", windowDurationMins: 300, bucket: null, usedPercent: 0, remainingPercent: 100, resetsAt: null }, ...windows];
-      }
+      if (service === "claude") windows = claudeFiveHours(windows, plan);
       if (!modelsOf(windows).length) {
         const models = modelsOf(twin?.windows).length ? modelsOf(twin.windows)
           : mine && Number.isFinite(local.modelsObservedAt) && now() - local.modelsObservedAt <= CLAUDE_LOCAL_MODELS_MS ? currentWindows(local.models, now()) : [];
@@ -568,7 +576,8 @@ function createWorkspaceUsage({ home, codex, env = {}, allowKeychain = false, fe
       const rowsOf = service => id === "magpie" ? magpieRows.get(service) || [] : [readings[id].get(service)];
       // inUse: Limits shows this reading.
       sources[id] = { enabled: on(id), services: [...readings[id].keys()].flatMap(service => rowsOf(service).map(reading => ({ service, label: label(service),
-        windows: reading.windows, observedAt: reading.observedAt ?? null, inUse: shown.has(reading), ...details(reading) }))) };
+        windows: service === "claude" && !claudeHasFiveHours(reading.plan) ? (reading.windows || []).filter(w => !fiveHourPlaceholder(w)) : reading.windows,
+        observedAt: reading.observedAt ?? null, inUse: shown.has(reading), ...details(reading) }))) };
     }
     if (codexbar) sources.codexbar.reason = codexbar.reason || null;
     const result = { updatedAt: now(), providers, sources, prefer: config.prefer };

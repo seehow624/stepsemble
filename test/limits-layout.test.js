@@ -83,12 +83,18 @@ test("Refresh asks Magpie's command, which asks the vendors now; otherwise its g
   assert.equal(used(await service.quotaReports({ fresh: true })), 10); assert.deepEqual([gateway, commands], [2, 2], "a slow command gives way to the gateway");
 });
 
-test("Claude's five hours not yet started show as all there, beside its week", async () => {
+test("Claude's five hours show, all there before they start, only for a plan that has them", async () => {
   const NOW = 1_794_000_000_000;
-  const usage = createWorkspaceUsage({ now: () => NOW, codex: async () => ({}), readSignIn: async () => null, readProviderQuotas: async () => [], readOpenCodex: async () => [],
-    readMagpie: async () => [], readClaudeToken: async () => { throw new Error("no credential reads"); },
-    readDesktopClaudeQuota: async () => ({ quotaVersion: 1, status: "ready", sampledAt: NOW, accountKey: "v1:" + "a".repeat(64),
-      windows: [{ label: "Weekly", windowDurationMins: 10080, bucket: null, usedPercent: 71, remainingPercent: 29, resetsAt: NOW + 86_400_000 }] }) });
-  const claude = (await usage.read()).providers.find(p => p.service === "claude");
-  assert.deepEqual(claude.windows.map(w => [w.windowDurationMins, w.usedPercent, w.resetsAt]), [[300, 0, null], [10080, 71, NOW + 86_400_000]]);
+  const card = async plan => {
+    const usage = createWorkspaceUsage({ now: () => NOW, codex: async () => ({}), readSignIn: async () => null, readProviderQuotas: async () => [], readOpenCodex: async () => [],
+      readMagpie: async () => [], readClaudeToken: async () => { throw new Error("no credential reads"); },
+      readDesktopClaudeQuota: async () => ({ quotaVersion: 1, status: "ready", sampledAt: NOW, accountKey: "v1:" + "a".repeat(64), ...(plan ? { plan } : {}),
+        windows: [{ label: "Weekly", windowDurationMins: 10080, bucket: null, usedPercent: 71, remainingPercent: 29, resetsAt: NOW + 86_400_000 }] }) });
+    return (await usage.read()).providers.find(p => p.service === "claude").windows.map(w => [w.windowDurationMins, w.usedPercent, w.resetsAt]);
+  };
+  const week = [10080, 71, NOW + 86_400_000];
+  // Pro and Max have five hours: Claude leaves them out until they start, and they are all there.
+  for (const plan of ["Pro", "Max", "claude_max"]) assert.deepEqual(await card(plan), [[300, 0, null], week], plan);
+  // Ultra has none (its usage names only weeks); a plan not known is not taken to have them.
+  for (const plan of ["Ultra", null]) assert.deepEqual(await card(plan), [week], String(plan));
 });

@@ -91,6 +91,10 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
         return Math.round(bar.left) + ":" + Math.round(bar.right) + ":" + Math.round(share.right);
       }))]);
       assert.equal(columns.length, 1, "rows line up from card to card " + JSON.stringify(columns));
+      // When a window renews shows in full, in every language: the longest is "22 時 40 分後".
+      const clipped = await sheet.locator(".usage-quota-when").evaluateAll(cells => ["22 時 40 分後", "6 天 23 時後", "22 时 40 分后", "in 22h 40m", "11/12 23:59"].filter(text => cells.some(cell => {
+        const kept = cell.textContent; cell.textContent = text; const over = cell.scrollWidth > cell.clientWidth; cell.textContent = kept; return over; })));
+      assert.deepEqual(clipped, [], "renewal times are not cut short");
       const [sheetBox, capsuleBox, sidebarBox, listBox] = await Promise.all([sheet, page.locator("#workspace-usage"), page.locator("#workspace-sidebar"), page.locator("#workspace-projects")].map(item => item.boundingBox()));
       assert.ok(Math.abs(sheetBox.y + sheetBox.height - capsuleBox.y - capsuleBox.height) <= 1 && sheetBox.x >= sidebarBox.x && sheetBox.x + sheetBox.width <= sidebarBox.x + sidebarBox.width
         && sheetBox.y >= listBox.y && sheetBox.height > capsuleBox.height, "it rises from the capsule and stays over the list " + JSON.stringify({ sheetBox, capsuleBox, listBox }));

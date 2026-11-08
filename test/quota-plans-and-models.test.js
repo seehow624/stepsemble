@@ -105,7 +105,8 @@ test("a Claude reading without its models or plan takes them from the same accou
   let claude = (await make({ home: claudeHome(t) }).read()).providers.filter(p => p.service === "claude");
   assert.equal(claude.length, 1, "Magpie's reading of the same account is not a second card");
   assert.equal(claude[0].plan, "Ultra"); assert.equal(claude[0].source, "native");
-  assert.deepEqual(claude[0].windows.map(w => [w.windowDurationMins, w.bucket ?? null, w.scope ?? null, w.usedPercent]), [[300, null, null, 0], [10080, null, null, 70], [10080, "Fable", "model", 35]]);
+  // Ultra has no five hours: the reading's own, nothing used and no reset time, does not show.
+  assert.deepEqual(claude[0].windows.map(w => [w.windowDurationMins, w.bucket ?? null, w.scope ?? null, w.usedPercent]), [[10080, null, null, 70], [10080, "Fable", "model", 35]]);
   // Without Magpie, the models' week comes from Claude Code's recent reading; a stale one is left out.
   claude = (await make({ home: claudeHome(t), readMagpie: async () => [] }).read()).providers.find(p => p.service === "claude");
   assert.deepEqual(claude.windows.filter(w => w.scope === "model").map(w => [w.bucket, w.usedPercent]), [["Fable", 35]]);
