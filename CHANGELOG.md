@@ -7,6 +7,13 @@
 - ⌘, opens Settings, as in other Mac apps, and the Mac app's Stepsemble menu has **Settings…** under About Stepsemble, translated into the app's eleven languages. Settings open over the front Workspace window's panes, in place of the limits sheet or a menu; with no Workspace window open, a new one opens on them, and while a window waits for its Host the request waits with it.
 - The keys work from anywhere in the Workspace, a conversation or a Schedules tab included (it asks its Workspace), and in the browser too (Ctrl+, on Linux and Windows) instead of opening the browser's own settings. In Settings, and on the sign-in page, they do nothing; a dialog in front keeps them, as it does for switching tabs, and the text being typed is left as it was.
 
+### Limits
+
+- A card names a plan only when its service names one. A plan or balance bought with a key (MiniMax's, for one) and Grok, whose readings carry no plan's name, no longer show "Key plan" or "Key balance" in its place; neither do the menu bar panel and Settings → Quota sources.
+- A quota tier read in a plan's place is not shown as the plan. Magpie keeps the plan an account had when it signed in, so a Mac whose Magpie signed in to Antigravity before the account's Google AI Pro subscription reads "Antigravity Starter Quota" while another Mac reads "Google AI Pro"; that Mac's own card now shows no plan. Under All Hosts an account takes its plan from whichever computer's reading names one, instead of changing with the computer that read last.
+- A pool's name stays on one line: with Magpie 0.1.3295, which names GPT-OSS 120B beside Claude & GPT too, the name no longer breaks over two lines; the models beside it are cut short instead, and all of them show on hover.
+- The usage service judges the Mac's desktop helper's Claude reading on its own clock, as it does every other reading. Nothing changes for users; a test written for 6 November had stopped passing once that day was over, and it stopped this release's first build.
+
 ## 3.10.15
 
 ### Limits

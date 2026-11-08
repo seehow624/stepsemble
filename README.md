@@ -261,11 +261,15 @@ As a quota source, the Host reads the gateway's `GET /v1/magpie/quotas` (the
 same answer as `magpie quota --json`, which it runs when the gateway is not up)
 every couple of minutes: every subscription account Magpie is signed in to, every
 plan bought with a key and every key's balance, each as its own card. Every
-card names the account's plan beside its service (Claude's own name for it,
-such as "Ultra"; ChatGPT's "Pro Lite"; "Google AI Pro" for Antigravity), with
-the name given to it in Magpie under it; a key's plan or balance without a
-plan's name says so. Cards do not name the computers that read them: one
-account, or one key used on two computers, is one card under **All Hosts**.
+card names the account's plan beside its service when the service names one
+(Claude's own name for it, such as "Ultra"; ChatGPT's "Pro Lite"; "Google AI
+Pro" for Antigravity), with the name given to it in Magpie under it. A key's
+plan or balance and Grok name no plan and show none, and a quota tier read in
+a plan's place is not shown as one (Magpie keeps the plan an account had when
+it signed in: "Antigravity Starter Quota" for a sign-in made before the
+account's subscription). Cards do not name the computers that read them: one
+account, or one key used on two computers, is one card under **All Hosts**,
+with the plan whichever computer's reading names.
 Every window is one row (its name, a bar, the share and when it renews), and
 the rows line up from card to card. As in Magpie's menu bar, an account's own
 windows are what stop it, and a window for one model follows them: Claude's

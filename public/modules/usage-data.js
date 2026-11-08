@@ -143,7 +143,7 @@
       hosts, issues, coverage: { covered, missing, unsupported, partial, indexing, issuesOmitted, scope: historyCoverage ? "history" : "unknown" }, priceUpdatedAt, scope: scopes.size > 1 ? "mixed" : [...scopes][0] || "machine", dateApproximateRecords };
   }
   function combineQuotas(results) {
-    const groups = new Map(), aliases = new Map();
+    const groups = new Map(), aliases = new Map(), plans = new Map();
     const validIdentity = value => typeof value === "string" && /^v1:[a-f0-9]{64}$/.test(value);
     // Only an account's own sign-in (the agent's, read natively or with its
     // account token, or Pi's) can attest an opaque email alias for its official
@@ -169,6 +169,10 @@
       const cached = !!result.unavailable || provider.status === "cached";
       const quality = provider.windows?.length ? cached ? 1 : 2 : 0;
       const at = provider.sampledAt ?? provider.observedAt ?? result.quota.updatedAt ?? 0;
+      // The plan comes from whichever computer's reading names one: the same
+      // account can read with a plan on one and with none (or a quota tier)
+      // on another, and its card does not change with the one that read last.
+      if (planLabel(reading.plan) && !(plans.get(key)?.at > at)) plans.set(key, { plan: reading.plan, at });
       let group = groups.get(key);
       const host = { id: result.host, name: result.name || result.host };
       if (!group) {
@@ -182,6 +186,7 @@
         }
       }
     }
+    for (const [key, group] of groups) if (!planLabel(group.plan) && plans.has(key)) groups.set(key, { ...group, plan: plans.get(key).plan });
     return [...groups.values()];
   }
   // The windows that stop an account, as Magpie's own menu bar counts them:
@@ -283,7 +288,10 @@
   // The name an account's plan goes by beside its service: a vendor's own
   // display name as it comes ("Ultra", "Google AI Pro"), a plan's id in words
   // ("prolite" is Pro Lite, Claude's "claude_max" is Max). Nothing for one
-  // that names no plan.
+  // that names no plan, nor for a quota tier read in a plan's place: Magpie
+  // keeps the plan an account had when it signed in, and one signed in to
+  // Antigravity before its Google AI Pro subscription reads "Antigravity
+  // Starter Quota".
   const PLAN_WORDS = { free: "Free", go: "Go", plus: "Plus", pro: "Pro", prolite: "Pro Lite", promax: "Pro Max", max: "Max", ultra: "Ultra",
     team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu", sci: "Sci", starter: "Starter", lite: "Lite", basic: "Basic" };
   const PLAN_IDS = { claude_max: "Max", claude_pro: "Pro", claude_team: "Team", claude_enterprise: "Enterprise", claude_free: "Free",
@@ -294,7 +302,7 @@
     const text = value.trim().replace(/\s+/g, " ");
     if (!text || text.length > 48 || /[\u0000-\u001f\u007f<>]/.test(text)) return null;
     const id = text.toLowerCase();
-    if (["unknown", "none", "null", "default"].includes(id)) return null;
+    if (["unknown", "none", "null", "default"].includes(id) || /\bquotas?$/.test(id)) return null;
     if (!/^[a-z][a-z0-9_-]*$/.test(text)) return text;
     return PLAN_IDS[id] || id.split(/[_-]+/).filter(Boolean).map(word => PLAN_WORDS[word] || word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
   }

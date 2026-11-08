@@ -109,16 +109,18 @@ export async function runMagpieGatewayBrowserCases(browser, { screenshotDirector
       assert.equal(await magpieSource.locator("strong").textContent(), "Magpie");
       assert.match(await magpieSource.textContent(), /Running on port 3425/);
       assert.match(await magpieSource.textContent(), /GitHub Copilot/);
-      // Each account says which it is, and only the readings Limits shows are in use.
+      // Each account says which it is, and only the readings Limits shows are
+      // in use. No plan where the service names none, nor for the quota tier
+      // an older Host passes on in Antigravity's plan's place.
       const magpieRows = await magpieSource.locator(".quota-source-provider").evaluateAll(rows => rows.map(row => [row.firstElementChild.textContent.replace(/\s+/g, " ").trim(), row.lastElementChild.textContent]));
       assert.deepEqual(magpieRows, [
         ["GitHub Copilot in use", "30d 60% left"],
         ["Codex · pro", "7d 88% left"],
         ["Codex · plus · Spare in use", "7d 20% left"],
         ["Claude · max in use", "7d 62% left · Fable 7d 98% left"],
-        ["Antigravity · Antigravity Starter Quota in use", "Claude & GPT 7d 0% left · Gemini 5h 96% left · 5 more limits"],
-        ["MiniMax · key plan in use", "5h 100% left"],
-        ["DeepSeek · key balance in use", "$12.50 left"],
+        ["Antigravity in use", "Claude & GPT 7d 0% left · Gemini 5h 96% left · 5 more limits"],
+        ["MiniMax in use", "5h 100% left"],
+        ["DeepSeek in use", "$12.50 left"],
       ]);
       assert.match(await page.locator('#quota-sources-list [data-quota-source="agents"] .quota-source-provider').textContent(), /^Codex in use/);
 

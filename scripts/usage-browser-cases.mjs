@@ -531,23 +531,31 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     // A window for one model shows under its account and stops neither the
     // account nor the strip; an account with no window of its own (Antigravity)
     // shows its two tightest pools, each by its tightest window, and folds the
-    // rest; a key's balance is known too.
+    // rest; a key's balance is known too. A plan shows only where the service
+    // names one: not for the key's balance, and not for the quota tier the Mac
+    // mini's Magpie read in place of Antigravity's plan, which under All Hosts
+    // takes the plan the MacBook read for the same account.
+    const agyKey = "v1:" + "e".repeat(64);
     const exhausted = label => ({ label, usedPercent: 100, remainingPercent: 0, windowDurationMins: null, scope: "model" });
     fixture.setQuotas({ mini: { updatedAt: sampled, providers: [
       { provider: "Claude", service: "claude", source: "magpie", plan: "max", status: "ready", sampledAt: sampled, windows: [
         { usedPercent: 40, remainingPercent: 60, windowDurationMins: 10080 }, { usedPercent: 100, remainingPercent: 0, windowDurationMins: 10080, bucket: "Fable", scope: "model" }] },
-      { provider: "Antigravity", service: "antigravity", source: "magpie", plan: "Antigravity Starter Quota", status: "ready", sampledAt: sampled, windows: [
+      { provider: "Antigravity", service: "antigravity", source: "magpie", plan: "Antigravity Starter Quota", accountKey: agyKey, status: "ready", sampledAt: sampled, windows: [
         { label: "Gemini · 5 hours", usedPercent: 20, remainingPercent: 80, windowDurationMins: 300, bucket: "Gemini", scope: "pool" },
         { label: "Gemini · 7 days", usedPercent: 1, remainingPercent: 99, windowDurationMins: 10080, bucket: "Gemini", scope: "pool" },
         { label: "Claude & GPT · 7 days", usedPercent: 30, remainingPercent: 70, windowDurationMins: 10080, bucket: "Claude & GPT", scope: "pool" },
         { label: "Gemini 4 Argon · 7 days", usedPercent: 0, remainingPercent: 100, windowDurationMins: 10080, bucket: "Gemini 4 Argon", scope: "pool" },
         ...["Claude Opus 5.5 (High)", "Claude Sonnet 5.5 (High)", "GPT-OSS 120B (Medium)"].map(exhausted)] },
       { provider: "DeepSeek", service: "deepseek", source: "magpie", kind: "balance", balance: "$12.50", status: "ready", sampledAt: sampled, windows: [] }] },
-      mbp: { updatedAt: sampled, providers: [] } });
+      mbp: { updatedAt: sampled - 60000, providers: [{ provider: "Antigravity", service: "antigravity", source: "magpie", plan: "Google AI Pro", accountKey: agyKey,
+        status: "ready", sampledAt: sampled - 60000, windows: [{ label: "Gemini · 5 hours", usedPercent: 25, remainingPercent: 75, windowDurationMins: 300, bucket: "Gemini", scope: "pool" }] }] } });
     await page.locator("#refresh").click(); await ready();
     const menuLimits = await page.locator("#limits").innerText();
-    assert.match(menuLimits, /Claude · Max/); assert.match(menuLimits, /DeepSeek · Key balance[\s\S]*\$12\.50 left/);
-    assert.match(menuLimits, /Antigravity · Antigravity Starter Quota[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h/);
+    assert.match(menuLimits, /Claude · Max/); assert.match(menuLimits, /DeepSeek[\s\S]*\$12\.50 left/);
+    assert.match(menuLimits, /Antigravity · Google AI Pro[\s\S]*Claude & GPT · 7d[\s\S]*Gemini · 5h/);
+    const menuNames = await page.locator(".quota-name").allInnerTexts();
+    assert.ok(menuNames.includes("DeepSeek") && menuNames.includes("Antigravity · Google AI Pro"), JSON.stringify(menuNames));
+    assert.doesNotMatch(menuLimits, /Key balance|Key plan|Starter Quota/, "no stand-in and no quota tier for a plan");
     assert.doesNotMatch(menuLimits, /Fable|Claude Opus|Argon/, "the menu bar shows the accounts' own windows, and Antigravity's two tightest pools");
     await full.reload();
     await full.locator('.usage-sheet[data-state=open][data-tab="usage"]').waitFor();
@@ -559,12 +567,30 @@ export async function runMenubarBrowserCase(browser, { screenshotDirectory } = {
     await full.locator("[data-overview-tab=limits]").click();
     await full.waitForFunction(() => document.querySelector(".usage-sheet")?.getAttribute("aria-busy") !== "true" && document.querySelectorAll(".usage-quota-card").length === 3);
     const limitCards = await full.locator(".usage-quota-card").allInnerTexts();
-    assert.match(limitCards[0], /Claude\s*Max[\s\S]*Weekly[\s\S]*Fable/); assert.match(limitCards[2], /DeepSeek\s*Key balance[\s\S]*\$12\.50 left/);
-    assert.match(limitCards[1], /Antigravity\s*Antigravity Starter Quota/); assert.doesNotMatch(limitCards.join("\n"), /Mac Mini|MacBook Pro/);
+    assert.match(limitCards[0], /Claude\s*Max[\s\S]*Weekly[\s\S]*Fable/); assert.match(limitCards[2], /DeepSeek[\s\S]*\$12\.50 left/);
+    assert.match(limitCards[1], /Antigravity\s*Google AI Pro/); assert.doesNotMatch(limitCards.join("\n"), /Mac Mini|MacBook Pro|Key balance|Key plan|Starter Quota/);
+    const plansShown = () => full.evaluate(() => [...document.querySelectorAll(".usage-quota-card .usage-quota-plan")].map(node => node.textContent).join(" | "));
+    assert.equal(await plansShown(), "Max | Google AI Pro", "no plan where the service names none");
+    // One computer's own card: the quota tier it read is no plan.
+    const hostFilter = full.locator(".usage-sheet select[data-filter=host]");
+    await hostFilter.selectOption("mini");
+    await full.waitForFunction(() => [...document.querySelectorAll(".usage-quota-card .usage-quota-plan")].map(node => node.textContent).join(" | ") === "Max");
+    await hostFilter.selectOption("");
+    await full.waitForFunction(() => [...document.querySelectorAll(".usage-quota-card .usage-quota-plan")].map(node => node.textContent).join(" | ") === "Max | Google AI Pro");
     // Antigravity's windows group by pool, shortest first; a model that reads
     // apart from its pool keeps its own row there, under its pool's name.
     const agy = full.locator(".usage-quota-card").nth(1);
     assert.deepEqual(await agy.locator(".usage-quota-pool-name > span").allInnerTexts(), ["Gemini", "Claude & GPT", "Gemini 4 Argon"]);
+    // A pool's name stays on one line in this narrow sheet, however many
+    // models are named beside it (Magpie 0.1.3295 names GPT-OSS 120B too).
+    const poolName = await agy.evaluate(card => {
+      const [first, second] = card.querySelectorAll(".usage-quota-pool-name"), names = document.createElement("small");
+      names.textContent = "Opus 5.5 · Sonnet 5.5 · GPT-OSS 120B · Gemini 3.8 Flash · Gemini 3.8 Pro"; second.append(names);
+      const result = { name: Math.round(second.querySelector("span").getBoundingClientRect().height), line: Math.round(first.querySelector("span").getBoundingClientRect().height),
+        clipped: names.scrollWidth > names.clientWidth };
+      names.remove(); return result;
+    });
+    assert.ok(poolName.name <= poolName.line && poolName.clipped, JSON.stringify(poolName));
     assert.deepEqual(await agy.locator(".usage-quota-pool").nth(0).locator(".usage-quota-label").allInnerTexts(), ["5 hours", "Weekly"]);
     assert.deepEqual(await agy.locator(".usage-quota-pool").nth(1).locator(".usage-quota-label").allInnerTexts(), ["Weekly", "Opus 5.5", "Sonnet 5.5", "GPT-OSS 120B"]);
     assert.equal(await agy.locator(".usage-quota-row[data-level=out]").count(), 3, "a used-up model is marked so");

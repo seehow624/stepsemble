@@ -15803,8 +15803,10 @@ function renderQuotaSources() {
         const line = document.createElement("div");
         line.className = "quota-source-provider";
         const label = document.createElement("span");
-        // Which account of the service: its plan (or a key's plan or balance) and its own name.
-        const plan = row.plan || (row.kind === "plan" ? tKey("quotaSources.keyPlan") : row.kind === "balance" ? tKey("quotaSources.keyBalance") : "");
+        // Which account of the service: its plan when the service names one
+        // (the Host names it in words, planLabel), and its own name. A quota
+        // tier an older Host passes on in a plan's place is not one.
+        const plan = typeof row.plan === "string" && !/\bquotas?$/i.test(row.plan.trim()) ? row.plan : "";
         const detail = [plan, row.alias && row.alias !== plan ? row.alias : ""].filter(Boolean).join(" · ");
         label.textContent = detail ? row.label + " · " + detail : row.label; label.dataset.i18nIgnore = "";
         // An older Host tells only which source each service uses.

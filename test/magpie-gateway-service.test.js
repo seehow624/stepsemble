@@ -263,8 +263,9 @@ test("every Magpie account shows: all of a service's when Magpie is its source, 
   assert.deepEqual(result.providers.find(row => row.service === "antigravity").windows.map(w => [w.label, w.bucket, w.scope]), [["Claude & GPT · 7 days", "Claude & GPT", "pool"], ["Claude Opus 5.5 (High)", null, "model"]],
     "a pool's window and a window for one model stay marked so");
   // Settings tells which readings Limits shows: Magpie's reading of the account Codex is signed in to is not.
+  // A quota tier Magpie read in a plan's place names no plan.
   assert.deepEqual(result.sources.magpie.services.map(row => [row.service, row.plan ?? row.kind, row.inUse]),
-    [["codex", "Pro", false], ["codex", "Plus", true], ["antigravity", "Antigravity Starter Quota", true], ["minimax", "plan", true], ["deepseek", "balance", true]]);
+    [["codex", "Pro", false], ["codex", "Plus", true], ["antigravity", "subscription", true], ["minimax", "plan", true], ["deepseek", "balance", true]]);
   assert.deepEqual(result.sources.agents.services.map(row => [row.service, row.inUse]), [["codex", true]]);
   assert.ok(!JSON.stringify(result).includes("example.com"));
   // Preferred for the service, Magpie shows every account of it, the one it served last first.

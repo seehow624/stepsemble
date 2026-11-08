@@ -173,6 +173,8 @@ html[data-theme="dark"] .usage-sheet {
 .usage-quota-row[data-level=out] .usage-quota-when { color: var(--level); }
 .usage-quota-pool { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-top: 4px; }
 .usage-quota-pool-name { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: var(--text-xs); font-weight: 600; }
+/* The pool's name stays on one line; the models named beside it give way. */
+.usage-quota-pool-name > span { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-quota-pool-name small { min-width: 0; overflow: hidden; color: var(--pine-soft); font-size: var(--text-2xs); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .usage-quota-unknown, .usage-quota-observed { margin: 0; }
 /* Windows for one model each, folded under the account's own. */
