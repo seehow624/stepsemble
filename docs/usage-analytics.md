@@ -28,10 +28,14 @@ The shared desktop panel is
 900 × 680 pixels at most; both tabs preserve the same geometry and scroll
 inside it when needed.
 
-Today, This week (Monday onwards), This month and 30 days use the viewing
-device's time zone. Agent, project and model filters run before aggregation.
-The daily chart separates uncached input, output, cache reads and cache writes;
-click, focus or tap a day for its exact token count and estimated cost. Models,
+Today, 7 days and 30 days (each with today) and All use the viewing device's
+time zone; All reads from 1 January 2000, so every day with usage. A Host from
+before 3.10.20 reads 366 days at most, and All asks it for those. Agent,
+project and model filters run before aggregation. The chart has a bar a day
+for up to 31 days; over All's longer span a bar a week (Monday onwards) for up
+to 40 weeks, else a bar a month, starting on the first day with usage. Each bar
+separates uncached input, output, cache reads and cache writes; click, focus
+or tap one for its exact token count and estimated cost. Models,
 Projects, Agents and Sessions show the same totals grouped in different ways.
 Models groups recognized routed IDs by their original vendor and model, so
 Claude through an OpenAI-compatible connection is shown under Anthropic, and

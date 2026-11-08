@@ -277,6 +277,58 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await panel.locator(".usage-chart-column").count(), 30);
       await panel.locator(".usage-chart-column").first()[mobile ? "tap" : "focus"]();
       assert.ok(await panel.locator(".usage-chart-detail").innerText());
+      stage = "periods: Today, 7 days, 30 days, All";
+      assert.deepEqual(await panel.locator(".usage-periods button").allInnerTexts(), mobile ? ["今天", "7 天", "30 天", "全部"] : ["Today", "7 days", "30 days", "All"]);
+      const thirtyTokens = await tokens();
+      // All reads from midnight of 1 January 2000 and charts from the first day with usage: a month here, a bar a day.
+      const allFrom = await page.evaluate(() => new Date(2000, 0, 1).getTime());
+      const isAll = url => { const read = new URL(url); return read.pathname.endsWith("/api/workspace/analytics") && read.searchParams.get("from") === String(allFrom); };
+      const allRead = page.waitForRequest(request => isAll(request.url()));
+      await panel.locator("[data-period=all]").click(); await allRead; await ready();
+      assert.equal(await panel.locator("[data-period=all]").getAttribute("aria-pressed"), "true");
+      assert.ok(await tokens() >= thirtyTokens, "All holds the last 30 days");
+      assert.equal(await panel.locator(".usage-chart-section").getAttribute("data-unit"), "day");
+      const allColumns = await panel.locator(".usage-chart-column").count();
+      assert.ok(allColumns >= 30 && allColumns <= 31, "from the first day with usage, not from 2000: " + allColumns);
+      assert.equal(await panel.locator(".usage-chart-column").last().getAttribute("data-date"), await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }));
+      // A history that goes back 100 days: a bar a week, Monday onwards.
+      const longAgo = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() - 100); return { date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+        weeks: (() => { const start = new Date(d); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - (start.getDay() + 6) % 7); const end = new Date(); end.setHours(0, 0, 0, 0); end.setDate(end.getDate() + 1);
+          let n = 0; for (const at = new Date(start); at < end; at.setDate(at.getDate() + 7)) n++; return n; })() }; });
+      const lengthen = async route => {
+        const response = await route.fetch(), json = await response.json();
+        if (isAll(route.request().url())) json.days = [{ ...json.days[0], date: longAgo.date, tokens: 1000, input: 1000, output: 0, cacheRead: 0, cacheWrite: 0 }, ...json.days];
+        await route.fulfill({ response, json });
+      };
+      await page.route("**/api/workspace/analytics?*", lengthen);
+      await panel.locator("[data-period=thirty]").click(); await ready();
+      await panel.locator("[data-period=all]").click(); await ready();
+      assert.equal(await panel.locator(".usage-chart-section").getAttribute("data-unit"), "week");
+      assert.equal(await panel.locator(".usage-chart-section h2").innerText(), mobile ? "每週用量" : "Weekly usage");
+      assert.equal(await panel.locator(".usage-chart-column").count(), longAgo.weeks);
+      await panel.locator(".usage-chart-column").nth(longAgo.weeks - 2)[mobile ? "tap" : "focus"]();
+      assert.match(await panel.locator(".usage-chart-detail span").first().innerText(), / – /, "a week from its first to its last day");
+      assert.equal(await panel.evaluate(el => el.scrollWidth > el.clientWidth + 1), false, "the weekly chart fits");
+      const labelsOut = await panel.locator(".usage-chart").evaluate(chart => { const box = chart.getBoundingClientRect();
+        return [...chart.querySelectorAll(".usage-chart-date")].filter(label => label.textContent).map(label => { const range = document.createRange(); range.selectNodeContents(label); const text = range.getBoundingClientRect();
+          return text.left < box.left - 1 || text.right > box.right + 1 ? label.textContent : null; }).filter(Boolean); });
+      assert.deepEqual(labelsOut, [], "every week's label is inside the chart");
+      await page.unroute("**/api/workspace/analytics?*", lengthen);
+      // A Host from before 3.10.20 reads 366 days at most: All asks it for those instead.
+      const reads = [];
+      const oldHost = async route => {
+        const url = new URL(route.request().url()); reads.push(url);
+        if (Number(url.searchParams.get("to")) - Number(url.searchParams.get("from")) > 366 * 86400000) return route.fulfill({ status: 400, json: { error: "invalid_query" } });
+        return route.fallback();
+      };
+      await page.route("**/api/workspace/analytics?*", oldHost);
+      await panel.locator("[data-period=thirty]").click(); await ready(); reads.length = 0;
+      await panel.locator("[data-period=all]").click(); await ready();
+      assert.deepEqual(reads.map(url => (Number(url.searchParams.get("to")) - Number(url.searchParams.get("from"))) / 86400000 > 366), [true, false], "All, then the 366 days the Host reads");
+      assert.equal(Number(reads[1].searchParams.get("to")) - Number(reads[1].searchParams.get("from")), 366 * 86400000);
+      assert.ok(await tokens() >= thirtyTokens); assert.notEqual(await panel.locator(".usage-status").getAttribute("data-kind"), "error");
+      await page.unroute("**/api/workspace/analytics?*", oldHost);
+      await panel.locator("[data-period=thirty]").click(); await ready();
       await panel.getByRole("tab", { name: mobile ? "模型" : "Models", exact: true }).focus();
       await page.keyboard.press("ArrowRight");
       assert.equal(await panel.getByRole("tab", { name: mobile ? "專案" : "Projects", exact: true }).getAttribute("aria-selected"), "true");
@@ -326,7 +378,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       await page.clock.fastForward(60001); await periodRefresh; await ready();
       assert.equal(await focusedPeriod.evaluate(el => el === document.activeElement), true, "automatic refresh preserves focus on the period controls too");
       stage = "proof";
-      await panel.locator("[data-period=week]").click(); await ready();
+      await panel.locator("[data-period=seven]").click(); await ready();
       await panel.getByRole("tab", { name: mobile ? "模型" : "Models", exact: true }).click();
       await panel.locator(".usage-body").evaluate(el => { el.scrollTop = 0; });
       if (screenshotDirectory) { await fs.mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, mobile ? "usage-mobile.png" : "usage-desktop.png") }); }

@@ -122,6 +122,11 @@ html[data-theme="dark"] .usage-sheet {
 /* Paint, not space: even a subpixel segment keeps at least 80% of its hue. */
 .usage-chart-stack > [data-token] + [data-token] { background-image: var(--usage-segment-edge); }
 .usage-chart-date { height: 20px; font-size: var(--text-2xs); text-align: center; color: var(--pine-soft); font-variant-numeric: tabular-nums; }
+/* A week's or a month's label is wider than its bar: it stays centred on it,
+   and the first and last keep inside the chart. */
+.usage-chart-section:is([data-unit=week], [data-unit=month]) .usage-chart-date { display: flex; justify-content: center; white-space: nowrap; }
+.usage-chart-section:is([data-unit=week], [data-unit=month]) .usage-chart-column:first-child .usage-chart-date { justify-content: flex-start; }
+.usage-chart-section:is([data-unit=week], [data-unit=month]) .usage-chart-column:last-child .usage-chart-date { justify-content: flex-end; }
 .usage-tabs { display: flex; align-items: center; justify-content: space-between; gap: 0; border-bottom: .5px solid var(--line); margin-bottom: 7px; }
 .usage-tab { padding: 9px 2px 10px; border-bottom: 2px solid transparent; color: var(--pine-soft); font-size: var(--text-2xs); }
 .usage-tab[aria-selected=true] { color: var(--ink); border-color: var(--ink); }

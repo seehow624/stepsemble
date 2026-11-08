@@ -290,6 +290,32 @@
     apart.sort((a, b) => (leftOf(a.window) ?? 101) - (leftOf(b.window) ?? 101));
     return { own, models: apart, pools };
   }
+  // The usage chart's bars between two local midnights: one a day for up to
+  // 31 days; over a longer span (All) one a week, Monday onwards, for up to
+  // 40 weeks, else one a month. A bar covers only the days within the span
+  // (from, to); `days` are a report's days by local date ("YYYY-MM-DD").
+  function chartBuckets(days, from, to) {
+    const byDate = new Map((days || []).map(day => [day.date, day]));
+    const key = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const begin = new Date(from); begin.setHours(0, 0, 0, 0);
+    const end = new Date(to);
+    const start = unit => {
+      const first = new Date(begin);
+      if (unit === "week") first.setDate(first.getDate() - (first.getDay() + 6) % 7);
+      if (unit === "month") first.setDate(1);
+      return first;
+    };
+    const step = (date, unit) => { const next = new Date(date); if (unit === "month") next.setMonth(next.getMonth() + 1, 1); else next.setDate(next.getDate() + (unit === "week" ? 7 : 1)); return next; };
+    const count = unit => { let n = 0; for (let at = start(unit); at < end; at = step(at, unit)) n++; return n; };
+    const unit = count("day") <= 31 ? "day" : count("week") <= 40 ? "week" : "month";
+    const buckets = [];
+    for (let at = start(unit); at < end; at = step(at, unit)) {
+      const bucketFrom = new Date(Math.max(at, begin)), next = step(at, unit), bucketTo = new Date(Math.min(next, end)), row = empty();
+      for (const day = new Date(bucketFrom); day < bucketTo; day.setDate(day.getDate() + 1)) add(row, byDate.get(key(day)));
+      buckets.push({ from: bucketFrom, to: bucketTo, row });
+    }
+    return { unit, buckets };
+  }
   // The name an allowance goes by: the account's own service, not the agent
   // that reads it. Codex reads the ChatGPT subscription it is signed in to
   // ("Pro Lite" is ChatGPT's plan), as Claude Code reads Claude's. A reading
@@ -326,5 +352,5 @@
   // does not have, read as nothing used and no reset time.
   function claudeHasFiveHours(plan) { const label = planLabel(plan); return !!label && !/\bultra\b/i.test(label); }
   function fiveHourPlaceholder(w) { return !!w && !w.scope && w.windowDurationMins === 300 && !(Number(w.usedPercent) > 0) && !w.resetsAt; }
-  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel, claudeHasFiveHours, fiveHourPlaceholder, quotaName };
+  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel, claudeHasFiveHours, fiveHourPlaceholder, quotaName, chartBuckets };
 });

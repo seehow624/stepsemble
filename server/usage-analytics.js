@@ -2,10 +2,13 @@
 const path = require("node:path"), crypto = require("node:crypto");
 const { Worker } = require("node:worker_threads");
 function invalid() { return Object.assign(new Error("usage_query_invalid"), { statusCode: 400 }); }
+// All reads from local midnight of 1 January 2000, which is on or after this
+// in every time zone; the client reads no further back.
+const EARLIEST_FROM = Date.UTC(1999, 11, 31);
 function parseQuery(params, now = Date.now()) {
   const numeric = key => { const raw = params.get(key); return raw !== null && /^\d{10,16}$/.test(raw) ? Number(raw) : NaN; };
   const from = numeric("from"), to = numeric("to"), timeZone = params.get("timeZone") || "UTC";
-  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to <= from || to - from > 366 * 86400000 || to > now + 2 * 86400000 || timeZone.length > 80) throw invalid();
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to <= from || from < EARLIEST_FROM || to > now + 2 * 86400000 || timeZone.length > 80) throw invalid();
   try { new Intl.DateTimeFormat("en", { timeZone }).format(); } catch { throw invalid(); }
   const scope = params.get("scope") || "machine";
   if (!["machine", "workspace"].includes(scope)) throw invalid();

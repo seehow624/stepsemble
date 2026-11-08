@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.10.20
+
+### Usage
+
+- Usage reads Today, 7 days, 30 days or All, in place of Today, This week, This month and 30 days. 7 and 30 days are the last 7 and 30 days, today included; 7 days is where Usage opens. All reads every day with usage the computer has kept.
+- All's chart starts on the first day with usage: a bar a day for up to 31 days, a bar a week (Monday onwards) for up to 40 weeks, else a bar a month, titled Weekly or Monthly usage. A bar names its week from first to last day, or its month. The labels of the first and last bars stay inside the chart.
+- The Host reads any span from 2000 onwards; before, at most 366 days. Under All Hosts, a computer still on an earlier version is asked for its last 366 days, which hold all its history so far.
+
 ## 3.10.19
 
 ### Workspace

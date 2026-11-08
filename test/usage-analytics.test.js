@@ -483,11 +483,13 @@ test("multi-Host arithmetic keeps Host identity, unknown prices, history issues 
   assert.equal(combined.hosts[0].status, "partial"); assert.equal(combined.issues[0].host, "mini"); assert.equal(combined.issues[0].hostName, "Mini"); assert.equal(combined.coverage.scope, "history");
   assert.equal(Data.combine([{ host: "old", name: "Old", report: { ...two, coverage: { covered: 1 } } }]).coverage.scope, "unknown", "old Hosts do not acquire a new coverage claim");
 });
-test("analytics query rejects malformed ranges, oversized periods and invalid time zones", () => {
+test("analytics query rejects malformed ranges, ranges from before 2000 and invalid time zones", () => {
   const valid = new URLSearchParams({ from: String(AT - 3600000), to: String(AT + 3600000), timeZone: "Asia/Kuala_Lumpur" });
   assert.equal(parseQuery(valid, AT).timeZone, "Asia/Kuala_Lumpur");
   assert.equal(parseQuery(valid, AT).scope, "machine");
-  for (const update of [{ from: "null" }, { to: String(AT - 7200000) }, { from: "1" }, { to: String(AT + 400 * 86400000) }, { timeZone: "not/a-zone" }, { project: "private\u0000path" }, { scope: "arbitrary" }]) {
+  // All reads from local midnight of 1 January 2000, which is no earlier than 31 December 1999 UTC in any time zone.
+  for (const from of [Date.UTC(1999, 11, 31), Date.UTC(2000, 0, 1, 5), AT - 400 * 86400000]) assert.equal(parseQuery(new URLSearchParams({ ...Object.fromEntries(valid), from: String(from) }), AT).from, from);
+  for (const update of [{ from: "null" }, { to: String(AT - 7200000) }, { from: "1" }, { from: String(Date.UTC(1999, 11, 31) - 1) }, { to: String(AT + 400 * 86400000) }, { timeZone: "not/a-zone" }, { project: "private\u0000path" }, { scope: "arbitrary" }]) {
     const params = new URLSearchParams(valid); for (const [key, value] of Object.entries(update)) params.set(key, value); assert.throws(() => parseQuery(params, AT), { statusCode: 400 });
   }
 });
@@ -510,12 +512,13 @@ test("distinct worker queries are serialized and bounded without blocking shared
   release(); const reports = await Promise.all([...pending, shared]);
   assert.equal(priceReads, 8); assert.equal(reports[0], reports[8]); assert.ok(reports.every(r => r.total.tokens === 260));
 });
-test("viewer calendar ranges include today and honor daylight-saving transitions", () => {
+test("viewer calendar ranges (Today, 7 days, 30 days, All) include today and honor daylight-saving transitions", () => {
   const { execFileSync } = require("node:child_process");
-  const code = "global.window={};global.document={documentElement:{lang:'en'}};require('./public/modules/usage-ui.js');const at=new Date('2026-03-08T12:00:00-04:00');console.log(JSON.stringify(Object.fromEntries(['today','week','thirty'].map(p=>[p,window.StepsembleUsageUI.range(p,at)]))));";
+  const code = "global.window={};global.document={documentElement:{lang:'en'}};require('./public/modules/usage-ui.js');const at=new Date('2026-03-08T12:00:00-04:00');console.log(JSON.stringify(Object.fromEntries(['today','seven','thirty','all'].map(p=>[p,window.StepsembleUsageUI.range(p,at)]))));";
   const ranges = JSON.parse(execFileSync(process.execPath, ["-e", code], { cwd: path.resolve(__dirname, ".."), env: { TZ: "America/New_York" }, encoding: "utf8" }));
   assert.equal(ranges.today.to - ranges.today.from, 23 * 3600000);
-  assert.equal(ranges.week.to - ranges.week.from, (7 * 24 - 1) * 3600000);
+  assert.equal(ranges.seven.to - ranges.seven.from, (7 * 24 - 1) * 3600000);
   assert.equal(ranges.thirty.to - ranges.thirty.from, (30 * 24 - 1) * 3600000);
+  assert.equal(ranges.all.from, Date.UTC(2000, 0, 1, 5), "midnight of 1 January 2000 in New York"); assert.equal(ranges.all.to, ranges.today.to);
   assert.equal(ranges.today.timeZone, "America/New_York");
 });

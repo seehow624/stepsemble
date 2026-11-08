@@ -2,9 +2,9 @@
   "use strict";
   const Data = root.StepsembleUsageData;
   const strings = {
-    en: { usage: "Usage", today: "Today", week: "This week", month: "This month", thirty: "30 days", allHosts: "All Hosts", host: "Host", refresh: "Refresh", loading: "Reading usage…", tokens: "Tokens", cost: "Estimated cost", calls: "Model calls", input: "Input", output: "Output", cacheRead: "Cache read", cacheWrite: "Cache write", chart: "Daily usage", models: "Models", agents: "Agents", projects: "Projects", sessions: "Sessions", allAgents: "All agents", allProjects: "All projects", allModels: "All models", reset: "Clear filters", noData: "No recorded usage in this period", noDataHint: "Usage appears after a supported agent records a model call. Try a longer period.", estimate: "USD estimate from agent reports or reference model prices. Subscription allowance is shown separately; this is not a bill.", unknownCost: "Price unavailable", priced: "{known} of {total} calls priced", partialCost: "Known portion", scope: "This computer’s readable agent history", workspaceScope: "This Host uses workspace-only statistics. Update it to include this computer’s history.", mixedScope: "Some Hosts still use workspace-only statistics. Update them for computer-wide totals.", indexing: "Indexing history · {count} files remaining. Totals will update automatically.", viewSession: "Filter this session", coverage: "{covered} sessions read", missing: "{count} sessions unavailable", unsupported: "{count} sessions use an unsupported agent", partial: "Some records could not be read. Totals show the available portion.", offline: "Unavailable", retry: "Could not read usage. Try again.", updated: "Updated {time}", limits: "Subscription limits", remaining: "{percent}% remaining", resetAt: "Resets {time}", quotaUnknown: "Limits unavailable", incomplete: "Some calls have incomplete token counts.", openSession: "Open conversation", viewProject: "Filter this project", viewModel: "Filter this model", viewAgent: "Filter this agent", back: "Back", costSource: "Reference model prices", readOnly: "Usage refresh never starts an agent.", noResults: "No calls match these filters", filter: "Filter usage", sidebar: "Usage overview" },
-    "zh-Hant": { usage: "用量", today: "今天", week: "本週", month: "本月", thirty: "30 天", allHosts: "所有 Host", host: "Host", refresh: "重新整理", loading: "正在讀取用量…", tokens: "Token 用量", cost: "估算費用", calls: "模型呼叫", input: "輸入", output: "輸出", cacheRead: "快取讀取", cacheWrite: "快取寫入", chart: "每日用量", models: "模型", agents: "Agent", projects: "專案", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有專案", allModels: "所有模型", reset: "清除篩選", noData: "這段期間還沒有用量紀錄", noDataHint: "支援的 Agent 保存模型呼叫後就會顯示。也可以切換更長的期間。", estimate: "依 Agent 回報或參考模型單價估算，幣別為 USD。訂閱配額另外顯示；這不是實際帳單。", unknownCost: "缺少單價", priced: "已估算 {known}／{total} 次呼叫", partialCost: "已知部分", scope: "這台電腦可讀取的 Agent 紀錄", workspaceScope: "此 Host 仍只統計工作區，更新後可讀取整台電腦的紀錄。", mixedScope: "部分 Host 仍只統計工作區，更新後才能顯示整機用量。", indexing: "正在建立歷史索引 · 尚有 {count} 個檔案，用量將自動更新。", viewSession: "篩選此 Session", coverage: "已讀取 {covered} 個 Session", missing: "{count} 個 Session 暫時無法讀取", unsupported: "{count} 個 Session 的 Agent 暫不支援", partial: "部分紀錄無法讀取，目前顯示可取得的用量。", offline: "無法連線", retry: "暫時無法讀取用量，請重試。", updated: "更新於 {time}", limits: "訂閱配額", remaining: "剩餘 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暫時無法取得配額", incomplete: "部分呼叫缺少完整的 Token 數字。", openSession: "開啟對話", viewProject: "篩選此專案", viewModel: "篩選此模型", viewAgent: "篩選此 Agent", back: "返回", costSource: "參考模型單價", readOnly: "重新整理用量不會啟動 Agent。", noResults: "沒有符合篩選的呼叫", filter: "篩選用量", sidebar: "用量總覽" },
-    zh: { usage: "用量", today: "今天", week: "本周", month: "本月", thirty: "30 天", allHosts: "所有 Host", refresh: "刷新", loading: "正在读取用量…", tokens: "Token 用量", cost: "估算费用", calls: "模型调用", input: "输入", output: "输出", cacheRead: "缓存读取", cacheWrite: "缓存写入", chart: "每日用量", models: "模型", agents: "Agent", projects: "项目", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有项目", allModels: "所有模型", reset: "清除筛选", noData: "这段时间还没有用量记录", noDataHint: "支持的 Agent 保存模型调用后就会显示。也可以切换更长的时间。", estimate: "按 Agent 回报或参考模型单价估算，币种为 USD。订阅配额另外显示；这不是实际账单。", unknownCost: "缺少单价", priced: "已估算 {known}／{total} 次调用", partialCost: "已知部分", scope: "这台电脑可读取的 Agent 记录", workspaceScope: "此 Host 仍只统计工作区，更新后可读取整台电脑的记录。", mixedScope: "部分 Host 仍只统计工作区，更新后才能显示整机用量。", indexing: "正在建立历史索引 · 尚有 {count} 个文件，用量将自动更新。", viewSession: "筛选此 Session", coverage: "已读取 {covered} 个 Session", missing: "{count} 个 Session 暂时无法读取", unsupported: "{count} 个 Session 的 Agent 暂不支持", partial: "部分记录无法读取，目前显示可取得的用量。", offline: "无法连接", retry: "暂时无法读取用量，请重试。", updated: "更新于 {time}", limits: "订阅配额", remaining: "剩余 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暂时无法取得配额", incomplete: "部分调用缺少完整的 Token 数字。", openSession: "打开对话", viewProject: "筛选此项目", viewModel: "筛选此模型", viewAgent: "筛选此 Agent", back: "返回", readOnly: "刷新用量不会启动 Agent。", noResults: "没有符合筛选的调用", filter: "筛选用量", sidebar: "用量总览" },
+    en: { usage: "Usage", today: "Today", seven: "7 days", thirty: "30 days", all: "All", allHosts: "All Hosts", host: "Host", refresh: "Refresh", loading: "Reading usage…", tokens: "Tokens", cost: "Estimated cost", calls: "Model calls", input: "Input", output: "Output", cacheRead: "Cache read", cacheWrite: "Cache write", chart: "Daily usage", chartWeekly: "Weekly usage", chartMonthly: "Monthly usage", models: "Models", agents: "Agents", projects: "Projects", sessions: "Sessions", allAgents: "All agents", allProjects: "All projects", allModels: "All models", reset: "Clear filters", noData: "No recorded usage in this period", noDataHint: "Usage appears after a supported agent records a model call. Try a longer period.", estimate: "USD estimate from agent reports or reference model prices. Subscription allowance is shown separately; this is not a bill.", unknownCost: "Price unavailable", priced: "{known} of {total} calls priced", partialCost: "Known portion", scope: "This computer’s readable agent history", workspaceScope: "This Host uses workspace-only statistics. Update it to include this computer’s history.", mixedScope: "Some Hosts still use workspace-only statistics. Update them for computer-wide totals.", indexing: "Indexing history · {count} files remaining. Totals will update automatically.", viewSession: "Filter this session", coverage: "{covered} sessions read", missing: "{count} sessions unavailable", unsupported: "{count} sessions use an unsupported agent", partial: "Some records could not be read. Totals show the available portion.", offline: "Unavailable", retry: "Could not read usage. Try again.", updated: "Updated {time}", limits: "Subscription limits", remaining: "{percent}% remaining", resetAt: "Resets {time}", quotaUnknown: "Limits unavailable", incomplete: "Some calls have incomplete token counts.", openSession: "Open conversation", viewProject: "Filter this project", viewModel: "Filter this model", viewAgent: "Filter this agent", back: "Back", costSource: "Reference model prices", readOnly: "Usage refresh never starts an agent.", noResults: "No calls match these filters", filter: "Filter usage", sidebar: "Usage overview" },
+    "zh-Hant": { usage: "用量", today: "今天", seven: "7 天", thirty: "30 天", all: "全部", allHosts: "所有 Host", host: "Host", refresh: "重新整理", loading: "正在讀取用量…", tokens: "Token 用量", cost: "估算費用", calls: "模型呼叫", input: "輸入", output: "輸出", cacheRead: "快取讀取", cacheWrite: "快取寫入", chart: "每日用量", chartWeekly: "每週用量", chartMonthly: "每月用量", models: "模型", agents: "Agent", projects: "專案", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有專案", allModels: "所有模型", reset: "清除篩選", noData: "這段期間還沒有用量紀錄", noDataHint: "支援的 Agent 保存模型呼叫後就會顯示。也可以切換更長的期間。", estimate: "依 Agent 回報或參考模型單價估算，幣別為 USD。訂閱配額另外顯示；這不是實際帳單。", unknownCost: "缺少單價", priced: "已估算 {known}／{total} 次呼叫", partialCost: "已知部分", scope: "這台電腦可讀取的 Agent 紀錄", workspaceScope: "此 Host 仍只統計工作區，更新後可讀取整台電腦的紀錄。", mixedScope: "部分 Host 仍只統計工作區，更新後才能顯示整機用量。", indexing: "正在建立歷史索引 · 尚有 {count} 個檔案，用量將自動更新。", viewSession: "篩選此 Session", coverage: "已讀取 {covered} 個 Session", missing: "{count} 個 Session 暫時無法讀取", unsupported: "{count} 個 Session 的 Agent 暫不支援", partial: "部分紀錄無法讀取，目前顯示可取得的用量。", offline: "無法連線", retry: "暫時無法讀取用量，請重試。", updated: "更新於 {time}", limits: "訂閱配額", remaining: "剩餘 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暫時無法取得配額", incomplete: "部分呼叫缺少完整的 Token 數字。", openSession: "開啟對話", viewProject: "篩選此專案", viewModel: "篩選此模型", viewAgent: "篩選此 Agent", back: "返回", costSource: "參考模型單價", readOnly: "重新整理用量不會啟動 Agent。", noResults: "沒有符合篩選的呼叫", filter: "篩選用量", sidebar: "用量總覽" },
+    zh: { usage: "用量", today: "今天", seven: "7 天", thirty: "30 天", all: "全部", allHosts: "所有 Host", refresh: "刷新", loading: "正在读取用量…", tokens: "Token 用量", cost: "估算费用", calls: "模型调用", input: "输入", output: "输出", cacheRead: "缓存读取", cacheWrite: "缓存写入", chart: "每日用量", chartWeekly: "每周用量", chartMonthly: "每月用量", models: "模型", agents: "Agent", projects: "项目", sessions: "Session", allAgents: "所有 Agent", allProjects: "所有项目", allModels: "所有模型", reset: "清除筛选", noData: "这段时间还没有用量记录", noDataHint: "支持的 Agent 保存模型调用后就会显示。也可以切换更长的时间。", estimate: "按 Agent 回报或参考模型单价估算，币种为 USD。订阅配额另外显示；这不是实际账单。", unknownCost: "缺少单价", priced: "已估算 {known}／{total} 次调用", partialCost: "已知部分", scope: "这台电脑可读取的 Agent 记录", workspaceScope: "此 Host 仍只统计工作区，更新后可读取整台电脑的记录。", mixedScope: "部分 Host 仍只统计工作区，更新后才能显示整机用量。", indexing: "正在建立历史索引 · 尚有 {count} 个文件，用量将自动更新。", viewSession: "筛选此 Session", coverage: "已读取 {covered} 个 Session", missing: "{count} 个 Session 暂时无法读取", unsupported: "{count} 个 Session 的 Agent 暂不支持", partial: "部分记录无法读取，目前显示可取得的用量。", offline: "无法连接", retry: "暂时无法读取用量，请重试。", updated: "更新于 {time}", limits: "订阅配额", remaining: "剩余 {percent}%", resetAt: "{time} 重置", quotaUnknown: "暂时无法取得配额", incomplete: "部分调用缺少完整的 Token 数字。", openSession: "打开对话", viewProject: "筛选此项目", viewModel: "筛选此模型", viewAgent: "筛选此 Agent", back: "返回", readOnly: "刷新用量不会启动 Agent。", noResults: "没有符合筛选的调用", filter: "筛选用量", sidebar: "用量总览" },
   };
   Object.assign(strings.en, { more: "Show {count} more", overview: "Limits & usage", limitsTab: "Limits", loadingLimits: "Reading limits…", retryLimits: "Could not read limits. Try again.", cachedLimits: "Previous reading", resetsIn: "Resets in {time}", awaitingReset: "Waiting for a new reading", sources: "Manage sources", balanceLeft: "{amount} left", balance: "Balance", otherLimits: "More limits ({count})", moreLimits: "{count} more limits" });
   Object.assign(strings["zh-Hant"], { more: "再顯示 {count} 筆", overview: "額度與用量", limitsTab: "額度", loadingLimits: "正在讀取額度…", retryLimits: "暫時無法讀取額度，請重試。", cachedLimits: "先前讀取的額度", resetsIn: "{time} 後重置", awaitingReset: "等待更新額度", sources: "管理額度來源", balanceLeft: "剩 {amount}", balance: "餘額", otherLimits: "其他額度（{count}）", moreLimits: "另有 {count} 個額度" });
@@ -59,12 +59,14 @@
   const vendorNames = { openai: "OpenAI", anthropic: "Anthropic", minimax: "MiniMax", z_ai: "Z.AI", deepseek: "DeepSeek", gemini: "Google", xai: "xAI" };
   const vendorName = id => Object.hasOwn(vendorNames, id) ? vendorNames[id] : id;
   const modelLabel = row => { const identity = Data.modelIdentity(row.provider, row.name); return { name: identity.model, provider: vendorName(identity.provider) }; };
+  // Today; the last 7 or 30 days, today included; or All, from 1 January
+  // 2000, before any agent's history. Calendar days in the viewing device's
+  // time zone.
   function range(period, now = new Date()) {
     const to = new Date(now); to.setHours(0, 0, 0, 0); to.setDate(to.getDate() + 1);
-    const from = new Date(to); from.setDate(from.getDate() - 1);
-    if (period === "week") from.setDate(from.getDate() - (from.getDay() + 6) % 7);
-    else if (period === "month") from.setDate(1);
-    else if (period === "thirty") from.setDate(from.getDate() - 29);
+    const from = new Date(to);
+    if (period === "all") from.setFullYear(2000, 0, 1);
+    else from.setDate(from.getDate() - (period === "seven" ? 7 : period === "thirty" ? 30 : 1));
     return { from: from.getTime(), to: to.getTime(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" };
   }
   function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
@@ -194,7 +196,7 @@
   // header; settingsLabel names it in the page's language.
   function create({ api, context, openConversation, onVisibility = () => {}, onHostSelected = () => {}, onQuotaUpdated = () => {}, onQuotaDisplayChanged = () => {}, openQuotaSources = () => {}, openSettings = null, settingsLabel = () => "Settings", providerLogo = () => node("span"), restoreFocus = () => {} }) {
     let indexingTimer;
-    let panel = null, selectedHost = "", period = "week", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
+    let panel = null, selectedHost = "", period = "seven", lens = "models", sequence = 0, timer, anchor, current = null, tab = "limits";
     let filters = { agent: "", project: "", model: "", entry: "" }, view = null, previous = null, quotas = [], hostChoices = [];
     let scrolls = { limits: 0, usage: 0 }, issuesOpen = false, sheet = null;
     // The cards whose per-model limits are open, kept across new readings.
@@ -244,7 +246,7 @@
     }
     async function load(fresh = false) {
       clearTimeout(indexingTimer);
-      const epoch = ++sequence, loadingTab = tab, targets = selectedHost ? hostChoices.filter(item => item.id === selectedHost) : hostChoices;
+      const epoch = ++sequence, loadingTab = tab, loadingPeriod = period, targets = selectedHost ? hostChoices.filter(item => item.id === selectedHost) : hostChoices;
       const query = new URLSearchParams({ ...range(period), ...filters, ...(fresh ? { fresh: "1" } : {}) });
       const loading = label(tab === "limits" ? "loadingLimits" : "loading");
       if (tab === "limits" ? !quotas.length : !previous) renderEmpty(loading);
@@ -252,9 +254,16 @@
       const results = await Promise.all(targets.map(async host => {
         try {
           const value = loadingTab === "limits" ? await api("/api/workspace/usage" + (fresh ? "?fresh=1" : ""), undefined, host.id)
-            : await Data.readReport(params => {
+            : await Data.readReport(async params => {
               if (!panel || epoch !== sequence) throw new Error("usage_read_cancelled");
-              return api("/api/workspace/analytics?" + params, undefined, host.id);
+              try { return await api("/api/workspace/analytics?" + params, undefined, host.id); }
+              catch (error) {
+                // A Host from before 3.10.20 reads 366 days at most: All asks
+                // it for those, which hold every agent's history it has kept.
+                if (loadingPeriod !== "all" || error?.status !== 400) throw error;
+                const year = new URLSearchParams(params); year.set("from", String(Number(year.get("to")) - 366 * 86400000));
+                return api("/api/workspace/analytics?" + year, undefined, host.id);
+              }
             }, query, { modelGrouping: hostGrouping.get(host.id) });
           return { host: host.id, name: host.name, [loadingTab === "limits" ? "quota" : "report"]: value };
         } catch { return { host: host.id, name: host.name }; }
@@ -367,20 +376,41 @@
       body.scrollTop = scroll;
     }
     function chart(data) {
-      const section = node("section", "", "usage-chart-section"); section.append(node("h2", label("chart")));
-      const graph = node("div", "", "usage-chart"), detail = node("p", "", "usage-chart-detail"); graph.setAttribute("role", "list"); graph.setAttribute("aria-label", label("chart"));
+      // A bar a day; over All's longer span a bar a week or a month, from
+      // the first day with usage (Data.chartBuckets).
+      const bounds = range(period), to = new Date(bounds.to);
+      let from = new Date(bounds.from);
+      if (period === "all") {
+        const first = data.days.map(day => day.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort()[0];
+        if (first) { const [year, month, day] = first.split("-").map(Number); from = new Date(year, month - 1, day); }
+        else { from = new Date(to); from.setDate(from.getDate() - 1); }
+      }
+      const { unit, buckets } = Data.chartBuckets(data.days, from, to);
+      const title = label(unit === "week" ? "chartWeekly" : unit === "month" ? "chartMonthly" : "chart");
+      const section = node("section", "", "usage-chart-section"); section.append(node("h2", title)); section.dataset.unit = unit;
+      const graph = node("div", "", "usage-chart"), detail = node("p", "", "usage-chart-detail"); graph.setAttribute("role", "list"); graph.setAttribute("aria-label", title);
       detail.setAttribute("aria-live", "polite");
-      const byDate = new Map(data.days.map(day => [day.date, day])), dates = [], bounds = range(period);
-      for (const day = new Date(bounds.from); day.getTime() < bounds.to; day.setDate(day.getDate() + 1)) dates.push(new Date(day));
-      const max = Math.max(1, ...data.days.map(day => day.tokens));
-      for (const [index, day] of dates.entries()) {
-        const row = byDate.get(dateKey(day)) || Data.empty();
+      const max = Math.max(1, ...buckets.map(bucket => bucket.row.tokens)), count = buckets.length;
+      const shortDate = date => date.toLocaleDateString(localeOf(), { month: "short", day: "numeric" });
+      // A day; a week from its first to its last day; a month by name.
+      const when = bucket => {
+        if (unit === "month") return bucket.from.toLocaleDateString(localeOf(), { year: "numeric", month: "long" });
+        const last = new Date(bucket.to); last.setDate(last.getDate() - 1);
+        return unit === "day" || last <= bucket.from ? shortDate(bucket.from) : shortDate(bucket.from) + " – " + shortDate(last);
+      };
+      // Labels under the bars: a day's date as before; every fourth week
+      // counted back from this one; each month, or every third of many.
+      const caption = (date, index) => unit === "day" ? (count <= 7 || index === 0 || index === count - 1 || index % 7 === 0 ? String(date.getDate()) : "")
+        : unit === "week" ? ((count - 1 - index) % 4 === 0 ? `${date.getMonth() + 1}/${date.getDate()}` : "")
+        : count <= 12 || (count - 1 - index) % 3 === 0 ? date.toLocaleDateString(localeOf(), { month: "short" }) : "";
+      for (const [index, bucket] of buckets.entries()) {
+        const row = bucket.row, day = bucket.from;
         const column = node("div", "", "usage-chart-column"); column.setAttribute("role", "listitem"); column.dataset.date = dateKey(day);
-        const spoken = day.toLocaleDateString(localeOf(), { month: "short", day: "numeric" }) + " · " + fmt(row.tokens) + " tokens · " + money(row);
+        const spoken = when(bucket) + " · " + fmt(row.tokens) + " tokens · " + money(row);
         column.setAttribute("aria-label", spoken); column.title = spoken; column.tabIndex = 0;
         const showDay = () => {
           for (const item of graph.children) delete item.dataset.selected;
-          column.dataset.selected = "true"; detail.replaceChildren(node("span", day.toLocaleDateString(localeOf(), { month: "short", day: "numeric" })),
+          column.dataset.selected = "true"; detail.replaceChildren(node("span", when(bucket)),
             node("strong", fmt(row.tokens) + " tokens"), node("span", money(row)));
         };
         column.onclick = showDay; column.onfocus = showDay;
@@ -388,8 +418,8 @@
         const stack = node("div", "", "usage-chart-stack"); stack.style.height = Math.max(row.tokens ? 2 : 0, row.tokens / max * 100) + "%";
         for (const key of ["cacheWrite", "cacheRead", "input", "output"]) { const part = node("span"); part.dataset.token = key; part.style.flexGrow = String(row[key] || 0); stack.append(part); }
         const base = node("div", "", "usage-chart-base"); base.append(stack); column.append(base);
-        column.append(node("span", dates.length <= 7 || index === 0 || index === dates.length - 1 || index % 7 === 0 ? String(day.getDate()) : "", "usage-chart-date")); graph.append(column);
-        if (index === dates.length - 1) showDay();
+        column.append(node("span", caption(day, index), "usage-chart-date")); graph.append(column);
+        if (index === count - 1) showDay();
       }
       section.append(graph, detail); return section;
     }
@@ -604,7 +634,7 @@
     }
     function periodControls() {
       const periods = node("div", "", "usage-periods"); periods.setAttribute("role", "group"); periods.setAttribute("aria-label", label("chart"));
-      for (const key of ["today", "week", "month", "thirty"]) {
+      for (const key of ["today", "seven", "thirty", "all"]) {
         const b = button(label(key), () => { period = key; for (const control of periods.children) control.setAttribute("aria-pressed", String(control === b)); previous = null; void load(); });
         b.dataset.period = key; b.setAttribute("aria-pressed", String(period === key)); periods.append(b);
       }
