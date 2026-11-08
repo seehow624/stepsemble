@@ -312,6 +312,9 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
       ] : fullBatch ? [{ data: messages("Retained40", 40), nextCursor: "fixture-page-1" }]
         : Array.from({ length: 5 }, (_, index) => ({ data: reportTools(index), nextCursor: `fixture-page-${index + 1}` })) };
       const preview = await createNativeComposerPreview({ codexHistory: history });
+      // Earlier pages read since a point, in order: a read with a cursor. The
+      // thread's own refresh of its latest page carries none.
+      const olderReadsSince = start => preview.state.codexHistoryReads.slice(start).filter(read => read.cursor !== null).map(read => read.cursor);
       let context, releasePage = null, diagnosticPane = null;
       const diagnosticRequests = action === "manual" || action === "manual-blur" ? createCodexReadableRequestDiagnostic() : null;
       try {
@@ -506,7 +509,9 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
             assert.equal(await pane.evaluate(() => codexNativeReadableKeys(rpc.nativeTranscriptState).size), 80);
             assert.equal(await pane.evaluate(() => userScrollIntentUntil), 0, "normal40 prepend never rearms the consumed intent");
           } else assert.ok(range.top > 0 && range.top <= 600, `native compensation is inside the shared earlier-history edge: ${JSON.stringify(range)}`);
-          assert.equal(preview.state.codexHistoryReads.length, initialReads + 1, "one admitted action cannot start another batch through native scroll");
+          // The active thread refreshes its latest page every 2.5s (no cursor);
+          // on a slow runner one can land here. A batch is a read with a cursor.
+          assert.deepEqual(olderReadsSince(initialReads), [cursor], "one admitted action cannot start another batch through native scroll");
           // The active thread polls every 2.5s and briefly disables the button
           // while an ordinary refresh runs; judge the idle state, not an instant.
           assert.equal(await pane.waitForFunction(() => {
@@ -537,13 +542,12 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           await page.mouse.wheel(0, -120);
           await pane.waitForFunction(() => document.querySelector(".history-load-button")?.dataset.autoLoadPaused === "1");
-          assert.equal(preview.state.codexHistoryReads.length, initialReads + 1);
-          assert.equal(preview.state.codexHistoryReads.at(-1).cursor, cursor);
+          assert.deepEqual(olderReadsSince(initialReads), [cursor]);
           assert.equal(await pane.locator("#input").inputValue(), "Preserve this unsent fixture draft");
           assert.equal(await pane.evaluate(() => document.activeElement.id), "input");
           // Another upward attempt cannot retry the failed page.
           await page.mouse.wheel(0, -120);
-          assert.equal(preview.state.codexHistoryReads.length, initialReads + 1);
+          assert.deepEqual(olderReadsSince(initialReads), [cursor]);
           history.failCursor = undefined;
           // A retry remains an explicit, keyboard-accessible button action.
           await button.focus();
@@ -552,8 +556,7 @@ export async function runCodexReadableHistoryBrowserCases(browser) {
           assert.equal(before.max, 0, "short before explicit retry");
           await page.keyboard.press("Enter");
           await pane.getByText("Manually earlier 7", { exact: true }).waitFor();
-          assert.equal(preview.state.codexHistoryReads.length, initialReads + 2);
-          assert.equal(preview.state.codexHistoryReads.at(-1).cursor, cursor);
+          assert.deepEqual(olderReadsSince(initialReads), [cursor, cursor], "the explicit retry reads the failed page once");
           const after = await anchor.evaluate(geometry);
           anchorEvidence = checkAnchor(before, after);
           if (viewport.width === 1440) assert.equal(after.max, 0, "the observed desktop case stays short after retry");
