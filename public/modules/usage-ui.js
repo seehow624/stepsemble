@@ -498,11 +498,12 @@
         // show none), and under it the account's own name in Magpie when it
         // has one. Which computers read it is not shown: one account is one card.
         const usageData = root.StepsembleUsageData, plan = (usageData.planLabel ? usageData.planLabel(provider.plan) : provider.plan) || "";
-        const title = node("div", "", "usage-quota-title"); title.append(node("strong", provider.provider));
+        const serviceName = usageData.quotaName ? usageData.quotaName(provider) : provider.provider;
+        const title = node("div", "", "usage-quota-title"); title.append(node("strong", serviceName));
         if (plan) title.append(node("span", plan, "usage-quota-plan"));
         identity.append(title);
         if (provider.alias && provider.alias !== plan) identity.append(node("small", provider.alias));
-        heading.append(providerLogo(provider.provider), identity);
+        heading.append(providerLogo(serviceName), identity);
         if (cached) heading.append(node("span", label("cachedLimits"), "usage-quota-cached"));
         card.append(heading);
         // Every window is one row: its name, a bar, the share and when it
@@ -525,7 +526,7 @@
           const row = node("div", "", "usage-quota-row");
           row.dataset.level = remaining === null || remaining > 25 ? "ok" : remaining === 0 ? "out" : remaining <= 10 ? "critical" : "low";
           const title = node("span", name, "usage-quota-label"); title.title = name;
-          const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", provider.provider + " · " + name + " · " + value);
+          const bar = node("div", "", "usage-quota-bar"); bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", serviceName + " · " + name + " · " + value);
           bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", "100"); if (percent !== null) { bar.setAttribute("aria-valuenow", String(percent)); bar.setAttribute("aria-valuetext", value); }
           const fill = node("span"); fill.style.width = (percent ?? 0) + "%"; bar.append(fill);
           const amount = node("strong", percent === null ? "—" : percent + "%"); amount.setAttribute("aria-label", value); amount.title = value;

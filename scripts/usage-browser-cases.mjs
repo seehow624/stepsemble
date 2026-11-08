@@ -73,7 +73,16 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await page.locator("#workspace-analytics").count(), 0, "the sidebar has only one entry");
       assert.equal(analyticsRequests.length, 0, "opening limits does not scan usage histories");
       assert.equal(await sheet.locator(".usage-quota-card").count(), 2);
-      assert.equal(await sheet.locator(".usage-quota-card").filter({ hasText: "Codex" }).getByRole("progressbar").getAttribute("aria-valuenow"), "72");
+      // The allowance Codex reads is the ChatGPT subscription's: ChatGPT, with its mark, here, in the capsule and its tip.
+      const chatgptCard = sheet.locator(".usage-quota-card").filter({ hasText: "ChatGPT" });
+      assert.equal(await chatgptCard.getByRole("progressbar").getAttribute("aria-valuenow"), "72");
+      assert.deepEqual([await chatgptCard.locator(".usage-quota-title strong").innerText(), await chatgptCard.locator(".workspace-provider-logo").getAttribute("data-logo")], ["ChatGPT", "openai"]);
+      assert.equal(await sheet.locator(".usage-quota-card", { hasText: "Codex" }).count(), 0, "no card is named after the agent");
+      assert.match(await chatgptCard.getByRole("progressbar").getAttribute("aria-label"), /^ChatGPT · /);
+      assert.ok(await page.locator('#workspace-usage .workspace-provider-logo[data-logo="openai"]').count() > 0, "the capsule marks it ChatGPT's");
+      assert.equal(await page.locator('#workspace-usage .workspace-provider-logo[data-logo="codex"]').count(), 0);
+      // ChatGPT's mark is the blossom, the same in light and dark.
+      assert.match(await chatgptCard.locator(".workspace-provider-logo").evaluate(logo => getComputedStyle(logo, "::before").backgroundImage), /\/agent-logos\/v2\/openai\.svg/);
       // An account's plan sits beside the service, in words; a window for one
       // model names the model. Which computer read it is not shown.
       const claudeCard = sheet.locator(".usage-quota-card").filter({ hasText: "Claude" });
@@ -190,7 +199,7 @@ export async function runUsageBrowserCases(browser, { screenshotDirectory } = {}
       assert.equal(await sheet.locator(".usage-sheet-more, .usage-close").count(), 0, "no extra buttons");
       await limitsTab.click(); await readyLimits();
       assert.equal(await panel.locator(".usage-quota-card").count(), 2);
-      const codexQuota = panel.locator(".usage-quota-card").filter({ hasText: "Codex" });
+      const codexQuota = panel.locator(".usage-quota-card").filter({ hasText: "ChatGPT" });
       assert.equal(await codexQuota.getByRole("progressbar").getAttribute("aria-valuenow"), "72");
       const host = panel.locator("select[data-filter=host]");
       const analyticsBefore = analyticsRequests.length, quotaBefore = quotaRequests.length;

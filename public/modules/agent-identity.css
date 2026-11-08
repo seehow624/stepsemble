@@ -1,6 +1,7 @@
-/* Each agent's own mark in its own colours, from local files: the same in
-   light and dark, never tinted by the theme. An app icon brings its tile and
-   fills the badge; a mark without one stands on the page. */
+/* Each agent's own mark in its own colours, from local files, never tinted
+   by the theme. An app icon brings its tile and fills the badge; a mark
+   without one stands on the page. Codex's app icon comes in light and dark,
+   and shows the one that matches Stepsemble's theme. */
 .agent-logo {
   position: relative;
   display: inline-flex;
@@ -33,6 +34,12 @@
 .agent-logo[data-agent-id="pi"] .agent-logo-mark { background-size: 160%; }
 .agent-logo[data-agent-id="claude-code"] { --agent-mark: url("/agent-logos/v2/claude-code.svg"); }
 .agent-logo[data-agent-id="codex"] { --agent-mark: url("/agent-logos/v2/codex.svg"); }
+/* Its dark icon with Stepsemble in dark, or with the system in dark on a page
+   that follows the system (the history reader). */
+html[data-theme="dark"] .agent-logo[data-agent-id="codex"] { --agent-mark: url("/agent-logos/v2/codex-dark.svg"); }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .agent-logo[data-agent-id="codex"] { --agent-mark: url("/agent-logos/v2/codex-dark.svg"); }
+}
 .agent-logo[data-agent-id="opencode"] { --agent-mark: url("/agent-logos/v2/opencode.svg"); }
 .agent-logo[data-agent-id="grok-build"] { --agent-mark: url("/agent-logos/v2/grok.svg"); }
 .agent-logo[data-agent-id="antigravity"] { --agent-mark: url("/agent-logos/v2/antigravity.svg"); }

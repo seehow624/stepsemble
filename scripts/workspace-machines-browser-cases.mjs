@@ -149,7 +149,58 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
       } finally { await context.unrouteAll({ behavior: "ignoreErrors" }); await context.close(); }
     }
     for (const viewport of [{ width: 1280, height: 860, mobile: false }, { width: 393, height: 852, mobile: true }]) await recentCase(browser, fixture, viewport);
+    await codexMarkCase(browser, fixture);
   } finally { await fixture.close(); }
+}
+
+// Codex's app icon comes in light and dark: a Codex conversation's mark is
+// the one that matches Stepsemble's theme, and with the theme following the
+// system it changes as the system does. The history reader, which follows
+// the system, shows the same. Other marks keep one file.
+async function codexMarkCase(browser, fixture) {
+  const mark = page => page.evaluate(() => {
+    const image = selector => getComputedStyle(document.querySelector(selector)).backgroundImage.replace(/^url\("?[^"]*?(\/agent-logos\/[^")]+)"?\)$/, "$1");
+    return { codex: image('.workspace-session .agent-logo[data-agent-id="codex"] .agent-logo-mark'), claude: image('.workspace-session .agent-logo[data-agent-id="claude-code"] .agent-logo-mark'),
+      theme: document.documentElement.dataset.theme };
+  });
+  const LIGHT = "/agent-logos/v2/codex.svg", DARK = "/agent-logos/v2/codex-dark.svg", CLAUDE = "/agent-logos/v2/claude-code.svg";
+  for (const [theme, scheme, expected] of [["light", "dark", LIGHT], ["dark", "light", DARK], ["auto", "light", LIGHT], ["auto", "dark", DARK]]) {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: scheme, serviceWorkers: "block" });
+    try {
+      const page = await context.newPage(), errors = [];
+      page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+      await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
+      await context.addInitScript(({ origin, theme }) => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en", theme })); }, { origin: fixture.origin, theme });
+      await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
+      await page.goto(fixture.origin + "/workspace.html");
+      await page.locator('.workspace-session .agent-logo[data-agent-id="codex"]').first().waitFor({ timeout: 30_000 });
+      assert.deepEqual(await mark(page), { codex: expected, claude: CLAUDE, theme: expected === DARK ? "dark" : "light" }, `theme ${theme}, system ${scheme}`);
+      if (theme === "auto") {
+        // The system changes; a theme that follows it changes the mark with it.
+        const other = scheme === "light" ? "dark" : "light";
+        await page.emulateMedia({ colorScheme: other });
+        await page.waitForFunction(want => document.documentElement.dataset.theme === want, other);
+        assert.equal((await mark(page)).codex, other === "dark" ? DARK : LIGHT, "follows the system as it changes");
+      }
+      assert.deepEqual(errors, []);
+    } finally { await context.unrouteAll({ behavior: "ignoreErrors" }); await context.close(); }
+  }
+  // The history reader has no theme of its own: it follows the system.
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: "dark", serviceWorkers: "block" });
+  try {
+    const page = await context.newPage();
+    await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
+    await page.goto(fixture.origin + "/history.html");
+    const reader = () => page.evaluate(() => {
+      const badge = window.StepsembleAgentIdentity.create(document, "codex"); badge.id = "codex-mark-probe";
+      document.getElementById("codex-mark-probe")?.remove(); document.body.append(badge);
+      return { theme: document.documentElement.dataset.theme ?? null, image: getComputedStyle(badge.firstElementChild).backgroundImage.replace(/^url\("?[^"]*?(\/agent-logos\/[^")]+)"?\)$/, "$1") };
+    });
+    assert.deepEqual(await reader(), { theme: null, image: DARK }, "the history reader in a dark system");
+    await page.emulateMedia({ colorScheme: "light" });
+    assert.deepEqual(await reader(), { theme: null, image: LIGHT }, "the history reader in a light system");
+  } finally { await context.close(); }
+  console.log(JSON.stringify({ case: "Codex mark follows the theme", result: "passed", light: true, dark: true, followsSystem: true, historyReader: true }));
 }
 
 // Recent: the five sessions most recently used on any computer; Show more

@@ -43,10 +43,12 @@
     if (!state) return;
     state.textContent = state.dataset.state === "online" ? t("connected") : state.dataset.state === "offline" ? t("hostUnavailable") : t("connecting");
   }
-  // A provider, its plan and the account's own name in Magpie.
+  // A provider (ChatGPT for the allowance Codex reads), its plan and the
+  // account's own name in Magpie.
+  const quotaName = provider => window.StepsembleUsageData?.quotaName ? window.StepsembleUsageData.quotaName(provider) : provider.provider;
   const accountName = provider => {
     const usageData = window.StepsembleUsageData, plan = usageData?.planLabel ? usageData.planLabel(provider.plan) : provider.plan;
-    return [provider.provider, plan, provider.alias && provider.alias !== plan ? provider.alias : ""].filter(Boolean).join(" · ");
+    return [quotaName(provider), plan, provider.alias && provider.alias !== plan ? provider.alias : ""].filter(Boolean).join(" · ");
   };
   // A bucket that only repeats the provider's name ("codex" under Codex) is
   // left out of the label.
@@ -1410,7 +1412,7 @@
   function providerLogo(name) {
     const value = String(name || "").toLowerCase();
     const logo = node("span", "", "workspace-provider-logo");
-    logo.dataset.logo = value.includes("codex") ? "codex" : value.includes("openai") ? "openai"
+    logo.dataset.logo = value.includes("codex") ? "codex" : value.includes("openai") || value.includes("chatgpt") ? "openai"
       : value.includes("claude") ? "claude"
       : value.includes("opencode") ? "opencode"
       : value.includes("minimax") ? "minimax"
@@ -1534,7 +1536,7 @@
         const chip = node("span", "", "workspace-limit-alert");
         chip.dataset.level = row.level;
         if (row.provider.status === "cached") chip.dataset.stale = "true";
-        chip.append(providerLogo(row.provider.provider), node("span", `${window.StepsembleUsageUI.quotaPercent(row.tightest)}%`, "workspace-limit-percent"),
+        chip.append(providerLogo(quotaName(row.provider)), node("span", `${window.StepsembleUsageUI.quotaPercent(row.tightest)}%`, "workspace-limit-percent"),
           // The span alone fits the strip; its hover tip and spoken label name a pool or model.
           node("span", windowShape(row.tightest) || "", "workspace-limit-period"));
         hover(chip, row);
@@ -1549,7 +1551,7 @@
     for (const row of rows) {
       if (alerts.includes(row)) continue;
       const mark = node("span", "", "workspace-limit-mark");
-      mark.append(providerLogo(row.provider.provider));
+      mark.append(providerLogo(quotaName(row.provider)));
       if (!row.known) mark.dataset.unknown = "true";
       if (row.provider.status === "cached") mark.dataset.stale = "true";
       hover(mark, row);

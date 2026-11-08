@@ -260,7 +260,10 @@ choose every Magpie model while Claude's own models stay on the subscription.
 As a quota source, the Host reads the gateway's `GET /v1/magpie/quotas` (the
 same answer as `magpie quota --json`, which it runs when the gateway is not up)
 every couple of minutes: every subscription account Magpie is signed in to, every
-plan bought with a key and every key's balance, each as its own card. Every
+plan bought with a key and every key's balance, each as its own card. A card
+goes by the account's service, not the agent that reads it: the allowance Codex
+reads is the ChatGPT subscription's and shows as ChatGPT, with ChatGPT's mark,
+as Claude Code's shows as Claude. Every
 card names the account's plan beside its service when the service names one
 (Claude's own name for it, such as "Ultra"; ChatGPT's "Pro Lite"; "Google AI
 Pro" for Antigravity), with the name given to it in Magpie under it. A key's
@@ -301,7 +304,8 @@ Stepsemble version; agent versions are under **Settings → Updates**.
 
 **New session** in the Workspace lists the local Pi Agent and any installed
 allow-listed CLI connectors: Claude Code, Codex CLI, Grok Build, OpenCode,
-and Google Antigravity (`agy`). Choose an agent,
+and Google Antigravity (`agy`), each with its own mark; Codex's is its app's
+light or dark icon, as Stepsemble's theme is. Choose an agent,
 optionally start in an isolated Git worktree, and create the session. An agent
 that is not signed in yet offers its own sign-in in the same dialog, and the
 session starts once it succeeds. CLI stdout/stderr is streamed into the conversation. On

@@ -90,9 +90,9 @@
     for (const provider of quotas) {
       // The service, its plan when the service names one, and the account's
       // own name in Magpie; not which computers read it.
-      const title=provider.label || provider.provider || provider.id, plan=(U.planLabel ? U.planLabel(provider.plan) : provider.plan) || "";
+      const account=U.quotaName ? U.quotaName(provider) : provider.label || provider.provider || provider.id, plan=(U.planLabel ? U.planLabel(provider.plan) : provider.plan) || "";
       const alias=provider.alias && provider.alias!==plan ? provider.alias : "";
-      const row=node("div","","quota"), name=node("span",[title,plan,alias].filter(Boolean).join(" · "),"quota-name"), windows=node("div","","windows"); const heading=node("div","","quota-heading");heading.append(name);row.append(heading,windows);
+      const row=node("div","","quota"), name=node("span",[account,plan,alias].filter(Boolean).join(" · "),"quota-name"), windows=node("div","","windows"); const heading=node("div","","quota-heading");heading.append(name);row.append(heading,windows);
       // The account's own windows; the tightest models' only in their place, as Magpie's menu bar shows them.
       const groups=U.windowGroups((provider.windows||[]).filter(w=>D.percent(w)!==null));
       const visible=(groups.stopping.length ? groups.stopping : groups.inline).slice(0,2);
@@ -103,7 +103,7 @@
         const period=bucket ? bucket+" · "+span : span;
         title.append(node("span",period),node("span",resetLabel(w.resetsAt),"reset"),node("strong",pct+"%"));
         const bar=node("div","","bar"+(D.percent(w)<=10?" low":"")), fill=node("span");fill.style.width=pct+"%";bar.append(fill);
-        container.title=[provider.label || provider.provider || provider.id,period,pct+"% "+t(mode),resetLabel(w.resetsAt)].join(" · ");
+        container.title=[account,period,pct+"% "+t(mode),resetLabel(w.resetsAt)].join(" · ");
         container.append(title,bar);windows.append(container);
       }
       // A balance shows beside the windows, or in their place.

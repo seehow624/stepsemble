@@ -290,6 +290,15 @@
     apart.sort((a, b) => (leftOf(a.window) ?? 101) - (leftOf(b.window) ?? 101));
     return { own, models: apart, pools };
   }
+  // The name an allowance goes by: the account's own service, not the agent
+  // that reads it. Codex reads the ChatGPT subscription it is signed in to
+  // ("Pro Lite" is ChatGPT's plan), as Claude Code reads Claude's. A reading
+  // that names no service names Codex by its label.
+  const QUOTA_NAMES = { codex: "ChatGPT" };
+  function quotaName(provider) {
+    const named = typeof provider?.service === "string" && provider.service ? provider.service : String(provider?.provider || "").trim().toLowerCase();
+    return (Object.prototype.hasOwnProperty.call(QUOTA_NAMES, named) && QUOTA_NAMES[named]) || provider?.provider || provider?.label || provider?.id || provider?.service || "";
+  }
   // The name an account's plan goes by beside its service: a vendor's own
   // display name as it comes ("Ultra", "Google AI Pro"), a plan's id in words
   // ("prolite" is Pro Lite, Claude's "claude_max" is Max). Nothing for one
@@ -317,5 +326,5 @@
   // does not have, read as nothing used and no reset time.
   function claudeHasFiveHours(plan) { const label = planLabel(plan); return !!label && !/\bultra\b/i.test(label); }
   function fiveHourPlaceholder(w) { return !!w && !w.scope && w.windowDurationMins === 300 && !(Number(w.usedPercent) > 0) && !w.resetsAt; }
-  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel, claudeHasFiveHours, fiveHourPlaceholder };
+  return { empty, add, addCall, combine, combineQuotas, accountWindows, windowGroups, quotaLayout, modelIdentity, canonicalProvider, modelGroup, readReport, planLabel, claudeHasFiveHours, fiveHourPlaceholder, quotaName };
 });

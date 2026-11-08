@@ -47,7 +47,7 @@ test("every badge uses only inert, local, offline-cached SVG assets", () => {
   const css = read("modules/agent-identity.css"), worker = read("sw.js");
   for (const id of [...ids, "agent"]) assert.ok(css.includes(`[data-agent-id="${id}"]`));
   const assets = [...new Set([...css.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]))];
-  assert.equal(assets.length, 8);
+  assert.equal(assets.length, 9, "eight marks and Codex's dark icon");
   for (const asset of assets) {
     assert.match(asset, /^\/agent-logos\/v2\/[a-z-]+\.svg$/);
     const svg = read(asset.slice(1));
@@ -62,7 +62,7 @@ test("every badge uses only inert, local, offline-cached SVG assets", () => {
     assert.ok(worker.includes(`/${file}?v=`)); assert.ok(read("index.html").includes(`/${file}?v=`));
   }
 });
-test("a mark keeps its own colours in light and dark: the theme never tints it", () => {
+test("a mark keeps its own colours: the theme never tints it, and picks only Codex's own dark icon", () => {
   const css = read("modules/agent-identity.css").replace(/\/\*[\s\S]*?\*\//g, "");
   const assets = [...new Set([...css.matchAll(/url\("([^"]+)"\)/g)].map(match => match[1]))];
   for (const asset of assets) {
@@ -71,7 +71,21 @@ test("a mark keeps its own colours in light and dark: the theme never tints it",
     assert.match(svg, /fill="#|stroke="#|stop-color="#/i, `${asset} names its colours`);
   }
   const marks = css.split("\n").filter(line => line.includes(".agent-logo")).join("\n");
-  assert.doesNotMatch(css, /mask|currentColor|data-theme/, "no mask or theme rule draws a mark");
+  // Codex's app icon comes in light and dark: Stepsemble's dark theme, or the
+  // system's dark on a page that follows the system, shows the dark one. No
+  // other theme rule names a mark.
+  const themed = [...css.matchAll(/([^{}]*(?:data-theme|prefers-color-scheme)[^{]*)\{([^{}]*)\}/g)].map(match => [match[1].trim(), match[2].trim()]);
+  assert.deepEqual(themed, [
+    ['html[data-theme="dark"] .agent-logo[data-agent-id="codex"]', '--agent-mark: url("/agent-logos/v2/codex-dark.svg");'],
+    ['html:not([data-theme]) .agent-logo[data-agent-id="codex"]', '--agent-mark: url("/agent-logos/v2/codex-dark.svg");'],
+  ]);
+  assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*html:not\(\[data-theme\]\) \.agent-logo/);
+  assert.doesNotMatch(css, /mask|currentColor|data-theme="light"/, "no mask or theme colour draws a mark");
+  const dark = read("agent-logos/v2/codex-dark.svg"), light = read("agent-logos/v2/codex.svg");
+  assert.notEqual(dark, light);
+  const cloud = svg => svg.match(/ d="(M9\.064 3\.344[^"]+)"/)[1];
+  assert.equal(cloud(dark), cloud(light), "the same Codex mark, on its dark tile");
+  assert.match(dark, /stop-color="#303131"[\s\S]*stop-color="#141414"/, "the dark icon's tile");
   assert.doesNotMatch(marks, /var\(--(?:ink|text|pine|accent|paper|milk)/, "no theme colour draws a mark");
   assert.doesNotMatch(css, /\.agent-logo\[data-agent-id="[\w-]+"\][^{]*\{[^}]*\bcolor:/, "no mark is coloured by the text colour");
   // Provider marks in the limits capsule and sheet follow the same rule.
@@ -80,7 +94,9 @@ test("a mark keeps its own colours in light and dark: the theme never tints it",
   assert.doesNotMatch(provider, /mask|currentColor|color:\s*var\(--/, "provider marks are drawn as images");
   for (const [logo, file] of [["codex", "codex.svg"], ["openai", "openai.svg"], ["claude", "claude.svg"], ["opencode", "opencode.svg"], ["grok", "grok.svg"], ["minimax", "minimax.png"]])
     assert.ok(provider.includes(`[data-logo="${logo}"] { --workspace-provider-mark: url("/agent-logos/v2/${file}"); }`), logo);
-  assert.match(read("modules/workspace.js"), /logo\.dataset\.logo = value\.includes\("codex"\) \? "codex" : value\.includes\("openai"\) \? "openai"/, "Codex limits show the Codex mark");
+  assert.ok(workspace.includes('html[data-theme="dark"] .workspace-provider-logo[data-logo="codex"] { --workspace-provider-mark: url("/agent-logos/v2/codex-dark.svg"); }'));
+  assert.match(read("modules/workspace.js"), /logo\.dataset\.logo = value\.includes\("codex"\) \? "codex" : value\.includes\("openai"\) \|\| value\.includes\("chatgpt"\) \? "openai"/,
+    "ChatGPT's allowance shows the blossom");
 });
 test("clients from before v2 still find their v1 marks", () => {
   for (const file of ["pi", "claude", "codex", "opencode", "grok", "antigravity", "openai", "agent"]) assert.match(read(`agent-logos/v1/${file}.svg`), /<svg\b/);

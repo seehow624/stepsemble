@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.10.19
+
+### Workspace
+
+- Codex's mark follows Stepsemble's theme, as the Codex app's own icon does: its light icon in light, its dark icon in dark, and with the theme following the system it changes as the system does (the history reader, which follows the system, too). The dark one is the same Codex mark on the dark icon's tile, its `>_` drawn light. No other mark changes, and none is ever tinted.
+
+### Limits
+
+- The allowance Codex reads is the ChatGPT subscription it is signed in to, so its card is now named ChatGPT, with ChatGPT's mark (the blossom), beside its plan ("Pro Lite"), as Claude's allowance shows as Claude and not Claude Code. The limits capsule, its tip and the menu bar panel name it the same way, whichever Host or source read it. Usage, conversations and Settings → Quota sources still name the agent, Codex.
+
 ## 3.10.18
 
 ### Workspace
