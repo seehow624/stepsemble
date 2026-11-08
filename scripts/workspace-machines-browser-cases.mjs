@@ -55,7 +55,7 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         assert.deepEqual(await page.locator(".workspace-machine-toggle strong").allTextContents(), ["Mac Mini", "MacBook Pro"], "this computer comes first");
         assert.equal(await page.locator(".workspace-host-block").isVisible(), false, "nothing to switch");
         assert.equal(await machine("mini").locator(".workspace-machine-state").count(), 0);
-        const recentHosts = await page.locator(".workspace-recent .workspace-session-host").allTextContents();
+        const recentHosts = await page.locator(".workspace-recent .workspace-session-row:not([hidden]) .workspace-session-host").allTextContents();
         assert.equal(recentHosts.length, 5); assert.deepEqual([...new Set(recentHosts)].sort(), ["Mac Mini", "MacBook Pro"], "Recent spans both computers");
         // A session from the other computer opens on it.
         const row = machine("mbp").locator(".workspace-session").first();
@@ -148,5 +148,90 @@ export async function runWorkspaceMachinesBrowserCases(browser) {
         console.log(JSON.stringify({ case: "Workspace machines", width: viewport.width, result: "passed", recent: true, openOnOwner: true, offline: true, ownOrder: true, asksComputer: true, sections: true, automations: true, modelCalls: 0 }));
       } finally { await context.unrouteAll({ behavior: "ignoreErrors" }); await context.close(); }
     }
+    for (const viewport of [{ width: 1280, height: 860, mobile: false }, { width: 393, height: 852, mobile: true }]) await recentCase(browser, fixture, viewport);
   } finally { await fixture.close(); }
+}
+
+// Recent: the five sessions most recently used on any computer; Show more
+// shows up to ten and Show fewer folds them back to five, which stays when the
+// list is drawn again. Folded, it is five exactly: a session open in a pane
+// shows in its own project's list. A search shows every match among the ten.
+// Here each computer has seven sessions, one of them unread.
+async function recentCase(browser, fixture, viewport) {
+  const context = await browser.newContext({ viewport, isMobile: viewport.mobile, hasTouch: viewport.mobile, serviceWorkers: "block" });
+  try {
+    const page = await context.newPage(), errors = [];
+    page.on("pageerror", error => errors.push(error.message)); page.setDefaultTimeout(15_000);
+    await context.addCookies([{ name: "stepsemble", value: fixture.token, url: fixture.origin }]);
+    await context.addInitScript(origin => { if (location.origin !== origin) return; localStorage.setItem("stepsemble.settings.v2", JSON.stringify({ locale: "en" })); }, fixture.origin);
+    await context.route("**/index.html?pane=1**", route => route.fulfill({ contentType: "text/html", body: "<p>viewer</p>" }));
+    let renamed = false, read = false, clones = 0;
+    const key = index => "00000000-0000-4000-8000-" + String(100 + index).padStart(12, "0");
+    await context.route(/\/api\/workspace$/, async route => {
+      if (route.request().method() !== "GET") return route.fallback();
+      const response = await route.fetch(), data = await response.json(), other = new URL(route.request().url()).pathname.startsWith("/r/mbp/");
+      const first = data.entries[0], top = Math.max(...data.entries.map(entry => entry.activityAt));
+      clones = 7 - data.entries.length;
+      for (let index = data.entries.length; index < 7; index++) {
+        data.entries.push({ ...first, key: key(index), activityAt: top - index * 60_000, working: false, goal: undefined, completion: undefined,
+          record: { ...first.record, name: `Recent clone ${index + 1}` } });
+      }
+      // This computer's fourth newest has a result not read yet: seventh in Recent, folded away.
+      if (!other && !read) data.entries[3] = { ...data.entries[3], completion: { id: "recent-unread", kind: "completed" } };
+      if (renamed && !other) data.entries[0].record.name += " (renamed)";
+      return route.fulfill({ response, json: data });
+    });
+    if (!viewport.mobile) await page.mouse.move(viewport.width - 5, viewport.height - 5);
+    await page.goto(fixture.origin + "/workspace.html");
+    await page.locator('.workspace-machine[data-host="mbp"] .workspace-session').first().waitFor({ timeout: 30_000 });
+    if (viewport.mobile) {
+      // A finger lifted off the list before Recent settles, as in the case above.
+      const padding = await page.locator("#workspace-sidebar").evaluate(sidebar => { const box = sidebar.getBoundingClientRect(); return { x: box.left + parseFloat(getComputedStyle(sidebar).paddingLeft) / 2, y: box.top + box.height / 2 }; });
+      await page.touchscreen.tap(padding.x, padding.y);
+    }
+    const recent = page.locator(".workspace-recent"), rows = recent.locator(".workspace-session-row"), more = recent.locator(".workspace-session-more");
+    const shown = () => recent.locator(".workspace-session-row:not([hidden])").evaluateAll(list => list.map(row => row.dataset.host + ":" + row.dataset.entry));
+    await page.waitForFunction(() => document.querySelectorAll(".workspace-recent .workspace-session-row").length === 10, null, { timeout: 30_000 });
+    // Ten at most, five shown; the rest of each computer's sessions wait.
+    const all = await rows.evaluateAll(list => list.map(row => row.dataset.host + ":" + row.dataset.entry));
+    assert.equal(all.length, 10, "ten at most"); assert.deepEqual(await shown(), all.slice(0, 5));
+    assert.deepEqual([await more.textContent(), await more.getAttribute("aria-expanded"), await more.getAttribute("data-attention")], ["Show 5 more", "false", "unread"],
+      "a folded session with a new result marks Show more");
+    const press = async () => { if (viewport.mobile) await more.tap(); else { await more.focus(); await page.keyboard.press("Enter"); } };
+    await press();
+    assert.deepEqual(await shown(), all); assert.deepEqual([await more.textContent(), await more.getAttribute("aria-expanded")], ["Show fewer", "true"]);
+    // The list drawn again (a session renamed) keeps Recent opened up, and the keyboard's place.
+    renamed = true;
+    await recent.locator(".workspace-session strong", { hasText: "(renamed)" }).waitFor();
+    assert.deepEqual(await shown(), all); assert.equal(await more.textContent(), "Show fewer");
+    if (!viewport.mobile) assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("workspace-session-more") && !!document.activeElement.closest(".workspace-recent")), true, "Show fewer keeps the focus");
+    let opened = null;
+    if (!viewport.mobile) {
+      // A session among the five more, opened in a pane.
+      opened = all[8];
+      await rows.nth(8).locator(".workspace-session").click();
+      await page.locator(`iframe.workspace-frame[src*="entry=${opened.split(":")[1]}"]`).waitFor({ state: "attached" });
+      await page.mouse.move(viewport.width - 5, viewport.height - 5);
+    }
+    await press();
+    assert.deepEqual(await shown(), all.slice(0, 5), "Show fewer folds back to five exactly"); assert.equal(await more.textContent(), "Show 5 more");
+    if (opened) {
+      const [target, entry] = opened.split(":");
+      assert.equal(await page.locator(`.workspace-machine[data-host="${target}"] .workspace-session-row[data-entry="${entry}"]`).isVisible(), true, "the open session is in its project's list");
+    }
+    // Its result read elsewhere: the row changes in place, and Show more's mark goes with it.
+    assert.equal(await more.getAttribute("data-attention"), "unread");
+    read = true;
+    await page.waitForFunction(() => document.querySelector(".workspace-recent .workspace-session-more")?.dataset.attention === "");
+    assert.deepEqual(await shown(), all.slice(0, 5));
+    // A search shows every match among the ten, without Show more.
+    await page.locator("#workspace-search").fill("clone");
+    await page.waitForFunction(() => !document.querySelector(".workspace-recent .workspace-session-more"));
+    assert.equal((await shown()).length, 2 * clones); assert.equal(await rows.count(), 2 * clones);
+    await page.locator("#workspace-search").fill("");
+    await more.waitFor();
+    assert.deepEqual(await shown(), all.slice(0, 5));
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ case: "Workspace Recent", width: viewport.width, result: "passed", shown: 5, most: 10, showFewer: true, keptOnRedraw: true, attention: true, search: true, modelCalls: 0 }));
+  } finally { await context.unrouteAll({ behavior: "ignoreErrors" }); await context.close(); }
 }

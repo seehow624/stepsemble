@@ -160,8 +160,9 @@ test("a long project shows three sessions and one small control for the rest, wh
   const row = (state = "idle", open = false) => { const parts = { ".workspace-session": { dataset: { open: String(open) } }, ".workspace-session-status": { dataset: { state } } };
     return { hidden: false, querySelector: selector => parts[selector] || null }; };
   const more = { attrs: { "aria-expanded": "false" }, dataset: {}, hidden: false, textContent: "", title: "", getAttribute(key) { return this.attrs[key] ?? null; }, setAttribute(key, value) { this.attrs[key] = String(value); } };
-  let rows = [row(), row()];
-  const section = { querySelector: selector => selector === ".workspace-session-more" ? more : null, querySelectorAll: selector => selector === ":is(.workspace-session-row, .workspace-automation-row)[data-overflow]" ? rows : [] };
+  let rows = [row(), row()], recent = false;
+  const section = { matches: selector => recent && selector === ".workspace-recent",
+    querySelector: selector => selector === ".workspace-session-more" ? more : null, querySelectorAll: selector => selector === ":is(.workspace-session-row, .workspace-automation-row)[data-overflow]" ? rows : [] };
   context.syncSessionMore(section);
   assert.deepEqual(rows.map(item => item.hidden), [true, true]); assert.equal(more.textContent, "Show 2 more"); assert.equal(more.attrs["aria-label"], "Show 2 more"); assert.equal(more.dataset.attention, "");
   rows = [row("idle", true), row("working")];
@@ -172,6 +173,11 @@ test("a long project shows three sessions and one small control for the rest, wh
   assert.deepEqual(rows.map(item => item.hidden), [false, false]); assert.equal(more.textContent, "Show fewer"); assert.equal(more.dataset.attention, "");
   more.attrs["aria-expanded"] = "false"; rows = [row("unread", true)]; context.syncSessionMore(section);
   assert.equal(more.hidden, true, "nothing left to show"); context.syncSessionMore(null);
+  // Recent folds back to its first five exactly: a session open in a pane folds away with the rest.
+  recent = true; rows = [row("idle", true), row("unread")]; context.syncSessionMore(section);
+  assert.deepEqual(rows.map(item => item.hidden), [true, true]); assert.equal(more.textContent, "Show 2 more"); assert.equal(more.dataset.attention, "unread");
+  more.attrs["aria-expanded"] = "true"; context.syncSessionMore(section);
+  assert.deepEqual(rows.map(item => item.hidden), [false, false]); assert.equal(more.textContent, "Show fewer");
 });
 test("a hidden session row is really hidden: the row's own display rule must not override [hidden]", () => {
   const css = fs.readFileSync(require.resolve("../public/modules/workspace.css"), "utf8");
@@ -271,6 +277,26 @@ test("the Workspace posts into its panes with its own postMessage, which WebKit 
   const swift = fs.readFileSync(require.resolve("../macos/Stepsemble/main.swift"), "utf8");
   assert.doesNotMatch(swift, /f\.contentWindow\.postMessage\(/);
   assert.match(swift, /forEach\(f=>window\.postMessage\.call\(f\.contentWindow,/);
+});
+test("Recent holds the ten sessions most recently used on any computer, those at work first; five show until Show more", () => {
+  const start = source.indexOf("  const RECENT_SHOWN = 5, RECENT_MOST = 10;"), end = source.indexOf("  // The list's sections, Recent and each computer", start);
+  assert.ok(start > 0 && end > start, "Recent's rule is where it was");
+  const machines = [{ id: "mini" }, { id: "mbp" }], snapshots = new Map();
+  const entry = (target, index, extra = {}) => ({ key: `${target}-${index}`, activityAt: 1000 - index * 10 - (target === "mbp" ? 5 : 0),
+    record: { name: `${target} session ${index}`, agentId: index % 2 ? "codex" : "pi", cwd: "/p" }, ...extra });
+  snapshots.set("mini", { entries: Array.from({ length: 7 }, (_, index) => entry("mini", index)) });
+  snapshots.set("mbp", { entries: Array.from({ length: 7 }, (_, index) => entry("mbp", index, index === 6 ? { working: true } : {})) });
+  const recent = new Function("machines", "snapshotOf", source.slice(start, end) + "; return { recentEntries, RECENT_SHOWN, RECENT_MOST };")(machines, target => snapshots.get(target));
+  assert.deepEqual([recent.RECENT_SHOWN, recent.RECENT_MOST], [5, 10]);
+  const keys = rows => rows.map(row => row.entry.key);
+  // The oldest session, at work, comes first; then the newest of both computers, ten in all.
+  assert.deepEqual(keys(recent.recentEntries("")), ["mbp-6", "mini-0", "mbp-0", "mini-1", "mbp-1", "mini-2", "mbp-2", "mini-3", "mbp-3", "mini-4"]);
+  // A search keeps the ten best matches too.
+  assert.deepEqual(keys(recent.recentEntries("codex")), ["mini-1", "mbp-1", "mini-3", "mbp-3", "mini-5", "mbp-5"]);
+  assert.equal(recent.recentEntries("session").length, 10);
+  // Five show; the rest fold behind Show more (how they fold is syncSessionMore's test).
+  assert.match(source, /const overflow = !search && recent\.length > RECENT_SHOWN;/);
+  assert.match(source, /syncSessionMore\(row\.closest\?\.\("\.workspace-project, \.workspace-recent"\)\)/, "a row changing in place updates Recent's Show more");
 });
 test("the list's sections keep a person's order on this device; a section that appears later takes its usual place", () => {
   const start = source.indexOf("  function sectionsInOrder()"), end = source.indexOf("  // place: -1 or 1", start);

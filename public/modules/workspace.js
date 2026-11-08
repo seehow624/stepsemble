@@ -737,7 +737,11 @@
   const snapshotOf = target => target === host ? snapshot : hostSnapshots.get(target) || null;
   // This computer first, then the others as listed.
   const orderedMachines = () => [...machines.filter(m => m.id === self), ...machines.filter(m => m.id !== self)];
-  const RECENT_SHOWN = 5;
+  // Recent shows the five sessions most recently used on any computer; Show
+  // more shows up to ten, and Show fewer folds them back to five. A search
+  // shows every match among the ten.
+  const RECENT_SHOWN = 5, RECENT_MOST = 10;
+  let recentExpanded = false;
   // The sessions most recently used on any computer, those at work first.
   function recentEntries(search) {
     const rows = [];
@@ -745,7 +749,7 @@
       if (search && !`${entry.record.name} ${entry.record.agentId} ${entry.record.cwd || ""}`.toLowerCase().includes(search)) continue;
       rows.push({ target: machine.id, entry, working: entry.working === true ? 1 : 0, at: Number(entry.activityAt) || 0 });
     }
-    return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_SHOWN);
+    return rows.sort((a, b) => b.working - a.working || b.at - a.at).slice(0, RECENT_MOST);
   }
   // The list's sections, Recent and each computer, keep the order and the
   // folds a person gives them, on this device. A section that appears later
@@ -816,7 +820,22 @@
     const recent = recentEntries(search);
     if (!recent.length) return null;
     const { section, contents } = listSection("recent", t("recentSessions"), { className: "workspace-recent", search });
-    for (const row of recent) contents.append(sessionRow(row.target, row.entry, { openKeys, recent: true }));
+    const overflow = !search && recent.length > RECENT_SHOWN;
+    recent.forEach((row, index) => {
+      const item = sessionRow(row.target, row.entry, { openKeys, recent: true });
+      if (overflow && index >= RECENT_SHOWN) item.dataset.overflow = "true";
+      contents.append(item);
+    });
+    // The same control as a project's: Show N more, then Show fewer. Whether
+    // Recent is opened up outlives the list being drawn again.
+    if (overflow) {
+      const more = button("", () => {
+        recentExpanded = !recentExpanded;
+        more.setAttribute("aria-expanded", String(recentExpanded)); syncSessionMore(section);
+      }, "", "btn workspace-session-more");
+      more.setAttribute("aria-expanded", String(recentExpanded));
+      contents.append(more); syncSessionMore(section);
+    }
     return section;
   }
   // Automations: every computer's Schedules, those needing attention first,
@@ -1117,7 +1136,7 @@
     const goal = row.querySelector(".workspace-session-goal");
     const goalLabel = { running: t("goalRunning"), paused: t("goalPaused"), attention: t("goalAttention") }[entry.goal] || "";
     if (goal) { goal.hidden = !goalLabel; goal.dataset.state = goalLabel ? entry.goal : ""; goal.title = goalLabel; }
-    syncSessionMore(row.closest?.(".workspace-project"));
+    syncSessionMore(row.closest?.(".workspace-project, .workspace-recent"));
     const identity = window.StepsembleAgentIdentity.lookup(entry.record.agentId);
     const ref = refFor(row.dataset?.host || host, entry), title = plainTitle(ref.title) || ref.title;
     const spoken = [goalLabel, label].filter(Boolean).join(" · ");
@@ -1125,14 +1144,15 @@
   }
   // The overflow sessions hide unless their project is opened up; the one
   // open in a pane stays in view, and a hidden session at work or with an
-  // unread result marks the control.
+  // unread result marks the control. Recent folds back to its first five
+  // exactly: a session open in a pane shows in its own project's list.
   function syncSessionMore(section) {
     const more = section?.querySelector(".workspace-session-more");
     if (!more) return;
-    const expanded = more.getAttribute("aria-expanded") === "true";
+    const expanded = more.getAttribute("aria-expanded") === "true", keepOpen = !section.matches(".workspace-recent");
     let hidden = 0, attention = "";
     for (const row of section.querySelectorAll(":is(.workspace-session-row, .workspace-automation-row)[data-overflow]")) {
-      row.hidden = !expanded && row.querySelector(".workspace-session")?.dataset.open !== "true";
+      row.hidden = !expanded && !(keepOpen && row.querySelector(".workspace-session")?.dataset.open === "true");
       if (!row.hidden) continue;
       hidden += 1;
       const state = row.querySelector(".workspace-session-status")?.dataset.state;

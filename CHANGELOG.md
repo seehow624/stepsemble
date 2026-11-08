@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.10.18
+
+### Workspace
+
+- Recent, the list of the sessions most recently used on any computer, still shows five and now holds up to ten: **Show 5 more** under it shows the rest, and **Show fewer** folds them back to five, as a project's list does. Folded, it is five exactly, even when one of the others is open in a pane (that one shows in its own project's list). A session folded away that is at work or has a new result marks Show more, and the mark follows it as it changes. Recent stays opened up while the list is drawn again, and a search shows every match among the ten.
+
 ## 3.10.17
 
 ### Limits
